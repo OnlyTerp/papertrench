@@ -233,10 +233,22 @@ function recordReplay(sessionValue, roundValue = null) {
 
 /* -------------------- AI proxy -------------------- */
 
+function isAllowedEndpoint(url) {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== 'http:' && protocol !== 'https:') return false;
+    if (/^169\.254\./.test(hostname)) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function aiChat({ messages, maxTokens }) {
   const settings = await getSettings();
   const endpoint = (settings.aiEndpoint || '').replace(/\/+$/, '');
   if (!endpoint) return { error: 'No AI endpoint configured (open the dashboard → Settings)' };
+  if (!isAllowedEndpoint(endpoint)) return { error: 'Invalid or disallowed AI endpoint URL' };
   const body = {
     model: settings.aiModel || 'default',
     messages,
@@ -263,6 +275,7 @@ async function aiChat({ messages, maxTokens }) {
 async function aiModels() {
   const settings = await getSettings();
   const endpoint = (settings.aiEndpoint || '').replace(/\/+$/, '');
+  if (!isAllowedEndpoint(endpoint)) return { models: [] };
   try {
     const response = await fetch(endpoint + '/models', {
       headers: settings.aiApiKey ? { Authorization: 'Bearer ' + settings.aiApiKey } : {},
