@@ -111,6 +111,51 @@ CREATE TABLE IF NOT EXISTS duel_entries (
   PRIMARY KEY (duel_id, user_id)
 );
 
+-- Clans. A clan holds a name, a policy and a founder — never a result. The
+-- tag and name are immutable after creation (a clan that can rename itself can
+-- collect a roster under one identity and become another), which is why
+-- name_key exists: the folded, confusable-insensitive form that UNIQUE is
+-- actually taken against.
+CREATE TABLE IF NOT EXISTS clans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tag TEXT NOT NULL UNIQUE,           -- 2-5 chars, A-Z0-9, immutable
+  name TEXT NOT NULL,                 -- display name, immutable
+  name_key TEXT NOT NULL UNIQUE,      -- clan.nameKey(name); impersonation guard
+  motto TEXT,                         -- founder-editable
+  founder_id INTEGER NOT NULL REFERENCES users(id),
+  join_code TEXT NOT NULL UNIQUE,     -- only ever served to a member
+  open INTEGER NOT NULL DEFAULT 0,    -- 1 = anyone may join without the code
+  created_at INTEGER NOT NULL
+);
+
+-- One clan per trader, enforced by the primary key rather than by a check the
+-- next handler has to remember. joined_at is the only new fact a clan
+-- introduces: it BOUNDS what an existing chain contributes (core/clan.js).
+CREATE TABLE IF NOT EXISTS clan_members (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  clan_id INTEGER NOT NULL REFERENCES clans(id),
+  joined_at INTEGER NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member' -- founder | member
+);
+CREATE INDEX IF NOT EXISTS idx_clan_members_clan ON clan_members(clan_id, joined_at);
+
+-- A member's contribution slice per window, recomputed on submission and on
+-- join. Same trade the sprint and duel entries make: a clan board is a read,
+-- not a walk over fifty lifetime chains. window_id is an ISO week id or
+-- 'season'. A member who was not in the clan for any of a window has NO ROW
+-- here — a zeroed row would claim they were present and idle.
+CREATE TABLE IF NOT EXISTS clan_entries (
+  clan_id INTEGER NOT NULL REFERENCES clans(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  window_id TEXT NOT NULL,
+  entry_json TEXT NOT NULL,           -- clan.memberEntry output
+  score REAL NOT NULL,
+  rounds INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (clan_id, user_id, window_id)
+);
+CREATE INDEX IF NOT EXISTS idx_clan_entries_window ON clan_entries(window_id, clan_id);
+
 -- Fixed-window rate limiting (per user and per IP).
 CREATE TABLE IF NOT EXISTS rate_limits (
   key TEXT PRIMARY KEY,
