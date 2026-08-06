@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  extension:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,3 +18,54 @@ jobs:
         # node --test discovers and runs the test directory in cwd.
         # The live-API test skips cleanly when the network is unavailable.
         run: node --test
+
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run test suite
+        working-directory: server
+        run: node --test
+
+      # The core suite is pure and never imports the Worker entry, so a broken
+      # import there is invisible to it. This is the check that catches it:
+      # core/clan.js was referenced by worker/index.js while absent from the
+      # repo, and nothing in CI ran a single line of the file that imports it.
+      # Under `wrangler deploy` that is a build failure; here it is one line.
+      - name: Worker entry imports
+        working-directory: server
+        run: |
+          node -e "import('./worker/index.js').then((m) => {
+            if (typeof (m.default || {}).fetch !== 'function') {
+              throw new Error('worker entry exports no fetch handler');
+            }
+            console.log('worker entry OK');
+          })"
+
+      # A schema that does not apply is a deploy that fails at the D1 step,
+      # after the code is already live. sqlite3 is preinstalled on the runner.
+      - name: Schema applies to a fresh database
+        working-directory: server
+        run: sqlite3 "$(mktemp -u).db" < schema.sql && echo "schema OK"
+
+      # The other half of the same failure: code and schema drifting apart,
+      # which stays invisible until a query hits production and 500s. Every
+      # table the Worker reads or writes must exist in schema.sql.
+      - name: Every queried table exists in the schema
+        run: node scripts/check-schema-drift.js
+
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # scripts/preflight.sh is the release checklist that kept drifting —
+      # version agreement, the CHANGELOG entry, the /releases/latest download
+      # link, and the nav-reaches-every-page rule. Its own comments record that
+      # both nav regressions were "caught by a person rather than a check".
+      # It has been runnable this whole time; it was just never wired up.
+      - name: Release preflight
+        run: bash scripts/preflight.sh
