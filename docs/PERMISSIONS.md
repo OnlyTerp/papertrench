@@ -74,13 +74,32 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
 
 ## What PaperTrench never does
 
-- **No telemetry, no analytics, no phoning home.** There is no server. The
+- **No telemetry, no analytics, no phoning home.** The extension has no
+  backend of its own and never uploads anything on its own initiative. The
   only network calls are: public price APIs (Dexscreener, Jupiter), public
-  Solana RPC, endpoints you configured yourself, and — only when you enable
-  the opt-in hover preview cards — X's public oEmbed endpoint
-  (`publish.twitter.com/oembed`), called with `dnt=1` (do-not-track), no
-  cookies and no login, only for post links you hover on a trading site,
-  cached so each post is fetched at most once per session.
+  Solana RPC, `api.hyperliquid.xyz` for perps quotes (from the Hyperliquid
+  page itself, the same host that page already talks to), endpoints you
+  configured yourself, and — only when you enable the opt-in hover preview
+  cards — X's public oEmbed endpoint (`publish.twitter.com/oembed`), called
+  with `dnt=1` (do-not-track), no cookies and no login, only for post links
+  you hover on a trading site, cached so each post is fetched at most once
+  per session.
+- **The leaderboard server is a separate, opt-in thing — and it is in this
+  repo.** `server/` is the Arena verifier: it takes a chain you choose to
+  submit and recomputes your standing from it, because a leaderboard that
+  trusts a number the client displays is not a leaderboard
+  (`docs/LEADERBOARD.md`). It is worth stating exactly where the boundary is:
+  - The extension never talks to it. `papertrench.com` can *ask* the extension
+    for your verified record when you click Sync on that page, and only if you
+    turn on **Site sync** in settings, which ships off. `externally_connectable`
+    restricts who may ask to `papertrench.com` alone; no other origin can.
+    With it off, the hand-off is a file you export and carry yourself.
+  - Signing in is X OAuth, and the account holds a public handle, a display
+    name and an avatar URL — there is no password and no email to breach.
+  - `POST /api/me/delete` erases the account and everything derived from it.
+  - Everything the server does with a submitted chain is in `server/core/`,
+    runs under `node --test`, and decides nothing the extension has not
+    already committed to.
 - **No real trading.** It cannot sign, send, or ask for a transaction. It has
   no wallet integration at all — that is the point.
 - **No credentials.** Your AI API key, if you add one, is stored locally and
