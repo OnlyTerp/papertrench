@@ -83,6 +83,28 @@ doubles as a plain contract any other harness's agent can follow (run the CLI ov
 `DOSSIER.md`, obey §0/§11/§12). Copy or symlink that directory to `~/.claude/skills/pt-recon` to make
 it available in every session.
 
+## Login without walls (never a typed password)
+
+Most terminals gate behind a login. pt-recon never handles credentials — it
+REUSES a session you already authenticated. Three ways, in order of ease:
+
+1. **Attach to your running Chrome** — `--attach http://127.0.0.1:9222`. Start
+   your normal Chrome once with `--remote-debugging-port=9222` (you are already
+   logged into everything), and pt-recon connects to it, records, and never
+   launches or closes it. Zero login per capture.
+2. **Log in once, reuse forever** — `ptrecon login --site <id> --url <site>`
+   opens a real window in a persistent per-site profile; you sign in by hand
+   (Google button, wallet, whatever), close the window, and every future
+   `capture --site <id>` reuses that session. No wall again.
+3. **Use your real profile** — `--profile "/path/to/Chrome/User Data/Default"`
+   (or `chromeProfile` in the config) launches with the profile that already
+   holds your logins.
+
+pt-recon will not type your password, store credentials, or solve a login
+bot-check — both because that is out of bounds and because it would get your
+account flagged. Session reuse is the correct, safer path and removes the wall
+entirely.
+
 ## The trust boundary
 
 - `recon-data/` is **gitignored, forever**. Raw captures contain your cookies,

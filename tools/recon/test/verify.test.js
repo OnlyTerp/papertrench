@@ -395,6 +395,18 @@ test('config: mergeDenylists — an EMPTY leftover cannot shadow the real list (
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('cdp: connectToRunning errors clearly on an unreachable endpoint (attach)', async () => {
+  const { connectToRunning } = require('../lib/cdp');
+  await assert.rejects(connectToRunning('http://127.0.0.1:1'), /could not reach a running Chrome/);
+});
+
+test('config: attach + chromeProfile are known keys (login-frictionless options)', () => {
+  assert.ok('attach' in DEFAULTS, 'attach is a config key');
+  assert.ok('chromeProfile' in DEFAULTS, 'chromeProfile is a config key');
+  const merged = deepMerge(DEFAULTS, { attach: 'http://127.0.0.1:9222' });
+  assert.equal(merged.attach, 'http://127.0.0.1:9222');
+});
+
 test('config: a MALFORMED config throws (never silently falls back to defaults)', () => {
   const root = fakeRepo({ 'ptrecon.config.json': '{ "adapter": { bad json ' });
   assert.throws(() => loadConfig({ project: root }, '/nope'), /malformed JSON/);

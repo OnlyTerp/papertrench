@@ -18,6 +18,9 @@ const DEFAULTS = {
   denylistFile: 'recon-data/DENYLIST.local',
   chrome: null,        // explicit Chrome/Chromium path; null = auto-discover
   chromeArgs: [],      // extra launch flags appended to the safe defaults
+  // Login-frictionless options (never handle credentials — reuse a live session):
+  attach: null,        // http origin of a user-started Chrome (--remote-debugging-port); attach instead of launching
+  chromeProfile: null, // path to the user's REAL Chrome profile dir (already logged in) to launch with
   // `check`: how to load the project's site-adapter and call its detector.
   adapter: {
     file: null,               // e.g. 'extension/sites.js' (relative to project root)

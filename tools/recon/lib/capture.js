@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const { launchChrome, CDPClient } = require('./cdp');
+const { launchChrome, connectToRunning, CDPClient } = require('./cdp');
 const { PROBE_SOURCE } = require('./pageprobe');
 
 const BODY_CAP_XHR = 2 * 1024 * 1024;
@@ -72,8 +72,8 @@ class Recorder {
 }
 
 async function runCapture(opts) {
-  const { site, capDir, chrome, profileDir, headless, startUrl, autoUrls, minutes, lingerSec = 25 } = opts;
-  fs.mkdirSync(profileDir, { recursive: true });
+  const { site, capDir, chrome, profileDir, headless, startUrl, autoUrls, minutes, lingerSec = 25, attach = null } = opts;
+  if (!attach) fs.mkdirSync(profileDir, { recursive: true });
   const rec = new Recorder(capDir);
   const startedAt = nowIso();
   fs.writeFileSync(
@@ -81,17 +81,28 @@ async function runCapture(opts) {
     JSON.stringify({ rig: 'pt-recon/0.1.0', site, startedAt, chrome, headless: !!headless, startUrl, autoUrls }, null, 2),
   );
 
-  const { proc, wsUrl } = await launchChrome({
-    chrome,
-    profileDir,
-    headless,
-    startUrl: autoUrls ? 'about:blank' : startUrl,
-  });
-  const cdp = await CDPClient.connect(wsUrl);
-
-  // Keep draining Chrome stderr to a log so a renderer crash / GPU fault is
-  // diagnosable after the fact instead of vanishing.
-  proc.stderr.on('data', (c) => { try { fs.appendFileSync(path.join(capDir, 'chrome.log'), c); } catch { /* best effort */ } });
+  // ATTACH mode reuses the user's already-running, already-logged-in Chrome; we
+  // do not launch or own it (and must never close it). Otherwise we launch a
+  // dedicated automation Chrome with a per-site persistent profile.
+  let proc = null;
+  let cdp;
+  const owned = !attach;
+  if (attach) {
+    const conn = await connectToRunning(attach);
+    cdp = conn.cdp;
+  } else {
+    const launched = await launchChrome({
+      chrome,
+      profileDir,
+      headless,
+      startUrl: autoUrls ? 'about:blank' : startUrl,
+    });
+    proc = launched.proc;
+    cdp = await CDPClient.connect(launched.wsUrl);
+    // Keep draining Chrome stderr to a log so a renderer crash / GPU fault is
+    // diagnosable after the fact instead of vanishing.
+    proc.stderr.on('data', (c) => { try { fs.appendFileSync(path.join(capDir, 'chrome.log'), c); } catch { /* best effort */ } });
+  }
 
   const sessions = new Map(); // sessionId -> state
   let mainSessionId = null;
@@ -340,11 +351,15 @@ async function runCapture(opts) {
     clearInterval(statusTimer);
     rec.line('events', { t: Date.now(), ev: 'finish', reason });
     await sleep(300); // let in-flight handlers land their lines
-    try {
-      await Promise.race([cdp.send('Browser.close'), sleep(2000)]);
-    } catch { /* browser already gone */ }
-    cdp.close();
-    setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 2500).unref();
+    if (owned) {
+      // We launched this browser — close and kill it.
+      try { await Promise.race([cdp.send('Browser.close'), sleep(2000)]); } catch { /* already gone */ }
+      cdp.close();
+      if (proc) setTimeout(() => { try { proc.kill('SIGKILL'); } catch { /* gone */ } }, 2500).unref();
+    } else {
+      // Attached to the USER'S browser — detach only, never close it.
+      cdp.close();
+    }
     await rec.closeStreams();
     // A capture that never attached a page or recorded nothing is structurally
     // valid but empty — flag it so a downstream reader does not mistake it for a
@@ -353,10 +368,10 @@ async function runCapture(opts) {
     const manifest = {
       rig: 'pt-recon/0.1.0',
       site,
-      mode: autoUrls ? 'auto' : 'headed',
+      mode: attach ? 'attach' : autoUrls ? 'auto' : 'headed',
       startUrl,
       autoUrls,
-      chrome,
+      chrome: attach ? `attach:${attach}` : chrome,
       headless: !!headless,
       startedAt,
       endedAt: nowIso(),
@@ -370,7 +385,7 @@ async function runCapture(opts) {
     finishResolve(manifest);
   }
 
-  proc.on('exit', (code) => finish(`browser-closed(${code})`));
+  if (proc) proc.on('exit', (code) => finish(`browser-closed(${code})`));
   cdp.onClose(() => finish(`cdp-closed(${cdp.lastClose ? cdp.lastClose.code + ':' + cdp.lastClose.reason : '?'})`));
   process.once('SIGINT', () => finish('sigint'));
   if (minutes) setTimeout(() => finish('minutes-elapsed'), minutes * 60 * 1000).unref();
@@ -388,6 +403,14 @@ async function runCapture(opts) {
     if (t.type === 'page' && !t.attached) {
       await cdp.send('Target.attachToTarget', { targetId: t.targetId, flatten: true }).catch(() => {});
     }
+  }
+
+  // Attach mode with a target URL: navigate the user's active tab there once, so
+  // the capture lands on the page without them hunting for it. Without a URL they
+  // just browse their own logged-in session and we record it.
+  if (attach && !autoUrls && startUrl && startUrl !== 'about:blank') {
+    await sleep(500);
+    if (mainSessionId) cdp.send('Page.navigate', { url: startUrl }, mainSessionId).catch(() => {});
   }
 
   if (autoUrls && autoUrls.length) {

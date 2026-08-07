@@ -35,9 +35,18 @@ reason about from its public API docs.
 
 ```
 # 1. CAPTURE a real session. Headed is the default reality — most terminals Cloudflare-challenge
-#    headless. For login-gated sites you must be logged in; browse the script the rig prints.
+#    headless. Browse the script the rig prints.
 node tools/recon/ptrecon.js capture  --site <id> --url https://<site> --headed
 #    …or let it drive public pages: --auto "https://site/solana,https://site/base"
+#
+#    LOGIN-GATED sites — never a wall, never a password typed. Pick ONE:
+#    (a) ATTACH to your own already-logged-in Chrome (best): start Chrome once with
+#        `chrome --remote-debugging-port=9222`, then:
+node tools/recon/ptrecon.js capture  --site <id> --url https://<site> --attach http://127.0.0.1:9222
+#    (b) LOG IN ONCE in a persistent profile, reused by every future capture:
+node tools/recon/ptrecon.js login    --site <id> --url https://<site>   # sign in by hand, then close the window
+node tools/recon/ptrecon.js capture  --site <id> --url https://<site> --headed   # already logged in now
+#    (c) Point at your real Chrome profile dir: --profile "/path/to/Chrome/User Data/Default"
 
 # 2. DISTILL → recon-data/sites/<id>/dossier/DOSSIER.md  (+ JSON sidecars, sanitized fixtures)
 node tools/recon/ptrecon.js distill  --site <id>

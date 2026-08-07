@@ -108,14 +108,22 @@ function loadDenylistText() {
 async function cmdCapture(args) {
   const site = args.site;
   const sd = siteDir(site);
-  const chrome = findChrome(args.chrome);
+  // ATTACH to the user's already-running, already-logged-in Chrome — the
+  // frictionless path: no launch, no login, no wall. They start Chrome once with
+  // --remote-debugging-port=<port>; we connect to http://127.0.0.1:<port>.
+  const attach = args.attach && args.attach !== true ? String(args.attach)
+    : (CONFIG && CONFIG.attach ? String(CONFIG.attach) : null);
+  const chrome = attach ? null : findChrome(args.chrome);
+
+  // Profile precedence: --profile > config.chromeProfile (the user's REAL Chrome
+  // profile, already logged in) > a STABLE per-site automation profile that keeps
+  // its login across captures (log in once via `login`, reused forever after).
+  let profileDir = args.profile && args.profile !== true ? path.resolve(String(args.profile))
+    : (CONFIG && CONFIG.chromeProfile ? path.resolve(PROJECT_ROOT, CONFIG.chromeProfile) : path.join(sd, 'profile'));
   // Chrome's profile (LevelDB, singleton locks) is unreliable on the WSL 9P
-  // share seen as a UNC path by a win32 Chrome. Keep the profile on native
-  // local storage; only the capture output needs to live in the data tree.
-  let profileDir = path.join(sd, 'profile');
-  if (process.platform === 'win32' && /^\\\\/.test(path.resolve(profileDir))) {
+  // share seen as a UNC path by a win32 Chrome — relocate to native temp.
+  if (!attach && !(args.profile || (CONFIG && CONFIG.chromeProfile)) && process.platform === 'win32' && /^\\\\/.test(path.resolve(profileDir))) {
     profileDir = path.join(os.tmpdir(), 'ptrecon-profiles', site);
-    process.stderr.write(`[pt-recon] profile relocated to native temp (data dir is a UNC share): ${profileDir}\n`);
   }
   const capDir = path.join(sd, 'captures', stamp());
   fs.mkdirSync(capDir, { recursive: true });
@@ -126,13 +134,14 @@ async function cmdCapture(args) {
   const startUrl = args.url && args.url !== true ? String(args.url) : (autoUrls ? autoUrls[0] : 'about:blank');
   // Auto mode defaults to headless, but Cloudflare/DataDome-protected sites
   // (most terminals) challenge headless — `--headed` forces a real window so
-  // the passive bot check passes. `--headless` forces the reverse.
+  // the passive bot check passes. `--headless` forces the reverse. Attach uses
+  // whatever window the user already has open.
   const headless = args.headed ? false : (!!args.headless || !!autoUrls);
   const minutes = args.minutes && args.minutes !== true ? Number(args.minutes) : (autoUrls ? 0 : 15);
 
   process.stderr.write(`\n[pt-recon] capture → ${path.relative(PROJECT_ROOT, capDir)}\n`);
-  process.stderr.write(`[pt-recon] chrome: ${chrome}\n`);
-  process.stderr.write(`[pt-recon] mode: ${autoUrls ? 'auto (' + autoUrls.length + ' urls)' : 'headed'}${headless ? ' [headless]' : ''}\n`);
+  process.stderr.write(attach ? `[pt-recon] mode: ATTACH → ${attach} (your logged-in Chrome; not launched, not closed)\n`
+    : `[pt-recon] chrome: ${chrome}\n[pt-recon] mode: ${autoUrls ? 'auto (' + autoUrls.length + ' urls)' : 'headed'}${headless ? ' [headless]' : ''}   profile: ${profileDir}\n`);
   if (!autoUrls) {
     process.stderr.write('\n  BROWSE THE SITE to cover the dossier. Suggested script:\n');
     for (const step of [
@@ -147,9 +156,25 @@ async function cmdCapture(args) {
     process.stderr.write('\n  Close the browser window (or Ctrl-C here) when done.\n\n');
   }
 
-  const manifest = await runCapture({ site, capDir, chrome, profileDir, headless, startUrl, autoUrls, minutes });
+  const manifest = await runCapture({ site, capDir, chrome, profileDir, headless, startUrl, autoUrls, minutes, attach });
   process.stderr.write(`\n[pt-recon] capture complete: ${JSON.stringify(manifest.counts)}\n`);
   process.stderr.write(`[pt-recon] next: node tools/recon/ptrecon.js distill --site ${site}\n`);
+}
+
+// `login` — open the site in the persistent per-site profile so the user can log
+// in ONCE (Google button, whatever). The profile keeps that session for every
+// future `capture`, so login is never a per-capture wall again. It is just a
+// capture with no time limit that waits for the window to close; the recording
+// is harmless (and gitignored/scrubbed) — the point is the persisted cookies.
+async function cmdLogin(args) {
+  const url = args.url && args.url !== true ? String(args.url) : null;
+  if (!url) throw new Error('login needs --url <the site login page>, e.g. --url https://gmgn.ai');
+  process.stderr.write('\n[pt-recon] Opening a real browser window in this site\'s persistent profile.\n');
+  process.stderr.write('  → Log in however you normally do (Google, wallet, whatever). pt-recon does NOT\n');
+  process.stderr.write('    touch your credentials — you sign in by hand, once. When you are logged in and\n');
+  process.stderr.write('    the page has settled, CLOSE the window. Every future `capture --site ' + (args.site || '<id>') + '`\n');
+  process.stderr.write('    reuses this session — no login wall again.\n');
+  await cmdCapture({ ...args, headed: true, url, minutes: '30' });
 }
 
 function newestCapture(site) {
@@ -381,6 +406,7 @@ async function main() {
   fs.mkdirSync(DATA_ROOT, { recursive: true });
   try {
     if (cmd === 'capture') await cmdCapture(args);
+    else if (cmd === 'login') await cmdLogin(args);
     else if (cmd === 'distill') await cmdDistill(args);
     else if (cmd === 'check') await cmdCheck(args);
     else if (cmd === 'scaffold') cmdScaffold(args);
@@ -390,7 +416,8 @@ async function main() {
     else {
       process.stderr.write('pt-recon — capture a site, distill an evidence-cited dossier, verify your adapter.\n');
       process.stderr.write(`  project: ${resolved.found ? CONFIG.project || PROJECT_ROOT : '(none — run `init`)'}   data: ${DATA_ROOT}\n\n`);
-      process.stderr.write('  capture  --site <id> [--url U | --auto U1,U2] [--headed] [--minutes N] [--chrome PATH]\n');
+      process.stderr.write('  capture  --site <id> [--url U | --auto U1,U2] [--headed] [--attach http://127.0.0.1:9222] [--profile DIR]\n');
+      process.stderr.write('  login    --site <id> --url <U>                  # log in ONCE in a persistent profile; reused by every capture\n');
       process.stderr.write('  distill  --site <id> [--capture DIR]\n');
       process.stderr.write('  scaffold --site <id>                            # draft the gating test + fake from the dossier\n');
       process.stderr.write('  check    --site <id> [--adapter PATH]           # run your detect() over the real captured pages\n');

@@ -7,6 +7,31 @@ const { spawn } = require('node:child_process');
 
 const LAUNCH_TIMEOUT_MS = 30000;
 
+// Attach to an ALREADY-RUNNING Chrome — the user's own browser, already logged
+// in — instead of launching a fresh one. `endpoint` is either a ws:// browser
+// URL or an http origin like http://127.0.0.1:9222 (we resolve /json/version for
+// the webSocketDebuggerUrl). No credentials are ever handled: the live session
+// is whatever the user is already signed into. The caller must NOT close this
+// browser — it belongs to the user.
+async function connectToRunning(endpoint) {
+  let wsUrl = endpoint;
+  if (!/^wss?:\/\//i.test(endpoint)) {
+    const base = (/^https?:\/\//i.test(endpoint) ? endpoint : 'http://' + endpoint).replace(/\/+$/, '');
+    let j;
+    try {
+      const res = await fetch(base + '/json/version');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      j = await res.json();
+    } catch (e) {
+      throw new Error(`could not reach a running Chrome at ${base} — start Chrome with --remote-debugging-port=<port> and confirm the port (${e.message})`);
+    }
+    wsUrl = j && j.webSocketDebuggerUrl;
+    if (!wsUrl) throw new Error(`${base}/json/version returned no webSocketDebuggerUrl`);
+  }
+  const cdp = await CDPClient.connect(wsUrl);
+  return { cdp, wsUrl };
+}
+
 function launchChrome({ chrome, profileDir, headless, startUrl, extraArgs = [] }) {
   const args = [
     '--remote-debugging-port=0',
@@ -169,4 +194,4 @@ class CDPClient {
   }
 }
 
-module.exports = { launchChrome, CDPClient };
+module.exports = { launchChrome, connectToRunning, CDPClient };
