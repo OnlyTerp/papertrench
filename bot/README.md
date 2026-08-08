@@ -71,10 +71,10 @@ A cron-based alternative runs `node run.js --once` every minute.
 ## Flip-to-live checklist
 
 - [ ] X API v2 field and endpoint names re-verified against current docs.
-- [ ] OAuth request signing implemented in `bot/run.js` `xPost()` — the shipped
-      function is a deliberate stub that throws (`live posting not
-      implemented`). Fill it in with a verified library (e.g. `oauth-1.0a`)
-      and test against the bot's own account first.
+- [ ] One manual test post sent through `bot/run.js` against the bot's own
+      account. OAuth 1.0a signing (`bot/oauth.js`) is locked against the
+      worked example in X's "Creating a signature" guide, but only a real
+      credentialed post proves the whole request path end to end.
 - [ ] Account bio discloses the bot.
 - [ ] Billing / rate limits understood and budgeted.
 - [ ] `DRY_RUN=false` set as the **last** change.

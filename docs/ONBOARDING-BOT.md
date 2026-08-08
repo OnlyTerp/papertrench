@@ -62,6 +62,7 @@ under a relevant post.
 ## Status
 
 The bot is built and unit-tested, but **not live**: no X account, credentials,
-or posts exist yet, and the OAuth request signing in `bot/run.js` is a stub
-that must be filled in before the first real reply. `DRY_RUN` is the default.
-See `bot/README.md` for the operator flip-to-live checklist.
+or posts exist yet. OAuth 1.0a signing is implemented (`bot/oauth.js`) and
+locked against X's documented signature example, but no credentialed post has
+ever been sent. `DRY_RUN` is the default. See `bot/README.md` for the operator
+flip-to-live checklist.

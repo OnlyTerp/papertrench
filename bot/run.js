@@ -31,6 +31,7 @@
 const fs = require('fs');
 const path = require('path');
 const { processMentions, defaultConfig, BOT_HANDLE } = require('./xbot.js');
+const { sign } = require('./oauth.js');
 
 const STATE_DIR = path.join(__dirname, 'state');
 const STATE_FILE = path.join(STATE_DIR, 'state.json');
@@ -90,7 +91,6 @@ async function xGet(url, cfg) {
 }
 
 async function xPost(url, body, cfg) {
-  const h = cfg.BOT_HANDLE.replace(/^@+/, '');
   const token = cfg.X_ACCESS_TOKEN;
   const secret = cfg.X_ACCESS_SECRET;
   const consumerKey = cfg.X_API_KEY;
@@ -98,11 +98,31 @@ async function xPost(url, body, cfg) {
   if (!token || !secret || !consumerKey || !consumerSecret) {
     throw new Error('X API credentials are not fully configured');
   }
-  /* NOTE: real X posting requires OAuth 1.0a or OAuth 2.0 user-context signing.
-   * This function is a DRY_RUN-safe shell: in DRY_RUN mode xbot.js never calls
-   * transport.send(), so the signing implementation can be filled in later with
-   * a verified library (e.g. oauth-1.0a) without changing core logic. */
-  throw new Error('live posting not implemented in this DRY_RUN-only build');
+  /* OAuth 1.0a user-context signing (bot/oauth.js, vector-locked by
+   * bot/test/oauth.test.js). The JSON body is NOT part of the signature —
+   * only oauth_* and query params are. VERIFY against current X API docs
+   * before the first live post. */
+  const { header } = sign('POST', url, null, {
+    consumerKey,
+    consumerSecret,
+    accessToken: token,
+    accessSecret: secret,
+  });
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: header, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 429) {
+    const reset = res.headers.get('x-rate-limit-reset');
+    const wait = reset ? Math.max(0, parseInt(reset, 10) * 1000 - Date.now()) : 900000;
+    throw { retryAfterMs: wait, status: 429 };
+  }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error('POST ' + res.status + ' ' + t);
+  }
+  return res.json();
 }
 
 function makeTransport(cfg) {
