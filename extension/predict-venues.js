@@ -43,6 +43,14 @@
     return res.json();
   }
 
+  function postJson(url, body) {
+    return fetchJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   /* ── Book math (from predict-engine, inline to avoid load-order) ── */
 
   function bestBid(ladder) {
@@ -80,28 +88,14 @@
 
   /* ── Kalshi adapter ──────────────────────────────────────────────── */
 
-  /* Kalshi orderbook endpoint. Public reads, no auth needed.
-   * Verified live 2026-08-07 (dossier §3): api.elections.kalshi.com
-   *
-   * CRITICAL: the response carries BID LADDERS ONLY. Both ask ladders
-   * are synthesized by mirroring the opposite side's bids:
-   *   YES bid at X == NO ask at (100 − X), same size.
-   *
-   * The shape is {orderbook_fp: {yes_dollars: [["0.1500","100.00"],...]}}
-   * where element 0 is price in DOLLARS as string, element 1 is CONTRACT
-   * COUNT (not a price).
-   *
-   * Ported from amogus0471/Paper-Prediction @ e03f715 — kalshi.ts:269-298
-   */
   const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 
-  /** Parse [["0.1500","100.00"],...] into [[15, 100],...] */
   function kalshiToLevels(rows) {
     var out = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       if (!Array.isArray(row) || row.length < 2) continue;
-      var price = roundPrice(Number(row[0]) * 100); // dollars → cents
+      var price = roundPrice(Number(row[0]) * 100);
       var size = Number(row[1]);
       if (!(price > 0) || !(price < 100) || !(size > 0)) continue;
       out.push([price, size]);
@@ -118,15 +112,12 @@
     return out;
   }
 
-  /** Normalize a Kalshi orderbook into {yes: {bids, asks}, no: {bids, asks}}. */
   function kalshiNormalizeBook(raw) {
     var fp = raw.orderbook_fp || raw.orderbook || {};
     var yesBids = kalshiToLevels(fp.yes_dollars || fp.yes || []);
     var noBids = kalshiToLevels(fp.no_dollars || fp.no || []);
-    // Mirror: YES bid at X == NO ask at (100-X)
     var yesAsks = kalshiMirror(noBids);
     var noAsks = kalshiMirror(yesBids);
-    // Sort: bids best-first (descending), asks best-first (ascending)
     yesBids.sort(function(a, b) { return b[0] - a[0]; });
     yesAsks.sort(function(a, b) { return a[0] - b[0]; });
     noBids.sort(function(a, b) { return b[0] - a[0]; });
@@ -137,7 +128,6 @@
     };
   }
 
-  /** Fetch a Kalshi orderbook. Returns null on failure. */
   async function kalshiFetchBook(ticker) {
     var url = KALSHI_BASE + '/markets/' + encodeURIComponent(ticker) + '/orderbook?depth=100';
     try {
@@ -152,14 +142,13 @@
         capturedAt: new Date().toISOString(),
         invariantOk: inv.ok,
         invariantViolations: inv.violations,
-        tickCents: 1, // default; venue-specific tick from price_level_structure
+        tickCents: 1,
       };
     } catch (e) {
       return null;
     }
   }
 
-  /** Check Kalshi market resolution. Returns null if not resolved. */
   async function kalshiCheckResolution(ticker) {
     try {
       var raw = await fetchJson(KALSHI_BASE + '/markets/' + encodeURIComponent(ticker));
@@ -179,23 +168,9 @@
 
   /* ── Polymarket adapter ──────────────────────────────────────────── */
 
-  /* Polymarket uses two hosts:
-   *   gamma-api.polymarket.com — market meta, events
-   *   clob.polymarket.com — order books, prices
-   *
-   * Books arrive WORST-FIRST: bids ascend to best-at-END, asks descend to
-   * best-at-END. We sort explicitly.
-   *
-   * Each binary market is TWO ERC-1155 tokens (YES and NO). Both books
-   * must be fetched and merged.
-   *
-   * VERIFIED: endpoint shapes confirmed in dossier §3 (2026-08-07).
-   * THIN: no live-ticking price captured — verified:false for now.
-   */
   const PM_GAMMA = 'https://gamma-api.polymarket.com';
   const PM_CLOB = 'https://clob.polymarket.com';
 
-  /** Fetch Polymarket event meta and extract binary markets. */
   async function pmFetchEvent(eventSlug) {
     try {
       var events = await fetchJson(PM_GAMMA + '/events?slug=' + encodeURIComponent(eventSlug));
@@ -221,7 +196,6 @@
     }
   }
 
-  /** Fetch a single token's book from the CLOB. */
   async function pmFetchTokenBook(tokenId) {
     try {
       var raw = await fetchJson(PM_CLOB + '/book?token_id=' + encodeURIComponent(tokenId));
@@ -238,10 +212,6 @@
     }
   }
 
-  /**
-   * Fetch a Polymarket binary market book. Returns merged YES/NO ladders.
-   * Sorts explicitly: bids best-first (descending), asks best-first (ascending).
-   */
   async function pmFetchBook(conditionId) {
     try {
       var markets = await fetchJson(PM_GAMMA + '/markets?condition_ids=' + encodeURIComponent(conditionId));
@@ -250,7 +220,6 @@
       var tokens = market.tokens || [];
       if (tokens.length < 2) return null;
 
-      // YES token is outcomeIndex 0, NO is 1
       var yesToken = tokens.find(function(t) { return t.outcome === 'Yes' || t.outcomeIndex === 0; });
       var noToken = tokens.find(function(t) { return t.outcome === 'No' || t.outcomeIndex === 1; });
       if (!yesToken || !noToken) return null;
@@ -259,7 +228,6 @@
       var noBook = await pmFetchTokenBook(noToken.token_id);
       if (!yesBook || !noBook) return null;
 
-      // Sort: bids descending (best first), asks ascending (best first)
       yesBook.bids.sort(function(a, b) { return b[0] - a[0]; });
       yesBook.asks.sort(function(a, b) { return a[0] - b[0]; });
       noBook.bids.sort(function(a, b) { return b[0] - a[0]; });
@@ -277,14 +245,13 @@
         capturedAt: new Date().toISOString(),
         invariantOk: inv.ok,
         invariantViolations: inv.violations,
-        tickCents: 1,
+        tickCents: roundPrice((market.orderPriceMinTickSize || 0.01) * 100),
       };
     } catch (e) {
       return null;
     }
   }
 
-  /** Check Polymarket resolution. */
   async function pmCheckResolution(conditionId) {
     try {
       var markets = await fetchJson(PM_GAMMA + '/markets?condition_ids=' + encodeURIComponent(conditionId));
@@ -296,7 +263,7 @@
         var yes = Number(prices[0]);
         if (yes >= 0.99) return { resolved: true, resolution: 'yes' };
         if (yes <= 0.01) return { resolved: true, resolution: 'no' };
-        return { resolved: true, resolution: null }; // void
+        return { resolved: true, resolution: null };
       } catch (e) {
         return null;
       }
@@ -305,17 +272,156 @@
     }
   }
 
-  /* ── Hyperliquid Outcomes (stub) ─────────────────────────────────── */
-  /* verified:false — THIN capture, no live-ticking price. */
+  /* ── Hyperliquid Outcomes adapter ───────────────────────────────── */
 
-  async function hlOutcomesFetchBook() { return null; }
-  async function hlOutcomesCheckResolution() { return null; }
+  const HL_API = 'https://api-ui.hyperliquid.xyz';
 
-  /* ── Limitless (stub) ────────────────────────────────────────────── */
-  /* verified:false — THIN capture, no live-ticking price. */
+  async function hlOutcomesFetchCoin(market) {
+    try {
+      var meta = await postJson(HL_API + '/info', { type: 'spotMeta' });
+      var universe = meta.universe || [];
+      var coin = universe.find(function(c) { return c.name === market; });
+      if (!coin) return null;
+      return { coin: coin.name, index: coin.index, tokenId: coin.tokens && coin.tokens[0] };
+    } catch (e) {
+      return null;
+    }
+  }
 
-  async function limitlessFetchBook() { return null; }
-  async function limitlessCheckResolution() { return null; }
+  function hlL2Levels(side) {
+    return function(rows) {
+      return (rows || []).map(function(r) {
+        var px = roundPrice(Number(r[0]) * 100);
+        var sz = Number(r[1]);
+        if (!(px > 0) || !(px < 100) || !(sz > 0)) return null;
+        return [px, roundQty(sz)];
+      }).filter(Boolean);
+    };
+  }
+
+  async function hlOutcomesFetchBook(market) {
+    try {
+      var coinInfo = await hlOutcomesFetchCoin(market);
+      if (!coinInfo) return null;
+      var coin = coinInfo.coin;
+      var l2 = await postJson(HL_API + '/info', { type: 'l2Book', coin: coin });
+      if (!l2 || !l2.levels) return null;
+      var levels = l2.levels;
+      var yesBids = hlL2Levels('bids')(levels[0]);
+      var yesAsks = hlL2Levels('asks')(levels[1]);
+      // Mirror: NO bid = 100 - YES ask, NO ask = 100 - YES bid
+      var noBids = yesAsks.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
+      var noAsks = yesBids.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
+      yesBids.sort(function(a, b) { return b[0] - a[0]; });
+      yesAsks.sort(function(a, b) { return a[0] - b[0]; });
+      noBids.sort(function(a, b) { return b[0] - a[0]; });
+      noAsks.sort(function(a, b) { return a[0] - b[0]; });
+      var yes = { bids: yesBids, asks: yesAsks };
+      var no = { bids: noBids, asks: noAsks };
+      var inv = checkBookInvariants(yes, no);
+      return {
+        venue: 'hyperliquid-outcomes',
+        marketId: coin,
+        yes: yes,
+        no: no,
+        capturedAt: new Date().toISOString(),
+        invariantOk: inv.ok,
+        invariantViolations: inv.violations,
+        tickCents: 1,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function hlOutcomesCheckResolution(market) {
+    try {
+      var meta = await postJson(HL_API + '/info', { type: 'spotMeta' });
+      var universe = meta.universe || [];
+      var coin = universe.find(function(c) { return c.name === market; });
+      if (!coin) return null;
+      // HIP-4 outcomes settle to a final price on chain; check if trading is delisted
+      if (coin.isDelisted) {
+        // If delisted, last mid is the settlement. We do not try to fabricate direction.
+        var mids = await postJson(HL_API + '/info', { type: 'allMids' });
+        var mid = (mids || {})[coin.name];
+        if (mid == null) return { resolved: true, resolution: null };
+        var px = Number(mid);
+        if (px >= 0.99) return { resolved: true, resolution: 'yes' };
+        if (px <= 0.01) return { resolved: true, resolution: 'no' };
+        return { resolved: true, resolution: null };
+      }
+      return { resolved: false };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ── Limitless adapter ───────────────────────────────────────────── */
+
+  const LL_API = 'https://api.limitless.exchange';
+
+  async function limitlessFetchMarket(slug) {
+    try {
+      var markets = await fetchJson(LL_API + '/markets');
+      var arr = Array.isArray(markets) ? markets : (markets.data || []);
+      return arr.find(function(m) { return m.slug === slug; }) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function limitlessFetchBook(slug) {
+    try {
+      var market = await limitlessFetchMarket(slug);
+      if (!market) return null;
+      // Limitless binary CLOB: /orderbook?marketId=<id>
+      var book = await fetchJson(LL_API + '/orderbook?marketId=' + encodeURIComponent(market.id || slug));
+      var yesBids = (book.bids || []).map(function(l) {
+        return [roundPrice(Number(l.price) * 100), Number(l.size || l.amount || 0)];
+      }).filter(function(l) { return l[0] > 0 && l[0] < 100 && l[1] > 0; });
+      var yesAsks = (book.asks || []).map(function(l) {
+        return [roundPrice(Number(l.price) * 100), Number(l.size || l.amount || 0)];
+      }).filter(function(l) { return l[0] > 0 && l[0] < 100 && l[1] > 0; });
+      // Construct NO side by mirror, since Limitless only quotes one side.
+      var noBids = yesAsks.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
+      var noAsks = yesBids.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
+      yesBids.sort(function(a, b) { return b[0] - a[0]; });
+      yesAsks.sort(function(a, b) { return a[0] - b[0]; });
+      noBids.sort(function(a, b) { return b[0] - a[0]; });
+      noAsks.sort(function(a, b) { return a[0] - b[0]; });
+      var yes = { bids: yesBids, asks: yesAsks };
+      var no = { bids: noBids, asks: noAsks };
+      var inv = checkBookInvariants(yes, no);
+      return {
+        venue: 'limitless',
+        marketId: market.id || slug,
+        yes: yes,
+        no: no,
+        capturedAt: new Date().toISOString(),
+        invariantOk: inv.ok,
+        invariantViolations: inv.violations,
+        tickCents: roundPrice((market.orderPriceMinTickSize || 0.01) * 100),
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function limitlessCheckResolution(slug) {
+    try {
+      var market = await limitlessFetchMarket(slug);
+      if (!market) return null;
+      if (!market.closed && !market.resolved) return { resolved: false };
+      var result = String(market.outcome || market.resolution || '').toLowerCase();
+      return {
+        resolved: true,
+        resolution: result === 'yes' ? 'yes' : result === 'no' ? 'no' : null,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
 
   /* ── Unified API ─────────────────────────────────────────────────── */
 
@@ -346,12 +452,10 @@
   const api = {
     adapters: adapters,
     adapterFor: adapterFor,
-    // Kalshi internals exposed for testing
     kalshiNormalizeBook: kalshiNormalizeBook,
     kalshiToLevels: kalshiToLevels,
     kalshiMirror: kalshiMirror,
     checkBookInvariants: checkBookInvariants,
-    // Constants
     MAX_DEPTH_FRACTION: MAX_DEPTH_FRACTION,
   };
 
