@@ -2912,8 +2912,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             fee: priced.fee,
             totalCost: priced.totalCost,
             bookMid: priced.bookMid,
-            slippage: priced.slippage,
+            // The ticket renders `slippageBps` — the engine calls it
+            // `slippage`. One name at the boundary, or render throws on
+            // undefined.toFixed() and the panel goes blank.
+            slippageBps: priced.slippage,
             partial: !!(priced.walk && priced.walk.partial),
+            // Which market this price is actually FOR. A Kalshi event page
+            // holds many markets; quoting one of them without naming it puts
+            // a true number next to the wrong question.
+            resolvedMarketId: book.marketId,
+            marketTitle: book.marketTitle || null,
+            viaEvent: !!book.viaEvent,
+            siblingCount: book.siblingCount || 0,
             quotedAt: new Date().toISOString(),
           } });
         } catch (e) {

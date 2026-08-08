@@ -135,6 +135,18 @@
 
   /* ── Render ─────────────────────────────────────────────────────── */
 
+  // Market titles and error strings arrive from venue APIs and go into
+  // innerHTML. They are venue-controlled text, not ours, so they are escaped
+  // before they are ever interpolated.
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   let container = null;
   let shadow = null;
 
@@ -151,6 +163,28 @@
 
     const q = state.quote;
     const hasQuote = !!q;
+
+    // The panel lives in a CLOSED shadow root, so nothing outside it can read
+    // what it is showing — including the automated live pass, which would
+    // otherwise have to judge a quote by pixels. The host element carries the
+    // same facts as data-* attributes (the house data-pt-* convention): what
+    // state the ticket is in, which market the price is FOR, and the price
+    // itself. Observable, not internal — these are the numbers already on
+    // screen, and a wrong one here is a wrong one there.
+    if (container && container.dataset) {
+      container.dataset.ptState = state.loading ? 'loading' : hasQuote ? 'quoted' : state.error ? 'error' : 'idle';
+      if (hasQuote) {
+        container.dataset.ptAvgPrice = String(q.avgPrice);
+        container.dataset.ptMarket = String(q.resolvedMarketId || '');
+        container.dataset.ptCost = String(q.cost);
+      } else {
+        delete container.dataset.ptAvgPrice;
+        delete container.dataset.ptMarket;
+        delete container.dataset.ptCost;
+      }
+      if (state.error) container.dataset.ptError = String(state.error);
+      else delete container.dataset.ptError;
+    }
 
     shadow.innerHTML = `
       <style>
@@ -199,13 +233,16 @@
           <button class="btn ${state.outcome === 'no' ? 'active' : ''}" data-action="outcome" data-value="no">NO</button>
         </div>
         <input type="number" placeholder="Quantity" min="1" step="1" value="${state.qty || ''}" data-action="qty" />
+        ${hasQuote && q.viaEvent && q.marketTitle ? `
+          <div class="quote-row market"><span>Market</span><span>${escapeHtml(q.marketTitle)}${q.siblingCount > 1 ? ` (1 of ${q.siblingCount})` : ''}</span></div>
+        ` : ''}
         ${hasQuote ? `
           <div class="quote-row"><span>Avg price</span><span>${q.avgPrice.toFixed(1)}¢</span></div>
           <div class="quote-row"><span>Cost</span><span>P$${q.cost.toFixed(2)}</span></div>
           <div class="quote-row"><span>Fee</span><span>P$${q.fee.toFixed(2)}</span></div>
           <div class="quote-row"><span>Slippage</span><span>${q.slippageBps.toFixed(0)} bps</span></div>
         ` : ''}
-        ${state.error ? `<div class="error">${state.error}</div>` : ''}
+        ${state.error ? `<div class="error">${escapeHtml(state.error)}</div>` : ''}
         <button class="submit" ${state.loading || (!state.qty && !state.notional) ? 'disabled' : ''} data-action="${hasQuote ? 'submit' : 'quote'}">
           ${state.loading ? '...' : hasQuote ? `${state.side === 'buy' ? 'BUY' : 'SELL'} ${state.outcome.toUpperCase()} @ ${q.avgPrice.toFixed(1)}¢` : 'Get Quote'}
         </button>

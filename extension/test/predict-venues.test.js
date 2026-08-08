@@ -48,12 +48,15 @@ const HTTP = (status) => ({ __http_error: status });
 /*  Polymarket — the worst-first ordering trap (H2)                    */
 /* ================================================================== */
 
-const PM_MARKET = [{
-  condition_id: '0xcond',
-  orderPriceMinTickSize: 0.01,
-  tokens: [
-    { outcome: 'Yes', outcomeIndex: 0, token_id: 'tokYES' },
-    { outcome: 'No', outcomeIndex: 1, token_id: 'tokNO' },
+/* The REAL gamma shape, captured live 2026-08-08: an event slug resolves to a
+ * list of markets, each carrying `clobTokenIds` as a JSON-encoded [yes, no].
+ * There is no `tokens` field — the adapter used to ask for one and could
+ * therefore never find a token to price. */
+const PM_EVENT = [{
+  title: 'Fed Decision',
+  markets: [
+    { conditionId: '0xthin', clobTokenIds: '["thinYES","thinNO"]', question: 'Thin one', liquidityClob: '10', orderPriceMinTickSize: 0.01 },
+    { conditionId: '0xcond', clobTokenIds: '["tokYES","tokNO"]', question: 'Will the Fed cut by 25bps?', liquidityClob: '9000', orderPriceMinTickSize: 0.01 },
   ],
 }];
 
@@ -71,7 +74,7 @@ const PM_NO_WORST_FIRST = {
 
 function pmRoutes(yesBook, noBook) {
   return [
-    ['gamma-api.polymarket.com/markets', PM_MARKET],
+    ['gamma-api.polymarket.com/events?slug=', PM_EVENT],
     ['token_id=tokYES', yesBook],
     ['token_id=tokNO', noBook],
   ];
@@ -122,16 +125,30 @@ test('Polymarket: dollar prices become cents, sizes survive', () => withFetch(
   },
 ));
 
-test('Polymarket: a market missing an outcome token REFUSES rather than half-pricing', () => withFetch(
-  [['gamma-api.polymarket.com/markets', [{ condition_id: '0xcond', tokens: [{ outcome: 'Yes', token_id: 'tokYES' }] }]]],
+test('Polymarket: an event whose markets carry no clobTokenIds REFUSES', () => withFetch(
+  [['gamma-api.polymarket.com/events?slug=', [{ markets: [{ conditionId: '0xcond', question: 'no ids here' }] }]]],
   async () => {
-    assert.equal(await V.adapterFor('polymarket').fetchBook('0xcond'), null);
+    assert.equal(await V.adapterFor('polymarket').fetchBook('some-event'), null);
+  },
+));
+
+test('Polymarket: the EVENT slug resolves to its most liquid market, and says which', () => withFetch(
+  pmRoutes(PM_YES_WORST_FIRST, PM_NO_WORST_FIRST),
+  async (seen) => {
+    // polymarket.com/event/<slug> names an event holding several markets.
+    // Picking one silently would put a true price next to the wrong question.
+    const book = await V.adapterFor('polymarket').fetchBook('fed-decision');
+    assert.equal(book.marketId, '0xcond', 'the 9000-liquidity market wins over the 10');
+    assert.equal(book.viaEvent, true);
+    assert.equal(book.siblingCount, 2);
+    assert.match(book.marketTitle, /Fed cut by 25bps/);
+    assert.ok(!seen.some((s) => s.url.includes('token_id=thin')), 'the thin market is never priced');
   },
 ));
 
 test('Polymarket: a failed CLOB fetch REFUSES — never a book with one live side', () => withFetch(
   [
-    ['gamma-api.polymarket.com/markets', PM_MARKET],
+    ['gamma-api.polymarket.com/events?slug=', PM_EVENT],
     ['token_id=tokYES', PM_YES_WORST_FIRST],
     ['token_id=tokNO', HTTP(500)],
   ],
@@ -204,27 +221,50 @@ test('Hyperliquid: the NO ladder is the mirror of YES, and both are best-first',
 /*  Limitless — the constructed NO ladder                              */
 /* ================================================================== */
 
-// The adapter resolves a slug by fetching the whole /markets LIST and
-// searching it — not /markets/<slug>. The fake mirrors that exactly; a fake
-// that served a per-slug route would pass while the shipped code called an
-// endpoint nobody tested.
-const LL_MARKET = { id: 'mkt-1', slug: 'will-btc-hit-100k', orderPriceMinTickSize: 0.01, status: 'open' };
+/* The REAL Limitless shape, captured live 2026-08-08. `/markets` (bare list)
+ * is a 404 — the previous fake served it, which is how a lookup that could
+ * never succeed shipped with a green suite. A slug resolves via
+ * `/markets/<slug>`, and a `group` market has children that each own a book at
+ * `/markets/<child-slug>/orderbook` (the numeric id 404s there). */
+const LL_GROUP = {
+  id: 10013243,
+  slug: 't1-vs-hanwha',
+  marketType: 'group',
+  status: 'FUNDED',
+  markets: [
+    { id: 1, slug: 'hanwha-x', title: 'Hanwha', volume: '10', status: 'FUNDED' },
+    { id: 2, slug: 't1-x', title: 'T1', volume: '9000', status: 'FUNDED' },
+  ],
+};
 const LL_BOOK = {
   bids: [{ price: '0.30', size: '100' }, { price: '0.28', size: '200' }],
   asks: [{ price: '0.33', size: '50' }, { price: '0.35', size: '75' }],
 };
 
-function llRoutes(book) {
+function llRoutes(book, group) {
   return [
-    ['orderbook?marketId=', book],
-    ['api.limitless.exchange/markets', [LL_MARKET]],
+    ['/orderbook', book],
+    ['api.limitless.exchange/markets/', group || LL_GROUP],
   ];
 }
+
+test('Limitless: a GROUP resolves to its busiest child, whose slug keys the book', () => withFetch(
+  llRoutes(LL_BOOK),
+  async (seen) => {
+    const book = await V.adapterFor('limitless').fetchBook('t1-vs-hanwha');
+    assert.ok(book, 'a group must resolve, not refuse');
+    assert.equal(book.marketId, 't1-x', 'the 9000-volume child wins over the 10');
+    assert.equal(book.marketTitle, 'T1');
+    assert.equal(book.viaEvent, true);
+    assert.equal(book.siblingCount, 2);
+    assert.ok(seen.some((s) => s.url.includes('/markets/t1-x/orderbook')), 'the book is keyed by the CHILD slug');
+  },
+));
 
 test('Limitless: the NO ladder is CONSTRUCTED by mirror — the venue quotes one side', () => withFetch(
   llRoutes(LL_BOOK),
   async () => {
-    const book = await V.adapterFor('limitless').fetchBook('will-btc-hit-100k');
+    const book = await V.adapterFor('limitless').fetchBook('t1-vs-hanwha');
     assert.ok(book);
     assert.deepEqual(book.yes.bids.map((l) => l[0]), [30, 28]);
     assert.deepEqual(book.yes.asks.map((l) => l[0]), [33, 35]);
@@ -237,15 +277,22 @@ test('Limitless: the NO ladder is CONSTRUCTED by mirror — the venue quotes one
 test('Limitless: a failed orderbook fetch REFUSES', () => withFetch(
   llRoutes(HTTP(503)),
   async () => {
-    assert.equal(await V.adapterFor('limitless').fetchBook('will-btc-hit-100k'), null);
+    assert.equal(await V.adapterFor('limitless').fetchBook('t1-vs-hanwha'), null);
   },
 ));
 
-test('Limitless: a slug absent from the market list REFUSES before any book is requested', () => withFetch(
-  llRoutes(LL_BOOK),
+test('Limitless: an unknown slug REFUSES before any book is requested', () => withFetch(
+  [['api.limitless.exchange/markets/', HTTP(404)], ['/orderbook', LL_BOOK]],
   async (seen) => {
     assert.equal(await V.adapterFor('limitless').fetchBook('no-such-market'), null);
     assert.ok(!seen.some((s) => s.url.includes('orderbook')), 'must not ask for a book it cannot identify');
+  },
+));
+
+test('Limitless: a group whose children have all resolved REFUSES', () => withFetch(
+  llRoutes(LL_BOOK, { ...LL_GROUP, markets: [{ id: 1, slug: 'done', title: 'Done', volume: '5', status: 'RESOLVED' }] }),
+  async () => {
+    assert.equal(await V.adapterFor('limitless').fetchBook('t1-vs-hanwha'), null, 'a settled outcome is not tradable');
   },
 ));
 

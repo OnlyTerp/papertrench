@@ -128,15 +128,76 @@
     };
   }
 
-  async function kalshiFetchBook(ticker) {
-    var url = KALSHI_BASE + '/markets/' + encodeURIComponent(ticker) + '/orderbook?depth=100';
+  /**
+   * Resolve what the URL gave us into a TRADABLE market ticker.
+   *
+   * kalshi.com/markets/<series>/<event-slug>/<ticker> ends in the EVENT
+   * ticker, not a market. Ask the orderbook endpoint for an event and it
+   * answers HTTP 200 with EMPTY LADDERS rather than an error — so the panel
+   * mounts, quotes against nothing, and reports "no liquidity" on a market
+   * whose page is showing 47c/54c. Verified live 2026-08-08: KXGDP-26OCT30
+   * returns {yes_dollars: [], no_dollars: []}, while the event holds 9 real
+   * markets (KXGDP-26OCT30-T0.0 … -T4.0) that each have depth.
+   *
+   * So: try the ticker as a market; if its book is empty, treat it as an
+   * event and pick the most liquid open market underneath. Returns the
+   * ticker AND its title, because quoting a market the user did not choose
+   * without naming it is exactly the wrong-number-on-screen failure.
+   */
+  async function kalshiResolveMarket(ticker) {
     try {
-      var raw = await fetchJson(url);
-      var book = kalshiNormalizeBook(raw);
+      var raw = await fetchJson(KALSHI_BASE + '/markets/' + encodeURIComponent(ticker) + '/orderbook?depth=100');
+      var direct = kalshiNormalizeBook(raw);
+      if (direct.yes.bids.length || direct.no.bids.length) {
+        return { ticker: ticker, title: null, book: direct, viaEvent: false };
+      }
+    } catch (e) { /* fall through to the event path */ }
+
+    // The events endpoint is CASE-SENSITIVE where the markets endpoint is not:
+    // verified live 2026-08-08, /events/kxgdp-26oct30 is a 404 while
+    // /events/KXGDP-26OCT30 returns its 9 markets. URLs carry the lowercase
+    // form, so every event lookup upper-cases first.
+    try {
+      var ev = await fetchJson(KALSHI_BASE + '/events/' + encodeURIComponent(String(ticker).toUpperCase()) + '?with_nested_markets=true');
+      var markets = (ev.event && ev.event.markets) || ev.markets || [];
+      var open = markets.filter(function(m) {
+        var s = (m.status || '').toLowerCase();
+        return m.ticker && (s === 'active' || s === 'open' || s === 'initialized');
+      });
+      if (!open.length) return null;
+      // Most liquid first — the thinnest book in an event is the one whose
+      // fills teach the least and whose depth cap bites hardest.
+      var liq = function(m) { var v = Number(m.liquidity_dollars); return isFinite(v) ? v : 0; };
+      open.sort(function(a, b) { return liq(b) - liq(a); });
+      var pick = open[0];
+      var pickRaw = await fetchJson(KALSHI_BASE + '/markets/' + encodeURIComponent(pick.ticker) + '/orderbook?depth=100');
+      return {
+        ticker: pick.ticker,
+        title: pick.yes_sub_title || pick.subtitle || pick.title || pick.ticker,
+        book: kalshiNormalizeBook(pickRaw),
+        viaEvent: true,
+        siblingCount: open.length,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function kalshiFetchBook(ticker) {
+    try {
+      var resolved = await kalshiResolveMarket(ticker);
+      if (!resolved) return null;
+      var book = resolved.book;
       var inv = checkBookInvariants(book.yes, book.no);
       return {
         venue: 'kalshi',
-        marketId: ticker,
+        marketId: resolved.ticker,
+        marketTitle: resolved.title,
+        // True when the URL named an event and we picked a market under it —
+        // the ticket shows which one, so the number on screen is never for a
+        // market the user did not know they were looking at.
+        viaEvent: !!resolved.viaEvent,
+        siblingCount: resolved.siblingCount || 0,
         yes: book.yes,
         no: book.no,
         capturedAt: new Date().toISOString(),
@@ -212,21 +273,66 @@
     }
   }
 
-  async function pmFetchBook(conditionId) {
+  /**
+   * Resolve what the URL gave us into a tradable market with its two CLOB
+   * token ids.
+   *
+   * polymarket.com/event/<slug> names an EVENT, and an event holds several
+   * markets ("Fed Decision in September?" holds 5). Verified live 2026-08-08:
+   *   /events?slug=<slug>      → { markets: [ { conditionId, clobTokenIds,
+   *                                            question, liquidityClob } ] }
+   *   /markets?condition_ids=  → the market WITHOUT a `tokens` field
+   * The adapter used to ask for `market.tokens`, which gamma does not return
+   * at all — so even given a condition id it could never find a token to
+   * price. The real ids live in `clobTokenIds`, a JSON-encoded [yes, no].
+   */
+  async function pmResolveMarket(eventSlug) {
     try {
-      var markets = await fetchJson(PM_GAMMA + '/markets?condition_ids=' + encodeURIComponent(conditionId));
-      if (!markets || markets.length === 0) return null;
-      var market = markets[0];
-      var tokens = market.tokens || [];
-      if (tokens.length < 2) return null;
+      var raw = await fetchJson(PM_GAMMA + '/events?slug=' + encodeURIComponent(eventSlug));
+      var ev = Array.isArray(raw) ? raw[0] : raw;
+      var markets = (ev && ev.markets) || [];
+      var live = markets.filter(function(m) { return m && m.clobTokenIds && !m.closed; });
+      if (!live.length) return null;
+      var liq = function(m) { var v = Number(m.liquidityClob); return isFinite(v) ? v : 0; };
+      live.sort(function(a, b) { return liq(b) - liq(a); });
+      // The most liquid market in an event is very often the one already
+      // priced at 1c or 99c — the outcome everybody has agreed on. Quoting it
+      // just trips the front-running lockout and the panel opens on a refusal.
+      // Prefer a market that is still a live question; fall back to the most
+      // liquid one if every market in the event has effectively resolved, so
+      // the lockout still gets to speak rather than being pre-empted here.
+      var forecastable = live.filter(function(m) {
+        var p = Number(m.lastTradePrice != null ? m.lastTradePrice : m.outcomePrices ? JSON.parse(m.outcomePrices || '[]')[0] : NaN);
+        return !isFinite(p) || (p > 0.03 && p < 0.97);
+      });
+      var pick = (forecastable.length ? forecastable : live)[0];
+      var ids;
+      try { ids = JSON.parse(pick.clobTokenIds); } catch (e) { return null; }
+      if (!Array.isArray(ids) || ids.length < 2) return null;
+      return {
+        conditionId: pick.conditionId,
+        yesTokenId: ids[0],
+        noTokenId: ids[1],
+        title: pick.question || pick.groupItemTitle || null,
+        tickCents: roundPrice(Number(pick.orderPriceMinTickSize || 0.01) * 100),
+        viaEvent: true,
+        siblingCount: live.length,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
 
-      var yesToken = tokens.find(function(t) { return t.outcome === 'Yes' || t.outcomeIndex === 0; });
-      var noToken = tokens.find(function(t) { return t.outcome === 'No' || t.outcomeIndex === 1; });
-      if (!yesToken || !noToken) return null;
+  async function pmFetchBook(eventSlug) {
+    try {
+      var resolved = await pmResolveMarket(eventSlug);
+      if (!resolved) return null;
 
-      var yesBook = await pmFetchTokenBook(yesToken.token_id);
-      var noBook = await pmFetchTokenBook(noToken.token_id);
+      var yesBook = await pmFetchTokenBook(resolved.yesTokenId);
+      var noBook = await pmFetchTokenBook(resolved.noTokenId);
       if (!yesBook || !noBook) return null;
+      var market = { orderPriceMinTickSize: resolved.tickCents / 100 };
+      var conditionId = resolved.conditionId;
 
       yesBook.bids.sort(function(a, b) { return b[0] - a[0]; });
       yesBook.asks.sort(function(a, b) { return a[0] - b[0]; });
@@ -240,6 +346,9 @@
       return {
         venue: 'polymarket',
         marketId: conditionId,
+        marketTitle: resolved.title,
+        viaEvent: !!resolved.viaEvent,
+        siblingCount: resolved.siblingCount || 0,
         yes: yes,
         no: no,
         capturedAt: new Date().toISOString(),
@@ -368,22 +477,55 @@
 
   const LL_API = 'https://api.limitless.exchange';
 
+  /**
+   * A single market by slug.
+   *
+   * The previous implementation fetched a bare `/markets` LIST and searched it
+   * for the slug. That endpoint is a 404 — verified live 2026-08-08 — so the
+   * lookup always returned null and every Limitless quote refused with "no
+   * live book". The real route is `/markets/<slug>`.
+   */
   async function limitlessFetchMarket(slug) {
     try {
-      var markets = await fetchJson(LL_API + '/markets');
-      var arr = Array.isArray(markets) ? markets : (markets.data || []);
-      return arr.find(function(m) { return m.slug === slug; }) || null;
+      return await fetchJson(LL_API + '/markets/' + encodeURIComponent(slug));
     } catch (e) {
       return null;
     }
   }
 
+  /**
+   * Resolve to a market that actually has a book.
+   *
+   * Limitless has the same shape Kalshi and Polymarket do: the URL can name a
+   * GROUP (`marketType: "group"`), whose own orderbook route answers "Market
+   * not found" while its children each carry a real book. Verified live: the
+   * group `t1-vs-hanwha-life-esports-…` holds 2 children, and
+   * `/markets/<child-slug>/orderbook` returns bids and asks. Note the book is
+   * keyed by SLUG — the numeric id 404s.
+   */
+  async function limitlessResolveMarket(slug) {
+    var m = await limitlessFetchMarket(slug);
+    if (!m) return null;
+    var kids = Array.isArray(m.markets) ? m.markets : [];
+    if ((m.marketType === 'group' || !m.marketType) && kids.length) {
+      var live = kids.filter(function(k) { return k && k.slug && !k.expired && (k.status || '').toUpperCase() !== 'RESOLVED'; });
+      if (!live.length) return null;
+      var vol = function(k) { var v = Number(k.volume); return isFinite(v) ? v : 0; };
+      live.sort(function(a, b) { return vol(b) - vol(a); });
+      var pick = live[0];
+      return { slug: pick.slug, title: pick.title || pick.proxyTitle || null, viaGroup: true, siblingCount: live.length, market: pick };
+    }
+    return { slug: slug, title: null, viaGroup: false, siblingCount: 0, market: m };
+  }
+
   async function limitlessFetchBook(slug) {
     try {
-      var market = await limitlessFetchMarket(slug);
-      if (!market) return null;
-      // Limitless binary CLOB: /orderbook?marketId=<id>
-      var book = await fetchJson(LL_API + '/orderbook?marketId=' + encodeURIComponent(market.id || slug));
+      var resolved = await limitlessResolveMarket(slug);
+      if (!resolved) return null;
+      var market = resolved.market;
+      // The book route is `/markets/<slug>/orderbook` — keyed by slug; the
+      // numeric id 404s. The old `/orderbook?marketId=` route does not exist.
+      var book = await fetchJson(LL_API + '/markets/' + encodeURIComponent(resolved.slug) + '/orderbook');
       var yesBids = (book.bids || []).map(function(l) {
         return [roundPrice(Number(l.price) * 100), Number(l.size || l.amount || 0)];
       }).filter(function(l) { return l[0] > 0 && l[0] < 100 && l[1] > 0; });
@@ -402,7 +544,10 @@
       var inv = checkBookInvariants(yes, no);
       return {
         venue: 'limitless',
-        marketId: market.id || slug,
+        marketId: resolved.slug,
+        marketTitle: resolved.title,
+        viaEvent: !!resolved.viaGroup,
+        siblingCount: resolved.siblingCount || 0,
         yes: yes,
         no: no,
         capturedAt: new Date().toISOString(),

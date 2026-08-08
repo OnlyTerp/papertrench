@@ -137,10 +137,25 @@ async function probeQuote(page, venue) {
   await page.keyboard.type('10').catch(() => {});
   await page.waitForTimeout(300);
   await page.mouse.click(X, yFromBottom(86)).catch(() => {});     // Get Quote
-  await page.waitForTimeout(7000);
+  await page.waitForTimeout(9000);
   page.off('request', onReq);
 
-  return hits.length ? `book fetched (${hits.length}) e.g. ${hits[0].slice(0, 78)}` : 'no venue book request seen';
+  // The book is fetched by the SERVICE WORKER, which holds the host
+  // permissions — so page-level network events never see it, and counting
+  // them reported "no book request" while quotes were working. The ticket
+  // publishes its state on the host element instead (data-pt-*), which is the
+  // number actually on screen rather than a proxy for it.
+  const st = await page.evaluate(() => {
+    const el = document.getElementById('pt-predict-ticket');
+    return el ? { ...el.dataset } : null;
+  });
+  if (!st) return 'ticket vanished';
+  if (st.ptState === 'quoted') {
+    return `QUOTED ${st.ptAvgPrice}c on ${st.ptMarket || '?'} (cost P$${st.ptCost})`
+      + (hits.length ? ` [page also fetched ${hits.length}]` : '');
+  }
+  if (st.ptState === 'error') return `refused: ${st.ptError}`;
+  return `no quote (state=${st.ptState || 'unknown'})`;
 }
 
 async function resolveMarket(ctx, plan) {
@@ -210,7 +225,19 @@ async function run(only) {
       await r.page.close();
     }
 
-    row.status = row.badge && row.ticket ? 'PASS'
+    // An engine REFUSAL is not an integration failure — it is the product
+    // working. "Larger than this market can absorb", "already priced as a
+    // near-certainty", "no visible liquidity" all mean the book was fetched,
+    // the engine ran, and a rule fired. Only a refusal that means the pipeline
+    // never got a book is a defect. Conflating the two is how a harness starts
+    // crying wolf and stops being read.
+    const quoted = typeof row.quote === 'string' && row.quote.startsWith('QUOTED');
+    const guarded = typeof row.quote === 'string' && /near-certainty|no visible liquidity|market can absorb|has closed|lost the live book|Minimum order/i.test(row.quote);
+    const brokenPipe = typeof row.quote === 'string' && /No live book|not yet wired|not loaded|Unknown venue|ticket vanished|no quote \(/i.test(row.quote);
+    row.status = row.badge && row.ticket && quoted ? 'PASS'
+      : row.badge && row.ticket && guarded ? 'PASS (engine guard fired — pipeline healthy)'
+      : row.badge && row.ticket && brokenPipe ? `FAIL — panel mounts but no book reaches it (${row.quote})`
+      : row.badge && row.ticket ? `PARTIAL — ${row.quote}`
       : row.badge && !row.ticket ? 'PARTIAL — badge only, no ticket UI'
       : 'FAIL — nothing mounted';
     results.push(row);
