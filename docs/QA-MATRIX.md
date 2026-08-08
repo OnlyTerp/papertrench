@@ -8,10 +8,18 @@ prediction venues alike. It asks the shipped `sites.js` for each token URL, so
 it cannot drift from the product it checks.
 
 ```bash
-cd tools/recon/.headless && xvfb-run -a node livepass.mjs            # everything
-cd tools/recon/.headless && xvfb-run -a node livepass.mjs gmgn       # one site
-cd tools/recon/.headless && xvfb-run -a node livepass.mjs --profile ~/.pt-profile
+cd tools/recon/.headless
+node livepass.mjs login          # ONE TIME: log into the gated sites, all in one window
+xvfb-run -a node livepass.mjs    # everything — reuses that login automatically
+xvfb-run -a node livepass.mjs gmgn   # one site
 ```
+
+You log in **once**. `node livepass.mjs login` opens a single browser on the
+persistent profile (`recon-data/profiles/live`, gitignored), walks every gated
+site, and skips the ones you are already logged into — so re-running it after a
+site logs you out only stops on that one. Every later run reuses the profile
+with no flags. Run the `login` step **without** xvfb so the window is visible;
+run the pass **with** xvfb.
 
 It covers, per site: **panel mounts on a token/market page**, **panel does NOT
 mount on home/screener/wallet routes**, **a price renders and ticks**, and for

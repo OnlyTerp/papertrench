@@ -12,21 +12,48 @@
  * cannot see the site proves nothing, and saying so is the whole point.
  *
  *   cd tools/recon/.headless
- *   xvfb-run -a node livepass.mjs                 # every venue
- *   xvfb-run -a node livepass.mjs kalshi          # one venue
+ *   node livepass.mjs login          # ONE TIME: log into the gated sites, all in one window
+ *   xvfb-run -a node livepass.mjs    # every site — uses that login automatically, forever
+ *   xvfb-run -a node livepass.mjs kalshi          # one site
  *
- * Extensions need a real browser process, so this runs headed under xvfb
- * rather than in headless mode.
+ * You log in ONCE. There is one persistent profile
+ * (recon-data/profiles/live), the login walkthrough seeds every gated site
+ * into it in a single browser session, and every later run reuses it with no
+ * flags. If a site logs you out on its own, `node livepass.mjs login` only
+ * re-prompts for the ones that actually need it.
+ *
+ * Extensions need a real browser process, so the pass runs headed under xvfb.
+ * The `login` step must run WITHOUT xvfb, so its window is visible to you.
  */
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import readline from 'node:readline';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT = resolve(HERE, '../../../extension');
 const SHOTS = resolve(HERE, '_livepass');
+// One durable profile, on native ext4 (recon-data is gitignored — it already
+// holds cookies and balances, so a logged-in profile belongs here and can
+// never leak into the repo). This is the default for every run: log in once,
+// it sticks. A throwaway temp profile is only used if someone passes
+// --profile "" explicitly, which no normal run does.
+const DATA = resolve(HERE, '../../../recon-data');
+const DEFAULT_PROFILE = resolve(DATA, 'profiles', 'live');
+
+/** A redirect to an auth route, or a bounce to the bare homepage from a deep
+ *  link, is the reliable "you are not logged in" signal — login-wall WORDING
+ *  varies too much to match on text. */
+function looksGated(landedUrl, marketUrl) {
+  try {
+    const landed = new URL(landedUrl);
+    if (/\/(sign-?in|sign-?up|login|log-?in|auth|connect|onboard)(\b|\/|\?|$)/i.test(landed.pathname)) return true;
+    if (landed.pathname === '/' && new URL(marketUrl).pathname !== '/') return true;
+    return false;
+  } catch { return false; }
+}
 
 /* The routes each venue must mount on, and the ones it must never touch.
  * Market URLs are re-resolved from the venue's own listing page when possible,
@@ -280,8 +307,7 @@ async function runTokenSite(ctx, site) {
   // walls varies wildly ("Already have an account", "Connect your telegram",
   // "where traders become legends") and text matching misses most of it.
   const landed = m.page.url();
-  const redirectedToAuth = /\/(sign-?in|sign-?up|login|auth|connect)(\b|\/|\?)/i.test(landed)
-    || (new URL(landed).pathname === '/' && new URL(site.market).pathname !== '/');
+  const redirectedToAuth = looksGated(landed, site.market);
   if (m.botWall) {
     row.status = 'BOT WALL — the venue blocked automation, not the extension';
     row.notes.push(`served a challenge instead of the page (${m.status})`);
@@ -289,7 +315,7 @@ async function runTokenSite(ctx, site) {
     return row;
   }
   if (redirectedToAuth || LOGIN_RE.test(m.seen.blockedText)) {
-    row.status = 'LOGIN REQUIRED — seed a profile once with login.js, then this runs unattended';
+    row.status = 'LOGIN REQUIRED — run `node livepass.mjs login` once, then this runs unattended';
     row.notes.push(`the venue sent us to ${landed.slice(0, 70)} — there is no token page behind it to mount on`);
     await m.page.screenshot({ path: resolve(SHOTS, `${site.id}-login.png`) }).catch(() => {});
     await m.page.close();
@@ -332,13 +358,67 @@ async function runTokenSite(ctx, site) {
   return row;
 }
 
+/**
+ * The one-time login walkthrough.
+ *
+ * Opens a single visible browser on the persistent profile and walks every
+ * gated site in turn. A site you are already logged into is detected and
+ * skipped automatically, so re-running this after a partial session only stops
+ * on the ones that still need you. Everything lands in ONE profile, so the pass
+ * that follows is logged into all of them at once.
+ *
+ * Run WITHOUT xvfb — you need to see the window.
+ */
+async function runLogin(profileDir, only) {
+  mkdirSync(profileDir, { recursive: true });
+  const sites = [
+    ...(await tokenPlan()),
+    ...Object.entries(PLAN).map(([id, p]) => ({ id, market: p.listing })),
+  ];
+  const ctx = await chromium.launchPersistentContext(profileDir, {
+    headless: false,
+    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox', '--no-first-run', '--disable-blink-features=AutomationControlled'],
+    viewport: { width: 1440, height: 900 },
+  });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q) => new Promise((r) => rl.question(q, r));
+
+  console.log('\nLogging you in — this profile is saved and reused by every future run.\n');
+  let seeded = 0, already = 0, skipped = 0;
+  for (const site of sites) {
+    if (only && site.id !== only) continue;
+    const page = await ctx.newPage();
+    let landed = site.market;
+    try {
+      await page.goto(site.market, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(4500);
+      landed = page.url();
+    } catch {
+      console.log(`  ·  ${site.id}: could not open (skipped)`);
+      skipped++; await page.close().catch(() => {}); continue;
+    }
+    if (!looksGated(landed, site.market)) {
+      console.log(`  ✓  ${site.id}: already good — no login needed`);
+      already++; await page.close().catch(() => {}); continue;
+    }
+    console.log(`\n  →  ${site.id}: log in in the browser window, then press Enter here.`);
+    await ask('');
+    seeded++;
+    await page.close().catch(() => {});
+  }
+  rl.close();
+  await ctx.close();
+  console.log(`\nDone. ${seeded} logged in now, ${already} already good${skipped ? `, ${skipped} skipped` : ''}.`);
+  console.log('Profile saved. From here on just run:  xvfb-run -a node livepass.mjs\n');
+}
+
 async function run(only, profileDir) {
   mkdirSync(SHOTS, { recursive: true });
-  // A seeded profile (see login.js) carries logged-in sessions for the venues
-  // that gate their token pages. Without one the pass still runs — it just
-  // reports those sites as LOGIN REQUIRED instead of pretending.
-  const userDataDir = profileDir || mkdtempSync(resolve(tmpdir(), 'ptlive-'));
-  if (profileDir) mkdirSync(profileDir, { recursive: true });
+  // The persistent profile is the DEFAULT — logins done once carry into every
+  // run. `--profile ""` (an explicit empty string) opts into a throwaway.
+  const userDataDir = profileDir === '' ? mkdtempSync(resolve(tmpdir(), 'ptlive-'))
+    : (profileDir || DEFAULT_PROFILE);
+  mkdirSync(userDataDir, { recursive: true });
   const ctx = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox', '--no-first-run'],
@@ -431,6 +511,18 @@ async function run(only, profileDir) {
 
 const argv = process.argv.slice(2);
 const profileArg = argv.indexOf('--profile');
-const profile = profileArg >= 0 ? argv[profileArg + 1] : null;
-const target = argv.filter((a, i) => !a.startsWith('--') && i !== profileArg + 1)[0] || null;
-run(target, profile).catch((e) => { console.error('livepass failed:', e); process.exit(1); });
+// --profile with no value, or absent, means "use the default persistent
+// profile". --profile <dir> overrides it. --profile "" forces a throwaway.
+const profile = profileArg >= 0 ? (argv[profileArg + 1] ?? null) : null;
+// The --profile VALUE index is only a real index when --profile is present;
+// otherwise profileArg+1 is 0 and would wrongly swallow the first positional.
+const skipIdx = profileArg >= 0 ? profileArg + 1 : -1;
+const positionals = argv.filter((a, i) => !a.startsWith('--') && i !== skipIdx);
+const isLogin = positionals[0] === 'login';
+const target = (isLogin ? positionals[1] : positionals[0]) || null;
+
+if (isLogin) {
+  runLogin(profile || DEFAULT_PROFILE, target).catch((e) => { console.error('login failed:', e); process.exit(1); });
+} else {
+  run(target, profile).catch((e) => { console.error('livepass failed:', e); process.exit(1); });
+}

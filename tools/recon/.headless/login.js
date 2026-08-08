@@ -1,3 +1,13 @@
+/*
+ * DEPRECATED — use `node livepass.mjs login` instead.
+ *
+ * That flow logs you into EVERY gated site (token terminals and prediction
+ * venues) in ONE browser session, into the ONE profile the live pass actually
+ * reuses (recon-data/profiles/live). This script only knew 3 prediction sites
+ * and saved each to its own separate folder that livepass never read — which
+ * is why logins never seemed to stick. Kept only so old muscle memory still
+ * works; it now writes to the SAME shared profile.
+ */
 import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
@@ -11,11 +21,13 @@ const SITES = {
 const site = process.argv[2];
 if (!SITES[site]) {
   console.error('usage: node login.js <' + Object.keys(SITES).join('|') + '>');
+  console.error('  (deprecated — prefer:  node livepass.mjs login)');
   process.exit(1);
 }
 
 const __repoRoot = process.env.PT_RECON_ROOT || path.resolve(process.cwd(), '..', '..', '..');
-const profileDir = process.env.PT_RECON_PROFILE || path.resolve(__repoRoot, 'recon-data', 'profiles', site);
+// The SHARED profile the live pass reuses — not a per-site folder it ignores.
+const profileDir = process.env.PT_RECON_PROFILE || path.resolve(__repoRoot, 'recon-data', 'profiles', 'live');
 fs.mkdirSync(profileDir, { recursive: true });
 
 console.error(`[login] opening a real browser for ${site}`);
