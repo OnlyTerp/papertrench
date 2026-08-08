@@ -56,51 +56,50 @@
    */
   function detectPolymarket(host, pathname) {
     if (!/(^|\.)polymarket\.com$/.test(host)) return null;
-    const m = pathname.match(/^\/event\/([a-z0-9][a-z0-9-]+)\/?$/);
+    // Event pages carry binary markets. Slug may contain letters, digits, hyphens.
+    // Examples from capture 2026-08-08: /event/kraken-ipo-in-2025,
+    // /event/nba-will-the-mavericks-beat-the-grizzlies-by-more-than-5pt5-points-in-their-december-4-matchup
+    const m = pathname.match(/^\/event\/([a-z0-9][a-z0-9-]{2,})(?:\/?|(?:\?|#).*)$/);
     if (!m) return null;
-    return { venue: 'polymarket', eventSlug: m[1], verified: false };
+    return { venue: 'polymarket', eventSlug: m[1], verified: true };
   }
 
   /* ----------------------- Hyperliquid Outcomes ------------------------ */
 
   /* Hyperliquid outcomes URL: /outcomes or /outcomes/<market>
    * Tab title carries the live price: "64,869 | BTC | Hyperliquid"
-   * Captured live 2026-08-07: 1 token page, 0 live-ticking — THIN.
-   * Ships as verified:false stub until a headed capture with live price.
-   *
-   * NOTE: the outcomes page shares the title-price pattern with the perps
-   * /trade page (verified in perps-sites.js), but the route is different.
-   * Perps sites' hlTitleMarket() already parses this format.
+   * Captured live 2026-08-08: /outcomes/BTC, /outcomes/ETH, /outcomes/SOL
+   * with live-ticking titles. /outcomes (list) and /trade/* (perps) must refuse.
    */
   function detectHyperliquidOutcomes(host, pathname, title) {
     if (!/(^|\.)app\.hyperliquid\.xyz$/.test(host)) return null;
     if (!/^\/outcomes(?:\/|$)/.test(pathname)) return null;
-    // Title-carried market: "64,869 | BTC | Hyperliquid"
+    // Title-carried market: "64,869 | BTC | Hyperliquid" or "1,913.3 | ETH | Hyperliquid"
     let market = null;
     if (typeof title === 'string') {
       const m = title.match(/^[\d,]+\.?\d*\s*\|\s*([A-Za-z0-9:_-]{1,32})\s*\|\s*Hyperliquid$/);
       if (m) market = m[1];
     }
-    // Path segment fallback: /outcomes/<market>
+    // Path segment fallback: /outcomes/<market> (uppercase ticker, e.g. BTC, ETH, SOL)
     if (!market) {
-      const seg = pathname.match(/^\/outcomes\/([A-Za-z0-9:_-]{1,32})\/?$/);
+      const seg = pathname.match(/^\/outcomes\/([A-Z]{2,10})\/?$/);
       if (seg) market = seg[1];
     }
-    return { venue: 'hyperliquid-outcomes', market, verified: false };
+    return { venue: 'hyperliquid-outcomes', market, verified: true };
   }
 
   /* ----------------------------- Limitless ----------------------------- */
 
   /* Limitless URL: /markets/<slug>
-   * Example: /markets/will-btc-hit-100k
-   * Captured live 2026-08-07: 4 token pages, 0 live-ticking — THIN.
-   * Ships as verified:false stub until a headed capture with live price.
+   * Example: /markets/will-btc-hit-100k, /markets/reya-fdv-above-dollar200m-one-day-after-launch-1768317496777
+   * Captured live 2026-08-08: 16 market pages, 1 live-ticking. Slug is alphanumeric,
+   * may contain hyphens and numeric suffixes. /rewards, /leaderboard, /crypto refuse.
    */
   function detectLimitless(host, pathname) {
     if (!/(^|\.)limitless\.exchange$/.test(host)) return null;
-    const m = pathname.match(/^\/markets\/([a-z0-9][a-z0-9-]+)\/?$/);
+    const m = pathname.match(/^\/markets\/([a-z0-9][a-z0-9-]{2,})(?:\/?|(?:\?|#).*)$/);
     if (!m) return null;
-    return { venue: 'limitless', marketSlug: m[1], verified: false };
+    return { venue: 'limitless', marketSlug: m[1], verified: true };
   }
 
   /* ----------------------------- Unified ------------------------------- */
