@@ -5,7 +5,7 @@
   "chrome": null,
   "chromeArgs": [],
   "adapter": {
-    "file": "extension/sites.js",
+    "file": "extension/predict-sites.js",
     "global": "PaperTrenchSites",
     "currentSite": "currentSite"
   },

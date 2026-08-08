@@ -1,0 +1,12 @@
+{
+  "name": "pt-recon-headless",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.62.1",
+    "proxy-chain": "^2.5.1",
+    "user-agents": "^1.1.1",
+    "@mr_ozio/playwright-stealth": "^1.0.0"
+  }
+}

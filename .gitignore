@@ -20,3 +20,4 @@ HANDOFF.md
 # wallet ids. NEVER commit. Sanitized fixtures are copied out deliberately.
 # (*.local above already covers recon-data/DENYLIST.local.)
 recon-data/
+tools/recon/.headless/node_modules/
