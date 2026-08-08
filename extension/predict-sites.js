@@ -114,13 +114,15 @@
 
   const api = {
     detect,
+    currentSite: function() { return { id: 'predict', detect: detect }; },
+    site: { id: 'predict', detect: detect },
     detectKalshi,
     detectPolymarket,
     detectHyperliquidOutcomes,
     detectLimitless,
   };
 
-  if (typeof window !== 'undefined') window.PaperPredictSites = api;
-  if (typeof self !== 'undefined') self.PaperPredictSites = api;
+  if (typeof window !== 'undefined') { window.PaperPredictSites = api; window.PaperTrenchSites = api; }
+  if (typeof self !== 'undefined') { self.PaperPredictSites = api; self.PaperTrenchSites = api; }
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

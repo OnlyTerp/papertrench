@@ -92,6 +92,17 @@ async function main(site, opts = {}) {
   const context = await chromiumStealth.launchPersistentContext(profileDir);
   const page = await context.newPage();
 
+  // Inject the page probe so distiller sees live price ticks. We do not have the
+  // CDP __ptrecon binding, so we stream to a local JSONL file.
+  const domsigFile = path.join(rawDir, 'domsig.jsonl');
+  const domsig = fs.createWriteStream(domsigFile, { flags: 'a' });
+  await page.exposeFunction('__ptrecon', (payload) => { domsig.write(payload + '\n'); });
+  const { PROBE_SOURCE } = await import(path.join(__repoRoot, 'tools', 'recon', 'lib', 'pageprobe.js'));
+  const probeScript = PROBE_SOURCE;
+  await page.addInitScript(probeScript);
+  // In case the page already loaded, run it now too.
+  await page.evaluate(probeScript).catch(() => {});
+
   const streams = {};
   for (const name of ['events', 'network', 'ws', 'domsig', 'mutations']) {
     streams[name] = fs.createWriteStream(path.join(rawDir, `${name}.jsonl`), { flags: 'a' });
