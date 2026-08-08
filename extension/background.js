@@ -2857,19 +2857,82 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const PE = self.PaperPredictEngine;
         const PV = self.PaperPredictVenues;
         if (!PV) { sendResponse({ ok: false, message: 'Prediction venues not loaded' }); break; }
+        if (!PE) { sendResponse({ ok: false, message: 'Prediction engine not loaded' }); break; }
         try {
           const adapter = PV.adapterFor(message.venue);
           if (!adapter) { sendResponse({ ok: false, message: 'Unknown venue: ' + message.venue }); break; }
-          // For now, stub: the full quote flow needs a live book snapshot.
-          // Phase 2 builds the venues; Phase 3 wires the full pipeline.
-          sendResponse({ ok: false, message: 'Quote pipeline not yet wired for ' + message.venue });
+
+          // The book is fetched HERE, in the service worker, because it holds
+          // the host permissions — a content script asking a venue API for a
+          // cross-origin book would need CORS the venue does not grant.
+          const book = await adapter.fetchBook(message.marketId);
+          if (!book) {
+            sendResponse({ ok: false, message: 'No live book for this market right now.' });
+            break;
+          }
+
+          // The adapter speaks {yes:{bids,asks}}, the engine speaks
+          // {yes_bids, yes_asks}. One translation, in one place.
+          const snap = {
+            yes_bids: book.yes.bids, yes_asks: book.yes.asks,
+            no_bids: book.no.bids, no_asks: book.no.asks,
+            captured_at: book.capturedAt,
+          };
+          const market = {
+            status: 'open',
+            close_time: book.closeTime || null,
+            tick_cents: book.tickCents || 1,
+            min_order_size: book.minOrderSize || 1,
+          };
+          const qty = Number(message.qty);
+          const notional = Number(message.notional);
+          const target = qty > 0 ? { kind: 'qty', qty }
+            : notional > 0 ? { kind: 'notional', usd: notional }
+            : null;
+          if (!target) { sendResponse({ ok: false, message: 'Enter a quantity first.' }); break; }
+
+          const priced = PE.priceOrder({
+            snap,
+            market,
+            side: message.side || 'buy',
+            outcome: message.outcome || 'yes',
+            realism: message.realism || 'realistic',
+            target,
+          });
+
+          sendResponse({ ok: true, data: {
+            venue: message.venue,
+            marketId: message.marketId,
+            side: message.side || 'buy',
+            outcome: message.outcome || 'yes',
+            realism: message.realism || 'realistic',
+            avgPrice: priced.avgPrice,
+            qty: priced.qty,
+            cost: priced.cost,
+            fee: priced.fee,
+            totalCost: priced.totalCost,
+            bookMid: priced.bookMid,
+            slippage: priced.slippage,
+            partial: !!(priced.walk && priced.walk.partial),
+            quotedAt: new Date().toISOString(),
+          } });
         } catch (e) {
-          sendResponse({ ok: false, message: e.message });
+          // priceOrder throws {code, message} for every honest refusal —
+          // closed market, no liquidity, size over the depth cap, a book that
+          // failed its mirror invariant. Those messages are written for the
+          // user, so they are passed through rather than flattened.
+          sendResponse({ ok: false, code: e && e.code, message: (e && e.message) || String(e) });
         }
         break;
       }
       case 'PREDICT_SUBMIT': {
-        sendResponse({ ok: false, message: 'Order submission not yet wired' });
+        // Deliberately still refused, and named precisely rather than left as
+        // a dev stub: a paper FILL needs a positions ledger under the
+        // pt_pred_ namespace (rule 3's latency replay, the position cap, and
+        // settlement all write to it) and that store does not exist yet.
+        // Quoting is real; filling is not, and the panel says so.
+        sendResponse({ ok: false, code: 'not_implemented',
+          message: 'Paper fills are not enabled yet — quotes are live, the positions ledger is still being built.' });
         break;
       }
 

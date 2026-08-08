@@ -65,6 +65,20 @@
     badge = createBadge();
     document.body.appendChild(badge);
 
+    // The ticket itself. Without this the whole feature is a red badge: the
+    // engine, the scoring and the venue adapters all exist and are tested, but
+    // nothing ever puts a panel on the page. The automated live pass
+    // (tools/recon/.headless/livepass.mjs) reported `badge:true ticket:false`
+    // on a real Kalshi market page, which is how this was found — no unit test
+    // can see it, because every unit passes.
+    if (typeof PaperPredictTicket !== 'undefined') {
+      try {
+        PaperPredictTicket.mount(market);
+      } catch (e) {
+        console.warn('[PaperTrench] prediction ticket failed to mount:', e);
+      }
+    }
+
     console.log('[PaperTrench] prediction overlay mounted:', market.venue, market.marketId || market.eventSlug || market.marketSlug || '');
   }
 
@@ -73,6 +87,11 @@
     mounted = false;
     if (badge && badge.parentNode) badge.parentNode.removeChild(badge);
     badge = null;
+    // Tear the ticket down with the badge, or an SPA route change leaves a
+    // panel priced against the market you just navigated away from.
+    if (typeof PaperPredictTicket !== 'undefined') {
+      try { PaperPredictTicket.unmount(); } catch { /* already gone */ }
+    }
   }
 
   /* ── Init ───────────────────────────────────────────────────────── */
