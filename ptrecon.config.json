@@ -5,9 +5,16 @@
   "chrome": null,
   "chromeArgs": [],
   "adapter": {
-    "file": "extension/predict-sites.js",
+    "file": "extension/sites.js",
     "global": "PaperTrenchSites",
-    "currentSite": "currentSite"
+    "currentSite": "currentSite",
+    "shape": "token",
+    "bySite": {
+      "kalshi": { "file": "extension/predict-sites.js", "global": "PaperPredictSites", "shape": "prediction", "venue": "kalshi" },
+      "polymarket": { "file": "extension/predict-sites.js", "global": "PaperPredictSites", "shape": "prediction", "venue": "polymarket" },
+      "hyperliquid-outcomes": { "file": "extension/predict-sites.js", "global": "PaperPredictSites", "shape": "prediction", "venue": "hyperliquid-outcomes" },
+      "limitless": { "file": "extension/predict-sites.js", "global": "PaperPredictSites", "shape": "prediction", "venue": "limitless" }
+    }
   },
   "wiring": {
     "touchList": [

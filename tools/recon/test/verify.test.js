@@ -190,6 +190,156 @@ test('verify: an adapter that REFUSES a token page is REVIEW, never AGREES (audi
   assert.notEqual(summary.verdict, 'AGREES with the capture');
 });
 
+// ---------------------------------------------------------------------------
+// verify — the PREDICTION shape
+//
+// Prediction venues return {venue, <one market id>, verified} instead of
+// {kind, address, chain}. The shape is DECLARED in config, never sniffed, so
+// these tests also pin the fail-closed behaviour on an unknown shape: guessing
+// is how a verifier applies the wrong contract and reports green against a
+// check it never ran.
+// ---------------------------------------------------------------------------
+
+const PREDICT_CFG = { global: 'FakePredictSites', shape: 'prediction', venue: 'kalshi' };
+
+// A faithful prediction adapter: mounts on /markets/<series>/<market>,
+// refuses everything else, and returns null (never a half-object) when it
+// cannot name a market.
+const GOOD_PREDICT = `(() => {
+  'use strict';
+  const api = { detect: (host, pathname) => {
+    const m = pathname.match(/^\\/markets\\/([a-z0-9-]+)\\/([a-z0-9-]+)$/);
+    return m ? { venue: 'kalshi', marketId: m[2], verified: true } : null;
+  } };
+  window.FakePredictSites = api; self.FakePredictSites = api;
+})();`;
+
+// Refuses everything — the missed-market-page bug.
+const BLIND_PREDICT = `(() => {
+  'use strict';
+  const api = { detect: () => null };
+  window.FakePredictSites = api; self.FakePredictSites = api;
+})();`;
+
+// Mounts on ANY path, including portfolios — the over-mount bug.
+const GREEDY_PREDICT = `(() => {
+  'use strict';
+  const api = { detect: (host, pathname) => ({ venue: 'kalshi', marketId: pathname.slice(1) || 'x', verified: true }) };
+  window.FakePredictSites = api; self.FakePredictSites = api;
+})();`;
+
+// Returns an object with no market identifier — the half-mount that reads as
+// "we are on a market" and then has nothing to price.
+const NO_ID_PREDICT = `(() => {
+  'use strict';
+  const api = { detect: () => ({ venue: 'kalshi', market: null, verified: false }) };
+  window.FakePredictSites = api; self.FakePredictSites = api;
+})();`;
+
+test('verify/prediction: a good adapter AGREES — market mounts, portfolio refuses', () => {
+  const examples = [
+    { rawUrl: 'https://kalshi.com/markets/kxgdp/kxgdp-26oct30', display: 'd', ann: { hadLivePrice: true } },
+    { rawUrl: 'https://kalshi.com/portfolio', display: 'd', ann: { looksHistoryPage: true } },
+  ];
+  const { rows, summary } = runVerify(GOOD_PREDICT, examples, PREDICT_CFG);
+  assert.equal(rows[0].mounted, true);
+  assert.equal(rows[0].kind, 'marketId');
+  assert.equal(rows[0].address, 'kxgdp-26oct30');
+  assert.equal(rows[1].mounted, false);
+  assert.equal(summary.shape, 'prediction');
+  assert.equal(summary.high, 0);
+  assert.equal(summary.verdict, 'AGREES with the capture');
+});
+
+test('verify/prediction: catches a MISSED market page (live + multi-segment, refused) as HIGH', () => {
+  const examples = [
+    { rawUrl: 'https://kalshi.com/markets/kxgdp/kxgdp-26oct30', display: 'd', ann: { hadLivePrice: true } },
+  ];
+  const { rows, summary } = runVerify(BLIND_PREDICT, examples, PREDICT_CFG);
+  assert.equal(rows[0].mounted, false);
+  assert.ok(rows[0].flags.some((f) => f.code === 'MISSED_MARKET_PAGE' && f.level === 'high'));
+  assert.equal(summary.high, 1);
+  assert.match(summary.verdict, /DISAGREEMENTS/);
+});
+
+test('verify/prediction: catches an OVER_MOUNT on a portfolio page as HIGH', () => {
+  const examples = [
+    { rawUrl: 'https://kalshi.com/portfolio', display: 'd', ann: { looksHistoryPage: true } },
+  ];
+  const { rows, summary } = runVerify(GREEDY_PREDICT, examples, PREDICT_CFG);
+  assert.equal(rows[0].mounted, true);
+  assert.ok(rows[0].flags.some((f) => f.code === 'OVER_MOUNT' && f.level === 'high'));
+  assert.equal(summary.high, 1);
+});
+
+test('verify/prediction: an auth page that mounts is an OVER_MOUNT, and never counts as a market page', () => {
+  // Sign-in screens tick the venue's live prices behind the form, so the
+  // live-price signal alone would read them as tradable. The URL here is
+  // deliberately MULTI-segment: a single-segment auth route is already
+  // excluded by the category-route rule, which would let this lock pass while
+  // the auth rule itself was gone.
+  const examples = [
+    { rawUrl: 'https://kalshi.com/account/sign-in?redirect=%2Fportfolio', display: 'd', ann: { hadLivePrice: true } },
+  ];
+  const greedy = runVerify(GREEDY_PREDICT, examples, PREDICT_CFG);
+  assert.ok(greedy.rows[0].flags.some((f) => f.code === 'OVER_MOUNT' && f.level === 'high'));
+
+  const blind = runVerify(BLIND_PREDICT, examples, PREDICT_CFG);
+  assert.equal(blind.rows[0].isMarketPage, false, 'an auth page is never a market page');
+  assert.equal(blind.summary.marketPagesTotal, 0, 'an auth page is never a market page');
+  assert.equal(blind.summary.high, 0, 'refusing an auth page is correct, not a miss');
+});
+
+test('verify/prediction: an object with no market identifier is RETURNED_NO_ID, not a silent refusal', () => {
+  const examples = [
+    { rawUrl: 'https://app.hyperliquid.xyz/outcomes', display: 'd', ann: { looksListPage: true } },
+  ];
+  const { rows, summary } = runVerify(NO_ID_PREDICT, examples, PREDICT_CFG);
+  assert.equal(rows[0].mounted, false, 'no identifier means not mounted');
+  assert.ok(rows[0].flags.some((f) => f.code === 'RETURNED_NO_ID' && f.level === 'high'));
+  assert.equal(summary.high, 1);
+});
+
+test('verify/prediction: a venue that disagrees with the configured site is VENUE_MISMATCH', () => {
+  const examples = [
+    { rawUrl: 'https://kalshi.com/markets/kxgdp/kxgdp-26oct30', display: 'd', ann: { hadLivePrice: true } },
+  ];
+  const { rows, summary } = runVerify(GOOD_PREDICT, examples, { ...PREDICT_CFG, venue: 'polymarket' });
+  assert.ok(rows[0].flags.some((f) => f.code === 'VENUE_MISMATCH' && f.level === 'high'));
+  assert.equal(summary.high, 1);
+});
+
+test('verify/prediction: a single-segment category route that ticks live is MEDIUM, never HIGH', () => {
+  // /politics and /new list markets and tick prices; flagging them HIGH every
+  // run is how real flags get ignored.
+  const examples = [
+    { rawUrl: 'https://polymarket.com/politics', display: 'd', ann: { hadLivePrice: true } },
+  ];
+  const { rows, summary } = runVerify(BLIND_PREDICT, examples, { ...PREDICT_CFG, venue: 'polymarket' });
+  assert.ok(rows[0].flags.some((f) => f.code === 'MAYBE_MISSED_MARKET' && f.level === 'medium'));
+  assert.equal(summary.high, 0);
+});
+
+test('verify/prediction: an unknown adapter.shape is a loud error, never a silent token fallback', () => {
+  const examples = [
+    { rawUrl: 'https://kalshi.com/markets/kxgdp/kxgdp-26oct30', display: 'd', ann: { hadLivePrice: true } },
+  ];
+  const { rows, summary } = runVerify(GOOD_PREDICT, examples, { ...PREDICT_CFG, shape: 'sideways' });
+  assert.ok(rows[0].error, 'an undeclared shape must not fall back to another contract');
+  assert.match(rows[0].error, /unknown adapter\.shape/);
+  assert.equal(summary.verdict, 'ADAPTER ERROR');
+});
+
+test('verify/prediction: a prediction adapter is not silently run through the token verifier', () => {
+  // Same adapter, token shape declared: it exposes no currentSite(), so the
+  // verifier must error rather than report every page as a clean refusal.
+  const examples = [
+    { rawUrl: 'https://kalshi.com/markets/kxgdp/kxgdp-26oct30', display: 'd', ann: { looksTokenPage: true, hadLivePrice: true } },
+  ];
+  const { summary } = runVerify(GOOD_PREDICT, examples, { global: 'FakePredictSites', shape: 'token' });
+  assert.equal(summary.verdict, 'ADAPTER ERROR');
+});
+
 test('verify: a broken adapter surfaces as an error, not a false pass', () => {
   const { rows, summary } = runVerify('throw new Error("boom");', [
     { rawUrl: `https://x.io/token/${ADDR}`, display: 'd', ann: { looksTokenPage: true } },

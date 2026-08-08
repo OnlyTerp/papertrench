@@ -87,6 +87,12 @@
       const seg = pathname.match(/^\/outcomes\/([A-Z]{2,10})\/?$/);
       if (seg) market = seg[1];
     }
+    // No market identified — /outcomes itself is the index, and a title that
+    // does not parse tells us nothing. Refuse by returning null rather than an
+    // object with a null market: a caller reads any object as "mounted on a
+    // market" and then has nothing to price. Caught by pt-recon check
+    // (RETURNED_NO_ID) against the captured /outcomes index page.
+    if (!market) return null;
     return { venue: 'hyperliquid-outcomes', market, verified: false };
   }
 
@@ -116,17 +122,21 @@
       || null;
   }
 
+  // The prediction contract is the pure detect(host, pathname, title). There is
+  // deliberately NO currentSite() shim and no PaperTrenchSites alias here: those
+  // existed only to make the token-shaped pt-recon verifier find something, and
+  // bending the product to satisfy a checker is how a green run stops meaning
+  // anything. The verifier now speaks this shape natively (adapter.shape:
+  // "prediction" in ptrecon.config.json).
   const api = {
     detect,
-    currentSite: function() { return { id: 'predict', detect: detect }; },
-    site: { id: 'predict', detect: detect },
     detectKalshi,
     detectPolymarket,
     detectHyperliquidOutcomes,
     detectLimitless,
   };
 
-  if (typeof window !== 'undefined') { window.PaperPredictSites = api; window.PaperTrenchSites = api; }
-  if (typeof self !== 'undefined') { self.PaperPredictSites = api; self.PaperTrenchSites = api; }
+  if (typeof window !== 'undefined') window.PaperPredictSites = api;
+  if (typeof self !== 'undefined') self.PaperPredictSites = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

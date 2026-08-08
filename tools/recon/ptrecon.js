@@ -227,7 +227,13 @@ async function cmdCheck(args) {
   const corpusPath = path.join(dossierDir, 'corpus.json');
   if (!fs.existsSync(corpusPath)) throw new Error(`no corpus.json — run distill --site ${site} first`);
 
-  const adapterCfg = (CONFIG && CONFIG.adapter) || {};
+  // Per-site adapter contract. A project can ship more than one adapter shape
+  // (token terminals vs prediction venues); `adapter.bySite[<id>]` declares
+  // which one this site speaks. Declared, never sniffed — see lib/verify.js.
+  const adapterBase = (CONFIG && CONFIG.adapter) || {};
+  const bySite = (adapterBase.bySite || {})[site];
+  const adapterCfg = { ...adapterBase, ...(bySite || {}) };
+  delete adapterCfg.bySite;
   const adapterPath = args.adapter && args.adapter !== true
     ? path.resolve(String(args.adapter))
     : (adapterCfg.file ? path.join(PROJECT_ROOT, adapterCfg.file) : null);
@@ -239,9 +245,19 @@ async function cmdCheck(args) {
   // the corpus supplies the annotations and the scrubber the display form.
   const events = readJsonl(path.join(capDir, 'raw', 'events.jsonl'));
   const network = readJsonl(path.join(capDir, 'raw', 'network.jsonl'));
+  // Tab titles the capture actually recorded, keyed by the URL they were seen
+  // on. A prediction adapter may read the title (Hyperliquid carries the market
+  // there), so the verifier must feed it the real one — last non-empty title
+  // wins, since a SPA sets a placeholder before the market's own title lands.
+  const titleByUrl = new Map();
+  for (const e of events) {
+    const href = e.href || e.url;
+    if (!href || typeof e.title !== 'string' || !e.title) continue;
+    titleByUrl.set(href, e.title);
+  }
   const rawUrls = [
-    ...events.filter((e) => e.ev === 'nav' && (e.href || e.url)).map((e) => ({ url: e.href || e.url })),
-    ...network.filter((n) => n.resourceType === 'Document' && n.url).map((n) => ({ url: n.url })),
+    ...events.filter((e) => e.ev === 'nav' && (e.href || e.url)).map((e) => ({ url: e.href || e.url, title: titleByUrl.get(e.href || e.url) })),
+    ...network.filter((n) => n.resourceType === 'Document' && n.url).map((n) => ({ url: n.url, title: titleByUrl.get(n.url) })),
   ];
   const corpus = JSON.parse(fs.readFileSync(corpusPath, 'utf8'));
   const scrubber = makeScrubber(loadDenylist(loadDenylistText()));
@@ -251,16 +267,21 @@ async function cmdCheck(args) {
   const { rows, summary } = runVerify(adapterSrc, examples, adapterCfg);
 
   process.stderr.write(`\n[pt-recon] check — ${path.relative(PROJECT_ROOT, adapterPath)} vs ${examples.length} real pages from ${path.basename(capDir)}\n\n`);
+  const predictionShape = summary.shape === 'prediction';
   const icon = (r) => r.error ? '⚠️ ' : r.mounted ? '● MOUNT ' : '○ refuse';
   for (const r of rows) {
-    const detail = r.error ? r.error : r.mounted ? `${r.kind || '?'} ${short(r.address)} chain=${r.chain || '—'}` : '';
-    const tag = r.ann.looksTokenPage ? '[token]' : r.ann.looksHistoryPage ? '[history]' : r.ann.looksListPage ? '[list]' : '[other]';
+    const detail = r.error ? r.error
+      : r.mounted && predictionShape ? `${r.venue || '?'} ${r.kind}=${short(r.address)} verified=${r.verified === undefined ? '—' : r.verified}`
+      : r.mounted ? `${r.kind || '?'} ${short(r.address)} chain=${r.chain || '—'}` : '';
+    const tag = predictionShape
+      ? (r.ann.looksAuthPage ? '[auth]' : r.ann.looksHistoryPage ? '[wallet]' : r.ann.looksListPage ? '[list]' : r.ann.hadLivePrice ? '[market]' : '[other]')
+      : (r.ann.looksTokenPage ? '[token]' : r.ann.looksHistoryPage ? '[history]' : r.ann.looksListPage ? '[list]' : '[other]');
     process.stderr.write(`  ${icon(r)} ${tag}${r.ann.hadLivePrice ? '·live' : ''}  ${short(r.display, 66)}\n`);
     if (detail) process.stderr.write(`           → ${detail}\n`);
     for (const f of r.flags) process.stderr.write(`           ${f.level === 'high' ? '🔴' : f.level === 'medium' ? '🟡' : f.level === 'error' ? '⚠️ ' : '·'} ${f.code}: ${f.why}\n`);
   }
   process.stderr.write(`\n[pt-recon] ${summary.verdict}\n`);
-  process.stderr.write(`  token pages mounted: ${summary.tokenPagesMounted}/${summary.tokenPagesTotal} · refuse-candidates refused: ${summary.refuseCandidatesRefused}/${summary.refuseCandidatesTotal}\n`);
+  process.stderr.write(`  ${summary.subjectNoun || 'token page'}s mounted: ${summary.subjectMounted}/${summary.subjectTotal} · refuse-candidates refused: ${summary.refuseCandidatesRefused}/${summary.refuseCandidatesTotal}\n`);
   process.stderr.write(`  flags: ${summary.high} high, ${summary.medium} medium${summary.errors ? ', ' + summary.errors + ' adapter errors' : ''}\n`);
   if (summary.high || summary.errors) process.exitCode = 1;
 }

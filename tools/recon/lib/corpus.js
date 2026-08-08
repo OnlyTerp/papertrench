@@ -12,6 +12,11 @@ const { normalizeUrl } = require('./schema');
 
 const HISTORY_RE = /\b(wallet|holders?|holding|portfolio|leaderboard|positions?|activity|history|txns?|transactions?|pnl|top-?traders?|trader|profile|account|settings|watchlist)\b/i;
 const LIST_RE = /\b(trending|screener|pulse|memescope|discover|explore|new-?pairs?|gainers|losers|movers|feed|home|markets?|tokens?|pairs?)\b/i;
+// Auth/consent routes. These often render a venue's live prices behind or
+// beside the form, so the live-price signal alone would read them as a
+// tradable page — and an adapter that mounts a ticket on a sign-in screen is
+// the same class of bug as mounting on a wallet page.
+const AUTH_RE = /\b(sign-?in|sign-?up|log-?in|log-?out|register|auth|oauth|callback|connect-?wallet|verify-?email|reset-?password|onboarding)\b/i;
 
 const ADDR_VALUE_RE = /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/;
 // Only an address-shaped value under an address-like KEY counts — a base58
@@ -38,6 +43,7 @@ function classifyUrl(rawUrl, priceInfo) {
   // MUST mount it — the holders DATA there is a §6 pollution concern, not a
   // reason to refuse the page (treating it as history caused a false OVER_MOUNT).
   const looksHistoryPage = HISTORY_RE.test(path) || /\/address(es)?(\/|$)/i.test(path);
+  const looksAuthPage = AUTH_RE.test(path);
   // A token page is an address (path or query) that is not a wallet/history
   // route. This wins over node count: a real trading page is dense with numbers
   // (price, mcap, liquidity, volume, txns) — the ">=8 prices" heuristic must NOT
@@ -54,6 +60,7 @@ function classifyUrl(rawUrl, priceInfo) {
     priceNodeCount,
     hadLivePrice,
     looksHistoryPage,
+    looksAuthPage,
     looksListPage,
     looksTokenPage,
   };
@@ -158,4 +165,4 @@ function buildCorpus(navEvents, domsigEvents, docEntries, scrubber) {
   };
 }
 
-module.exports = { buildCorpus, classifyUrl, pricesByHref, HISTORY_RE, LIST_RE };
+module.exports = { buildCorpus, classifyUrl, pricesByHref, HISTORY_RE, LIST_RE, AUTH_RE };

@@ -12,21 +12,60 @@
 
 const vm = require('node:vm');
 const { normalizeUrl } = require('./schema');
+const { AUTH_RE } = require('./corpus');
 
-const DEFAULT_ADAPTER = { global: 'PaperTrenchSites', currentSite: 'currentSite', detect: 'detect' };
+const DEFAULT_ADAPTER = { global: 'PaperTrenchSites', currentSite: 'currentSite', detect: 'detect', shape: 'token' };
+
+// Adapter SHAPES. A project can ship more than one kind of adapter: token
+// terminals return {kind, address, chain}; prediction venues return
+// {venue, <one market id>, verified}. The shape is DECLARED per site in
+// ptrecon.config.json, never sniffed from the return value — guessing is how a
+// verifier silently applies the wrong contract and reports a green run against
+// a check it never made. An unknown shape is a loud error, not a fallback.
+const SHAPES = new Set(['token', 'prediction']);
+
+// The market identifier keys a prediction adapter may use, in priority order.
+// Exactly one non-empty value is required for a mount to count.
+const PREDICTION_ID_KEYS = ['marketId', 'eventSlug', 'marketSlug', 'market'];
+
+function pathSegments(href) {
+  try { return new URL(href).pathname.split('/').filter(Boolean).length; } catch { return 0; }
+}
+
+// Auth is a route shape, so the verifier derives it itself when the annotation
+// does not carry it. Deriving it only in assembleExamples would make the
+// contract depend on which caller built the examples — and a verifier whose
+// rules change with its caller is not a contract.
+function isAuthPage(ann, href) {
+  if (ann && ann.looksAuthPage != null) return !!ann.looksAuthPage;
+  try { return AUTH_RE.test(new URL(href).pathname); } catch { return false; }
+}
+
+function predictionId(m) {
+  if (!m || typeof m !== 'object') return null;
+  for (const k of PREDICTION_ID_KEYS) {
+    const v = m[k];
+    if (typeof v === 'string' && v.trim()) return { key: k, value: v.trim() };
+  }
+  return null;
+}
 
 // Load the project's adapter source into a fresh sandbox pinned to `href`, and
 // return its detection at that URL. Mirrors how the project's own gating test
 // loads the adapter, so the verifier sees exactly what the app sees. The
 // adapter contract (which global it sets, which method returns the current
 // site) comes from ptrecon.config.json's `adapter` block.
-function detectAt(adapterSrc, href, adapterCfg) {
+function detectAt(adapterSrc, href, adapterCfg, title) {
   const cfg = { ...DEFAULT_ADAPTER, ...(adapterCfg || {}) };
+  if (!SHAPES.has(cfg.shape)) {
+    return { error: `unknown adapter.shape "${cfg.shape}" — set it to one of: ${[...SHAPES].join(', ')} (ptrecon.config.json adapter block)` };
+  }
   let url;
   try { url = new URL(href); } catch { return { error: 'bad url' }; }
   const sandbox = {
     window: {}, self: {}, globalThis: {},
     location: { href, hostname: url.hostname, pathname: url.pathname, search: url.search },
+    document: { title: typeof title === 'string' ? title : '' },
     URL, URLSearchParams, console: { log() {}, warn() {}, error() {} },
   };
   if (!cfg.global) return { error: 'adapter.global not set in ptrecon.config.json (the global your adapter assigns, e.g. "MySites")' };
@@ -34,7 +73,23 @@ function detectAt(adapterSrc, href, adapterCfg) {
     vm.createContext(sandbox);
     vm.runInContext(adapterSrc, sandbox, { filename: cfg.file || 'adapter.js', timeout: 2000 });
     const api = sandbox.window[cfg.global] || sandbox.self[cfg.global] || sandbox.globalThis[cfg.global];
-    if (!api || typeof api[cfg.currentSite] !== 'function') return { error: `adapter did not expose ${cfg.global}.${cfg.currentSite}() (check ptrecon.config.json adapter block)` };
+    if (!api) return { error: `adapter did not expose the global "${cfg.global}" (check ptrecon.config.json adapter block)` };
+
+    // Prediction adapters are pure: detect(host, pathname, title) → market or
+    // null. There is no currentSite() indirection to mirror, because a
+    // prediction venue's identity is the venue, declared in config.
+    if (cfg.shape === 'prediction') {
+      if (typeof api[cfg.detect] !== 'function') return { error: `adapter did not expose ${cfg.global}.${cfg.detect}() (check ptrecon.config.json adapter block)` };
+      let market = null;
+      try {
+        market = api[cfg.detect](url.hostname, url.pathname, typeof title === 'string' ? title : undefined);
+      } catch (e) {
+        return { siteId: cfg.venue || null, error: `${cfg.detect}() threw: ` + e.message };
+      }
+      return { siteId: cfg.venue || null, market: market || null };
+    }
+
+    if (typeof api[cfg.currentSite] !== 'function') return { error: `adapter did not expose ${cfg.global}.${cfg.currentSite}() (check ptrecon.config.json adapter block)` };
     const site = api[cfg.currentSite]();
     if (!site) return { siteId: null, token: null };
     let token = null;
@@ -49,9 +104,12 @@ function detectAt(adapterSrc, href, adapterCfg) {
 // { looksTokenPage, looksListPage, looksHistoryPage, hadLivePrice, priceNodeCount, chain }.
 // Returns { rows, summary }.
 function runVerify(adapterSrc, examples, adapterCfg) {
+  const cfg = { ...DEFAULT_ADAPTER, ...(adapterCfg || {}) };
+  if (cfg.shape === 'prediction') return runVerifyPrediction(adapterSrc, examples, cfg);
+
   const rows = [];
   for (const ex of examples) {
-    const res = detectAt(adapterSrc, ex.rawUrl, adapterCfg);
+    const res = detectAt(adapterSrc, ex.rawUrl, adapterCfg, ex.title);
     const mounted = !!(res.token && (res.token.kind || res.token.address));
     const flags = [];
 
@@ -113,10 +171,129 @@ function runVerify(adapterSrc, examples, adapterCfg) {
   // adapter that refuses every token page reads as fine. Any unmounted token
   // page downgrades the verdict to REVIEW.
   const tokenPagesRefused = summary.tokenPagesTotal - summary.tokenPagesMounted;
+  summary.shape = 'token';
+  summary.subjectNoun = 'token page';
+  summary.subjectMounted = summary.tokenPagesMounted;
+  summary.subjectTotal = summary.tokenPagesTotal;
   summary.verdict = summary.errors ? 'ADAPTER ERROR'
     : summary.high ? 'DISAGREEMENTS — review the high flags'
     : summary.tokenPagesTotal === 0 ? 'INCONCLUSIVE — no token page in the corpus to test against'
     : tokenPagesRefused > 0 ? `REVIEW — ${tokenPagesRefused}/${summary.tokenPagesTotal} token page(s) refused (confirm they are real token pages)`
+    : 'AGREES with the capture';
+  return { rows, summary };
+}
+
+// The PREDICTION contract, checked against the same real captured corpus.
+//
+// A prediction venue has no address in its path, so "is this a market page"
+// cannot be answered by the token heuristic. The capture's own signal is used
+// instead: a page that ticked a LIVE price and is not a list/screener or a
+// wallet/history page is a market page, and refusing it is a miss.
+//
+// Two failure modes matter here and neither exists in the token shape:
+//   RETURNED_NO_ID — detect() returned an object with no market identifier.
+//     A caller reads that as "mounted on a market" and then has nothing to
+//     price. The contract is: return null, or return an identified market.
+//   VENUE_MISMATCH — the venue field disagrees with the venue declared for
+//     this site in config. A copy-pasted adapter branch fails exactly here.
+function runVerifyPrediction(adapterSrc, examples, cfg) {
+  const rows = [];
+  for (const ex of examples) {
+    const res = detectAt(adapterSrc, ex.rawUrl, cfg, ex.title);
+    const id = predictionId(res.market);
+    const returned = !!(res.market && typeof res.market === 'object');
+    const mounted = !!id;
+    const flags = [];
+    // Computed once and carried on the row: the summary must count market
+    // pages by the same rule the flags use, or it can report "1/3 mounted, 0
+    // disagreements" and contradict itself.
+    const ann0 = ex.ann || {};
+    const marketPage = !res.error && !!ann0.hadLivePrice
+      && !ann0.looksListPage && !ann0.looksHistoryPage && !isAuthPage(ann0, ex.rawUrl)
+      && pathSegments(ex.rawUrl) >= 2;
+
+    if (res.error) {
+      flags.push({ level: 'error', code: 'ADAPTER_ERROR', why: res.error });
+    } else {
+      const a = ex.ann || {};
+      // A live-ticking page that is not a list/wallet/auth route is a market
+      // page candidate. One more generic route-shape rule separates a real
+      // market from a section index: an individual market lives at a path with
+      // at least two segments (/event/<slug>, /markets/<series>/<market>),
+      // while /new, /politics, /crypto are category routes that tick live
+      // prices because they list markets. Deliberate tradeoff: a venue that
+      // serves markets at a single bare segment gets a MEDIUM here instead of
+      // a HIGH — under-flagging one exotic layout beats crying wolf on every
+      // category page, which is how flags get ignored.
+      const authPage = isAuthPage(a, ex.rawUrl);
+      const liveTradablePage = !!a.hadLivePrice && !a.looksListPage && !a.looksHistoryPage && !authPage;
+      const isMarketPage = marketPage;
+
+      if (returned && !mounted) {
+        flags.push({ level: 'high', code: 'RETURNED_NO_ID', why: `detect() returned a ${res.market.venue || '?'} object with no market identifier (${PREDICTION_ID_KEYS.join('|')}) — it must return null instead` });
+      }
+      if (mounted && cfg.venue && res.market.venue !== cfg.venue) {
+        flags.push({ level: 'high', code: 'VENUE_MISMATCH', why: `detect() said venue "${res.market.venue}" but this site is configured as "${cfg.venue}"` });
+      }
+      if (!mounted && !returned && isMarketPage) {
+        flags.push({ level: 'high', code: 'MISSED_MARKET_PAGE', why: 'page ticked a LIVE price and is not a list/wallet page, but detect() refused it' });
+      } else if (!mounted && !returned && liveTradablePage) {
+        flags.push({ level: 'medium', code: 'MAYBE_MISSED_MARKET', why: 'single-segment route ticked a LIVE price and detect() refused it — confirm it is a category index and not a market' });
+      }
+      if (mounted && (a.looksHistoryPage || authPage)) {
+        flags.push({ level: 'high', code: 'OVER_MOUNT', why: `${authPage ? 'auth/sign-in' : 'portfolio/history/wallet'} page MOUNTED — these must refuse` });
+      }
+      if (mounted && a.looksListPage && !a.hadLivePrice) {
+        flags.push({ level: 'medium', code: 'LIST_MOUNT', why: 'list/screener page mounted — usually should refuse (confirm against the route)' });
+      }
+      if (mounted && typeof res.market.verified !== 'boolean') {
+        flags.push({ level: 'medium', code: 'NO_VERIFIED_FLAG', why: 'mounted market has no boolean `verified` field — the honest-gating flag is part of the contract' });
+      }
+    }
+
+    rows.push({
+      display: ex.display || ex.rawUrl,
+      siteId: res.siteId || null,
+      mounted,
+      isMarketPage: marketPage,
+      kind: mounted ? id.key : null,
+      address: mounted ? id.value : null,
+      chain: null,
+      venue: res.market ? res.market.venue || null : null,
+      verified: res.market ? res.market.verified : undefined,
+      ann: ex.ann || {},
+      error: res.error || null,
+      flags,
+    });
+  }
+
+  // Counted exactly the way the flag logic decides a market page, or the
+  // summary would contradict its own flags ("1/3 mounted, 0 disagreements").
+  const marketPages = rows.filter((r) => r.isMarketPage);
+  const refuseCandidates = rows.filter((r) => r.ann.looksHistoryPage || r.ann.looksAuthPage || (r.ann.looksListPage && !r.ann.hadLivePrice));
+  const summary = {
+    shape: 'prediction',
+    subjectNoun: 'market page',
+    total: rows.length,
+    mounted: rows.filter((r) => r.mounted).length,
+    refused: rows.filter((r) => !r.mounted && !r.error).length,
+    marketPagesMounted: marketPages.filter((r) => r.mounted).length,
+    marketPagesTotal: marketPages.length,
+    tokenPagesMounted: 0,
+    tokenPagesTotal: 0,
+    refuseCandidatesRefused: refuseCandidates.filter((r) => !r.mounted).length,
+    refuseCandidatesTotal: refuseCandidates.length,
+    high: rows.reduce((n, r) => n + r.flags.filter((f) => f.level === 'high').length, 0),
+    medium: rows.reduce((n, r) => n + r.flags.filter((f) => f.level === 'medium').length, 0),
+    errors: rows.filter((r) => r.error).length,
+  };
+  summary.subjectMounted = summary.marketPagesMounted;
+  summary.subjectTotal = summary.marketPagesTotal;
+  const missed = summary.marketPagesTotal - summary.marketPagesMounted;
+  summary.verdict = summary.errors ? 'ADAPTER ERROR'
+    : summary.high ? 'DISAGREEMENTS — review the high flags'
+    : summary.marketPagesTotal === 0 ? 'INCONCLUSIVE — no live-ticking market page in the corpus to test against'
+    : missed > 0 ? `REVIEW — ${missed}/${summary.marketPagesTotal} market page(s) refused (confirm they are real market pages)`
     : 'AGREES with the capture';
   return { rows, summary };
 }
@@ -149,10 +326,19 @@ function assembleExamples(rawUrls, corpusUrls, scrub) {
     seen.set(key, {
       rawUrl: raw,
       display: scrub ? scrub.scrubUrl(raw) : raw,
+      // Prediction adapters may read the tab title (Hyperliquid carries the
+      // market there). Only a title the capture actually recorded is passed —
+      // never a synthesized one, or the verifier would test a page that never
+      // existed.
+      ...(typeof u.title === 'string' && u.title ? { title: u.title } : {}),
       ann: {
         looksTokenPage: !!ann.looksTokenPage,
         looksListPage: !!ann.looksListPage,
         looksHistoryPage: !!ann.looksHistoryPage,
+        // Derived from the URL, not read from the corpus: auth routes are a
+        // pure route shape, so this stays correct on corpora distilled before
+        // the classifier learned the notion.
+        looksAuthPage: ann.looksAuthPage != null ? !!ann.looksAuthPage : AUTH_RE.test(norm.path || ''),
         hadLivePrice: !!ann.hadLivePrice,
         priceNodeCount: ann.priceNodeCount || 0,
         chain: ann.chain || norm.chainCandidates.map((c) => c.seg)[0] || null,
@@ -162,4 +348,4 @@ function assembleExamples(rawUrls, corpusUrls, scrub) {
   return [...seen.values()];
 }
 
-module.exports = { detectAt, runVerify, assembleExamples, chainsAgree };
+module.exports = { detectAt, runVerify, assembleExamples, chainsAgree, predictionId, SHAPES, PREDICTION_ID_KEYS };

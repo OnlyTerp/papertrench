@@ -108,15 +108,15 @@ test('Hyperliquid outcomes — /outcomes with title carrying BTC market', () => 
   );
 });
 
-test('Hyperliquid outcomes — /outcomes with no title → market: null', () => {
-  assert.deepEqual(
-    S.detect('app.hyperliquid.xyz', '/outcomes'),
-    {
-      venue: 'hyperliquid-outcomes',
-      market: null,
-      verified: false,
-    },
-  );
+test('Hyperliquid outcomes — /outcomes index with no title REFUSES (never a half-mount)', () => {
+  // This asserted the opposite until pt-recon check caught it (RETURNED_NO_ID)
+  // against the captured /outcomes index. Returning {venue, market: null} reads
+  // to every caller as "we are on a market" and then there is nothing to price:
+  // the ticket mounts on the index page with no book behind it. The contract is
+  // null, or an identified market — never an object with no identifier.
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes'), null);
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes', 'Hyperliquid'), null);
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/', 'no price here'), null);
 });
 
 /* ================================================================== */
