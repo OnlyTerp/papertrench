@@ -165,21 +165,29 @@ function distill(capDir, outDir, opts = {}) {
   }
 
   // ---- §4 ws channels ------------------------------------------------------
-  const wsChannels = new Map(); // url -> {frames, in, out, shape, discriminators:Map, firstT, lastT}
+  // Key a channel by its URL, or — when we ATTACHED after the socket opened, so
+  // we never saw webSocketCreated and the frames carry no url — by wsId. Without
+  // this, an attach capture of a WS-driven site (the logged-in path) would drop
+  // thousands of real frames and wrongly report "no WS traffic". The url is
+  // shown as the wsId placeholder in that case.
+  const wsChannels = new Map(); // key -> {frames, in, out, shape, discriminators:Map, firstT, lastT}
   const wsOpen = wsLines.filter((w) => w.ev === 'open');
   for (const w of wsLines) {
-    if (!w.url || typeof w.payload !== 'string') continue;
-    let ch = wsChannels.get(w.url);
-    if (!ch) { ch = { url: w.url, proto: w.proto || 'ws', frames: 0, in: 0, out: 0, shape: null, disc: new Map(), firstT: w.t, lastT: w.t, sample: null }; wsChannels.set(w.url, ch); }
+    if (typeof w.payload !== 'string') continue;
+    const key = w.url || (w.wsId ? `wsId:${w.wsId}` : null);
+    if (!key) continue;
+    let ch = wsChannels.get(key);
+    if (!ch) { ch = { url: w.url || key, proto: w.proto || 'ws', urlKnown: !!w.url, frames: 0, in: 0, out: 0, shape: null, disc: new Map(), firstT: w.t, lastT: w.t, sample: null }; wsChannels.set(key, ch); }
     ch.frames++;
     ch[w.dir === 'out' ? 'out' : 'in']++;
     ch.lastT = w.t;
     const parsed = tryParseJson(Buffer.from(w.payload, 'utf8'));
     if (parsed && typeof parsed === 'object') {
-      scanInjection(w.payload.slice(0, 2000), `ws:${w.url}`, injectionHits);
+      scanInjection(w.payload.slice(0, 2000), `ws:${ch.url}`, injectionHits);
       ch.shape = mergeShape(ch.shape, parsed, null);
-      // Discriminator guess: common tag keys used to route frame types.
-      for (const dk of ['type', 'event', 'channel', 'method', 'op', 'e', 'stream', 'topic', 'action']) {
+      // Discriminator guess: common tag keys used to route frame types (Axiom
+      // uses `room`; others use type/event/channel/...).
+      for (const dk of ['type', 'event', 'channel', 'method', 'op', 'e', 'stream', 'topic', 'action', 'room', 'kind', 'name']) {
         if (parsed[dk] !== undefined && typeof parsed[dk] !== 'object') {
           const dv = `${dk}=${parsed[dk]}`;
           ch.disc.set(dv, (ch.disc.get(dv) || 0) + 1);
@@ -233,11 +241,12 @@ function distill(capDir, outDir, opts = {}) {
     const kind = n.resourceType === 'Document' ? 'doc' : 'rest';
     if (nums.size) origins.push({ t: n.tDone || n.t, kind, url: stripQuery(n.url), numbers: nums });
   }
-  // WS origins: one per inbound frame.
+  // WS origins: one per inbound frame. Key by url, or by wsId when attached mid-
+  // stream (no url), so the distinct sockets stay distinct in the provenance map.
   for (const w of wsLines) {
     if (w.dir !== 'in' || typeof w.payload !== 'string') continue;
     const nums = extractNumbers(w.payload);
-    if (nums.size) origins.push({ t: w.t, kind: 'ws', url: stripQuery(w.url || 'ws'), numbers: nums });
+    if (nums.size) origins.push({ t: w.t, kind: 'ws', url: stripQuery(w.url || (w.wsId ? `ws:${w.wsId}` : 'ws')), numbers: nums });
   }
   const provenance = correlate(domsig, origins);
 
@@ -311,6 +320,11 @@ function distill(capDir, outDir, opts = {}) {
     q('WS-REJECTED', `${wsFailed.length} WebSocket(s) OPENED but were REJECTED with 0 frames — e.g. \`${hostOf(f.url || 'ws')}\` (${scrubber.scrubString(f.error || '')}, ${f.attempts} attempt(s)). The channel never connected under this capture (bot-gated upgrade?), so the live price you saw came from ELSEWHERE — check §3/§5 for the polling endpoint. Do NOT fake this WS: the capture never observed a single frame (F-39). A logged-in capture may connect.`);
   }
   if (wsChannels.size === 0 && wsFailed.length === 0) q('WS-0', 'No WebSocket traffic captured at all. Does this site push prices over WS, or is it REST/SSE polling? If the capture just missed a token page with a live chart, re-capture on one.');
+  // Attached mid-stream: frames arrived without a url because the socket opened
+  // before we connected. Name it — the frames + shapes are real, only the url is
+  // unknown (harmless for building a fake, which keys on the frame discriminator).
+  const wsUrlless = [...wsChannels.values()].filter((c) => !c.urlKnown);
+  if (wsUrlless.length) q('WS-ATTACHED', `${wsUrlless.length} WS channel(s) were captured mid-stream (attached after they opened), so their URL is unknown — shown as \`wsId:*\`. The frames and their shapes/discriminators ARE real; to also recover the socket URL, capture with a fresh page load (\`--url <page>\` reloads it) instead of a bare attach.`);
   for (const ch of wsChannels.values()) if (ch.disc.size === 0 && ch.frames > 3) q('WS-DISC', `WS channel ${hostOf(ch.url)} carried ${ch.frames} frames but no recognizable type/channel discriminator — inspect fixtures to find how frame kinds are told apart before writing a fake.`);
   const uncorrelated = provenance.filter((p) => p.changes > 1 && !p.correlated);
   if (uncorrelated.length) q('PROV-UNCORR', `${uncorrelated.length} DOM price node(s) changed value but matched NO network origin. Their source is unexplained — do not assume market data. First: ${uncorrelated.slice(0, 3).map((p) => shortPath(scrubber.scrubString(p.path))).join(' | ')}`);
