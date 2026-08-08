@@ -6,8 +6,13 @@ cd "$(dirname "$0")/.."
 
 fail() { echo "PREFLIGHT FAIL: $*" >&2; exit 1; }
 
-MANIFEST_V=$(grep -oP '"version":\s*"\K[0-9.]+' extension/manifest.json | head -1)
-PACKAGE_V=$(grep -oP '"version":\s*"\K[0-9.]+' extension/package.json | head -1)
+# POSIX sed rather than `grep -oP`: -P is a GNU extension that macOS grep does
+# not have at all, and that GNU grep itself refuses under a non-UTF-8 locale
+# ("-P supports only unibyte and UTF-8 locales"). A release check that only
+# runs on one machine is a release check nobody runs.
+version_of() { sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9.]*\)".*/\1/p' "$1" | head -1; }
+MANIFEST_V=$(version_of extension/manifest.json)
+PACKAGE_V=$(version_of extension/package.json)
 
 echo "manifest: $MANIFEST_V  package: $PACKAGE_V"
 [ "$MANIFEST_V" = "$PACKAGE_V" ] || fail "manifest.json ($MANIFEST_V) != package.json ($PACKAGE_V)"

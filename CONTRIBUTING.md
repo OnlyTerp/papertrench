@@ -12,12 +12,25 @@ corrupts every P&L that follows, and it teaches the user the wrong lesson.
 
 ## Running the tests
 
+There are two suites, and CI runs both:
+
 ```bash
-cd extension
-node --test
+cd extension && node --test    # 1104 tests — overlay, engine, price resolution
+cd server   && node --test     #  103 tests — chain verification, pricing, boards
 ```
 
-All 231 must pass. The single live-API test skips (never fails) when offline.
+All must pass. The single live-API test skips (never fails) when offline.
+
+Before a release — or any change to `server/` or `site/`:
+
+```bash
+bash scripts/preflight.sh              # version, CHANGELOG, download link, nav
+node scripts/check-schema-drift.js     # every queried table exists in schema.sql
+```
+
+The pure core suites never import the Worker entry or touch D1, so a broken
+import or a query against a table nobody created is green all the way through
+them. CI covers that gap separately (`.github/workflows/test.yml`).
 
 ## Writing tests
 
