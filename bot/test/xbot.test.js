@@ -1,7 +1,8 @@
 /* PaperTrench onboarding bot — test suite.
  *
  * Run with:  cd bot && node --test
- * Or from the root with the preflight script:  bash scripts/preflight.sh
+ * scripts/preflight.sh runs this suite as a release gate alongside the
+ * extension and server suites.
  */
 
 'use strict';
@@ -21,18 +22,6 @@ function mention(over) {
   }, over || {});
 }
 
-function fakeTransport(throwOnSend) {
-  return {
-    sent: [],
-    log: () => {},
-    send: async (payload, m) => {
-      if (throwOnSend) throw new Error('transport.send should not be called');
-      this.sent.push({ payload, mention: m });
-    },
-  };
-}
-
-/* Helpers that do not rely on `this` binding. */
 function makeTransport(throwOnSend) {
   const t = { sent: [], log: () => {} };
   t.send = async (payload, m) => {
@@ -167,19 +156,20 @@ test('never replies to the bot itself', async () => {
 
 /* ---------------- template length / URL ---------------- */
 
-test('SHORT_TEMPLATE fits free-tier with one t.co URL counting as 23 chars', () => {
-  const tcoUrlLen = 23;
-  const raw = SHORT_TEMPLATE;
-  const urlMatches = (raw.match(/papertrench\.com/g) || []).length;
-  assert.equal(urlMatches, 1, 'short template must contain exactly one papertrench.com URL');
-  const url = 'papertrench.com';
-  const length = raw.length - url.length + tcoUrlLen;
-  assert.ok(length <= 280, 'short template too long: ' + length);
-});
+/* X auto-links EVERY bare domain with a valid TLD (.fun, .family, … — not
+ * just .com), and each counts as a 23-char t.co URL. Counting only the CTA
+ * once hid a real rejection: "Pump.fun" in the sites line pushed the post to
+ * 295 effective chars, so the API would have refused every free-tier reply. */
+const AUTOLINK_RE = /\b[A-Za-z0-9-]+\.(?:com|net|org|io|fun|family|xyz|app|dev|gg|so)\b/g;
 
-test('SHORT_TEMPLATE has exactly one URL and it is papertrench.com', () => {
-  const occurrences = (SHORT_TEMPLATE.match(/papertrench\.com/g) || []).length;
-  assert.equal(occurrences, 1);
+test('SHORT_TEMPLATE fits free-tier with every autolinkable domain counted as 23 chars', () => {
+  const urls = SHORT_TEMPLATE.match(AUTOLINK_RE) || [];
+  assert.deepEqual(urls, ['papertrench.com'],
+    'short template must contain exactly one autolinkable domain: the CTA');
+  const effective = [...SHORT_TEMPLATE].length
+    - urls.reduce((sum, u) => sum + u.length, 0)
+    + 23 * urls.length;
+  assert.ok(effective <= 280, 'short template too long for free tier: ' + effective);
 });
 
 /* ---------------- copy lock: sites exist in extension/sites.js ---------------- */
@@ -188,17 +178,12 @@ test('every site named in SITES_LINE has an adapter in extension/sites.js', () =
   const fs = require('fs');
   const path = require('path');
   const sitesSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'sites.js'), 'utf8');
-  const raw = SITES_LINE.replace(/^Open /, '').trim();
-  const names = raw.split(/, | \//).map((s) => s.trim());
-  const friendly = {
-    'Padre Terminal': 'Padre',
-    'BullX NEO': 'BullX',
-    'Dexscreener': 'Dexscreener',
-    'Pump.fun': 'Pump',
-  };
+  const names = SITES_LINE.split(', ').map((s) => s.trim());
   for (const name of names) {
-    const n = friendly[name] || name;
-    const re = new RegExp('name:\\s*\'' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:[^\']*)\'');
+    /* Prefix match: the copy may shorten a display name ("BullX" for
+     * "BullX NEO", "Padre" for "Padre / Terminal") but must never name a
+     * site that has no adapter at all. */
+    const re = new RegExp('name:\\s*\'' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\']*\'');
     assert.ok(re.test(sitesSrc), 'site name not found in sites.js: ' + name);
   }
 });
@@ -209,8 +194,8 @@ test('docs/ONBOARDING-BOT.md contains the exact SHORT_TEMPLATE and LONG_TEMPLATE
   const fs = require('fs');
   const path = require('path');
   const doc = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'ONBOARDING-BOT.md'), 'utf8');
-  assert.ok(doc.includes('{{SHORT_TEMPLATE}}') || doc.includes(SHORT_TEMPLATE),
-    'docs must reference SHORT_TEMPLATE');
-  assert.ok(doc.includes('{{LONG_TEMPLATE}}') || doc.includes(LONG_TEMPLATE),
-    'docs must reference LONG_TEMPLATE');
+  assert.ok(doc.includes(SHORT_TEMPLATE),
+    'docs must contain the exact SHORT_TEMPLATE text — a placeholder is not a copy anyone can paste');
+  assert.ok(doc.includes(LONG_TEMPLATE),
+    'docs must contain the exact LONG_TEMPLATE text');
 });

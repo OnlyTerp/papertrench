@@ -11,13 +11,18 @@ function BOT_HANDLE(config) {
   return (config && config.BOT_HANDLE) || 'PaperTrenchBot';
 }
 
-/* Supported trading sites. Keep this in sync with extension/sites.js; the
- * test suite enforces that every name here is exported by that module. */
-const SITES_LINE = 'Axiom, Pump.fun, Padre, GMGN, BullX, Dexscreener, Birdeye';
+/* Supported trading sites named in the reply copy. Keep this in sync with
+ * extension/sites.js; the test suite enforces that every name here has an
+ * adapter there. Pump.fun is supported by the extension but deliberately NOT
+ * named here: X auto-links any bare domain with a valid TLD (.fun qualifies),
+ * so "Pump.fun" would count as a second 23-char t.co URL — pushing the short
+ * post past the 280-char free-tier limit and doubling per-post URL pricing. */
+const SITES_LINE = 'Axiom, Padre, GMGN, BullX, Dexscreener, Birdeye';
 
 /* Free-tier post (≤ 280 chars, one URL at the end).
- * X counts any URL as 23 characters via t.co wrapping, so the limit below is
- * enforced in character-count logic as: 280 - 23 + actual_url_length. */
+ * X wraps EVERY autolinkable bare domain in a 23-char t.co link — not just the
+ * CTA. The test suite counts all TLD-shaped tokens as 23 chars each; keep the
+ * copy free of accidental domains (see the SITES_LINE note above). */
 const SHORT_TEMPLATE = [
   'Curious about a memecoin? Paper-trade it first.',
   '1. Install the free Chrome ext.',

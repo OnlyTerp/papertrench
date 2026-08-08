@@ -43,6 +43,16 @@ function mentionHour(m) {
   }
 }
 
+/* Tweet ids are numeric snowflake strings. Compare as BigInt when both sides
+ * are numeric so a shorter (older) id can never sort above a longer one; fall
+ * back to string comparison for non-numeric ids (tests use them). */
+function idGt(a, b) {
+  const as = String(a);
+  const bs = String(b);
+  if (/^\d+$/.test(as) && /^\d+$/.test(bs)) return BigInt(as) > BigInt(bs);
+  return as > bs;
+}
+
 function isReplied(store, id, conversationId) {
   if (!store) return false;
   return !!store[id] || (conversationId ? !!store[conversationId] : false);
@@ -74,7 +84,7 @@ async function processMentions(mentions, state, config, transport) {
   if (st.since_id == null && mentions && mentions.length) {
     let newest = mentions[0].id;
     for (const m of mentions) {
-      if (m.id > newest) newest = m.id;
+      if (idGt(m.id, newest)) newest = m.id;
     }
     st.since_id = newest;
     if (!cfg.BACKFILL) {
@@ -97,17 +107,16 @@ async function processMentions(mentions, state, config, transport) {
   /* Advance since_id to the newest mention we have seen, even if we don't
    * reply, so the next poll does not re-process the same window. */
   for (const m of mentions) {
-    if (m.id && (!st.since_id || m.id > st.since_id)) st.since_id = m.id;
+    if (m.id && (!st.since_id || idGt(m.id, st.since_id))) st.since_id = m.id;
   }
 
   /* Oldest first. */
   const sorted = [...mentions].sort((a, b) => {
     const ai = a.id || '';
     const bi = b.id || '';
-    if (ai < bi) return -1;
-    if (ai > bi) return 1;
+    if (idGt(bi, ai)) return -1;
+    if (idGt(ai, bi)) return 1;
     return 0;
-    /* created_at is a secondary tie-break for string ids that sort alphabetically. */
   });
 
   for (const m of sorted) {
@@ -135,7 +144,9 @@ async function processMentions(mentions, state, config, transport) {
       continue;
     }
 
-    /* d) hourly cap: oldest first, over-cap stay un-handled for next cycle.
+    /* d) hourly cap. Over-cap mentions are DROPPED, not queued: since_id has
+     * already advanced past them, and a mention burst beyond the cap is
+     * exactly the scenario where silence is safer than a delayed flood.
      * Reset the counter if we have crossed into a new hour bucket. */
     if (Math.floor(now) !== Math.floor(st.lastReplyHour)) {
       st.hourlyCount = 0;

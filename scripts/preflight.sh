@@ -80,6 +80,14 @@ echo "Running server suite..."
   || { tail -30 /tmp/pt-preflight-server.log; fail "server suite not green"; }
 tail -8 /tmp/pt-preflight-server.log | grep -E "pass|fail"
 
+# The bot suite guards the X onboarding funnel's copy locks (template length
+# with t.co accounting, sites-named-in-copy, docs drift). Small, but it is the
+# only gate on public-facing reply text, so it rides preflight like the others.
+echo "Running bot suite..."
+(cd bot && node --test > /tmp/pt-preflight-bot.log 2>&1) \
+  || { tail -30 /tmp/pt-preflight-bot.log; fail "bot suite not green"; }
+tail -8 /tmp/pt-preflight-bot.log | grep -E "pass|fail"
+
 # The news hero prints "TESTS PASSING" and "AUDITED DEFECTS CLOSED" as
 # hand-typed numbers, on a page whose next stat reads "0 NUMBERS INVENTED".
 # They sat at 872/116 while the real figures moved to 1212/131. Nobody noticed
@@ -90,21 +98,23 @@ EXT_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-tests.log | awk '{print $3}')
 EXT_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-tests.log | awk '{print $3}')
 SRV_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-server.log | awk '{print $3}')
 SRV_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-server.log | awk '{print $3}')
-[ -n "$EXT_PASS" ] && [ -n "$SRV_PASS" ] || fail "could not parse suite totals"
-[ "$EXT_FAIL" = "0" ] && [ "$SRV_FAIL" = "0" ] \
-  || fail "suite fail count non-zero (extension $EXT_FAIL, server $SRV_FAIL)"
+BOT_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-bot.log | awk '{print $3}')
+BOT_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-bot.log | awk '{print $3}')
+[ -n "$EXT_PASS" ] && [ -n "$SRV_PASS" ] && [ -n "$BOT_PASS" ] || fail "could not parse suite totals"
+[ "$EXT_FAIL" = "0" ] && [ "$SRV_FAIL" = "0" ] && [ "$BOT_FAIL" = "0" ] \
+  || fail "suite fail count non-zero (extension $EXT_FAIL, server $SRV_FAIL, bot $BOT_FAIL)"
 # Same asymmetry as the trading-sites gate below, and for the same reason.
 # Claiming MORE tests than exist is a lie and fails the release. Claiming fewer
 # is merely stale, and staleness is the normal state of this number while other
 # sessions are landing tests all day — the first version of this gate went red
 # within the hour because a concurrent session added sixteen tests, which is
 # ordinary development rather than a release blocker.
-TESTS_REAL=$((EXT_PASS + SRV_PASS))
+TESTS_REAL=$((EXT_PASS + SRV_PASS + BOT_PASS))
 for page in site/news.html site/index.html; do
   shown=$(grep -oP 'data-check="tests">\K[0-9]+' "$page")
   [ -n "$shown" ] || fail "$page has no data-check=\"tests\" figure to verify"
   [ "$shown" -le "$TESTS_REAL" ] \
-    || fail "$page claims $shown tests passing; the suites report only $TESTS_REAL ($EXT_PASS + $SRV_PASS)"
+    || fail "$page claims $shown tests passing; the suites report only $TESTS_REAL ($EXT_PASS + $SRV_PASS + $BOT_PASS)"
   [ "$shown" = "$TESTS_REAL" ] \
     || echo "  note: $page says $shown tests, suites now report $TESTS_REAL — bump it when this ships"
 done
@@ -138,7 +148,7 @@ DEFECTS_REAL=$(grep -cE 'fixed v[0-9]' DEFECTS.md)
 DEFECTS_SHOWN=$(grep -oP 'data-check="defects">\K[0-9]+' site/news.html)
 [ "$DEFECTS_SHOWN" = "$DEFECTS_REAL" ] \
   || fail "site/news.html says $DEFECTS_SHOWN defects closed; DEFECTS.md marks $DEFECTS_REAL"
-echo "news stats OK (tests $TESTS_REAL = $EXT_PASS + $SRV_PASS, defects closed $DEFECTS_REAL)"
+echo "news stats OK (tests $TESTS_REAL = $EXT_PASS + $SRV_PASS + $BOT_PASS, defects closed $DEFECTS_REAL)"
 
 # ---------------------------------------------------------------- live claims
 # CHANGELOG's "Live on the website" heading promises "you can use this today".

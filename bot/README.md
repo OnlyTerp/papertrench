@@ -71,6 +71,10 @@ A cron-based alternative runs `node run.js --once` every minute.
 ## Flip-to-live checklist
 
 - [ ] X API v2 field and endpoint names re-verified against current docs.
+- [ ] OAuth request signing implemented in `bot/run.js` `xPost()` — the shipped
+      function is a deliberate stub that throws (`live posting not
+      implemented`). Fill it in with a verified library (e.g. `oauth-1.0a`)
+      and test against the bot's own account first.
 - [ ] Account bio discloses the bot.
 - [ ] Billing / rate limits understood and budgeted.
 - [ ] `DRY_RUN=false` set as the **last** change.
@@ -80,3 +84,6 @@ A cron-based alternative runs `node run.js --once` every minute.
 - Reply only when explicitly @-mentioned.
 - One reply per conversation, ever.
 - Deterministic fixed template; no LLM-generated or variable replies.
+- Mentions beyond the hourly cap or older than `MAX_AGE_HOURS` are dropped,
+  not queued — a mention burst is the scenario where silence is safer than a
+  delayed flood.

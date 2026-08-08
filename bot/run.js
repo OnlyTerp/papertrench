@@ -175,7 +175,8 @@ async function runOnce() {
     const mentions = await backoff(() => fetchMentions(userId, state.since_id, cfg), cfg);
     const transport = makeTransport(cfg);
 
-    const result = await processMentions(mentions, state, cfg, transport);
+    const result = await processMentions(mentions, state,
+      Object.assign({}, cfg, { BOT_SELF_ID: userId }), transport);
     saveState(result.state);
     console.log('cycle done', result);
     return result;
@@ -199,7 +200,8 @@ async function runLoop() {
   while (true) {
     try {
       const mentions = await backoff(() => fetchMentions(userId, state.since_id, cfg), cfg);
-      const result = await processMentions(mentions, state, cfg, transport);
+      const result = await processMentions(mentions, state,
+        Object.assign({}, cfg, { BOT_SELF_ID: userId }), transport);
       Object.assign(state, result.state);
       saveState(state);
       console.log('cycle done', result);
