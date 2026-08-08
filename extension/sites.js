@@ -97,6 +97,17 @@
   const DEXSCREENER_CHAIN_BY_SLUG = {};
   for (const c of DEXSCREENER_CHAINS) DEXSCREENER_CHAIN_BY_SLUG[c] = c;
 
+  // Axiom (live-verified 2026-08-07 from a LOGGED-IN capture via pt-recon). A
+  // token page is axiom.trade/meme/<address>?chain=<slug> — the chain lives in
+  // the QUERY, not the path, so an adapter that ignored ?chain= read every page
+  // as Solana. The slugs come straight off the captured URL's chain/pulseChains/
+  // trackerChains params: sol, bnb, eth, robinhood. Mapped to Dexscreener's
+  // canonical chainIds; an unlisted slug fails closed. robinhood is Axiom's
+  // tokenized-equities integration — it is in the Dexscreener vocabulary (so it
+  // is NAMED here rather than silently dropped), but whether it is honestly
+  // priceable is a design-B question that only matters once the gate opens.
+  const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bsc', eth: 'ethereum', robinhood: 'robinhood' };
+
   /**
    * Validate an address against the shape its OWN chain uses, and return the
    * detection record. This is how O-11 survives multichain: instead of one
@@ -152,18 +163,29 @@
         ? 'https://axiom.trade/meme/' + pairAddress
         : 'https://axiom.trade/t/' + mint),
       match: (h) => /(^|\.)axiom\.trade$/.test(h),
-      // axiom.trade/meme/<pairAddress> and axiom.trade/t/<mint>. No bare
-      // path-tail fallback: Axiom's wallet-tracker and profile routes also
-      // end in base58 addresses, and treating those as tokens pinned the
+      // axiom.trade/meme/<address>?chain=<slug> (a pair page) and
+      // axiom.trade/t/<address>?chain=<slug> (a mint). The chain lives in the
+      // QUERY — verified live logged-in 2026-08-07 (pt-recon): the captured URL
+      // was /meme/<addr>?chain=sol&pulseChains=sol,robinhood,bnb&trackerChains=
+      // sol,robinhood,bnb,eth. No ?chain= means Solana, so old links still work.
+      //
+      // No bare path-tail fallback: Axiom's wallet-tracker and profile routes
+      // also end in base58 addresses, and treating those as tokens pinned the
       // panel open on non-trading pages forever (DEFECTS O-10/O-11). The /t/
-      // route carries a MINT and used to be mislabeled as a pair (O-13).
+      // route carries a MINT and used to be mislabeled as a pair (O-13); those
+      // kinds are UNCHANGED here — the capture confirmed the routes, not a new
+      // pair/mint split, so this pass adds chain-awareness and nothing else.
+      //
+      // O-11 survives multichain the same way it does on GMGN/fomo: the slug
+      // picks the shape (sol=base58, bnb/eth/robinhood=0x40-hex) and refuses the
+      // other family, and a foreign chain is DECLINED by chainTradable() while
+      // the multichain gate is shut — recognised and refused, never misparsed.
       detect: () => {
-        const meme = location.pathname.match(/^\/meme\/($|[A-Za-z0-9]+)/);
-        const memeAddr = meme && meme[1] && firstBase58(meme[1]);
-        if (memeAddr) return { kind: 'pair', address: memeAddr };
-        const t = location.pathname.match(/^\/t\/($|[A-Za-z0-9]+)/);
-        const mintAddr = t && t[1] && firstBase58(t[1]);
-        if (mintAddr) return { kind: 'mint', address: mintAddr };
+        const slug = queryParam('chain') || 'sol';
+        const meme = location.pathname.match(/^\/meme\/([A-Za-z0-9]+)(?:$|[/?#])/);
+        if (meme) return tokenForSlug(AXIOM_CHAIN_BY_SLUG, slug, meme[1], 'pair');
+        const t = location.pathname.match(/^\/t\/([A-Za-z0-9]+)(?:$|[/?#])/);
+        if (t) return tokenForSlug(AXIOM_CHAIN_BY_SLUG, slug, t[1], 'mint');
         return null;
       },
       // Pulse / Discover rows carry anchors to /meme/<pair> plus small

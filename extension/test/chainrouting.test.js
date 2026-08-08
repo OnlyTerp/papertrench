@@ -109,6 +109,20 @@ const MATRIX = [
   ['https://dexscreener.com/watchlist', 'dexscreener', null, null, null, 'utility routes are not token pages'],
   [`https://gmgn.ai/tron/token/${USDT_ETH}`, 'gmgn', null, null, null, 'a chain the terminal does not serve fails closed'],
   [`https://dexscreener.com/notachain/${USDT_ETH}`, 'dexscreener', null, null, null, 'an unknown chain slug fails closed'],
+
+  // ---- Axiom: chain lives in the ?chain= QUERY (live logged-in capture) ----
+  // Solana is untouched; foreign chains are recognised via ?chain= and
+  // declined; the gate-flip proof below shows they resolve to their real chain
+  // when MULTICHAIN_ENABLED is opened. Kinds are the shipped ones (/meme/=pair,
+  // /t/=mint) — the capture confirmed the routes, not a new pair/mint split.
+  [`https://axiom.trade/t/${SOL_MINT}?chain=sol`, 'axiom', 'mint', SOL_MINT, 'solana', 'the /t/ mint route is untouched, explicit sol slug'],
+  [`https://axiom.trade/meme/${SOL_MINT}`, 'axiom', 'pair', SOL_MINT, 'solana', 'no ?chain= stays Solana — old links and tokenUrl() output resolve unchanged'],
+  [`https://axiom.trade/meme/${USDT_ETH}?chain=eth`, 'axiom', null, null, null, 'GATED: eth recognised via ?chain= and declined'],
+  [`https://axiom.trade/meme/${USDT_BSC}?chain=bnb`, 'axiom', null, null, null, "GATED: bnb (Axiom's slug for BSC)"],
+  [`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`, 'axiom', null, null, null, 'the O-11 hazard: base58-passing hex refused by CHAIN, never mistaken for a mint'],
+  [`https://axiom.trade/meme/${SOL_MINT}?chain=eth`, 'axiom', null, null, null, 'a base58 mint under an EVM slug is a contradiction'],
+  [`https://axiom.trade/meme/${USDT_ETH}?chain=sol`, 'axiom', null, null, null, 'an EVM address under the sol slug is never a mint'],
+  [`https://axiom.trade/meme/${USDT_ETH}?chain=notachain`, 'axiom', null, null, null, 'an unknown chain slug fails closed'],
 ];
 
 test('chain matrix: Solana mounts, every foreign chain is refused while the gate is shut', () => {
@@ -177,8 +191,13 @@ test('the route knowledge survives the gate: shapes are still parsed, then decli
     { kind: 'mint', address: USDT_ETH, chain: 'ethereum' }, 'birdeye ethereum');
   sameRecord(detectWithGateOpen(`https://dexscreener.com/ethereum/${WETH_PAIR}`),
     { kind: 'pair', address: WETH_PAIR, chain: 'ethereum' }, 'dexscreener ethereum');
+  sameRecord(detectWithGateOpen(`https://axiom.trade/meme/${USDT_ETH}?chain=eth`),
+    { kind: 'pair', address: USDT_ETH, chain: 'ethereum' }, 'axiom ethereum (chain in the query)');
+  sameRecord(detectWithGateOpen(`https://axiom.trade/t/${USDT_BSC}?chain=bnb`),
+    { kind: 'mint', address: USDT_BSC, chain: 'bsc' }, 'axiom bsc (bnb slug maps to bsc)');
   // And the hazard address routes to ETHEREUM even then — never to Solana.
   assert.equal(detectWithGateOpen(`https://gmgn.ai/eth/token/${EVM_B58ISH}`).chain, 'ethereum');
+  assert.equal(detectWithGateOpen(`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`).chain, 'ethereum');
   // Shape strictness is not what the gate was doing, so it still holds.
   assert.equal(detectWithGateOpen(`https://gmgn.ai/sol/token/${USDT_ETH}`), null);
 });
@@ -193,7 +212,7 @@ test('no chain any adapter can emit is missing from the price layer', () => {
   const mapped = new Set([...mapBlock.matchAll(/^\s*([a-z0-9]+)\s*:/gm)].map((m) => m[1]));
 
   const declared = new Set();
-  for (const name of ['GMGN_CHAIN_BY_SLUG', 'BIRDEYE_CHAIN_BY_SLUG']) {
+  for (const name of ['GMGN_CHAIN_BY_SLUG', 'BIRDEYE_CHAIN_BY_SLUG', 'AXIOM_CHAIN_BY_SLUG']) {
     const start = SITES.indexOf(`const ${name} = {`);
     assert.ok(start > -1, `${name} must exist in sites.js`);
     const block = SITES.slice(start, SITES.indexOf('};', start));

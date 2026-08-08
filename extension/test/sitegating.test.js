@@ -45,12 +45,24 @@ function detectAt(href) {
 
 /* [href, expected site id, expected kind|null, expected address|null, why] */
 const MATRIX = [
-  // Axiom
-  ['https://axiom.trade/meme/' + PAIR, 'axiom', 'pair', PAIR, 'meme route is a pair page'],
+  // Axiom — token page is /meme|/t/<address>?chain=<slug>, chain in the QUERY
+  // (live logged-in capture 2026-08-07, pt-recon). No ?chain= means Solana, so
+  // old links and Axiom's own tokenUrl() output still resolve unchanged.
+  ['https://axiom.trade/meme/' + PAIR, 'axiom', 'pair', PAIR, 'meme route is a pair page (no chain = solana)'],
+  ['https://axiom.trade/meme/' + PAIR + '?chain=sol', 'axiom', 'pair', PAIR, 'explicit sol slug is solana'],
   ['https://axiom.trade/t/' + MINT, 'axiom', 'mint', MINT, '/t/ carries a MINT — was mislabeled kind:pair (O-13)'],
+  ['https://axiom.trade/t/' + MINT + '?chain=sol', 'axiom', 'mint', MINT, '/t/ mint under an explicit sol slug'],
   ['https://axiom.trade/', 'axiom', null, null, 'home is not a token page'],
   ['https://axiom.trade/pulse', 'axiom', null, null, 'screener is not a token page'],
   ['https://axiom.trade/tracker/' + WALLET, 'axiom', null, null, 'wallet tracker must not mount (O-10)'],
+  // Foreign chains are GATED OFF for v3.0.0 — recognised via ?chain= and
+  // declined, never misparsed (O-11). The slugs are Axiom's own vocabulary.
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=bnb', 'axiom', null, null, 'bnb (BSC) recognised and declined while gated (O-11)'],
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=eth', 'axiom', null, null, 'eth declined; the base58-passing hex is refused by CHAIN, not a failed parse (O-11)'],
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=robinhood', 'axiom', null, null, 'robinhood (tokenized equities) recognised and declined while gated'],
+  ['https://axiom.trade/meme/' + MINT + '?chain=eth', 'axiom', null, null, 'a base58 mint under an EVM slug is refused (O-11, shape-strict)'],
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=sol', 'axiom', null, null, 'an EVM address under the sol slug is refused (O-11, shape-strict)'],
+  ['https://axiom.trade/meme/' + PAIR + '?chain=notachain', 'axiom', null, null, 'an unknown chain slug fails closed'],
   // Padre
   ['https://trade.padre.gg/trade/solana/' + MINT, 'padre', 'mint', MINT, 'trade route'],
   ['https://trade.padre.gg/trade/' + MINT, 'padre', 'mint', MINT, 'trade route without chain segment'],
