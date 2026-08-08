@@ -1570,7 +1570,22 @@
           + ' (' + atClickAge + 'ms old) — filling at the on-screen price');
         return atClick;
       }
-      return onchain;
+      // F-48 (Terp, lute.gg): with the screen quiet the check above never
+      // arms, and under the 2x witness ratio nothing else examined a chain
+      // read before it priced the fill — a 24%-lagging read booked a win as
+      // -9.6%. Judge the candidate against the freshest evidence this tab
+      // accepted as money (the F-47 stream); on contradiction the chain
+      // read is DEMOTED, not trusted, and the ladder below re-prices from
+      // sources that can vouch for themselves.
+      const acceptedEvidence = lastAcceptedMarket;
+      const acceptedEvidenceAge = acceptedEvidence ? Date.now() - acceptedEvidence.at : Infinity;
+      if (screenFresh || !Q.onchainContradictsEvidence(onchain.priceNative,
+        acceptedEvidence && acceptedEvidence.priceNative, acceptedEvidenceAge)) {
+        return onchain;
+      }
+      console.debug('PaperTrench: on-chain quote ' + onchain.priceNative
+        + ' contradicts accepted market evidence ' + acceptedEvidence.priceNative
+        + ' (' + acceptedEvidenceAge + 'ms old) on a quiet screen — re-pricing from the ladder');
     }
 
     // The freshest local price, judged by its age AT CLICK time — the round

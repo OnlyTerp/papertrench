@@ -884,6 +884,40 @@
     return ratio <= FILL_WITNESS_AGREE_RATIO;
   }
 
+  // F-48 (Terp, lute.gg, WhiteBull on the MC axis): the chart and the S mark
+  // sat at ~41K when he clicked sell; the engine booked 33.1K — a win
+  // rendered as -9.6%. The screen had been quiet for over 600ms so the F-33
+  // arbitration never armed, and at 1.24x the divergence sat under the F-47
+  // witness ratio: the chain read priced the fill UNCHECKED — value-lag
+  // wearing a fresh timestamp. The gap zone was structural: divergence
+  // between ONSCREEN_AGREE_RATIO and FILL_WITNESS_RATIO on a quiet screen
+  // answered to nobody.
+  //
+  // The discipline: a chain candidate arriving on a quiet screen must still
+  // answer to the freshest evidence this tab accepted as money (the F-47
+  // stream — validated ticks and committed fills, never resolver adoptions).
+  // Contradiction does not refuse the fill; it DEMOTES the chain read, and
+  // the ladder re-prices from sources that can vouch for themselves (a fresh
+  // page tick, the aggregator, the bounded snapshot of what the trader was
+  // looking at). A REAL move is confirmed by those sources and fills at the
+  // moved level; a lagging read never prices a fill by default. The band is
+  // wider than ONSCREEN_AGREE_RATIO because the evidence may be seconds old
+  // and honest drift is real, but tight enough to catch both field reports
+  // of a wrong chain read (F-33's 13%, F-48's 24%).
+  var ONCHAIN_EVIDENCE_WINDOW_MS = 30000;
+  var ONCHAIN_EVIDENCE_AGREE_RATIO = 1.10;
+
+  /** On a quiet screen, does this chain candidate contradict the market
+   * evidence this tab most recently accepted as money? */
+  function onchainContradictsEvidence(candidateNative, evidenceNative, evidenceAgeMs) {
+    if (!(candidateNative > 0) || !(evidenceNative > 0)) return false;
+    if (!(evidenceAgeMs >= 0) || evidenceAgeMs > ONCHAIN_EVIDENCE_WINDOW_MS) return false;
+    var ratio = candidateNative > evidenceNative
+      ? candidateNative / evidenceNative
+      : evidenceNative / candidateNative;
+    return ratio > ONCHAIN_EVIDENCE_AGREE_RATIO;
+  }
+
   /* ------------------------------------------------------------------ *
    * 5. Live position mark
    * ------------------------------------------------------------------ */
@@ -1185,9 +1219,12 @@
     fillSourcesAgree,
     needsFillWitness,
     witnessAgrees,
+    onchainContradictsEvidence,
     FILL_WITNESS_WINDOW_MS,
     FILL_WITNESS_RATIO,
     FILL_WITNESS_AGREE_RATIO,
+    ONCHAIN_EVIDENCE_WINDOW_MS,
+    ONCHAIN_EVIDENCE_AGREE_RATIO,
     isPumpFamily,
     bootstrapSupply,
     rugVerdict,
