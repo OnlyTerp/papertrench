@@ -1,5 +1,49 @@
 # Release QA matrix
 
+## The automated pass runs first
+
+`tools/recon/.headless/livepass.mjs` loads the built extension into a real
+Chromium and drives it to real pages on every site — token terminals and
+prediction venues alike. It asks the shipped `sites.js` for each token URL, so
+it cannot drift from the product it checks.
+
+```bash
+cd tools/recon/.headless && xvfb-run -a node livepass.mjs            # everything
+cd tools/recon/.headless && xvfb-run -a node livepass.mjs gmgn       # one site
+cd tools/recon/.headless && xvfb-run -a node livepass.mjs --profile ~/.pt-profile
+```
+
+It covers, per site: **panel mounts on a token/market page**, **panel does NOT
+mount on home/screener/wallet routes**, **a price renders and ticks**, and for
+prediction venues **a quote prices against the live book** (read from the
+ticket's `data-pt-*` state, because the panel lives in a closed shadow root and
+the book is fetched by the service worker where page-level network cannot see
+it). Screenshots land in `_livepass/`.
+
+It reports what it SAW. A venue that blocks automation or demands a login is
+**not** a failed mount — there is no page behind the wall to mount on — and it
+says so rather than inventing a defect or a pass.
+
+### Last automated run — 2026-08-08
+
+| Verdict | Sites |
+|---|---|
+| **PASS** | photon · gmgn · dexscreener · jupiter · pump.fun · kalshi · polymarket · limitless |
+| **LOGIN REQUIRED** (seed once with `login.js`, then unattended) | axiom · padre · bullx · fomo · lute |
+| **BOT WALL** (venue challenged the robot; passed on an earlier run) | birdeye |
+| **NO MARKET FOUND** (venue geo-blocks this location — permanent here) | hyperliquid-outcomes |
+
+No site mounted on a refuse route in any run. BONK's market cap agreed across
+all six passing terminals ($221.1M–$221.8M), which is the cross-venue evidence
+that the price layer is reading the right number.
+
+The hand-run table below is what the automated pass does **not** yet cover:
+fills and toasts, chart markers, average-line behaviour, drag/persist, and SPA
+token-swaps. Those remain human until the harness grows to them.
+
+---
+
+
 Run before every release that touches `content.js`, `price-bridge.js`, `sites.js`,
 or `chart-markers.js`. One row per site; every cell must pass or the failure gets a
 DEFECTS.md entry before shipping. Copy this table into the release PR/notes and

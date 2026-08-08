@@ -60,6 +60,90 @@ const PLAN = {
 
 const BLOCK_RE = /restricted jurisdiction|not available in your|unavailable in your (region|country)|access denied|verify you are human|enable javascript and cookies/i;
 
+/* A login wall is not a failed mount — there is no token page behind it to
+ * mount on. Reporting it as a defect would send someone hunting a bug that
+ * does not exist; reporting it as a pass would be worse. It is its own
+ * verdict, and it names the one-time action that clears it. */
+const LOGIN_RE = /log ?in to your account|sign ?in to (your|continue)|enter your email to get started|connect wallet to continue|create your account to/i;
+
+/* ── The TOKEN terminals ───────────────────────────────────────────────
+ * Their URLs are not written here: they are asked of the SHIPPED
+ * extension/sites.js at run time, so the harness can never drift from the
+ * product it is checking. A refuse-route per site comes from the same file's
+ * own doctrine — homepages and wallet routes must never mount.
+ */
+const PROBE_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'; // BONK
+const TOKEN_REFUSE = {
+  axiom: 'https://axiom.trade/discover',
+  padre: 'https://trade.padre.gg/',
+  photon: 'https://photon-sol.tinyastro.io/en/discover',
+  gmgn: 'https://gmgn.ai/?chain=sol',
+  bullx: 'https://neo.bullx.io/',
+  dexscreener: 'https://dexscreener.com/',
+  birdeye: 'https://birdeye.so/',
+  jupiter: 'https://jup.ag/',
+  fomo: 'https://fomo.family/',
+  pumpfun: 'https://pump.fun/board',
+  lute: 'https://lute.gg/',
+};
+
+async function tokenPlan() {
+  const mod = await import('node:module');
+  const require_ = mod.createRequire(import.meta.url);
+  const g = globalThis;
+  const prevWindow = g.window;
+  g.window = {};
+  require_(resolve(EXT, 'sites.js'));
+  const S = g.window.PaperTrenchSites;
+  g.window = prevWindow;
+  const out = [];
+  for (const a of S.ADAPTERS) {
+    let url = null;
+    try { url = a.tokenUrl ? a.tokenUrl(PROBE_MINT, null, 'solana') : null; } catch { url = null; }
+    if (url) out.push({ id: a.id, market: url, refuse: TOKEN_REFUSE[a.id] || null });
+  }
+  return out;
+}
+
+/** What the TOKEN overlay puts on the page. Its shadow root is OPEN, so the
+ *  panel's own rendered price can be read directly — the number the user
+ *  sees, not a proxy for it. */
+async function inspectToken(page) {
+  return page.evaluate(() => {
+    const host = document.getElementById('papertrench-host');
+    if (!host) return { host: false };
+    const sh = host.shadowRoot;
+    if (!sh) return { host: true, shadow: false };
+    const priceEl = sh.getElementById('pt-price');
+    const dot = sh.getElementById('pt-live-dot');
+    // The host element is created up front, so its existence is NOT a mount —
+    // what counts is whether the panel is actually rendering. But do NOT gate
+    // on the host's own box: everything inside it is `position: fixed`, so the
+    // host measures 0x0 on every site even when the panel is plainly visible.
+    // Gating on it reported all ten terminals as "did not mount" while GMGN
+    // was showing $221.79M on screen.
+    const visible = (el) => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      const cs = getComputedStyle(el);
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.01;
+    };
+    const panel = sh.querySelector('.pt-panel, #pt-panel, .pt-card') || (priceEl && priceEl.closest('div'));
+    const panelVisible = visible(panel) || visible(priceEl);
+    return {
+      host: true,
+      shadow: true,
+      price: priceEl ? (priceEl.textContent || '').trim() : null,
+      stale: priceEl ? priceEl.classList.contains('pt-price-stale') : null,
+      dotClass: dot ? dot.className : null,
+      hostExists: true,
+      panelPresent: panelVisible,
+      hiddenPanel: !!priceEl && !panelVisible,
+    };
+  });
+}
+
 /** What the extension puts on the page, and what a human looks for. */
 async function inspect(page) {
   return page.evaluate(() => {
@@ -90,7 +174,14 @@ async function visit(ctx, url, { settle = 9000 } = {}) {
     return { page, url, status, error: e.message.slice(0, 120), logs, seen: null };
   }
   const seen = await inspect(page);
-  return { page, url, status, logs, seen, blocked: BLOCK_RE.test(seen.blockedText) };
+  const title = await page.title().catch(() => '');
+  return {
+    page, url, status, logs, seen,
+    blocked: BLOCK_RE.test(seen.blockedText),
+    // Cloudflare and friends answer 403 with an interstitial. That is the
+    // venue refusing the robot, not the extension failing to mount.
+    botWall: status === 403 || /just a moment|performing security verification|checking your browser/i.test(title + ' ' + seen.blockedText),
+  };
 }
 
 /** Two reads of the venue's own prices, to prove the page is live, not frozen. */
@@ -175,15 +266,92 @@ async function resolveMarket(ctx, plan) {
   return { url: null, blocked: false, why: 'no market link found on the listing page' };
 }
 
-async function run(only) {
+/** One token terminal: does the panel mount on a token page, does it show a
+ *  price, does that price tick, and does it stay off the site's own homepage. */
+async function runTokenSite(ctx, site) {
+  const row = { venue: site.id, market: site.market, badge: null, ticket: null, priceTicks: null, refuses: [], notes: [] };
+  const m = await visit(ctx, site.market, { settle: 13000 });
+  if (m.error) { row.status = 'ERROR'; row.notes.push(m.error); await m.page.close(); return row; }
+  if (m.blocked) { row.status = 'BLOCKED'; row.notes.push(m.seen ? m.seen.blockedText.slice(0, 90) : 'blocked'); await m.page.close(); return row; }
+
+  // Distinguishing "we are broken" from "we were never shown the page" is the
+  // difference between a report worth reading and one worth ignoring. A
+  // REDIRECT to an auth route is the reliable signal — the wording of login
+  // walls varies wildly ("Already have an account", "Connect your telegram",
+  // "where traders become legends") and text matching misses most of it.
+  const landed = m.page.url();
+  const redirectedToAuth = /\/(sign-?in|sign-?up|login|auth|connect)(\b|\/|\?)/i.test(landed)
+    || (new URL(landed).pathname === '/' && new URL(site.market).pathname !== '/');
+  if (m.botWall) {
+    row.status = 'BOT WALL — the venue blocked automation, not the extension';
+    row.notes.push(`served a challenge instead of the page (${m.status})`);
+    await m.page.close();
+    return row;
+  }
+  if (redirectedToAuth || LOGIN_RE.test(m.seen.blockedText)) {
+    row.status = 'LOGIN REQUIRED — seed a profile once with login.js, then this runs unattended';
+    row.notes.push(`the venue sent us to ${landed.slice(0, 70)} — there is no token page behind it to mount on`);
+    await m.page.screenshot({ path: resolve(SHOTS, `${site.id}-login.png`) }).catch(() => {});
+    await m.page.close();
+    return row;
+  }
+
+  const t0 = await inspectToken(m.page);
+  row.ticket = !!t0.panelPresent;
+  row.badge = !!t0.host;
+  row.notes.push(`panel price: ${t0.price == null ? '(none)' : JSON.stringify(t0.price)}${t0.stale ? ' [STALE]' : ''}`);
+  if (m.logs.length) row.notes.push('console: ' + m.logs.slice(0, 2).join(' | '));
+
+  // Does the extension's OWN number move? A frozen panel next to a live site
+  // is the failure this whole project exists to avoid.
+  if (t0.panelPresent) {
+    await m.page.waitForTimeout(14000);
+    const t1 = await inspectToken(m.page);
+    row.priceTicks = !!(t0.price && t1.price && t0.price !== t1.price);
+    row.quote = t1.price && t1.price !== '—' ? `price ${t1.price}${t1.stale ? ' (stale-marked)' : ''}` : 'no price rendered';
+  }
+  await m.page.screenshot({ path: resolve(SHOTS, `${site.id}-token.png`) }).catch(() => {});
+  await m.page.close();
+
+  if (site.refuse) {
+    const r = await visit(ctx, site.refuse, { settle: 9000 });
+    if (r.error || r.blocked) row.refuses.push(`${site.refuse} → ${r.blocked ? 'blocked' : 'error'} (inconclusive)`);
+    else {
+      const rt = await inspectToken(r.page);
+      row.refuses.push(`${site.refuse} → ${rt.panelPresent ? 'MOUNTED (must not)' : 'clean'}`);
+    }
+    await r.page.close();
+  }
+
+  const overMount = row.refuses.some((x) => x.includes('MOUNTED (must not)'));
+  row.status = overMount ? 'FAIL — mounts on a refuse route'
+    : row.ticket && row.priceTicks ? 'PASS'
+    : row.ticket && row.quote && row.quote.startsWith('price') ? 'PASS (price shown; no tick observed in 14s)'
+    : row.ticket ? 'PARTIAL — panel mounts but shows no price'
+    : 'FAIL — panel did not mount';
+  return row;
+}
+
+async function run(only, profileDir) {
   mkdirSync(SHOTS, { recursive: true });
-  const ctx = await chromium.launchPersistentContext(mkdtempSync(resolve(tmpdir(), 'ptlive-')), {
+  // A seeded profile (see login.js) carries logged-in sessions for the venues
+  // that gate their token pages. Without one the pass still runs — it just
+  // reports those sites as LOGIN REQUIRED instead of pretending.
+  const userDataDir = profileDir || mkdtempSync(resolve(tmpdir(), 'ptlive-'));
+  if (profileDir) mkdirSync(profileDir, { recursive: true });
+  const ctx = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox', '--no-first-run'],
     viewport: { width: 1280, height: 900 },
   });
 
   const results = [];
+
+  // Token terminals first — they are the older, larger surface.
+  for (const site of await tokenPlan()) {
+    if (only && site.id !== only) continue;
+    results.push(await runTokenSite(ctx, site));
+  }
   for (const [venue, plan] of Object.entries(PLAN)) {
     if (only && venue !== only) continue;
     const row = { venue, market: null, badge: null, ticket: null, priceTicks: null, refuses: [], notes: [] };
@@ -261,4 +429,8 @@ async function run(only) {
   if (bad.length) process.exitCode = 1;
 }
 
-run(process.argv[2] || null).catch((e) => { console.error('livepass failed:', e); process.exit(1); });
+const argv = process.argv.slice(2);
+const profileArg = argv.indexOf('--profile');
+const profile = profileArg >= 0 ? argv[profileArg + 1] : null;
+const target = argv.filter((a, i) => !a.startsWith('--') && i !== profileArg + 1)[0] || null;
+run(target, profile).catch((e) => { console.error('livepass failed:', e); process.exit(1); });
