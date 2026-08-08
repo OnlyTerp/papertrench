@@ -77,7 +77,7 @@ test('Polymarket — event page /event/bitcoin-above-100000-on-july-31', () => {
   assert.deepEqual(S.detect(u.host, u.pathname), {
     venue: 'polymarket',
     eventSlug: 'bitcoin-above-100000-on-july-31',
-    verified: true,
+    verified: false,
   });
 });
 
@@ -103,7 +103,7 @@ test('Hyperliquid outcomes — /outcomes with title carrying BTC market', () => 
     {
       venue: 'hyperliquid-outcomes',
       market: 'BTC',
-      verified: true,
+      verified: false,
     },
   );
 });
@@ -114,7 +114,7 @@ test('Hyperliquid outcomes — /outcomes with no title → market: null', () => 
     {
       venue: 'hyperliquid-outcomes',
       market: null,
-      verified: true,
+      verified: false,
     },
   );
 });
@@ -140,7 +140,7 @@ test('Limitless — market /markets/will-btc-hit-100k', () => {
   assert.deepEqual(S.detect(u.host, u.pathname), {
     venue: 'limitless',
     marketSlug: 'will-btc-hit-100k',
-    verified: true,
+    verified: false,
   });
 });
 
