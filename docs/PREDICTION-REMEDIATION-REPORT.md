@@ -159,6 +159,56 @@ having been applied at all.
   here, and the doctrine's position — a page you had to sneak past is not the
   page users see — is unchanged.
 
+---
+
+## 4b. The automated live pass — and what it found
+
+`tools/recon/.headless/livepass.mjs` removes the human from the live pass. It
+loads the real built extension into a real Chromium under xvfb, resolves a
+market URL from each venue's own listing page, and asserts what a person
+would: panel mounted, `SIMULATED` badge present, must-refuse routes clean,
+and whether a quote actually reaches the venue's book (clicked through the
+closed shadow root by geometry, confirmed on the network). A page it cannot
+see is reported **BLOCKED**, never a pass.
+
+```
+cd tools/recon/.headless && xvfb-run -a node livepass.mjs [venue]
+```
+
+**On its first run it found the feature was a red badge.**
+
+| # | Finding |
+|---|---|
+| 1 | `predict-ticket.js` exported `mount()` and **nothing ever called it**. The content script appended a badge and logged "overlay mounted". 1498 tests passed while no panel existed on any page. |
+| 2 | `background.js` answered `PREDICT_QUOTE` with *"Quote pipeline not yet wired"* — a stub commented "Phase 3 wires the full pipeline", while the landing scorecard reported Phase 3 complete. |
+
+Both are fixed in `a07773b`; the panel now mounts and quotes run end to end.
+
+### The venue-model bugs underneath
+
+Wiring the pipeline exposed that the market identity is wrong on two venues —
+the same shape of bug both times, and both silent:
+
+- **Kalshi.** The adapter takes the market ticker to be the last path
+  segment. `/markets/kxgdp/us-gdp-growth/kxgdp-26oct30` ends in the **event**
+  ticker, and the API answers it with **HTTP 200 and empty ladders** rather
+  than an error. That event holds **9 markets** (`KXGDP-26OCT30-T0.0` …
+  `-T4.0`, one per GDP threshold), and those have real depth. So the panel
+  mounts, asks for a book, gets an empty one, and honestly reports *"no
+  visible liquidity"* — on a market whose page is showing 47¢/54¢.
+- **Hyperliquid outcomes.** Wrong at three levels: it looks up `spotMeta` by
+  ticker (there is no "BTC" there — the universe is `@1`, `@2`, `PURR/USDC`),
+  it parses levels as arrays when `l2Book` returns `{px, sz, n}` objects, and
+  `coin: "BTC"` silently returns the **perps** book at $64,969. Verified live:
+  the real outcome assets are the 16 `#`-prefixed ids in `allMids`
+  (`#10330`, `#10331`, …), 8 markets × 2 sides, whose pair mids sum to exactly
+  1.0000. Separately, **the venue geo-blocks this location**, so its UI cannot
+  be live-passed from here by anyone, headless or headed.
+
+**Net: no venue can currently produce a quote.** Every layer below is correct
+and tested — the walk, the depth cap, the invariants, the scoring gates — but
+they are being handed the wrong market.
+
 ## 5. To earn the flips
 
 1. Headed pt-recon capture per venue (attach to a real logged-in Chrome),
