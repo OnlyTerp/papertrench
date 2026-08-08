@@ -39,6 +39,24 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
   is involved. Venues with insufficient recon coverage (all except Kalshi)
   ship as `verified:false` stubs that mount nothing until a headed capture
   confirms the live price pipeline.
+
+  The book/meta/resolution reads go to these public API hosts, and only
+  these — all unauthenticated, all read-only:
+
+  | Host | Used for |
+  |---|---|
+  | `gamma-api.polymarket.com` | Polymarket event and market metadata |
+  | `clob.polymarket.com` | Polymarket order books, price history |
+  | `api.elections.kalshi.com` | Kalshi markets, order books, resolutions |
+  | `api.hyperliquid.xyz` | Hyperliquid `l2Book` / `allMids` / `spotMeta` |
+  | `api.limitless.exchange` | Limitless markets and order books |
+
+  Hyperliquid deliberately uses the **documented** `api.hyperliquid.xyz`,
+  the same host the perps stack already reads, rather than the
+  `api-ui.hyperliquid.xyz` host the venue's own frontend calls. Both were
+  probed live on 2026-08-08 and return identical data; an undocumented
+  frontend host is free to change or rate-limit on its own schedule, and one
+  Hyperliquid host is one thing to reason about instead of two.
 - **papertrench.com / www.papertrench.com (site relay).** One small content
   script (`site-bridge.js`) loads on our own website, and nowhere else, to
   close the account-linking loop: after you sign in with X on

@@ -274,7 +274,14 @@
 
   /* ── Hyperliquid Outcomes adapter ───────────────────────────────── */
 
-  const HL_API = 'https://api-ui.hyperliquid.xyz';
+  // The DOCUMENTED public API host, and the same one perps already uses
+  // ([HL-API] in perps-venues.js). The capture shows the site's own frontend
+  // calling api-ui.hyperliquid.xyz, so that host was used here first — but
+  // api-ui is an undocumented frontend surface, free to change or rate-limit
+  // on its own schedule. Probed both live 2026-08-08: identical responses for
+  // allMids, l2Book(BTC) and l2Book(@1), all 200. Given a tie, the documented
+  // contract wins, and the extension keeps ONE Hyperliquid host to reason about.
+  const HL_API = 'https://api.hyperliquid.xyz';
 
   async function hlOutcomesFetchCoin(market) {
     try {
