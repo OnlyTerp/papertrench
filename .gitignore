@@ -10,6 +10,9 @@ dist/
 .vscode/
 .idea/
 
+# bot runtime state (replied ids, since_id)
+bot/state/
+
 # Internal working notes, never published
 HANDOFF.md
 

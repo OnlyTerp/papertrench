@@ -195,6 +195,20 @@ need to reproduce it.
 - Screen recording requires choosing a tab/window once per session — Chrome cannot do it silently.
 - Some coins have no price on *any* source for their first moments. PaperTrench waits rather than inventing one.
 
+<!-- ONBOARDING-BOT: disabled until the X handle is registered.
+  This block is intentionally a comment so the site/README cannot promise a live
+  @-mention bot before the account and credentials exist. To enable: register the
+  handle, set the account bio to disclose the bot, run through the flip-to-live
+  checklist in docs/ONBOARDING-BOT.md, then uncomment this section.
+
+## Get the one-minute start guide
+
+Tag **@PaperTrenchBot** under any X post about a memecoin and it will reply once
+with the exact steps to start paper trading — real charts, fake SOL, no wallet,
+no risk. See `docs/ONBOARDING-BOT.md` for how to paste the same copy manually
+until the bot is live.
+-->
+
 ---
 
 ## Contributing
