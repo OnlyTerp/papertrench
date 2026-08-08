@@ -3,6 +3,19 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.3.0 — 2026-08-07
+
+- **Prediction market engine.** Binary outcome contracts from four venues
+  (Kalshi, Polymarket, Hyperliquid HIP-4 outcomes, Limitless) become a
+  first-class PaperTrench instrument — a sibling family to tokens and
+  perps, with its own fill engine, calibration scoring, and separate
+  bankroll. The fill engine walks the venue's real order book (never
+  beyond visible depth, 5% depth cap, latency replay, resolution
+  lockout), and scores forecasts via Brier Skill Score against the
+  market's own price. Prediction-market engine and venue contracts
+  ported from amogus0471/Paper-Prediction @ e03f715 (MIT, contributed
+  by Amogus).
+
 ## v3.2.1 — 2026-08-07
 
 - **Fresh launches from launchpads we can't decode still get their

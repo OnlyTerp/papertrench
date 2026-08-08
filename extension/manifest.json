@@ -171,6 +171,25 @@
       "run_at": "document_idle",
       "world": "ISOLATED",
       "all_frames": false
+    },
+    {
+      "matches": [
+        "https://kalshi.com/*",
+        "https://polymarket.com/*",
+        "https://app.hyperliquid.xyz/*",
+        "https://limitless.exchange/*"
+      ],
+      "js": [
+        "predict-venues.js",
+        "predict-engine.js",
+        "predict-score.js",
+        "predict-sites.js",
+        "predict-ticket.js",
+        "predict-content.js"
+      ],
+      "run_at": "document_idle",
+      "world": "ISOLATED",
+      "all_frames": false
     }
   ],
   "action": {

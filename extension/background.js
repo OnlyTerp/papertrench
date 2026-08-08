@@ -9,7 +9,7 @@
 
 
 if (typeof importScripts === 'function') {
-  importScripts('replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js');
+  importScripts('replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js');
 }
 const RP = self.PTReplay;
 const AT = self.PTAttest;
@@ -2851,6 +2851,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'pt_attest_migrate':
         sendResponse(await attestMigrate());
         break;
+
+      // Prediction market: quote and submit orders via venue API.
+      case 'PREDICT_QUOTE': {
+        const PE = self.PaperPredictEngine;
+        const PV = self.PaperPredictVenues;
+        if (!PV) { sendResponse({ ok: false, message: 'Prediction venues not loaded' }); break; }
+        try {
+          const adapter = PV.adapterFor(message.venue);
+          if (!adapter) { sendResponse({ ok: false, message: 'Unknown venue: ' + message.venue }); break; }
+          // For now, stub: the full quote flow needs a live book snapshot.
+          // Phase 2 builds the venues; Phase 3 wires the full pipeline.
+          sendResponse({ ok: false, message: 'Quote pipeline not yet wired for ' + message.venue });
+        } catch (e) {
+          sendResponse({ ok: false, message: e.message });
+        }
+        break;
+      }
+      case 'PREDICT_SUBMIT': {
+        sendResponse({ ok: false, message: 'Order submission not yet wired' });
+        break;
+      }
 
       default:
         sendResponse({ error: 'unknown message type' });

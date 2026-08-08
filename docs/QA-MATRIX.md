@@ -30,6 +30,30 @@ fresh profile preferred. Have one coin with an open paper position before starti
 - [ ] High-volume coin (top trending): price keeps ticking through volume spikes; no silent freeze.
 - [ ] Fast token flipping (10 coins in a minute): prices stay correct per coin, no cross-token bleed, RPC status recovers.
 - [ ] Dashboard: numbers agree with panel (equity, realized P&L incl. partial exits); tables hold scroll position; AI review/note buttons behave.
-- [ ] Popup: backup → reset → restore round-trips the wallet, and an open trading tab does NOT resurrect the old wallet.
+- [ ] Popup: backup -> reset -> restore round-trips the wallet, and an open trading tab does NOT resurrect the old wallet.
 - [ ] Extension reload with a position open: old overlay disappears cleanly, no duplicate markers, fresh one works.
 - [ ] chrome://extensions shows no errors after the full pass.
+
+---
+
+## Prediction market QA matrix (v3.3.0)
+
+**Status: OPEN -- live pass not yet run.** All cells empty until a headed
+browser session confirms each venue. Kalshi has PARTIAL recon; the other
+three have THIN recon and ship as `verified:false` stubs (panel will NOT
+mount until a headed capture confirms the live price pipeline).
+
+| Check | Kalshi | Polymarket | Hyperliquid | Limitless |
+|---|---|---|---|---|
+| SIMULATED badge visible on page | | | | |
+| Panel mounts on a market page | | | | |
+| Panel does NOT mount on homepage/portfolio | | | | |
+| Quote walks a real book (latency replay) | | | | |
+| price_moved rejection observable on fast market | | | | |
+| Resolution lockout on 97c+ markets | | | | |
+| Settlement sweep resolves past-close markets | | | | |
+| Nothing renders on non-prediction sites | | | | |
+
+**N/A for prediction (stated):** chart markers, average lines, positions bar
+drag, SPA navigation between tokens, overlay toggle -- these are token-specific
+features. Prediction has its own ticket UI with shadow-DOM isolation.

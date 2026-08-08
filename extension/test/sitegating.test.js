@@ -198,12 +198,21 @@ test('the manifest no longer injects into every page on the internet', () => {
   const PERPS_HOSTS = new Set([
     'https://app.hyperliquid.xyz/*', 'https://jup.ag/*', 'https://*.jup.ag/*',
   ]);
+  const PREDICT_FILES = new Set([
+    'predict-venues.js', 'predict-engine.js', 'predict-score.js',
+    'predict-sites.js', 'predict-ticket.js', 'predict-content.js',
+  ]);
+  const PREDICT_HOSTS = new Set([
+    'https://kalshi.com/*', 'https://polymarket.com/*',
+    'https://app.hyperliquid.xyz/*', 'https://limitless.exchange/*',
+  ]);
   const RELAY_FILES = new Set(['site-bridge.js']);
   const RELAY_HOSTS = new Set([
     'https://papertrench.com/*', 'https://www.papertrench.com/*',
   ]);
   const isXEntry = (cs) => (cs.js || []).some((f) => X_VIEWER_FILES.has(f));
   const isPerpsEntry = (cs) => (cs.js || []).some((f) => PERPS_FILES.has(f));
+  const isPredictEntry = (cs) => (cs.js || []).some((f) => PREDICT_FILES.has(f));
   const isRelayEntry = (cs) => (cs.js || []).some((f) => RELAY_FILES.has(f));
 
   for (const script of manifest.content_scripts) {
@@ -211,13 +220,15 @@ test('the manifest no longer injects into every page on the internet', () => {
       'content scripts must be limited to supported sites');
   }
 
-  const trading = manifest.content_scripts.filter((cs) => !isXEntry(cs) && !isPerpsEntry(cs) && !isRelayEntry(cs));
+  const trading = manifest.content_scripts.filter((cs) => !isXEntry(cs) && !isPerpsEntry(cs) && !isPredictEntry(cs) && !isRelayEntry(cs));
   const xViewer = manifest.content_scripts.filter(isXEntry);
   const perps = manifest.content_scripts.filter(isPerpsEntry);
+  const predict = manifest.content_scripts.filter(isPredictEntry);
   const relay = manifest.content_scripts.filter(isRelayEntry);
   assert.ok(trading.length >= 2 && xViewer.length === 3,
     'expected the two trading-surface entries plus the three X surface entries');
   assert.equal(perps.length, 1, 'the perps stack rides exactly one entry');
+  assert.equal(predict.length, 1, 'the prediction stack rides exactly one entry');
   assert.equal(relay.length, 1, 'the site relay rides exactly one entry');
 
   for (const script of relay) {
@@ -226,7 +237,7 @@ test('the manifest no longer injects into every page on the internet', () => {
     assert.ok(script.js.every((f) => RELAY_FILES.has(f)),
       'the relay entry may carry ONLY site-bridge.js — never an engine, overlay or bridge');
   }
-  for (const script of trading.concat(xViewer, perps)) {
+  for (const script of trading.concat(xViewer, perps, predict)) {
     assert.ok(!(script.js || []).some((f) => RELAY_FILES.has(f)),
       'the site relay must not leak onto any other surface');
   }
@@ -242,6 +253,19 @@ test('the manifest no longer injects into every page on the internet', () => {
   for (const script of trading.concat(xViewer)) {
     assert.ok(!(script.js || []).some((f) => PERPS_FILES.has(f)),
       'the perps stack must not leak onto the spot or X surfaces');
+  }
+
+  for (const script of predict) {
+    assert.ok(script.matches.every((m) => PREDICT_HOSTS.has(m)),
+      'the prediction surface is pinned to its own closed venue host list');
+    assert.ok(script.js.every((f) => PREDICT_FILES.has(f)),
+      'the prediction entry may carry ONLY the prediction stack');
+    assert.ok(!script.matches.some((m) => m.includes('x.com') || m.includes('twitter.com')),
+      'the prediction surface must never run on X');
+  }
+  for (const script of trading.concat(xViewer, perps)) {
+    assert.ok(!(script.js || []).some((f) => PREDICT_FILES.has(f)),
+      'the prediction stack must not leak onto spot, X, or perps surfaces');
   }
 
   for (const script of trading) {

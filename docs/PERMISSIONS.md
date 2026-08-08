@@ -29,6 +29,16 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
   only host the extension has added since v2.4.0, and it is listed here
   because a permissions document that omits a host we inject into is simply
   wrong, whatever the injected code does.
+- **Prediction markets (v3.3.0).** A third content-script entry loads the
+  prediction stack on four binary-outcome venues: **kalshi.com**,
+  **polymarket.com**, **app.hyperliquid.xyz** (outcomes path — shares the
+  host with perps; each module's `detect()` decides whether to mount), and
+  **limitless.exchange**. The engine reads each venue's public order book
+  (no auth, no API key), prices SIMULATED fills against it, and scores
+  calibration via Brier Skill Score. No real order is placed and no wallet
+  is involved. Venues with insufficient recon coverage (all except Kalshi)
+  ship as `verified:false` stubs that mount nothing until a headed capture
+  confirms the live price pipeline.
 - **papertrench.com / www.papertrench.com (site relay).** One small content
   script (`site-bridge.js`) loads on our own website, and nowhere else, to
   close the account-linking loop: after you sign in with X on
