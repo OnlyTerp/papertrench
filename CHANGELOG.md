@@ -3,6 +3,19 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.2.2 — 2026-08-08
+
+- **A quiet chart can no longer let a lagging price book your fill.** A
+  field report from lute.gg (a sell booked ~20% under the chart — a win
+  shown as a loss) exposed a gap between two existing guards: with no
+  fresh tick on screen, a chain-side price that lagged the market could
+  price a fill unchecked as long as it wasn't wildly wrong. Fill-time
+  prices are now also judged against the freshest price this tab accepted
+  as market truth; a contradicted read is set aside and the fill re-prices
+  from sources that can vouch for themselves — or refuses out loud rather
+  than booking a number the chart never showed. Honest fast moves still
+  fill at the moved price, and the normal path pays zero extra latency.
+
 ## v3.2.1 — 2026-08-07
 
 - **Fresh launches from launchpads we can't decode still get their
