@@ -459,8 +459,9 @@ writes v2 links reaches a user.**
 **F-48 · S1 · a sell booked ~20% under the chart the trader watched — a win rendered as -9.6%**
 extension price pipeline (suspects ranked below) · Terp, lute.gg screenshot,
 2026-08-06 (WhiteBull "oUwi…pump", MC axis, first live lute session) ·
-**open — bridge exonerated by lock, provenance receipts landed, source not
-yet pinned**.
+**open — bridge exonerated by lock, provenance receipts landed, the
+suspect-(1) gap proven by executing lock and CLOSED (quiet-screen guard);
+the field occurrence itself still awaits its receipt**.
 The chart and the S mark sat at ~41K MC when he clicked sell (the panel
 header read $39.8K moments later — the fresh number existed in the tab),
 and the engine booked the exit at 33.1K (the avg-exit line and the P&L
@@ -484,7 +485,26 @@ Landed with this entry: every fill now records `priceSource` +
 `priceAgeMs` on its journal row (stored-not-committed, the solNet pattern —
 the attestation preimage is untouched). The NEXT occurrence names its
 source in the dashboard journal instead of demanding screenshot forensics.
-Close this defect only by reproducing it with the receipt in hand.
+Suspect (1) is no longer an inference — it is a proven structural gap, now
+closed. `test/quietscreen.test.js` boots the shipped quote ladder verbatim
+(the action-quote section of content.js against the real quote.js, an R
+fake with the shipped resolves-null-never-rejects shape) and demonstrated
+the mechanism with the report's own numbers: a chain read lagging 24% under
+a fresh timestamp priced the fill whenever the screen was >600ms quiet,
+because the F-33 arbitration never arms there and the F-47 witness sleeps
+below 2x — the (1.06x, 2x] band on a quiet screen answered to nobody. The
+guard (`Q.onchainContradictsEvidence`, band 1.10x, window 30s): a chain
+candidate arriving on a quiet screen must agree with `lastAcceptedMarket`;
+contradiction DEMOTES the read into the ladder, which re-prices from
+sources that can vouch for themselves — a corroborated real move still
+fills at the moved level, an agreeing read still fills with zero added
+latency, and when every honest source is gone the answer is a loud refusal,
+never the lagging read. All locks mutation-verified red-then-green against
+the exact guard lines (veto disarmed → 3 fill-path locks fail; band vacated
+→ those plus the bounds lock fail).
+Close this defect only by reproducing it with the receipt in hand: whether
+THIS mechanism — and not suspects (2)/(3) — produced the WhiteBull fill is
+confirmed the day a receipt names the source.
 
 **F-47 · S1 · a fill could execute at a resurrected dead price — a loss rendered as +167%**
 content.js quoteForTrade / quote.js · chatcabal, Twitch + Matt Buitrago's
