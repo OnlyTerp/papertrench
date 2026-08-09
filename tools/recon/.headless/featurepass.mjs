@@ -28,6 +28,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
+// The refusal rig must starve the SERVICE WORKER's fetches too (the resolver
+// and chain reads live there); Playwright only routes SW traffic behind this
+// flag, and it must be set before any browser launches. Chromium-only, which
+// is what this harness runs.
+process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS = '1';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT = process.env.PT_LIVEPASS_EXT || resolve(HERE, '../../../extension');
 const SHOTS = process.env.PT_LIVEPASS_SHOTS || resolve(HERE, '_livepass');
@@ -161,6 +167,62 @@ const note = (name, ok, detail) => {
   console.log(`  ${ok === null ? '·' : ok ? '✓' : '✗'}  ${name}${detail ? ` — ${detail}` : ''}`);
 };
 
+/**
+ * QA row: "Refusal toast (not silence) when no fresh price." Mount honestly,
+ * then cut EVERYTHING — abort all new requests (the SW-events flag makes that
+ * reach the service worker's resolver and chain fetches) and go offline (which
+ * severs the site's established price WebSockets). Past the 3s staleness
+ * bound, a buy click must produce a visible refusal and NO journal row. A
+ * silent no-op or, worse, a fill from the dead snapshot is the F-01/F-20
+ * regression this stage exists to catch.
+ */
+async function refusalStage(siteId, url) {
+  const ctx = await chromium.launchPersistentContext(DEFAULT_PROFILE, {
+    headless: false,
+    args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox', '--no-first-run'],
+    viewport: { width: 1440, height: 900 },
+  });
+  try {
+    const page = await ctx.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    const mounted = await waitFor(page, async () => {
+      const p = await readPanel(page);
+      return { ok: p.mounted && p.price && /\d/.test(p.price) && !/fetch/i.test(p.price), ...p };
+    }, 30000);
+    if (!mounted.ok) { note('refusal rig: panel re-mounts', false, 'could not reach a live panel'); return; }
+
+    let sw = ctx.serviceWorkers()[0];
+    if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 }).catch(() => null);
+    const extId = sw ? new URL(sw.url()).host : null;
+    const before = extId ? await readState(ctx, extId) : null;
+    const jBefore = before && before.state ? before.state.journal.length : null;
+
+    await ctx.route('**/*', (r) => r.abort().catch(() => {}));
+    await ctx.setOffline(true).catch(() => {});
+    await page.waitForTimeout(4500); // beyond STALE_FILL_MAX_AGE_MS with margin
+
+    await clickPanel(page, 'buy');
+    const refusal = await waitToast(page,
+      /Could not obtain a fresh price|not filled|refused|sources disagree/i, 9000);
+    const wrongFill = await waitToast(page, /^Bought /, 500);
+    await page.screenshot({ path: resolve(SHOTS, `fp-${siteId}-refusal.png`) }).catch(() => {});
+    note('starved feed: buy refuses OUT LOUD', refusal.ok && !wrongFill.ok,
+      refusal.toast || (wrongFill.ok ? `FILLED from a dead snapshot: ${wrongFill.toast}` : 'no toast at all — silence is the defect'));
+
+    await ctx.setOffline(false).catch(() => {});
+    await ctx.unroute('**/*').catch(() => {});
+    if (extId && jBefore !== null) {
+      const after = await readState(ctx, extId);
+      note('starved feed: no journal row written', after.state.journal.length === jBefore,
+        `journal ${jBefore} → ${after.state.journal.length}`);
+    } else {
+      note('starved feed: no journal row written', null, 'engine storage unreachable in this session');
+    }
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
 async function main() {
   const siteId = process.argv[2] || 'gmgn';
   mkdirSync(SHOTS, { recursive: true });
@@ -267,6 +329,28 @@ async function main() {
       note('bar drag persists across a reload', null, 'skipped — bar/grip not measurable');
     }
 
+    // ── master switch: disable removes the panel, re-enable restores it
+    //    WITH the sell buttons (the position is open right now, which is
+    //    exactly when a broken restore would strand a trader) ───────────
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup.html`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const clickToggle = () => popup.evaluate(() => { document.getElementById('toggle').click(); });
+    await clickToggle();
+    const torn = await waitFor(page, async () => {
+      const p = await readPanel(page);
+      return { ok: !p.mounted };
+    }, 10000);
+    note('master switch OFF removes the panel', torn.ok,
+      torn.ok ? 'panel gone from the token page' : 'panel still rendering after disable');
+    await clickToggle();
+    const restored = await waitFor(page, async () => {
+      const p = await readPanel(page);
+      return { ok: p.mounted && p.sellButtons > 0, sells: p.sellButtons };
+    }, 15000);
+    note('master switch ON restores panel incl. sell buttons', restored.ok,
+      restored.ok ? `${restored.sells} sell buttons back with the open position` : 'panel or sell row did not return');
+    await popup.close();
+
     // ── SELL 100%: once per tap, round closes near zero ─────────────
     await waitFor(page, async () => {
       const p = await readPanel(page);
@@ -319,8 +403,14 @@ async function main() {
       'closed BONK round must not resurrect on WIF');
     await page.screenshot({ path: resolve(SHOTS, `fp-${siteId}-swap.png`) }).catch(() => {});
 
-    console.log('\n  not covered (needs its own rig, said honestly): refusal toast on a');
-    console.log('  dead feed; popup master-switch teardown; chart-marker geometry.');
+    // ── the refusal rig: starve every source, demand a refusal OUT LOUD ──
+    // A separate session so the starvation cannot contaminate the matrix
+    // above. The profile lock demands the first browser closes first.
+    await ctx.close().catch(() => {});
+    await refusalStage(siteId, urlA);
+
+    console.log('\n  not covered (needs its own rig, said honestly): chart-marker');
+    console.log('  geometry and average-line visuals — the bridge suites own those.');
   } finally {
     await ctx.close().catch(() => {});
     const bad = results.filter((r) => r.ok === false);

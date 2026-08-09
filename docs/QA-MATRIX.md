@@ -61,19 +61,28 @@ through, per site:
   round trip books ~zero P&L** (±12% gate — the standing F-48 tripwire: an
   instant buy→sell can only lose fees+slippage, so anything beyond means a
   price layer lied);
-- **token swap follows identity and price** with **no cross-token bleed**.
+- **token swap follows identity and price** with **no cross-token bleed**;
+- **master switch OFF removes the panel; ON restores it with the sell
+  buttons**, exercised while the position is open — the moment a broken
+  restore would strand a trader;
+- **a starved feed refuses OUT LOUD**: a second session cuts every source
+  (request abort reaches the service worker via Playwright's SW-events flag;
+  offline severs the site's live sockets), waits past the 3s staleness bound,
+  clicks buy, and demands the refusal toast with NO journal row — silence or
+  a fill from the dead snapshot is the F-01/F-20 regression.
 
 ```bash
 node featurepass.mjs            # default site (gmgn, no login needed)
 node featurepass.mjs lute       # any adapter id; gated sites need the seeded profile
 ```
 
-First full run 2026-08-08 on gmgn: **16/16** (receipts observed naming
-`action-resolver`, `onchain`, and `xhr` across fills — the provenance layer is
-live). Still human, said out loud: the refusal toast on a dead feed (needs a
-feed-kill rig), the popup master-switch teardown, chart-marker geometry and
-average-line visuals (locked by the bridge suites; the drawing lives inside the
-venue's chart iframe).
+First full run 2026-08-08 on gmgn: **20/20** — receipts observed naming
+`action-resolver`, `onchain`, `xhr`, `padre-chart-bar` (the bridge's chart-bar
+tag), and `resolver` across fills, so the provenance layer is observably live;
+round trips booked −2.08% (fees+slippage exactly); the starved-feed buy
+refused with the exact F-01 toast and wrote nothing. Still human, said out
+loud: chart-marker geometry and average-line visuals (locked by the bridge
+suites; the drawing lives inside the venue's chart iframe).
 
 ---
 
