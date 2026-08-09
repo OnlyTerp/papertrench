@@ -33,14 +33,19 @@ import { tmpdir } from 'node:os';
 import readline from 'node:readline';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const EXT = resolve(HERE, '../../../extension');
-const SHOTS = resolve(HERE, '_livepass');
+// Env overrides let the SAME script run outside the repo tree — the Windows-
+// native runner (C:\PaperTrench-livepass) points these at the loaded-unpacked
+// extension and a native profile dir. WSLg is deliberately disabled on this
+// machine (.wslconfig guiApplications=false), so the headed `login` seed can
+// only run Windows-side; unset, both paths resolve exactly as before.
+const EXT = process.env.PT_LIVEPASS_EXT || resolve(HERE, '../../../extension');
+const SHOTS = process.env.PT_LIVEPASS_SHOTS || resolve(HERE, '_livepass');
 // One durable profile, on native ext4 (recon-data is gitignored — it already
 // holds cookies and balances, so a logged-in profile belongs here and can
 // never leak into the repo). This is the default for every run: log in once,
 // it sticks. A throwaway temp profile is only used if someone passes
 // --profile "" explicitly, which no normal run does.
-const DATA = resolve(HERE, '../../../recon-data');
+const DATA = process.env.PT_LIVEPASS_DATA || resolve(HERE, '../../../recon-data');
 const DEFAULT_PROFILE = resolve(DATA, 'profiles', 'live');
 
 /** A redirect to an auth route, or a bounce to the bare homepage from a deep
