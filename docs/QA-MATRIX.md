@@ -45,9 +45,35 @@ No site mounted on a refuse route in any run. BONK's market cap agreed across
 all six passing terminals ($221.1M–$221.8M), which is the cross-venue evidence
 that the price layer is reading the right number.
 
-The hand-run table below is what the automated pass does **not** yet cover:
-fills and toasts, chart markers, average-line behaviour, drag/persist, and SPA
-token-swaps. Those remain human until the harness grows to them.
+### The feature pass covers what used to be hand-run
+
+`featurepass.mjs` (same directory, same profile, same env overrides) grew the
+harness to the interaction rows. In its OWN browser profile with paper money —
+the operator's real journal and Arena record are never touched — it clicks
+through, per site:
+
+- **buy fills with a toast**, and the journal row carries its **F-48 receipt**
+  (`priceSource` + `priceAgeMs`, asserted from `chrome.storage` through the
+  extension's own dashboard page — engine truth, not pixels);
+- **positions bar appears**, **drags**, and the position **persists across a
+  reload**;
+- **one tap sells exactly once**, the position closes, and the **immediate
+  round trip books ~zero P&L** (±12% gate — the standing F-48 tripwire: an
+  instant buy→sell can only lose fees+slippage, so anything beyond means a
+  price layer lied);
+- **token swap follows identity and price** with **no cross-token bleed**.
+
+```bash
+node featurepass.mjs            # default site (gmgn, no login needed)
+node featurepass.mjs lute       # any adapter id; gated sites need the seeded profile
+```
+
+First full run 2026-08-08 on gmgn: **16/16** (receipts observed naming
+`action-resolver`, `onchain`, and `xhr` across fills — the provenance layer is
+live). Still human, said out loud: the refusal toast on a dead feed (needs a
+feed-kill rig), the popup master-switch teardown, chart-marker geometry and
+average-line visuals (locked by the bridge suites; the drawing lives inside the
+venue's chart iframe).
 
 ---
 
