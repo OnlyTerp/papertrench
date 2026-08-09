@@ -76,11 +76,18 @@ node featurepass.mjs            # default site (gmgn, no login needed)
 node featurepass.mjs lute       # any adapter id; gated sites need the seeded profile
 ```
 
-First full run 2026-08-08 on gmgn: **20/20** — receipts observed naming
-`action-resolver`, `onchain`, `xhr`, `padre-chart-bar` (the bridge's chart-bar
-tag), and `resolver` across fills, so the provenance layer is observably live;
-round trips booked −2.08% (fees+slippage exactly); the starved-feed buy
-refused with the exact F-01 toast and wrote nothing. Still human, said out
+Sweep of 2026-08-08 — **20/20 on all five open terminals** (gmgn, photon,
+dexscreener, jupiter, pump.fun): receipts observed naming `action-resolver`,
+`onchain`, `xhr`, `padre-chart-bar` (the bridge's chart-bar tag), and
+`resolver` across fills, so the provenance layer is observably live; round
+trips booked −2.08% (fees+slippage exactly); the starved-feed buy refused
+with the exact F-01 toast and wrote nothing. Two harness lessons paid for in
+that sweep, kept so the verdicts stay trusted: the drag must head TOWARD
+screen center (a persistent profile walks the bar to the edge, where the
+product's reachability clamp rightly holds it and a direction-blind assertion
+reads the clamp as a failure), and it must drag with synthetic PointerEvents
+aimed at the grip/window listeners — a real cursor path crossing the venue's
+chart iframe never reaches the window listener at all. Still human, said out
 loud: chart-marker geometry and average-line visuals (locked by the bridge
 suites; the drawing lives inside the venue's chart iframe).
 

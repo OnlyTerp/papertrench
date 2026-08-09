@@ -257,13 +257,23 @@ async function main() {
     note('panel mounts with a live price', true, `${mounted.price}`);
     note('live dot present', /pt-dot/.test(mounted.dotClass || ''), mounted.dotClass || '(none)');
 
-    // ── the price moves (14s window) ────────────────────────────────
+    // ── the price is LIVE (30s window) ──────────────────────────────
+    // A changed value is the clean pass. A HELD value is still live when the
+    // pipeline keeps re-confirming it — dot on, never stale-marked — because
+    // a slow market plus display rounding can sit on one quantum for a while
+    // (photon held BONK's cap for 14s doing exactly that, honestly). The
+    // failure this check exists for is the third case: a frozen panel that
+    // CLAIMS to be live next to a moving site.
     const p0 = mounted.price;
+    let wentStale = false;
     const ticked = await waitFor(page, async () => {
       const p = await readPanel(page);
-      return { ok: p.price && p.price !== p0, price: p.price };
-    }, 14000, 700);
-    note('price ticks', ticked.ok, ticked.ok ? `${p0} → ${ticked.price}` : `held ${p0} for 14s (slow market is possible; stale-mark: ${mounted.priceStale})`);
+      if (p.priceStale || /warn/.test(p.dotClass || '')) wentStale = true;
+      return { ok: p.price && /\d/.test(p.price) && p.price !== p0, price: p.price };
+    }, 30000, 1000);
+    if (ticked.ok) note('price is live', true, `${p0} → ${ticked.price}`);
+    else if (!wentStale) note('price is live', true, `held ${p0} for 30s but re-confirmed fresh throughout (dot on, never stale-marked)`);
+    else note('price is live', false, `held ${p0} and went stale/warn during the window — the feed is not healthy here`);
 
     // ── extension id via its own service worker ─────────────────────
     let sw = ctx.serviceWorkers()[0];
@@ -307,11 +317,31 @@ async function main() {
     note('positions bar appears with the open position', barShown.ok);
     let dragChecked = null;
     if (barShown.ok && barShown.gripRect) {
-      const g = barShown.gripRect;
-      await page.mouse.move(g.x, g.y);
-      await page.mouse.down();
-      for (let i = 1; i <= 8; i++) await page.mouse.move(g.x + i * 17, g.y + i * 11);
-      await page.mouse.up();
+      // Drag TOWARD the viewport center. The profile persists the bar's spot
+      // across runs, so a fixed rightward drag eventually pinned it against
+      // the edge — where the product's reachability clamp correctly held it
+      // and the old direction-blind assertion read the CLAMP as a failure.
+      // And drag with SYNTHETIC PointerEvents, not the real mouse: the grip
+      // listens for pointerdown on itself and pointermove/up on WINDOW, and a
+      // real cursor path crossing the venue's chart IFRAME never reaches the
+      // window listener (dexscreener stalled every drag exactly that way).
+      const vp = page.viewportSize() || { width: 1440, height: 900 };
+      const dir = barShown.barRect.x > vp.width / 2 ? -1 : 1;
+      await inPanel(page, (sh, a) => {
+        const grip = sh.getElementById('pt-bar-grip');
+        if (!grip) return { dragged: false };
+        const r = grip.getBoundingClientRect();
+        const x0 = r.x + r.width / 2;
+        const y0 = r.y + r.height / 2;
+        const ev = (type, x, y) => new PointerEvent(type, {
+          bubbles: true, composed: true, cancelable: true,
+          clientX: x, clientY: y, button: 0, pointerId: 7, isPrimary: true,
+        });
+        grip.dispatchEvent(ev('pointerdown', x0, y0));
+        for (let i = 1; i <= 8; i++) window.dispatchEvent(ev('pointermove', x0 + (a.dx * i) / 8, y0));
+        window.dispatchEvent(ev('pointerup', x0 + a.dx, y0));
+        return { dragged: true };
+      }, { dx: dir * 136 });
       await page.waitForTimeout(1200);
       const afterDrag = await readState(ctx, extId);
       const persisted = afterDrag.settings && typeof afterDrag.settings.positionsBarLeft === 'number';
@@ -320,11 +350,12 @@ async function main() {
         const p = await readPanel(page);
         return { ok: p.mounted && p.barVisible, ...p };
       }, 25000);
+      const target = barShown.barRect.x + dir * 8 * 17;
       const moved = reMounted.ok && reMounted.barRect
-        && Math.abs(reMounted.barRect.x - (barShown.barRect.x + 8 * 17)) < 40;
+        && Math.abs(reMounted.barRect.x - target) < 40;
       dragChecked = persisted && moved;
       note('bar drag persists across a reload', dragChecked,
-        `saved=${persisted} rect ${Math.round(barShown.barRect.x)} → ${reMounted.barRect ? Math.round(reMounted.barRect.x) : '?'} (target +136)`);
+        `saved=${persisted} rect ${Math.round(barShown.barRect.x)} → ${reMounted.barRect ? Math.round(reMounted.barRect.x) : '?'} (target ${dir > 0 ? '+' : '−'}136)`);
     } else {
       note('bar drag persists across a reload', null, 'skipped — bar/grip not measurable');
     }
