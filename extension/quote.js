@@ -918,6 +918,40 @@
     return ratio > ONCHAIN_EVIDENCE_AGREE_RATIO;
   }
 
+  // F-50 (featurepass, lute, BONK): lute displays a ~10x-scaled cap (its
+  // supply convention), and with ACCEPT_RATIO at 20x a chart/title tick at
+  // that scale VALIDATES against the anchor and rescales the whole token —
+  // the panel was watched flip-flopping $214M ⇄ $2.15B, and an immediate
+  // round trip booked -90.2% (buy leg priceSource=padre-chart-bar at 2.15B,
+  // sell leg ws at 214.6M, 3.9s apart, both fresh). The 20x band itself is
+  // right — memecoins genuinely 10x between anchor refreshes — so the
+  // discipline is CONTINUITY: a real 10x arrives as many small steps; a
+  // scale flip arrives as ONE step. A single tick may not move the market
+  // more than SCALE_STEP_RATIO from the freshest accepted evidence — unless
+  // the newcomer sits CLOSER to the resolver anchor than the stream does,
+  // in which case the STREAM was the wrong scale (cold-start on the wrong
+  // side) and snapping back to the anchor's side is the honest move. The
+  // anchor is the arbiter precisely because live ticks are forbidden to
+  // drift it.
+  var SCALE_STEP_RATIO = 3;
+  var SCALE_STEP_WINDOW_MS = 15000;
+
+  function ratioOf(a, b) {
+    return a > b ? a / b : b / a;
+  }
+
+  /** May this tick move the accepted stream to its value? 'ok' | 'scale-step'. */
+  function scaleStepVerdict(candidateNative, lastNative, lastAgeMs, anchorNative) {
+    if (!(candidateNative > 0) || !(lastNative > 0)) return 'ok';
+    if (!(lastAgeMs >= 0) || lastAgeMs > SCALE_STEP_WINDOW_MS) return 'ok';
+    if (ratioOf(candidateNative, lastNative) <= SCALE_STEP_RATIO) return 'ok';
+    if (anchorNative > 0
+      && ratioOf(candidateNative, anchorNative) < ratioOf(lastNative, anchorNative)) {
+      return 'ok'; // the newcomer is the anchor's side — the stream was the wrong scale
+    }
+    return 'scale-step';
+  }
+
   /* ------------------------------------------------------------------ *
    * 5. Live position mark
    * ------------------------------------------------------------------ */
@@ -1220,11 +1254,14 @@
     needsFillWitness,
     witnessAgrees,
     onchainContradictsEvidence,
+    scaleStepVerdict,
     FILL_WITNESS_WINDOW_MS,
     FILL_WITNESS_RATIO,
     FILL_WITNESS_AGREE_RATIO,
     ONCHAIN_EVIDENCE_WINDOW_MS,
     ONCHAIN_EVIDENCE_AGREE_RATIO,
+    SCALE_STEP_RATIO,
+    SCALE_STEP_WINDOW_MS,
     isPumpFamily,
     bootstrapSupply,
     rugVerdict,

@@ -459,8 +459,21 @@ writes v2 links reaches a user.**
 **F-50 · S1 · lute prices the same token at TWO SCALES — an immediate round trip booked −90.2%**
 extension price pipeline on lute.gg (scale acceptance, suspects below) ·
 caught by `featurepass.mjs lute`, 2026-08-10, harness profile, BONK ·
-**open — fully receipt-documented (the first of its family), reproducible on
-demand, root not yet pinned; do not fix on inference (F-45 rule)**.
+**fixed (unreleased) — acceptance point named by constant, guard landed and
+mutation-locked (`test/scalestep.test.js`), close condition met: a green
+lute featurepass whose round trip books fees only (−2.08%, 2026-08-10)**.
+The acceptance point was no suspect in the end: `ACCEPT_RATIO = 20` — the
+deliberately wide anchor band (memecoins genuinely 10x between refreshes)
+admits a 10x-scaled tick, and both the chart-close mcap basis and the
+title-feed ratio rescale then move the whole token. The fix is CONTINUITY,
+not a tighter band: `Q.scaleStepVerdict` — a single tick beyond 3x of the
+freshest accepted evidence (15s window) may not re-scale the market, unless
+it sits closer to the RESOLVER ANCHOR than the stream does (then the stream
+was the wrong scale and snapping back is honest; the anchor arbitrates
+precisely because live ticks are forbidden to drift it). Wired at both
+acceptance sites; a refused title cap never becomes `token.mcap` (it would
+self-confirm every later read). Proven live: the same harness run that
+booked −90.2% now holds $216.2M steady across both legs and closes at fees.
 The receipts, verbatim from the journal: BUY 00:51:12.793Z, 0.1 SOL at
 priceNative 3.1919e-7, mcap $2,151,142,047, `priceSource=padre-chart-bar`,
 `priceAgeMs=93`. SELL 3.9 seconds later, returns 0.00988 SOL at priceNative

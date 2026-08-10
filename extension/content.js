@@ -605,6 +605,27 @@
       if (basisChanged) syncAveragePriceLines();
     }
 
+    // F-50 (lute, BONK): a tick can VALIDATE — the 20x anchor band is wide
+    // on purpose — and still be the wrong SCALE (lute plots a ~10x supply
+    // convention; the panel was watched flip-flopping $214M ⇄ $2.15B and an
+    // immediate round trip booked -90.2%). A single tick may not re-scale
+    // the market: reject a step beyond SCALE_STEP_RATIO from the freshest
+    // accepted evidence unless the newcomer sits closer to the resolver
+    // anchor than the stream does — then the STREAM was the wrong scale and
+    // snapping back is the honest move.
+    const scaleAnchor = tokenAnchor();
+    if (Q.scaleStepVerdict(
+      verdict.priceNative,
+      lastAcceptedMarket && lastAcceptedMarket.priceNative,
+      lastAcceptedMarket ? Date.now() - lastAcceptedMarket.at : Infinity,
+      scaleAnchor ? Number(scaleAnchor.priceNative) : null
+    ) === 'scale-step') {
+      console.debug('PaperTrench: tick ' + verdict.priceNative + ' (' + (payload.source || 'page-feed')
+        + ') rejected as scale-step vs accepted ' + lastAcceptedMarket.priceNative
+        + ' — one tick may not re-scale the market (F-50)');
+      return;
+    }
+
     const oldNative = Number(token.priceNative);
     token.priceNative = verdict.priceNative;
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
@@ -1397,7 +1418,22 @@
       const previous = Number(token.mcap);
       if (previous > 0 && Number(token.priceNative) > 0) {
         const ratio = mcap / previous;
-        token.priceNative = Number(token.priceNative) * ratio;
+        const impliedNative = Number(token.priceNative) * ratio;
+        // F-50: the title carries the SITE'S scale (lute titles a ~10x
+        // supply-convention cap). The same one-tick-cannot-re-scale rule
+        // guards this rescale, and a refused cap must not become token.mcap
+        // either — it would self-confirm every later title read.
+        const titleScaleAnchor = tokenAnchor();
+        if (Q.scaleStepVerdict(
+          impliedNative,
+          lastAcceptedMarket && lastAcceptedMarket.priceNative,
+          lastAcceptedMarket ? Date.now() - lastAcceptedMarket.at : Infinity,
+          titleScaleAnchor ? Number(titleScaleAnchor.priceNative) : null
+        ) === 'scale-step') {
+          console.debug('PaperTrench: title cap ' + mcap + ' rejected as scale-step (F-50)');
+          return;
+        }
+        token.priceNative = impliedNative;
         if (Number(token.priceUsd) > 0) token.priceUsd = Number(token.priceUsd) * ratio;
       }
       token.mcap = mcap;
