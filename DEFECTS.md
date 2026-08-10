@@ -456,6 +456,42 @@ reject it as `hash-mismatch`. The new server code verifies BOTH versions, so it
 is backward compatible — **redeploy the worker before any extension build that
 writes v2 links reaches a user.**
 
+**F-50 · S1 · lute prices the same token at TWO SCALES — an immediate round trip booked −90.2%**
+extension price pipeline on lute.gg (scale acceptance, suspects below) ·
+caught by `featurepass.mjs lute`, 2026-08-10, harness profile, BONK ·
+**open — fully receipt-documented (the first of its family), reproducible on
+demand, root not yet pinned; do not fix on inference (F-45 rule)**.
+The receipts, verbatim from the journal: BUY 00:51:12.793Z, 0.1 SOL at
+priceNative 3.1919e-7, mcap $2,151,142,047, `priceSource=padre-chart-bar`,
+`priceAgeMs=93`. SELL 3.9 seconds later, returns 0.00988 SOL at priceNative
+3.1849e-8, mcap $214,646,482, `priceSource=ws`, `priceAgeMs=172`. The legs
+differ by exactly 10.02x. Both prices were FRESH — this is not staleness,
+it is two sources at different SCALES both being accepted as the same
+market. A second run watched the PANEL ITSELF flip $214.75M → $2.15B inside
+a 30s window: the scales fight live, and whichever last ticked prices the
+next fill.
+Mechanism (confirmed shape, unpinned entry point): lute displays BONK's cap
+at ~10x the market's number — the Aug 6 landing probe recorded the title
+"BONK ↑ $2.46B • Lute" and called the title feed's read "correct", which was
+scale-naive; every other venue prices BONK at ~$215M (total-vs-circulating
+supply convention, BONK burns). This is F-49's suspect (b) — mixed-supply
+cap labels — observed in the wild with receipts. Neither guard helps: the
+F-47 witness meets an evidence stream that itself alternates scales (a
+same-scale witness confirms its own side — the lagging-witness residual,
+scale-flavored), and the F-48 quiet-screen guard compares natives inside
+one scale regime.
+Suspects for the acceptance point, ranked: (1) the title-feed ratio rescale
+(content.js ~1395: title mcap rescales token.priceNative/priceUsd wholesale)
+validating against CURRENT token state — once one lute-scale tick lands,
+the title self-confirms it, chicken-and-egg; (2) the chart-close accept path
+(basis/mcap-band) admitting a 10x-off-anchor close on the MC axis; (3) the
+requote-after-oob path re-anchoring to the wrong side. The fix discipline
+whichever it is: rescales and scale-changing accepts must band against the
+RESOLVER ANCHOR, never against the token state they themselves wrote.
+Repro: `node featurepass.mjs lute` (seeded profile) — twice on 2026-08-10.
+Close only with the acceptance point named by test, a guard mutation-locked,
+and a green featurepass on lute whose round trip books fees only.
+
 **F-48 · S1 · a sell booked ~20% under the chart the trader watched — a win rendered as -9.6%**
 extension price pipeline (suspects ranked below) · Terp, lute.gg screenshot,
 2026-08-06 (WhiteBull "oUwi…pump", MC axis, first live lute session) ·

@@ -401,8 +401,13 @@ async function main() {
     note('position closed', !(afterSell.state.positions && afterSell.state.positions[BONK]),
       afterSell.state.positions && afterSell.state.positions[BONK] ? 'position still open' : 'gone');
 
+    // Rounds are newest-FIRST like the journal. The first lute run proved why
+    // this must never index the tail: the tripwire read a stale gmgn round's
+    // -2.08% while THIS round closed at -90.2% one line above it.
     const rounds = afterSell.state.rounds || [];
-    const round = rounds.length > roundsBefore ? rounds[rounds.length - 1] : null;
+    const round = rounds.length > roundsBefore
+      ? rounds.reduce((a, b) => ((a && a.ts) >= (b.ts || 0) ? a : b), rounds[0])
+      : null;
     if (round && Number.isFinite(round.pnlPct)) {
       // THE F-48 TRIPWIRE: an immediate buy→sell round trip can only lose
       // fees+slippage. Booking beyond ±12% means some layer priced a lie.
