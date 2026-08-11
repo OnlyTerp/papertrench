@@ -75,6 +75,7 @@ const DEFAULTS = {
   warmXLinksEnabled: false,
   warmHoverCardsEnabled: false,
   warmHoverRowEnabled: false,
+  warmHoverBuyEnabled: false,
   warmEverywhereEnabled: false,
   xrayEnabled: false,
   xrayDeepScanEnabled: true,

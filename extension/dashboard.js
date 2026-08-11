@@ -4048,6 +4048,7 @@ function renderSettings(el) {
         <div class="field field-check"><label><input type="checkbox" id="set-instant-everywhere" ${settings.instantAllSitesEnabled === true ? 'checked' : ''}> Instant links on every site</label><small>The maximal version: the interceptor registers on all https sites (terminals and x.com keep their built-ins). The cost is one small script per page while this is on; the contract is unchanged — a link that is not a token/X link is never touched, and nothing is ever injected with this off.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-warm-cards" ${settings.warmHoverCardsEnabled === true ? 'checked' : ''}> Tweet preview card on hover</label><small>Hover an X link and a large readable preview of the post renders right on the page — the card itself is the click target, so no aiming at a 14px icon. Deleted posts say so before you click. Uses X's public oEmbed endpoint (no login, no tracking — see docs/PERMISSIONS.md).</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-warm-row" ${settings.warmHoverRowEnabled === true ? 'checked' : ''}> Preview from anywhere on the row</label><small>Rest the cursor about a third of a second anywhere on a token row and its X preview appears — no need to find the icon at all. Needs Instant X links on.</small></div>
+        <div class="field field-check"><label><input type="checkbox" id="set-warm-buy" ${settings.warmHoverBuyEnabled === true ? 'checked' : ''}> Preview on the terminal's quick-buy button</label><small>Where a terminal hides the launch tweet behind a held hotkey, this puts it on the button your cursor is already on: hover the site's own quick-buy pill and the tweet appears in about a tenth of a second, no key held. The card is placed clear of the pill, never over it, so the buy click it was aiming at still lands. Works where the site's pill is a verified one — Axiom and Padre today. Needs Instant X links on.</small></div>
       </div>
       <div class="card">
         <h3>X-Ray</h3>
@@ -4332,6 +4333,7 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     instantAllSitesEnabled: document.getElementById('set-instant-everywhere').checked,
     warmHoverCardsEnabled: document.getElementById('set-warm-cards').checked,
     warmHoverRowEnabled: document.getElementById('set-warm-row').checked,
+    warmHoverBuyEnabled: document.getElementById('set-warm-buy').checked,
     xrayEnabled: document.getElementById('set-xray').checked,
     xrayDeepScanEnabled: document.getElementById('set-xray-deep').checked,
   };

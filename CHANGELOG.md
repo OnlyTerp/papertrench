@@ -3,6 +3,27 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+- **The launch tweet, on the button your cursor is already on.** Several
+  terminals put their tweet preview behind a hotkey you have to HOLD. New
+  opt-in: hover the terminal's *own* quick-buy pill and the tweet card
+  appears in about a tenth of a second — no key held, no aiming at a 14px
+  𝕏 icon, and the cursor never leaves the button it came for. Off by
+  default; lives under Instant links in Settings.
+
+  Two deliberate limits, both about a trigger that sits on a control which
+  spends real money. The card is PaperTrench's own, not the terminal's
+  native box: summoning the native one means firing synthetic keystrokes
+  into a live trading app whose neighbouring keys buy things, and no
+  amount of polish is worth that blast radius. And it only runs where the
+  site's quick-buy pill is already verified — Axiom and Padre today —
+  because deciding for ourselves which button spends money is exactly the
+  kind of guess this codebase refuses. A terminal that earns a verified
+  pill later gets this with no code change. The card is also placed clear
+  of the pill in every viewport, so the buy click you were aiming at
+  still lands.
+
 ## v3.3.0 — 2026-08-07
 
 - **Prediction market engine.** Binary outcome contracts from four venues

@@ -37,6 +37,7 @@
   let enabled = false;
   let cardsEnabled = false;    // tweet preview card on X-link hover (opt-in)
   let rowHoverEnabled = false; // trigger the preview from anywhere on a row (opt-in)
+  let buyHoverEnabled = false; // trigger it from the SITE's own quick-buy pill (opt-in)
   let everywhereEnabled = false; // pump.fun / Solscan warm viewers (opt-in, Turbo)
 
   function contextAlive() {
@@ -61,14 +62,16 @@
   }
 
   // Both switches must be up: the feature's own toggle AND the app-wide
-  // master switch — "PaperTrench off" includes link interception. The two
-  // hover-preview settings are opt-in refinements under the same umbrella.
+  // master switch — "PaperTrench off" includes link interception. The three
+  // hover-preview settings (icon card, whole row, quick-buy pill) are opt-in
+  // refinements under the same umbrella.
   function applySettings(settings) {
     // Maintainer (2026-08-05): the master switch is the PAPER switch — speed
     // features live on their own toggles and survive "PaperTrench off".
     const on = !!(settings && settings.warmXLinksEnabled);
     cardsEnabled = !!(settings && settings.warmHoverCardsEnabled);
     rowHoverEnabled = !!(settings && settings.warmHoverRowEnabled);
+    buyHoverEnabled = !!(settings && settings.warmHoverBuyEnabled);
     const everywhereOn = !!(settings && settings.warmEverywhereEnabled);
     everywhereEnabled = everywhereOn;
     // No prewarm ping here anymore: destination viewers are click-created
@@ -276,7 +279,59 @@
     return true;
   }
 
-  function showCard(rect, target, data) {
+  /* Where the card goes. Pure geometry, split out from showCard because the
+   * quick-buy trigger turns placement into a SAFETY rule rather than a taste
+   * one: that trigger sits on the site's real-money buy button, and this card
+   * is itself a click target, so a card overlapping the button would eat the
+   * click the trader aimed at the button. `avoid` (when given) is that
+   * button's rect, and the returned box is guaranteed not to intersect it.
+   *
+   * Preference order for an avoided placement: LEFT of the button, then
+   * right, then below, then above. Left first because every terminal that
+   * declares a quick-buy pill puts it at the right edge of the row — the
+   * space the cursor did NOT come from and will not travel through. */
+  function placeCard(rect, size, view, avoid) {
+    const M = 8;   // viewport margin
+    const GAP = 10; // clearance from the avoided control
+    const clampX = (x) => Math.max(M, Math.min(x, view.width - size.width - M));
+    const clampY = (y) => Math.max(M, Math.min(y, view.height - size.height - M));
+    const overlaps = (box) => !!avoid && box.left < avoid.right && box.left + size.width > avoid.left
+      && box.top < avoid.bottom && box.top + size.height > avoid.top;
+
+    if (avoid) {
+      const midY = clampY(avoid.top + (avoid.bottom - avoid.top) / 2 - size.height / 2);
+      const midX = clampX(avoid.left + (avoid.right - avoid.left) / 2 - size.width / 2);
+      const candidates = [
+        { left: avoid.left - GAP - size.width, top: midY },  // left of the pill
+        { left: avoid.right + GAP, top: midY },              // right of it
+        { left: midX, top: avoid.bottom + GAP },             // below
+        { left: midX, top: avoid.top - GAP - size.height },  // above
+      ];
+      for (const c of candidates) {
+        if (c.left < M || c.left + size.width > view.width - M) continue;
+        if (c.top < M || c.top + size.height > view.height - M) continue;
+        if (!overlaps(c)) return c;
+      }
+      // Nothing fits cleanly (tiny viewport). Clamp into view, then shove the
+      // card off the button's axis — a clamped box that still overlaps is the
+      // one case this function exists to prevent, so it never returns one.
+      const fallback = { left: clampX(avoid.left - GAP - size.width), top: clampY(midY) };
+      if (!overlaps(fallback)) return fallback;
+      fallback.top = avoid.bottom + GAP + size.height > view.height - M
+        ? Math.max(M, avoid.top - GAP - size.height)
+        : avoid.bottom + GAP;
+      return fallback;
+    }
+
+    // No control to protect: the historical behavior, unchanged — below the
+    // anchor, flipped above when the viewport bottom is closer.
+    const left = clampX(rect.left);
+    let top = rect.bottom + M;
+    if (top + size.height > view.height - M) top = Math.max(M, rect.top - size.height - M);
+    return { left, top };
+  }
+
+  function showCard(rect, target, data, avoid) {
     if (!ensureCard()) return;
     while (cardBody.firstChild) cardBody.removeChild(cardBody.firstChild);
     const row = (cls, text) => {
@@ -308,16 +363,19 @@
     row('foot', 'Click to open instantly →');
     cardHost.setAttribute('data-url', target.url);
     cardHost.style.display = 'block';
-    const width = 452;
-    const height = cardHost.getBoundingClientRect().height || 160;
-    let left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
-    let top = rect.bottom + 8;
-    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 8);
-    cardHost.style.left = left + 'px';
-    cardHost.style.top = top + 'px';
+    const size = { width: 452, height: cardHost.getBoundingClientRect().height || 160 };
+    const view = { width: window.innerWidth, height: window.innerHeight };
+    const box = placeCard(rect, size, view, avoid);
+    cardHost.style.left = box.left + 'px';
+    cardHost.style.top = box.top + 'px';
   }
 
-  function requestCard(anchor, target) {
+  /** `avoid` (optional) is a control the card must not cover — the quick-buy
+   * pill. Passing it also RE-ANCHORS the card onto that control (placeCard
+   * positions relative to `avoid` when given), which is the behavior the pill
+   * trigger needs: the row's X icon is 14px, can sit anywhere in the row, and
+   * a card that appears somewhere the cursor is not reads as a glitch. */
+  function requestCard(anchor, target, avoid) {
     if (!anchor || !anchor.getBoundingClientRect) return;
     const rect = anchor.getBoundingClientRect();
     cardPendingUrl = target.url;
@@ -328,11 +386,11 @@
           // Cursor may have moved on while the fetch ran; a stale card is
           // worse than no card.
           if (cardPendingUrl !== target.url) return;
-          if (data && data.ok) showCard(rect, target, data);
+          if (data && data.ok) showCard(rect, target, data, avoid);
         }).catch(() => {});
       } catch (_) {}
     } else {
-      showCard(rect, target, null);
+      showCard(rect, target, null, avoid);
     }
   }
 
@@ -365,14 +423,87 @@
     return null;
   }
 
-  function fireHover(anchor, target, viaRow) {
+  function fireHover(anchor, target, viaRow, avoid) {
     sendXHint(target);
-    if (cardsEnabled || viaRow) requestCard(anchor, target);
+    if (cardsEnabled || viaRow) requestCard(anchor, target, avoid);
   }
 
   const ROW_DWELL_MS = 350;
   let rowTimer = 0;
   let currentRow = null;
+
+  /* ---- quick-buy hover (opt-in) -----------------------------------------
+   *
+   * Field request (2026-08-11): several terminals put their tweet preview
+   * behind a HELD hotkey, and the control a trader's cursor is already on at
+   * decision time is the site's own quick-buy pill. So make the pill the
+   * trigger — rest on it and the tweet is simply there. No key held, no 14px
+   * icon to aim at, and the cursor never leaves the button it came for.
+   *
+   * This shows PaperTrench's own card, not the terminal's native box. Firing
+   * a synthetic keystroke into a live trading terminal to summon ITS popup
+   * would mean shipping a guessed per-site hotkey table into an app where the
+   * neighbouring keys spend real money; the card is the same information with
+   * none of that blast radius.
+   *
+   * WHICH button is a quick-buy button is not guessed either: it comes from
+   * sites.js `rowBuy.buyButtonPattern`, the same live-verified contract the
+   * paper-buy chip already places itself against. A site that declares no
+   * pattern gets no feature here — inert beats invented. Today that means
+   * Axiom and Padre; any site that later earns a verified pattern gets this
+   * for free, with no code change.
+   */
+  const BUY_DWELL_MS = 110;
+  // A pill reads "0.5 SOL" or "Buy 1 SOL". Anything long enough to be prose
+  // is a panel, a banner or a whole card that happens to contain the word —
+  // never the pill, and the loosest declared pattern (Padre's \bSOL\b) needs
+  // that ceiling to stay honest.
+  const BUY_TEXT_MAX = 40;
+  let buyTimer = 0;
+  let currentBuyBtn = null;
+  let buyPattern = null;
+  let buyPatternRead = false;
+
+  /** The current site's declared quick-buy pill pattern, or null. Read once:
+   * the adapter is chosen by hostname, which cannot change without a reload. */
+  function quickBuyPattern() {
+    if (buyPatternRead) return buyPattern;
+    buyPatternRead = true;
+    try {
+      const S = window.PaperTrenchSites;
+      const site = S && typeof S.currentSite === 'function' ? S.currentSite() : null;
+      const raw = site && site.rowBuy && site.rowBuy.buyButtonPattern;
+      buyPattern = raw ? new RegExp(raw, 'i') : null;
+    } catch (_) {
+      buyPattern = null;
+    }
+    return buyPattern;
+  }
+
+  /** The site's own quick-buy button under this event, or null. PaperTrench's
+   * paper-buy chip is excluded by construction: the request was explicitly
+   * about the terminal's pill, and our chip already opens the trade panel. */
+  function quickBuyFromEvent(event) {
+    const pattern = quickBuyPattern();
+    if (!pattern) return null;
+    let btn = null;
+    const el = event.target;
+    if (el && el.closest) btn = el.closest('button,[role="button"]');
+    if (!btn && typeof event.composedPath === 'function') {
+      // Shadow retargeting points event.target at the host, exactly as it does
+      // for anchors (anchorFromEvent) — the pill can be inside a component.
+      for (const node of event.composedPath()) {
+        if (!node || !node.tagName) continue;
+        const role = node.getAttribute ? node.getAttribute('role') : null;
+        if (node.tagName === 'BUTTON' || role === 'button') { btn = node; break; }
+      }
+    }
+    if (!btn) return null;
+    if (btn.closest && btn.closest('#pt-rowbuy-layer')) return null; // ours, not theirs
+    const text = (btn.textContent || '').trim();
+    if (!text || text.length > BUY_TEXT_MAX) return null;
+    return pattern.test(text) ? btn : null;
+  }
 
   // Destination hovers navigate a hidden viewer through a FULL page load, so
   // their dwell is a touch longer than the X SPA hop — a list being skimmed
@@ -408,6 +539,31 @@
       hintTimer = setTimeout(() => sendDestHint(dest), DEST_HINT_DWELL_MS);
       return;
     }
+
+    // The site's own quick-buy pill, ranked ABOVE row mode: it is the most
+    // specific thing the cursor can be on, and its dwell is deliberately the
+    // shortest of the three. This trigger stands in for a HELD KEY, so it has
+    // to answer like one — a third of a second would feel like a bug here,
+    // and unlike a bare row hover, resting on a buy button is never accidental.
+    const buyBtn = (buyHoverEnabled && enabled) ? quickBuyFromEvent(event) : null;
+    if (buyBtn) {
+      clearTimeout(hideTimer);
+      if (buyBtn === currentBuyBtn) return; // already pending/showing for this pill
+      currentBuyBtn = buyBtn;
+      clearTimeout(buyTimer);
+      buyTimer = setTimeout(() => {
+        // Rows recycle under a virtualized list: the pill this dwell started
+        // on may already belong to a different token, or be gone entirely.
+        if (currentBuyBtn !== buyBtn || buyBtn.isConnected === false) return;
+        const hit = resolveRow(buyBtn);
+        if (!hit) return;
+        currentRow = hit.row;
+        fireHover(hit.anchor, hit.target, true, buyBtn.getBoundingClientRect());
+      }, BUY_DWELL_MS);
+      return;
+    }
+    currentBuyBtn = null;
+    clearTimeout(buyTimer);
 
     scheduleHide();
     if (!rowHoverEnabled || !enabled) return; // row previews are X machinery

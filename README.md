@@ -53,6 +53,7 @@ It exists because the usual way people learn this market is to lose money findin
 | **Native chart fills** | On Padre, your paper buys and sells render as real TradingView markers with average fill/exit lines. |
 | **Armed buys** | Click buy before a brand-new coin has a quote and the order arms, then fills the instant the first trusted price lands. |
 | **Instant X links** | Opt-in: clicking an X post or profile on a trading site opens it in a kept-warm viewer tab in ~0.5s instead of a ~3.5s cold tab — and hovering a link first prefetches it, making the click near-instant. Costs one muted background x.com tab while enabled; Ctrl/Cmd/middle-click still opens normal tabs. |
+| **Tweet on the buy button** | Opt-in: where a terminal hides the launch tweet behind a held hotkey, PaperTrench puts it on the control your cursor is already on — hover the site's *own* quick-buy pill and the tweet appears in about a tenth of a second, no key held. The card is always placed clear of the pill, never over it. Works where the site's pill is a verified one (Axiom, Padre). |
 | **X-Ray** | Opt-in: land on any X profile or post and the intel card is already there — account age, bio / display-name / @handle changes, every contract address the account has posted, and Smart Following (its biggest followers). Built from the X page's own data, on your machine. It states what it cannot know: change history starts the first time your device sees an account, and the card prints that date. |
 
 ### Learning

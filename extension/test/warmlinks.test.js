@@ -683,17 +683,249 @@ test('row mode: a hover anywhere on the row previews its best X link', () => {
     'row hovering must be inert unless explicitly enabled');
 });
 
-test('the dashboard exposes and persists all three Instant X links settings', () => {
+/* ---------------- quick-buy hover (the held-hotkey stand-in) ---------------- */
+
+const AXIOM_PILL = { left: 900, top: 300, right: 980, bottom: 328, width: 80, height: 28 };
+const CARD_W = 452;
+const CARD_H = 160;
+
+function fakeBuyButton(text, opts = {}) {
+  const btn = {
+    tagName: 'BUTTON',
+    textContent: text,
+    isConnected: opts.isConnected !== false,
+    querySelectorAll: () => [],
+    parentElement: opts.parent || null,
+    getAttribute: () => null,
+    getBoundingClientRect: () => opts.rect || AXIOM_PILL,
+    closest: (sel) => {
+      if (sel === '#pt-rowbuy-layer') return opts.ptChip ? { id: 'pt-rowbuy-layer' } : null;
+      if (sel === 'button,[role="button"]') return btn;
+      return null;
+    },
+  };
+  return btn;
+}
+
+function fakeTokenRow(anchors) {
+  return {
+    tagName: 'DIV',
+    querySelectorAll: (sel) => (sel === 'a[href]' ? anchors : []),
+    parentElement: null,
+    contains: () => true,
+  };
+}
+
+/** The card is the only thing warm-links appends to body. */
+function cardOf(page) { return page.dom.body.children[0] || null; }
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+function overlaps(card, pill) {
+  const left = parseFloat(card.style.left);
+  const top = parseFloat(card.style.top);
+  return left < pill.right && left + CARD_W > pill.left
+    && top < pill.bottom && top + CARD_H > pill.top;
+}
+
+test("quick-buy hover: the site's own pill previews the row's tweet, and the card never covers the pill", async () => {
+  // The ask (2026-08-11): terminals hide the launch tweet behind a HELD
+  // hotkey. Put it on the control the cursor is already on — the site's own
+  // quick-buy pill — with no key held. The pill is identified from sites.js's
+  // live-verified rowBuy.buyButtonPattern, never guessed.
+  const page = loadWarmLinks({
+    withSites: true, dom: true,
+    settings: { warmHoverBuyEnabled: true },
+    respond: (msg) => (msg.type === 'pt_warm_oembed'
+      ? { ok: true, gone: false, url: POST, authorName: 'launcher', text: 'gm', date: 'Aug 11, 2026' }
+      : {}),
+  });
+  const row = fakeTokenRow([fakeAnchor(POST)]);
+  const pill = fakeBuyButton('0.5 SOL', { parent: row }); // Axiom's instant-buy pill
+
+  page.winListeners.mouseover.fn({ target: pill, composedPath: () => [pill, row] });
+  assert.equal(page.sent.filter((m) => m.type === 'pt_warm_oembed').length, 0,
+    'nothing may fire before the dwell — a cursor crossing a column of pills must not spam');
+
+  // The dwell VALUE is part of the contract, not just its existence: pills
+  // sit in one vertical column, so a cursor travelling down a list crosses
+  // every one of them. Zero delay makes the card strobe; row mode's 350ms
+  // makes a stand-in for a held key feel broken.
+  const scheduled = page.timers.filter((t) => !t.cleared);
+  assert.equal(scheduled.length, 1, 'the pill hover schedules exactly one dwell');
+  assert.ok(scheduled[0].ms > 0,
+    'a zero-delay dwell is no dwell — it fires on entry and strobes down a column of pills');
+  assert.ok(scheduled[0].ms < 350,
+    'and it must beat row mode\'s 350ms — this trigger stands in for a key you HELD');
+  page.fireTimers();
+
+  const asked = page.sent.filter((m) => m.type === 'pt_warm_oembed');
+  assert.equal(asked.length, 1, 'resting on the pill asks for that row\'s post');
+  assert.equal(asked[0].url, POST);
+  assert.equal(page.sent.filter((m) => m.type === 'pt_warm_hint').length, 1,
+    'and prefetches it, exactly as the icon hover does');
+  await tick();
+
+  const card = cardOf(page);
+  assert.ok(card, 'the card must actually mount');
+  assert.equal(card.style.display, 'block');
+  assert.equal(card.getAttribute('data-url'), POST);
+
+  // THE safety rule. The card is itself a click target that opens X, and this
+  // trigger fires while the cursor sits on a button that spends real money —
+  // a card over that button eats the click the trader aimed at it.
+  assert.equal(overlaps(card, AXIOM_PILL), false,
+    'the card may never overlap the real-money button that summoned it');
+  // Anchored ON the pill, not on the row's 14px X icon (which fakeAnchor puts
+  // at x=10 — far from the cursor). Exact, because "somewhere to the left"
+  // is also satisfied by a card parked at the other end of the row.
+  assert.equal(parseFloat(card.style.left), AXIOM_PILL.left - 10 - CARD_W,
+    'the card hangs off the pill\'s left edge with a 10px gap');
+  assert.equal(parseFloat(card.style.top), AXIOM_PILL.top + AXIOM_PILL.height / 2 - CARD_H / 2,
+    'and is centered on the pill vertically');
+});
+
+test('a cramped viewport still never puts the card over the pill', () => {
+  // The interesting failure mode is not the roomy case. On a narrow window
+  // neither side fits, and a naive clamp-into-view lands the card straight on
+  // top of the button — the one outcome placeCard exists to prevent.
+  const narrow = { left: 200, top: 300, right: 280, bottom: 328, width: 80, height: 28 };
+  const page = loadWarmLinks({
+    withSites: true, dom: true, view: { width: 500, height: 900 },
+    settings: { warmHoverBuyEnabled: true },
+    respond: (msg) => (msg.type === 'pt_warm_oembed'
+      ? { ok: true, gone: false, url: POST, authorName: 'launcher', text: 'gm' } : {}),
+  });
+  const row = fakeTokenRow([fakeAnchor(POST)]);
+  const pill = fakeBuyButton('0.5 SOL', { parent: row, rect: narrow });
+  page.winListeners.mouseover.fn({ target: pill, composedPath: () => [pill, row] });
+  page.fireTimers();
+  return tick().then(() => {
+    const card = cardOf(page);
+    assert.ok(card, 'the card still shows — cramped is not a reason to withhold it');
+    assert.equal(overlaps(card, narrow), false,
+      'no viewport is small enough to justify covering the buy button');
+  });
+});
+
+test('quick-buy hover is opt-in, needs Instant X links, and stays inert where no pill is verified', () => {
+  const row = fakeTokenRow([fakeAnchor(POST)]);
+  const pill = fakeBuyButton('0.5 SOL', { parent: row });
+  const hover = (page) => {
+    page.winListeners.mouseover.fn({ target: pill, composedPath: () => [pill, row] });
+    page.fireTimers();
+    return page.sent.filter((m) => m.type === 'pt_warm_oembed').length;
+  };
+
+  assert.equal(hover(loadWarmLinks({ withSites: true })), 0,
+    'default off: the pill is an ordinary button until the setting says otherwise');
+
+  // Setting on, Instant X links off (destination warming carries the handler).
+  assert.equal(hover(loadWarmLinks({
+    withSites: true, enabled: false,
+    settings: { warmHoverBuyEnabled: true, warmEverywhereEnabled: true },
+  })), 0, 'the preview is X machinery — without Instant X links there is nothing to preview with');
+
+  // GMGN declares a rowBuy block but NO buyButtonPattern. Deciding for
+  // ourselves which of its buttons spends money is exactly the invention this
+  // feature refuses: no verified pattern, no feature, no guess.
+  assert.equal(hover(loadWarmLinks({
+    withSites: true, href: 'https://gmgn.ai/trenches',
+    settings: { warmHoverBuyEnabled: true },
+  })), 0, 'a site with no declared pill stays inert');
+});
+
+test("the trigger is the TERMINAL's pill — not PaperTrench's own chip, and not prose that merely says SOL", () => {
+  const row = fakeTokenRow([fakeAnchor(POST)]);
+  const page = () => loadWarmLinks({ withSites: true, settings: { warmHoverBuyEnabled: true } });
+  const hover = (btn) => {
+    const p = page();
+    p.winListeners.mouseover.fn({ target: btn, composedPath: () => [btn, row] });
+    p.fireTimers();
+    return p.sent.filter((m) => m.type === 'pt_warm_oembed').length;
+  };
+
+  // Our paper-buy chip carries pill-shaped text and sits in a row. It is
+  // excluded structurally (#pt-rowbuy-layer), not by hoping its label differs
+  // — the request was explicitly about the terminal's button, not ours.
+  assert.equal(hover(fakeBuyButton('0.5 SOL', { parent: row, ptChip: true })), 0,
+    "PaperTrench's own chip must never be the trigger");
+
+  // Padre's pattern is a bare \bSOL\b: without a length ceiling every card,
+  // banner and panel containing the word becomes a buy button.
+  assert.equal(hover(fakeBuyButton('Buy 0.5 SOL of this token right now on Axiom', { parent: row })), 0,
+    'prose-length labels are panels and cards, never a pill');
+
+  assert.equal(hover(fakeBuyButton('Filters', { parent: row })), 0,
+    'a button that does not match the site pattern is just a button');
+
+  // A pill whose row got recycled out from under the dwell must not preview a
+  // token that is no longer there.
+  assert.equal(hover(fakeBuyButton('0.5 SOL', { parent: row, isConnected: false })), 0,
+    'a detached pill previews nothing');
+});
+
+test('the icon-hover card still lands below its anchor — the pill rule is additive, not a rewrite', async () => {
+  const page = loadWarmLinks({
+    dom: true,
+    settings: { warmHoverCardsEnabled: true },
+    respond: (msg) => (msg.type === 'pt_warm_oembed'
+      ? { ok: true, gone: false, url: POST, authorName: 'launcher', text: 'gm' }
+      : {}),
+  });
+  page.winListeners.mouseover.fn(clickEvent(POST));
+  page.fireTimers();
+  await tick();
+  const card = cardOf(page);
+  // fakeAnchor's rect is left 10 / bottom 24; the historical placement is
+  // flush-left under the anchor with an 8px gap.
+  assert.equal(parseFloat(card.style.left), 10);
+  assert.equal(parseFloat(card.style.top), 32);
+});
+
+test('the dashboard exposes and persists all four Instant X links settings', () => {
   const dash = fs.readFileSync(path.join(ROOT, 'dashboard.js'), 'utf8');
-  for (const id of ['set-warm-x', 'set-warm-cards', 'set-warm-row']) {
+  for (const id of ['set-warm-x', 'set-warm-cards', 'set-warm-row', 'set-warm-buy']) {
     assert.match(dash, new RegExp(`id="${id}"`), `${id} must be in the settings form`);
   }
-  for (const key of ['warmXLinksEnabled', 'warmHoverCardsEnabled', 'warmHoverRowEnabled']) {
+  for (const key of ['warmXLinksEnabled', 'warmHoverCardsEnabled', 'warmHoverRowEnabled', 'warmHoverBuyEnabled']) {
     assert.match(dash, new RegExp(`${key}: document\\.getElementById`), `${key} must be persisted on save`);
   }
 });
 
 /* ---------------- trading-site click interception ---------------- */
+
+/* A DOM small enough to be honest and real enough to run the card path.
+ * The preview card is built with createElement + attachShadow and positioned
+ * from getBoundingClientRect, so a fake that only records listeners can never
+ * test WHERE the card lands — and "where" is a safety rule once the trigger
+ * is a real-money buy button. */
+function fakeDom() {
+  const make = (tag) => {
+    const el = {
+      tagName: String(tag).toUpperCase(),
+      children: [], style: {}, className: '', textContent: '', attrs: {},
+      isConnected: false, firstChild: null, shadow: null,
+      rect: { left: 0, top: 0, right: 452, bottom: 160, width: 452, height: 160 },
+      attachShadow: () => ({ append: (...nodes) => { el.shadow = nodes; } }),
+      addEventListener: () => {},
+      appendChild: (child) => {
+        el.children.push(child); child.isConnected = true;
+        el.firstChild = el.children[0]; return child;
+      },
+      removeChild: (child) => {
+        el.children = el.children.filter((c) => c !== child);
+        el.firstChild = el.children[0] || null; return child;
+      },
+      setAttribute: (k, v) => { el.attrs[k] = v; },
+      getAttribute: (k) => (k in el.attrs ? el.attrs[k] : null),
+      getBoundingClientRect: () => el.rect,
+    };
+    return el;
+  };
+  const body = make('body');
+  body.isConnected = true;
+  return { body, createElement: make, addEventListener: () => {} };
+}
 
 function loadWarmLinks(opts = {}) {
   const posted = [];
@@ -701,18 +933,31 @@ function loadWarmLinks(opts = {}) {
   const timers = [];
   const domListeners = {};
   const winListeners = {};
+  const href = opts.href || 'https://axiom.trade/meme/PAIR';
+  const hostname = new URL(href).hostname;
+  const location = { href, origin: new URL(href).origin, hostname, pathname: new URL(href).pathname, search: '' };
+  const view = opts.view || { width: 1440, height: 900 };
   const win = {
     addEventListener: (type, fn, capture) => { winListeners[type] = { fn, capture: capture === true }; },
     postMessage: (data) => posted.push(data),
-    location: { href: 'https://axiom.trade/meme/PAIR', origin: 'https://axiom.trade' },
+    location,
+    innerWidth: view.width,
+    innerHeight: view.height,
   };
   win.window = win;
   win.self = win;
+  const dom = opts.dom
+    ? fakeDom()
+    : { addEventListener: (type, fn, capture) => { domListeners[type] = { fn, capture }; } };
   const sandbox = {
-    window: win, self: win,
-    document: { addEventListener: (type, fn, capture) => { domListeners[type] = { fn, capture }; } },
+    window: win, self: win, location,
+    document: dom,
     chrome: {
-      runtime: { id: 'papertrench-test', sendMessage: (msg) => { sent.push(msg); return Promise.resolve({}); }, lastError: undefined },
+      runtime: {
+        id: 'papertrench-test',
+        sendMessage: (msg) => { sent.push(msg); return Promise.resolve(opts.respond ? opts.respond(msg) : {}); },
+        lastError: undefined,
+      },
       storage: {
         local: { get: (keys, cb) => cb({ pt_settings: { warmXLinksEnabled: opts.enabled !== false, ...(opts.settings || {}) } }) },
         onChanged: { addListener: () => {} },
@@ -725,9 +970,15 @@ function loadWarmLinks(opts = {}) {
   };
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'xlinks.js'), 'utf8'), sandbox, { filename: 'xlinks.js' });
+  // The REAL adapters, on purpose: the quick-buy trigger reads which button is
+  // a buy button out of sites.js, so a stub here would test the stub. Loading
+  // the shipped file means dropping Axiom's rowBuy spec breaks this suite.
+  if (opts.withSites) {
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'sites.js'), 'utf8'), sandbox, { filename: 'sites.js' });
+  }
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'warm-links.js'), 'utf8'), sandbox, { filename: 'warm-links.js' });
   const fireTimers = () => { for (const t of timers) if (!t.cleared) { t.cleared = true; t.fn(); } };
-  return { posted, sent, timers, fireTimers, domListeners, winListeners, win };
+  return { posted, sent, timers, fireTimers, domListeners, winListeners, win, dom };
 }
 
 function fakeAnchor(href) {
