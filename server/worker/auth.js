@@ -9,6 +9,8 @@
  */
 'use strict';
 
+const xfeed = require('./xfeed.js');
+
 const SESSION_COOKIE = 'pt_session';
 const OAUTH_COOKIE = 'pt_oauth';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -125,7 +127,10 @@ async function startLogin(request, env) {
   authorize.searchParams.set('response_type', 'code');
   authorize.searchParams.set('client_id', env.X_CLIENT_ID);
   authorize.searchParams.set('redirect_uri', env.X_REDIRECT_URI);
-  authorize.searchParams.set('scope', 'users.read tweet.read');
+  // offline.access buys the refresh token that keeps a user's own timeline
+  // readable BETWEEN logins — the layer that reaches accounts X's public
+  // syndication feed silently serves empty.
+  authorize.searchParams.set('scope', 'users.read tweet.read offline.access');
   authorize.searchParams.set('state', state);
   authorize.searchParams.set('code_challenge', challenge);
   authorize.searchParams.set('code_challenge_method', 'S256');
@@ -140,7 +145,7 @@ async function startLogin(request, env) {
 }
 
 /** Step 2: exchange the code, upsert the user, set the session cookie. */
-async function finishLogin(request, env) {
+async function finishLogin(request, env, ctx) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
@@ -170,16 +175,33 @@ async function finishLogin(request, env) {
   const me = (await meRes.json()).data;
 
   const now = Date.now();
+  // The OAuth pair is kept — SEALED (AES-GCM under a SESSION_SECRET-derived
+  // key), written to D1, and never read anywhere but the x-feed token layer.
+  // It is what lets the profile page show this user's own posts to visitors
+  // even when X's public syndication feed pretends the account is empty.
+  const sealed = await xfeed.sealTokens(env.SESSION_SECRET, {
+    access: String(token.access_token || ''),
+    refresh: token.refresh_token ? String(token.refresh_token) : null,
+    exp: now + (Number(token.expires_in) || 7200) * 1000,
+  });
   await env.DB.prepare(`
-    INSERT INTO users (x_id, handle, display_name, avatar_url, created_at, last_login_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO users (x_id, handle, display_name, avatar_url, x_tokens, created_at, last_login_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(x_id) DO UPDATE SET
       handle = excluded.handle,
       display_name = excluded.display_name,
       avatar_url = excluded.avatar_url,
+      x_tokens = excluded.x_tokens,
       last_login_at = excluded.last_login_at`)
-    .bind(me.id, me.username, me.name || me.username, me.profile_image_url || null, now, now)
+    .bind(me.id, me.username, me.name || me.username, me.profile_image_url || null,
+      sealed, now, now)
     .run();
+  // Spend the freshest token the user will ever have right now: their feed
+  // is cached before they have navigated anywhere. After the redirect, not
+  // in its way — and a failed timeline read must never fail a login.
+  const prime = xfeed.primeFeedCache(env, me.id, me.username, token.access_token)
+    .catch(() => {});
+  if (ctx && ctx.waitUntil) ctx.waitUntil(prime);
   const user = await env.DB.prepare('SELECT id, session_epoch FROM users WHERE x_id = ?')
     .bind(me.id).first();
 

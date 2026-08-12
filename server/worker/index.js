@@ -572,6 +572,37 @@ async function handleActivity(env) {
  * ids, timestamps, pbs.twimg.com media only), and caches it in D1. A stale
  * feed beats a hole; a hole beats an invented one.
  */
+/** The user-token layer: the trader's own OAuth pair (sealed in D1 at login)
+ *  reads their own timeline through API v2. Returns posts, or null when this
+ *  user has no usable tokens — never throws, never lets a token escape. */
+async function tokenPosts(env, user) {
+  if (!user.x_tokens) return null;
+  let tokens = await xfeed.openTokens(env.SESSION_SECRET, user.x_tokens);
+  if (!tokens || !tokens.access) return null;
+  const keep = async (next) => {
+    tokens = next;
+    await env.DB.prepare('UPDATE users SET x_tokens = ? WHERE id = ?')
+      .bind(await xfeed.sealTokens(env.SESSION_SECRET, next), user.id).run();
+  };
+  try {
+    if (tokens.exp && tokens.exp < Date.now() + 60000) {
+      if (!tokens.refresh) return null;
+      await keep(await xfeed.refreshAccess(env.X_CLIENT_ID, tokens.refresh));
+    }
+    try {
+      return await xfeed.fetchUserTweets(user.x_id, tokens.access);
+    } catch (error) {
+      // One refresh-and-retry on a 401: the expiry stamp can lie (revoked
+      // early, clock skew), the refresh token is the ground truth.
+      if (!/ 401$/.test(String(error && error.message)) || !tokens.refresh) throw error;
+      await keep(await xfeed.refreshAccess(env.X_CLIENT_ID, tokens.refresh));
+      return await xfeed.fetchUserTweets(user.x_id, tokens.access);
+    }
+  } catch {
+    return null;
+  }
+}
+
 async function handleXFeed(request, env) {
   const url = new URL(request.url);
   const asked = String(url.searchParams.get('handle') || '').trim().replace(/^@+/, '');
@@ -579,8 +610,10 @@ async function handleXFeed(request, env) {
 
   // Not an open proxy: only handles with an account HERE are ever asked
   // upstream, and the row's casing — X's casing — is the one echoed back.
+  // x_tokens stays inside this handler; nothing below ever serializes it.
   const user = await env.DB.prepare(
-    'SELECT handle FROM users WHERE handle = ? COLLATE NOCASE').bind(asked).first();
+    'SELECT id, x_id, handle, x_tokens FROM users WHERE handle = ? COLLATE NOCASE')
+    .bind(asked).first();
   if (!user) return json({ ok: false, reason: 'unknown-handle' }, 404);
   const handle = user.handle;
   const cacheKey = handle.toLowerCase();
@@ -597,28 +630,36 @@ async function handleXFeed(request, env) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (!(await allowRate(env, 'xfeed:' + ip, XFEED_PER_HOUR))) {
     // Over the leash a stale answer still beats a refusal — the limit exists
-    // to protect the upstream fetch, and serving the cache costs it nothing.
+    // to protect the upstream fetches, and serving the cache costs them nothing.
     if (cached) return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
     return json({ ok: false, reason: 'rate-limited' }, 429);
   }
 
-  try {
-    const posts = await xfeed.fetchPosts(handle);
+  // Layered: syndication first (free, no token spend), and when it errors OR
+  // serves its silent empty timeline, the user's own token. Only what a
+  // source actually produced is cached; only produced results beat stale.
+  let posts = null;
+  try { posts = await xfeed.fetchPosts(handle); } catch { posts = null; }
+  if (!posts || posts.length === 0) {
+    const own = await tokenPosts(env, user);
+    if (own && (own.length > 0 || posts === null)) posts = own;
+  }
+
+  if (posts) {
     await env.DB.prepare(`
       INSERT INTO x_feed_cache (handle, fetched_at, posts_json) VALUES (?, ?, ?)
       ON CONFLICT(handle) DO UPDATE SET
         fetched_at = excluded.fetched_at, posts_json = excluded.posts_json`)
       .bind(cacheKey, now, JSON.stringify(posts)).run();
     return answer(posts, now);
-  } catch {
-    if (cached && now - Number(cached.fetched_at) < XFEED_STALE_MS) {
-      return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
-    }
-    // No cache and no upstream: an empty list, which the site renders as the
-    // presence card alone. Not an error — there is nothing wrong to report,
-    // only nothing to show.
-    return answer([], null);
   }
+  if (cached && now - Number(cached.fetched_at) < XFEED_STALE_MS) {
+    return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
+  }
+  // No source and no cache: an empty list, which the site renders as the
+  // presence card alone. Not an error — there is nothing wrong to report,
+  // only nothing to show.
+  return answer([], null);
 }
 
 /* ---------------- duels ---------------- */
@@ -1323,7 +1364,7 @@ export default {
       if (path === '/api/health') response = json({ ok: true });
       else if (path === '/api/version') response = json(await attestSupport());
       else if (path === '/api/auth/x/start') response = await startLogin(request, env);
-      else if (path === '/api/auth/x/callback') response = await finishLogin(request, env);
+      else if (path === '/api/auth/x/callback') response = await finishLogin(request, env, ctx);
       else if (path === '/api/auth/logout' && request.method === 'POST') response = logout(env);
       else if (path === '/api/me') {
         const user = await sessionUser(request, env);

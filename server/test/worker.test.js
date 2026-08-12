@@ -497,6 +497,125 @@ test('a stale cache beats a broken upstream; an empty answer beats an invented o
   assert.deepEqual(empty.body.posts, [], 'no cache and no upstream is an empty list, not a 500');
 });
 
+test('sealed OAuth tokens survive the round trip and refuse tampering', async () => {
+  const xfeed = (await import('../worker/xfeed.js')).default;
+  const pair = { access: 'tok-abc', refresh: 'r1', exp: 123456789 };
+  const sealed = await xfeed.sealTokens(SECRET, pair);
+  assert.ok(!sealed.includes('tok-abc') && !sealed.includes('r1'),
+    'ciphertext carries no plaintext token material');
+  assert.deepEqual(await xfeed.openTokens(SECRET, sealed), pair);
+  const mid = Math.floor(sealed.length / 2);
+  const bent = sealed.slice(0, mid) + (sealed[mid] === 'A' ? 'B' : 'A') + sealed.slice(mid + 1);
+  assert.equal(await xfeed.openTokens(SECRET, bent), null, 'GCM authenticates: a bent blob is a null');
+  assert.equal(await xfeed.openTokens(SECRET, 'garbage'), null);
+});
+
+/** A user row whose sealed pair the token layer can actually open. */
+async function tokenUser(pair) {
+  const xfeed = (await import('../worker/xfeed.js')).default;
+  return { id: 7, x_id: '900', handle: 'Terp_X',
+    x_tokens: await xfeed.sealTokens(SECRET, pair) };
+}
+
+const V2_PAYLOAD = {
+  data: [{
+    id: '555', text: 'gm from the trenches https://t.co/pic https://t.co/link',
+    created_at: '2026-08-11T10:00:00.000Z',
+    public_metrics: { like_count: 12 },
+    entities: { urls: [
+      { url: 'https://t.co/pic', expanded_url: 'https://x.com/Terp_X/status/555/photo/1' },
+      { url: 'https://t.co/link', expanded_url: 'https://papertrench.com' },
+    ] },
+    attachments: { media_keys: ['m1', 'm2'] },
+  }],
+  includes: { media: [
+    { media_key: 'm1', type: 'photo', url: 'https://pbs.twimg.com/media/p.jpg' },
+    { media_key: 'm2', type: 'photo', url: 'https://evil.example/p.jpg' },
+  ] },
+};
+
+test('a syndication-invisible account is served through its own token, which never leaks', async () => {
+  const worker = await loadWorker();
+  const user = await tokenUser({ access: 'tok-abc', refresh: 'r1', exp: Date.now() + 3600000 });
+  const db = fakeDB(xfeedRoute({ user }));
+  const authSeen = [];
+  const [res, calls] = await withUpstream((url, init) => {
+    if (String(url).includes('syndication.twitter.com')) return new Response(syndicationHtml([]));
+    if (String(url).includes('api.x.com/2/users/900/tweets')) {
+      authSeen.push(init && init.headers && init.headers.Authorization);
+      return new Response(JSON.stringify(V2_PAYLOAD));
+    }
+    throw new Error('unexpected upstream ' + url);
+  }, () => getFeed(worker, db, '?handle=Terp_X'));
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.posts.length, 1);
+  const post = res.body.posts[0];
+  assert.equal(post.id, '555');
+  assert.ok(post.text.includes('https://papertrench.com'), 't.co stubs expand, same as syndication ingest');
+  assert.ok(!post.text.includes('t.co/pic'), 'the media stub leaves the text; the photo rides in photos');
+  assert.deepEqual(post.photos, ['https://pbs.twimg.com/media/p.jpg'],
+    'the v2 path holds the same CDN whitelist as the syndication path');
+  assert.equal(post.likes, 12);
+  assert.deepEqual(authSeen, ['Bearer tok-abc'], 'the token goes to api.x.com and nowhere else');
+  assert.ok(!calls.some((u) => u.includes('syndication') && u.includes('tok-abc')));
+  assert.ok(!JSON.stringify(res.body).includes('tok-abc'), 'no token material in any response');
+  assert.ok(db.log.some((e) => e.sql.includes('INSERT INTO x_feed_cache')),
+    'the token-sourced feed lands in the same cache');
+});
+
+test('an expired access token refreshes, rotates in sealed form, and never leaks', async () => {
+  const worker = await loadWorker();
+  const user = await tokenUser({ access: 'tok-old', refresh: 'r1', exp: Date.now() - 1000 });
+  const db = fakeDB(xfeedRoute({ user }));
+  const [res] = await withUpstream((url, init) => {
+    if (String(url).includes('syndication.twitter.com')) return new Response(syndicationHtml([]));
+    if (String(url).includes('api.x.com/2/oauth2/token')) {
+      return new Response(JSON.stringify(
+        { access_token: 'tok-new', refresh_token: 'r2', expires_in: 7200 }));
+    }
+    if (String(url).includes('api.x.com/2/users/900/tweets')) {
+      const auth = init && init.headers && init.headers.Authorization;
+      if (auth !== 'Bearer tok-new') return new Response('{}', { status: 401 });
+      return new Response(JSON.stringify(V2_PAYLOAD));
+    }
+    throw new Error('unexpected upstream ' + url);
+  }, () => getFeed(worker, db, '?handle=Terp_X'));
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.posts[0].id, '555');
+  const rotated = db.log.find((e) => e.sql.includes('UPDATE users SET x_tokens'));
+  assert.ok(rotated, 'the rotated pair is written back — X invalidates the old refresh token');
+  assert.ok(!String(rotated.args[0]).includes('tok-new') && !String(rotated.args[0]).includes('r2'),
+    'what lands in D1 is ciphertext');
+  assert.ok(!JSON.stringify(res.body).includes('tok-new') && !JSON.stringify(res.body).includes('r2'));
+});
+
+test('the token layer only fires when syndication comes back empty', async () => {
+  const worker = await loadWorker();
+  const user = await tokenUser({ access: 'tok-abc', refresh: 'r1', exp: Date.now() + 3600000 });
+  const [res, calls] = await withUpstream((url) => {
+    if (String(url).includes('syndication.twitter.com')) {
+      return new Response(syndicationHtml([{ id_str: '777',
+        created_at: '2026-08-11T09:00:00.000Z', full_text: 'free source first' }]));
+    }
+    throw new Error('unexpected upstream ' + url);
+  }, () => getFeed(worker, fakeDB(xfeedRoute({ user })), '?handle=Terp_X'));
+  assert.equal(res.body.posts[0].id, '777');
+  assert.ok(!calls.some((u) => u.includes('api.x.com')),
+    'the free source answered, so the user\'s token stays unspent');
+});
+
+test('sign-in asks for offline.access, so feeds outlive the two-hour token', async () => {
+  const auth = (await import('../worker/auth.js')).default;
+  const response = await auth.startLogin(
+    new Request('https://api.test/api/auth/x/start'),
+    { X_CLIENT_ID: 'cid', X_REDIRECT_URI: 'https://api.test/cb', SESSION_SECRET: SECRET });
+  assert.equal(response.status, 302);
+  const scope = new URL(response.headers.get('Location')).searchParams.get('scope');
+  assert.equal(scope, 'users.read tweet.read offline.access');
+});
+
 test('the upstream leash is per IP and never blocks what the cache can answer', async () => {
   const worker = await loadWorker();
   const overDb = fakeDB(xfeedRoute({ rateCount: 999 }));

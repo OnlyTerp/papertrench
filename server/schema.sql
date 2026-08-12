@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS users (
   display_name TEXT,
   avatar_url TEXT,
   session_epoch INTEGER NOT NULL DEFAULT 0,  -- bump to revoke all sessions
+  x_tokens TEXT,                      -- AES-GCM-sealed OAuth pair; WRITE-ONLY
+                                      -- (read only inside the x-feed token
+                                      -- layer, never serialized outward)
   created_at INTEGER NOT NULL,
   last_login_at INTEGER NOT NULL
 );
