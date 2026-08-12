@@ -28,6 +28,19 @@
 
   const RELEASES = [
     {
+      v: '3.4.0', date: 'Aug 11, 2026', iso: '2026-08-11',
+      tags: ['fix', 'feature', 'speed'],
+      title: 'Your entry is the number you clicked on',
+      blurb: 'Every fix traces to one Discord feedback thread: entries that didn’t match the click, a hot bar disagreeing with the trade panel, positions that “wiped like I never bought” — plus instant thesis journaling with a chart snap, inside the trader.',
+      points: [
+        '<b>Fills price at the number on your screen.</b> A fill used to ask the chain first and let it price the trade whenever it sat within 6% of a fresh on-screen quote — so your recorded average entry routinely landed a few percent above or below the price you actually acted on. Now a sub-second-fresh on-screen price fills the trade, full stop; the chain prices fills only when the screen has gone quiet, and every candidate still passes the fill witness before it becomes money. Fresh-screen fills also skip the chain round trip entirely, so the common fill got faster on exactly the launches that move too fast.',
+        '<b>The position that “wiped like you never bought” is fixed.</b> On pair-URL sites a fresh launch trades under the pool’s stand-in address until the coin’s real mint is discovered — and a buy made in that window vanished from the card the moment the coin learned its real name. The whole live record (position, armed orders, alerts, post-exit watch, the chart’s average-entry line) now follows the coin across that rename. Journal history is never rewritten — those rows are cryptographically attested — so round arithmetic matches fills by session instead.',
+        '<b>The hot bar and the trade panel agree about your P&L.</b> The positions bar could keep marking the coin on your screen from an aggregator quote cached minutes ago while the panel marked the same bag from the live page feed — same position, two venues, two P&Ls. The bar now prices the on-screen coin from the same live feed the panel uses.',
+        '<b>Instant thesis with a chart snap, inside the trader.</b> No separate tab: the ＋ Why this trade? composer in the instant trader now snaps the chart exactly as you see it and files the frame with your thesis — on by default when you save, one tap to opt out, honest about failures. Snaps land in the coach gallery and session replays, joined to the round they belong to.',
+        '<b>Also first tagged build to carry:</b> the prediction-market engine (Kalshi, Polymarket, Hyperliquid outcomes, Limitless — written up under v3.3.0, shipping now), the launch-tweet hover card on verified quick-buy pills, and every defect closed since v3.2.2 — the register’s full sweep is in DEFECTS.md.',
+      ],
+    },
+    {
       v: '3.2.1', date: 'Aug 7, 2026', iso: '2026-08-07',
       tags: ['fix', 'speed'],
       title: 'The last launchpad dead end, closed same-day',
