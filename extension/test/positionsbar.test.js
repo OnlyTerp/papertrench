@@ -122,6 +122,58 @@ test('rows never include closed or zero-quantity positions', () => {
   assert.equal(rows[0].mint, WIF, 'a fully exited position must leave the bar');
 });
 
+/* ---------------- the on-screen token's chip (O-30) ----------------
+ *
+ * superski (Discord, 2026-08-11): "The pnl on the actual instant trader vs
+ * on the hot bar isn't synced sometimes properly". The batch poller
+ * deliberately skips the token on screen (its price comes from the page's
+ * own feed) — but its LAST batch quote lingered in the live-price map and
+ * OUTRANKED the feed, so the chip and the position card marked the same bag
+ * from two different venues and disagreed about its P&L.
+ */
+
+test('O-30: the on-screen token is marked from the page feed, not a lingering batch quote', () => {
+  const { state } = twoPositionState();
+  // While BONK was off-screen the poller cached a Dexscreener quote…
+  const livePrices = { [BONK]: { priceNative: 0.0000012, priceUsd: 0.00024 } };
+  // …but BONK is on screen now and its page feed reads 2e-6.
+  const rows = Q.positionRows(state, livePrices, BONK, { priceNative: 0.000002, priceUsd: 0.0004 });
+
+  const bonk = rows.find((row) => row.mint === BONK);
+  assert.equal(bonk.priceNative, 0.000002,
+    'the chip must mark the same number the position card shows — the page feed');
+  assert.equal(bonk.stale, false, 'a live page feed is not stale');
+  const wif = rows.find((row) => row.mint === WIF);
+  assert.equal(wif.stale, true, 'the other chips keep their own staleness rules');
+});
+
+test('O-30: with the page feed quiet, the active chip falls back exactly as before', () => {
+  const { state } = twoPositionState();
+  const livePrices = { [BONK]: { priceNative: 0.0000012, priceUsd: 0.00024 } };
+  const rows = Q.positionRows(state, livePrices, BONK, null);
+  const bonk = rows.find((row) => row.mint === BONK);
+  assert.equal(bonk.priceNative, 0.0000012,
+    'no page quote means the batch quote stays in charge — no behavior change off the fix path');
+});
+
+test('O-30: the page quote never prices anyone else\'s chip', () => {
+  const { state } = twoPositionState();
+  const rows = Q.positionRows(state, {}, BONK, { priceNative: 0.000002 });
+  const wif = rows.find((row) => row.mint === WIF);
+  assert.equal(wif.stale, true, 'the off-screen chip must not inherit the on-screen feed');
+});
+
+test('O-30: the bar wires the page feed through, and setToken clears the stale cache', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+
+  assert.match(contentSrc, /Q\.positionRows\(state, livePositionPrices, token && token\.mint, activeQuote\)/,
+    'renderPositionsBar must hand the page feed quote to the row builder');
+  assert.match(contentSrc, /Date\.now\(\) - lastPriceAt < Q\.STALE_AFTER_MS/,
+    'the injected quote must be bounded by the same staleness mark the header uses');
+  assert.match(contentSrc, /delete livePositionPrices\[token\.mint\]/,
+    'a token coming ON screen must shed whatever batch quote was cached while it was off-screen');
+});
+
 /* ---------------- portfolio totals ---------------- */
 
 test('portfolio totals equal the sum of their rows', () => {

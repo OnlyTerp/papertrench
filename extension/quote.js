@@ -1036,8 +1036,15 @@
    * `livePrices` is an optional mint -> { priceNative, priceUsd } map from the
    * batch poller. When a mint has no fresh quote the stored mark is used and
    * the row is flagged `stale`, so the bar never invents a number.
+   *
+   * `activeQuote` is the page feed's own current quote for `activeMint`.
+   * O-30: the batch poller deliberately skips the on-screen token (its price
+   * comes from the page), but its LAST batch quote used to linger in
+   * `livePrices` and outrank the live feed — so the bar chip and the position
+   * card marked the same bag from two different venues and disagreed about
+   * its P&L. The token on screen is priced by what the screen shows, always.
    */
-  function positionRows(state, livePrices, activeMint) {
+  function positionRows(state, livePrices, activeMint, activeQuote) {
     const positions = (state && state.positions) || {};
     const prices = livePrices || {};
     const rows = [];
@@ -1045,7 +1052,10 @@
     for (const mint of Object.keys(positions)) {
       const pos = positions[mint];
       if (!pos || !(pos.qty > 0)) continue;
-      const live = prices[mint];
+      const live = activeMint && mint === activeMint
+        && activeQuote && Number(activeQuote.priceNative) > 0
+        ? activeQuote
+        : prices[mint];
       const priceNative = live && Number(live.priceNative) > 0
         ? Number(live.priceNative)
         : Number(pos.lastPriceNative);

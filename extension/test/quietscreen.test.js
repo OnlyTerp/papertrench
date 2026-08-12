@@ -131,7 +131,7 @@ test('F-48: a REAL move is confirmed by an independent source and fills at the m
     'the independent source that confirmed the move is the source that prices it');
 });
 
-test('F-33 unchanged: a fresh screen still arbitrates and wins on divergence', async () => {
+test('F-33 → F-52: a fresh screen wins whether the chain read diverges or not', async () => {
   const debugLines = [];
   const now = Date.now();
   const R = fakeResolver({
@@ -144,6 +144,30 @@ test('F-33 unchanged: a fresh screen still arbitrates and wins on divergence', a
   assert.ok(q, 'the fill must not be refused');
   assert.ok(Math.abs(q.priceNative - N_CHART) / N_CHART < 1e-9,
     'on a fresh screen the on-screen price still wins the divergence');
+});
+
+test('F-52: inside the old 6% agree band, a fresh screen STILL prices the fill', async () => {
+  // superski (Discord, 2026-08-11): "your average entry isn't calculated
+  // properly, it'll fill you in lower than ur actual entry or higher
+  // sometimes". The old ladder asked the chain first and let it fill
+  // whenever it sat within the 6% agree band of a fresh screen — so the
+  // recorded entry routinely landed a few percent off the number the trader
+  // clicked on. The number on screen at click time IS the entry.
+  const debugLines = [];
+  const now = Date.now();
+  const nInsideBand = N_CHART * 0.97; // 3% under the click — the old code filled here
+  const R = fakeResolver({
+    observation: { mint: MINT, priceNative: nInsideBand, observedAt: now, slot: 7 },
+  });
+  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 100, R, debugLines });
+  ladder.setEvidence({ priceNative: N_CHART, at: now - 100 });
+
+  const q = await ladder.quoteForTrade();
+  assert.ok(q, 'the fill must not be refused');
+  assert.ok(Math.abs(q.priceNative - N_CHART) / N_CHART < 1e-9,
+    `the fill must land at the number on screen, not 3% away from it (got ${q.priceNative})`);
+  assert.equal(R.calls.onchain, 0,
+    'a fresh screen pays no chain round trip at all — the click is the price, and the fill is faster for it');
 });
 
 test('F-48: agreement adopts the chain read with no extra round trip', async () => {

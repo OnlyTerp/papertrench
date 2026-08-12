@@ -443,6 +443,52 @@ test('a closed trading tab yields no frame either', async () => {
     'a vanished tab cannot be depicted; the frame must be skipped, not guessed');
 });
 
+test('an explicit thesis snap captures even with automatic frames off, and answers honestly', async () => {
+  const worker = serviceWorker();
+  // framesEnabled: false is the harness default — the AUTOMATIC captures are
+  // off. A hand-triggered snap from the thesis composer is its own consent.
+  worker.values.tabsById = { 1: { id: 1, active: true, windowId: 3 } };
+
+  const reply = await send(worker.listener, {
+    type: 'pt_snap_frame', kind: 'thesis', explicit: true,
+    session: { sessionId: 'pts-thesis-snap', mint: MINT, symbol: 'BONK' },
+  });
+
+  assert.deepEqual(worker.captureCalls, [3], 'the explicit snap must actually capture');
+  assert.equal(reply.ok, true);
+  assert.ok(Number(reply.at) > 0, 'the reply carries the frame timestamp the thesis will reference');
+  const frame = worker.values.pt_frames[worker.values.pt_frames.length - 1];
+  assert.equal(frame.kind, 'thesis');
+  assert.equal(frame.sessionId, 'pts-thesis-snap');
+  assert.equal(frame.t, reply.at, 'the stored frame and the reply must name the same moment');
+});
+
+test('a non-explicit snap request stays behind the frames setting', async () => {
+  const worker = serviceWorker();
+  worker.values.tabsById = { 1: { id: 1, active: true, windowId: 3 } };
+
+  const reply = await send(worker.listener, {
+    type: 'pt_snap_frame', kind: 'fill',
+    session: { sessionId: 'pts-gated-snap', mint: MINT },
+  });
+
+  assert.deepEqual(worker.captureCalls, [], 'frames off means no automatic capture');
+  assert.equal(reply.ok, false, 'and the caller is told no frame exists, not a blanket ok');
+});
+
+test('an explicit snap of a hidden tab still refuses — consent does not create a truthful frame', async () => {
+  const worker = serviceWorker();
+  worker.values.tabsById = { 1: { id: 1, active: false, windowId: 3 } };
+
+  const reply = await send(worker.listener, {
+    type: 'pt_snap_frame', kind: 'thesis', explicit: true,
+    session: { sessionId: 'pts-thesis-hidden', mint: MINT },
+  });
+
+  assert.deepEqual(worker.captureCalls, [], 'a hidden tab cannot be honestly depicted, explicit or not');
+  assert.equal(reply.ok, false);
+});
+
 /* ---------------- site bridge (leaderboard sync) ----------------
  *
  * The one external surface the extension has. These tests lock its three

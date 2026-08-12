@@ -319,11 +319,12 @@ test('the resolver global the content script reads is the one the resolver insta
 });
 
 test('quoteForTrade fills honestly: fresh sources first, stale snapshots bounded by the UI staleness mark', () => {
-  // DEFECTS F-01 / F-13 / F-20. The old contract here pinned a 10-second
-  // stale-fill window for page-fed tokens — which was the DEFAULT path, filled
-  // while the header itself showed "stale", and pre-empted even a successful
-  // action-time resolver refresh. The new ladder: chain authority → click-time
-  // snapshot (age judged at click, before any async hop) → fresh page tick →
+  // DEFECTS F-01 / F-13 / F-20 / F-52. The old contract here pinned a
+  // 10-second stale-fill window for page-fed tokens — which was the DEFAULT
+  // path, filled while the header itself showed "stale", and pre-empted even
+  // a successful action-time resolver refresh. The ladder: fresh on-screen
+  // price (age judged at click, before any async hop — F-52) → chain
+  // authority on a quiet screen → click-time snapshot → fresh page tick →
   // pending window for unresolved launches → one resolver refresh → 3 s last
   // resort for every source alike → refuse with a visible reason.
   const contentSrc = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
@@ -672,26 +673,26 @@ test('fill errors reach the trader — withState no longer swallows them', () =>
   assert.match(contentSrc, /toast\(err\.message \|\| 'Sell failed'\)/);
 });
 
-test('quoteForTrade reconciles the chain authority with the price on screen (F-33 guard)', () => {
-  // F-33: the chain path CAN be systematically wrong (a starved vault leg
-  // filled 13% under the Padre chart for a whole session, booking instant
-  // fake profit on every buy). The chain quote may therefore only fill when
-  // it AGREES with a sub-second-fresh on-screen price; on divergence the fill
-  // takes the price the trader actually clicked on, with a console.debug
-  // trail so the report carries evidence.
+test('quoteForTrade prices a fresh screen at the price on screen (F-33 → F-52)', () => {
+  // F-33 established that the chain path CAN be systematically wrong (a
+  // starved vault leg filled 13% under the Padre chart for a whole session),
+  // so a fresh screen won the DIVERGENCE case. F-52 (superski) closed the
+  // inconsistency that remained: inside the 6% agree band the chain still
+  // overrode the number the trader clicked on, so recorded entries landed a
+  // few percent above or below "the actual entry". The rule is now uniform —
+  // an on-screen price inside the sub-second window prices the fill, and the
+  // chain round trip is only paid when the screen is quiet.
   const contentSrc = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
   const fnStart = contentSrc.indexOf('async function pickQuoteForTrade()');
   const block = contentSrc.slice(fnStart, contentSrc.indexOf('\n  }', fnStart) + 4);
 
-  assert.match(block, /fillSourcesAgree\(onchain\.priceNative, atClick\.priceNative\)/,
-    'the chain quote must be compared against the click-time on-screen price');
-  assert.match(block, /ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
-    'only a sub-second-fresh screen price may arbitrate');
+  assert.match(block, /const screenFresh = atClick && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
+    'freshness is judged at click time, before any async hop');
   assert.match(contentSrc, /const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600/,
-    'the arbitration window must stay sub-second so genuine fast moves never trip it');
-  const divergeAt = block.indexOf('fillSourcesAgree');
-  const returnScreenAt = block.indexOf('return atClick', divergeAt);
-  const returnChainAt = block.indexOf('return onchain', divergeAt);
-  assert.ok(returnScreenAt !== -1 && returnChainAt !== -1 && returnScreenAt < returnChainAt,
-    'on divergence the on-screen price must win; agreement falls through to the chain quote');
+    'the fill-at-screen window must stay sub-second so a stale display never rides it');
+  const screenReturnAt = block.indexOf('if (screenFresh) return atClick');
+  const chainHopAt = block.indexOf('await R.onchainQuote');
+  assert.ok(screenReturnAt !== -1, 'a fresh screen must fill at the on-screen price, unconditionally');
+  assert.ok(chainHopAt !== -1 && screenReturnAt < chainHopAt,
+    'the chain round trip must not even be paid when the screen is fresh');
 });

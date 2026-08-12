@@ -374,22 +374,33 @@ function broadcastRecStatus() {
 
 /* -------------------- frame snapshots -------------------- */
 
-async function snapFrame(kind, sessionValue, tabId) {
+/**
+ * Capture the trading tab into pt_frames. Returns the stored frame's
+ * timestamp on success and null on any refusal or failure, so callers can
+ * tell the user the truth instead of assuming the frame exists.
+ *
+ * `explicit` marks a capture the user just asked for by hand (the overlay's
+ * thesis snap). framesEnabled governs the AUTOMATIC captures — a direct
+ * "snap this chart" click is its own consent, and everything stays local
+ * either way.
+ */
+async function snapFrame(kind, sessionValue, tabId, explicit) {
   const settings = await getSettings();
-  if (!settings.framesEnabled) return;
+  if (!settings.framesEnabled && explicit !== true) return null;
   const session = sessionValue ? RP.normalizeSession(sessionValue) : null;
   // Never photograph whichever window happens to be focused. A frame is only
   // honest when it shows the tab that actually traded, so we capture that
   // tab's own window — and when the tab is gone or hidden, there is no
   // truthful frame, so we skip instead of grabbing some unrelated screen.
   const target = await resolveFrameTab(tabId);
-  if (!target) return;
+  if (!target) return null;
   try {
     const dataUrl = await chrome.tabs.captureVisibleTab(target.windowId, { format: 'jpeg', quality: 45 });
     const small = await downscaleDataUrl(dataUrl, 480);
     const { pt_frames = [] } = await chrome.storage.local.get(['pt_frames']);
+    const at = Date.now();
     pt_frames.push({
-      t: Date.now(),
+      t: at,
       kind,
       sessionId: session?.sessionId || null,
       roundId: session?.roundId || null,
@@ -399,8 +410,10 @@ async function snapFrame(kind, sessionValue, tabId) {
     });
     while (pt_frames.length > FRAME_CAP) pt_frames.shift();
     await chrome.storage.local.set({ pt_frames });
+    return at;
   } catch (error) {
     console.warn('frame capture failed:', error.message);
+    return null;
   }
 }
 
@@ -2521,9 +2534,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case 'pt_snap_frame': {
-        await snapFrame(message.kind || 'fill', message.session || message, sender.tab?.id);
+        const at = await snapFrame(message.kind || 'fill', message.session || message,
+          sender.tab?.id, message.explicit === true);
         await refreshFrameInterval();
-        sendResponse({ ok: true });
+        // The honest answer, not a blanket ok: the overlay's thesis snap
+        // stamps the frame reference onto the thesis only when a frame
+        // actually landed in pt_frames.
+        sendResponse({ ok: at !== null, at });
         break;
       }
 

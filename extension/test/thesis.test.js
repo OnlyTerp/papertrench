@@ -7,6 +7,8 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 global.window = global.window || {};
 require('../engine.js');
@@ -68,6 +70,58 @@ test('thesis text is capped so one entry cannot bloat stored state', () => {
 test('setting a thesis with no open position is a no-op', () => {
   const { state } = openPosition();
   assert.equal(E.setThesis(state, 'NoSuchMint', { text: 'hi' }, 1), null);
+});
+
+/* ---------------- the chart snap that rides the thesis ----------------
+ *
+ * superski (Discord, 2026-08-11): "If there was a way to write an instant
+ * thesis with a screenshot within the instant trader that would be nice,
+ * esp since new pairs moves too quick to open a completely separate tab."
+ * The composer was already in the trader; the snap now is too. The thesis
+ * stores only the frame's TIMESTAMP — the JPEG lives in pt_frames (joined
+ * by sessionId + time), because embedding it would balloon every pt_state
+ * write.
+ */
+
+test('a chart snap reference is kept on the thesis, and junk is not', () => {
+  const withFrame = E.normalizeThesis({ text: 'setup', frameAt: 1_800_000_000_123 }, 1_800_000_000_500);
+  assert.equal(withFrame.frameAt, 1_800_000_000_123);
+
+  assert.equal(E.normalizeThesis({ text: 'setup' }, 1).frameAt, null, 'no snap means no reference');
+  assert.equal(E.normalizeThesis({ text: 'setup', frameAt: -5 }, 1).frameAt, null);
+  assert.equal(E.normalizeThesis({ text: 'setup', frameAt: 'soon' }, 1).frameAt, null);
+});
+
+test('a snap alone is not a thesis — an image with no words is not a plan', () => {
+  assert.equal(E.normalizeThesis({ text: '  ', tags: [], frameAt: 1_800_000_000_123 }, 1), null);
+});
+
+test('the snap reference travels onto the closed round with the rest of the thesis', () => {
+  const { settings, state } = openPosition();
+  E.setThesis(state, MINT, { text: 'Momentum', tags: ['momentum'], frameAt: 2000 }, 2100);
+  const { round } = E.sell(state, settings, { ts: 4000, mint: MINT, qtyFraction: 1, priceNative: 0.002 });
+  assert.equal(round.thesis.frameAt, 2000, 'the graded plan keeps its chart context');
+});
+
+test('the overlay composer snaps through the background capture, explicitly', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+
+  const editor = contentSrc.slice(
+    contentSrc.indexOf('function renderThesis()'),
+    contentSrc.indexOf('function flushArmedBuy')
+  );
+  assert.match(editor, /data-f="snap"/,
+    'the thesis editor must offer the snap control in the trader itself');
+  assert.match(editor, /type: 'pt_snap_frame'/,
+    'the snap must reuse the existing frame-capture pipeline, not invent one');
+  assert.match(editor, /kind: 'thesis'/,
+    'thesis frames must be distinguishable in pt_frames');
+  assert.match(editor, /explicit: true/,
+    'a hand-triggered snap is its own consent and must say so');
+  assert.match(editor, /frameAt: frameAt \|\| \(saved && saved\.frameAt\) \|\| null/,
+    'a re-edit without a new snap must keep the original frame reference');
+  assert.match(editor, /reply && reply\.ok && Number\(reply\.at\) > 0/,
+    'the reference is stored only when the background confirms a frame actually landed');
 });
 
 /* ---------------- carried to the closed round ---------------- */

@@ -765,6 +765,8 @@
       if (!found.pool || found.poolKind == null) {
         if (found.mint !== token.mint) {
           if (armedBuy && armedBuy.mint === token.mint) armedBuy.mint = found.mint;
+          // A fill may already sit under the stand-in address (F-51).
+          rekeyLiveState(token.mint, found.mint);
           token.mint = found.mint;
           token.pairAddress = found.pool || token.pairAddress || null;
           sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
@@ -782,6 +784,8 @@
       // and the eventual resolve both still recognize the token, and the
       // armed intent survives the rename the same way it survives resolve.
       if (armedBuy && armedBuy.mint === token.mint) armedBuy.mint = found.mint;
+      // A fill may already sit under the stand-in address (F-51).
+      rekeyLiveState(token.mint, found.mint);
       token.mint = found.mint;
       token.pairAddress = found.pool || token.pairAddress || null;
       // pumpCurve implies the protocol-constant 1e9 supply (quote.js
@@ -938,6 +942,43 @@
 
 
 
+  /**
+   * F-51 — carry every live mint-keyed structure across an identity upgrade.
+   *
+   * On pair-URL sites a fresh launch trades under the PAIR stand-in address
+   * until the prewatch probe or the resolver discovers the real mint. A fill
+   * committed in that window keys the position under the stand-in; when the
+   * mint replaces it, the card looked the position up under the NEW key,
+   * found nothing, and rendered empty — the "it just wipes the position like
+   * i never bought" report. The armed-buy intent already survived this
+   * rename; the position, orders, alerts and post-exit watches now do too.
+   *
+   * The in-memory move is synchronous so the very next render sees the bag;
+   * the storage write rides the serialized CAS commit, re-applying itself on
+   * contention like every other mutation (F-46).
+   */
+  function rekeyLiveState(oldMint, newMint) {
+    if (!oldMint || !newMint || oldMint === newMint) return;
+    const cached = livePositionPrices[oldMint];
+    if (cached) {
+      delete livePositionPrices[oldMint];
+      if (!livePositionPrices[newMint]) livePositionPrices[newMint] = cached;
+    }
+    if (!E.rekeyMint(state, oldMint, newMint)) return;
+    posEls = null; // the cached card nodes belong to the stand-in's render
+    withState(async () => {
+      const mutate = () => E.rekeyMint(state, oldMint, newMint);
+      mutate();
+      await persistStateNow(mutate);
+    }).catch(() => {}).then(() => {
+      renderPosition();
+      renderBalance();
+      renderPositionsBar();
+      renderThesis();
+      syncAveragePriceLines();
+    });
+  }
+
   function setToken(data) {
     const prevMint = token?.mint;
     const hadPrice = Boolean(token && token.priceNative);
@@ -966,11 +1007,15 @@
     // silently killed every snipe at exactly the moment the first quote
     // landed — the classic "ARMED … but nothing executed" report.
     if (token && prevMint && token.mint !== prevMint) {
-      const sameTokenResolving = armedBuy
-        && armedBuy.mint === prevMint
-        && (token.pairAddress === prevMint || token.srcAddress === prevMint);
-      if (sameTokenResolving) armedBuy.mint = token.mint;
-      else armedBuy = null;
+      const sameTokenResolving = token.pairAddress === prevMint || token.srcAddress === prevMint;
+      if (armedBuy) {
+        if (sameTokenResolving && armedBuy.mint === prevMint) armedBuy.mint = token.mint;
+        else armedBuy = null;
+      }
+      // The same rename that rebinds the armed intent must carry an already-
+      // committed position with it, or the card wipes on the coin that was
+      // just bought (F-51).
+      if (sameTokenResolving) rekeyLiveState(prevMint, token.mint);
     }
     if (!token) armedBuy = null;
     void hadPrice;
@@ -989,6 +1034,10 @@
       stopTitleSignal();
     }
     if (token && token.mint !== prevMint) {
+      // O-30: whatever batch quote the poller cached while this token was
+      // off-screen is another venue's number. The page feed prices the token
+      // on screen; a lingering entry would outrank it in the positions bar.
+      delete livePositionPrices[token.mint];
       series = []; marks = [];
       lastPriceAt = 0;
       lastCmTickPrice = 0;
@@ -1465,9 +1514,10 @@
   // price would be a lie. The old 10 s window routinely filled 30-50% away
   // from the live market on a moving memecoin (DEFECT F-01).
   const STALE_FILL_MAX_AGE_MS = 3000;
-  // An on-screen price at most this old is recent enough to arbitrate when
-  // the chain read disagrees with it (F-33 showed the chain path CAN be
-  // wrong). Sub-second, so a genuine fast move never trips the comparison.
+  // An on-screen price at most this old is the price the trader is looking
+  // at — it prices the fill directly (F-52), and it is what a chain read
+  // must answer to when the two ever get compared (F-33 showed the chain
+  // path CAN be wrong). Sub-second, so a stale display never rides it.
   const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600;
 
   function quoteSnapshot() {
@@ -1587,35 +1637,37 @@
     const atClick = quoteSnapshot();
     const atClickAge = atClick ? clickAt - atClick.receivedAt : Infinity;
 
-    // Chain state is the authority. It is the only source that is not behind
-    // by construction, so it is asked first — but never blindly: F-33 proved
-    // the chain path can be systematically wrong (a starved vault leg filled
-    // 13% under the chart for a whole session). When the page feed produced a
-    // price moments before the click and the chain read disagrees with it by
-    // more than any real sub-second move, the fill takes the price the trader
-    // actually clicked on, and the divergence is logged so a report comes
-    // with evidence instead of a shrug.
+    // F-52 (superski): a FRESH on-screen price is the price the trader
+    // acted on, and it prices the fill — full stop. The chain used to be
+    // asked first and win whenever it sat within the 6% agree band, so the
+    // recorded entry routinely landed a few percent above or below the
+    // number the trader clicked on ("it'll fill you in lower than ur
+    // actual entry or higher sometimes"). F-33 already ruled that a fresh
+    // screen beats a DISAGREEING chain read; trusting it only when the
+    // chain was wrong by >6% while overriding it inside the band was the
+    // inconsistency. The witness gate (F-47) still judges this candidate
+    // against accepted market evidence, so a poisoned tick cannot ride the
+    // fresh-screen path into a fill — and skipping the chain round trip
+    // here makes the common fill faster, which is exactly what a fresh
+    // launch needs.
+    const screenFresh = atClick && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS;
+    if (screenFresh) return atClick;
+
+    // The screen is quiet — chain state is the authority now. It is the only
+    // source that is not behind by construction, but never blindly:
+    // F-48 (Terp, lute.gg): under the 2x witness ratio nothing else examined
+    // a chain read before it priced the fill — a 24%-lagging read booked a
+    // win as -9.6%. Judge the candidate against the freshest evidence this
+    // tab accepted as money (the F-47 stream); on contradiction the chain
+    // read is DEMOTED, not trusted, and the ladder below re-prices from
+    // sources that can vouch for themselves.
     const observation = await R.onchainQuote(startMint);
     if (!token || token.mint !== startMint) return null;
     const onchain = quoteFromOnchain(observation);
     if (onchain) {
-      const screenFresh = atClick && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS;
-      if (screenFresh && !Q.fillSourcesAgree(onchain.priceNative, atClick.priceNative)) {
-        console.debug('PaperTrench: on-chain quote ' + onchain.priceNative
-          + ' diverges from the on-screen price ' + atClick.priceNative
-          + ' (' + atClickAge + 'ms old) — filling at the on-screen price');
-        return atClick;
-      }
-      // F-48 (Terp, lute.gg): with the screen quiet the check above never
-      // arms, and under the 2x witness ratio nothing else examined a chain
-      // read before it priced the fill — a 24%-lagging read booked a win as
-      // -9.6%. Judge the candidate against the freshest evidence this tab
-      // accepted as money (the F-47 stream); on contradiction the chain
-      // read is DEMOTED, not trusted, and the ladder below re-prices from
-      // sources that can vouch for themselves.
       const acceptedEvidence = lastAcceptedMarket;
       const acceptedEvidenceAge = acceptedEvidence ? Date.now() - acceptedEvidence.at : Infinity;
-      if (screenFresh || !Q.onchainContradictsEvidence(onchain.priceNative,
+      if (!Q.onchainContradictsEvidence(onchain.priceNative,
         acceptedEvidence && acceptedEvidence.priceNative, acceptedEvidenceAge)) {
         return onchain;
       }
@@ -4920,6 +4972,7 @@
       if (saved.conviction) bits.push(`conviction ${saved.conviction}/5`);
       if (saved.targetPct) bits.push(`target +${saved.targetPct}%`);
       if (saved.stopPct) bits.push(`stop -${saved.stopPct}%`);
+      if (saved.frameAt) bits.push('📸 chart snapped');
       card.querySelector('[data-f="meta"]').textContent = bits.join(' · ');
       card.querySelector('[data-f="edit"]').addEventListener('click', () => {
         thesisEditing = true;
@@ -4940,7 +4993,8 @@
       <div class="pt-thesis-row">
         <input data-f="target" type="number" min="1" step="1" placeholder="target %">
         <input data-f="stop" type="number" min="1" step="1" placeholder="stop %">
-      </div>`;
+      </div>
+      <button class="pt-tag on" data-f="snap" title="Capture this chart as it looks right now and file it with the thesis — no other tab needed">📸 snap chart with save</button>`;
     els.thesis.appendChild(card);
 
     const textarea = card.querySelector('[data-f="text"]');
@@ -4965,12 +5019,40 @@
       tagWrap.appendChild(chip);
     }
 
+    // "New pairs move too quick to open a completely separate tab" (superski):
+    // the snap keeps the journal entry AND its chart context inside the
+    // trader. On by default; one tap opts a save out.
+    const snapBtn = card.querySelector('[data-f="snap"]');
+    let snapWanted = true;
+    snapBtn.addEventListener('click', () => {
+      snapWanted = !snapWanted;
+      snapBtn.classList.toggle('on', snapWanted);
+    });
+
     card.querySelector('[data-f="save"]').addEventListener('click', async () => {
+      // Snap FIRST so the frame's timestamp can ride the same thesis write.
+      // The click is explicit intent, so the capture happens even when the
+      // automatic coach frames are switched off (the background only honours
+      // `explicit` from a user gesture like this one).
+      let frameAt = null;
+      const hasSubstance = textarea.value.trim().length > 0 || chosen.size > 0;
+      if (snapWanted && hasSubstance) {
+        const pos = state.positions[token.mint];
+        const reply = await sendMessage({
+          type: 'pt_snap_frame',
+          kind: 'thesis',
+          explicit: true,
+          session: summarizeSession(pos),
+        });
+        if (reply && reply.ok && Number(reply.at) > 0) frameAt = Number(reply.at);
+      }
       const payload = {
         text: textarea.value,
         tags: [...chosen],
         targetPct: Number(targetInput.value) || null,
         stopPct: Number(stopInput.value) || null,
+        // A re-edit without a new snap keeps the original frame reference.
+        frameAt: frameAt || (saved && saved.frameAt) || null,
       };
       try {
         await withState(async () => {
@@ -4986,7 +5068,8 @@
       thesisComposerOpen = false;
       thesisEls = null;
       renderThesis();
-      toast('Thesis saved');
+      toast(frameAt ? 'Thesis saved — chart snapped 📸'
+        : (snapWanted && hasSubstance ? 'Thesis saved (chart snap failed)' : 'Thesis saved'));
     });
 
     thesisEls = { editing: true, prompt: false, mint: token.mint };
@@ -5253,7 +5336,19 @@
   function renderPositionsBar() {
     if (contextDead || !els.bar || !els.barRail) return;
 
-    const rows = Q.positionRows(state, livePositionPrices, token && token.mint);
+    // O-30: the on-screen token's chip must show the same number as the
+    // position card, so it is marked from the page feed's own quote — never
+    // from a batch entry cached while the token was off-screen. Bounded by
+    // the same staleness mark the header uses; past it the stored mark (kept
+    // in step by the same feed) stands in, exactly like the card.
+    const activeQuote = token && Number(token.priceNative) > 0
+      && lastPriceAt && Date.now() - lastPriceAt < Q.STALE_AFTER_MS
+      ? {
+        priceNative: Number(token.priceNative),
+        priceUsd: Number(token.priceUsd) > 0 ? Number(token.priceUsd) : null,
+      }
+      : null;
+    const rows = Q.positionRows(state, livePositionPrices, token && token.mint, activeQuote);
     const enabled = settings.positionsBarEnabled !== false;
     const show = enabled && rows.length > 0 && !positionsBarHidden;
 

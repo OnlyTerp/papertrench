@@ -545,8 +545,31 @@
     return { trade, position: pos.qty > EPS ? pos : null, round };
   }
 
+  /**
+   * Does a journal fill belong to this open position's round?
+   *
+   * Matching by mint alone breaks on fresh launches: a fill committed while
+   * the page still showed the PAIR stand-in address carries the stand-in as
+   * its mint, and rekeyMint (F-51) deliberately never rewrites the journal —
+   * fill rows are hashed into the attestation chain, so editing history
+   * would fork the record. The sessionId is stamped on every fill at write
+   * time and survives the rename; mint stays as the fallback for legacy
+   * fills written before sessionIds existed.
+   */
+  function tradeInRound(trade, pos) {
+    if (!trade || !(Number(trade.ts) >= Number(pos.openedAt))) return false;
+    if (trade.sessionId && pos.sessionId) {
+      if (trade.sessionId === pos.sessionId) return true;
+      if (Array.isArray(pos.mergedSessionIds)
+        && pos.mergedSessionIds.indexOf(trade.sessionId) !== -1) return true;
+      // Fall through: same mint after openedAt is still this round (a fill
+      // written by another context before it adopted the merged session).
+    }
+    return trade.mint === pos.mint;
+  }
+
   function closeRound(state, pos, ts) {
-    const sold = state.journal.filter((t) => t.mint === pos.mint && t.side === 'sell' && t.ts >= pos.openedAt);
+    const sold = state.journal.filter((t) => t.side === 'sell' && tradeInRound(t, pos));
     const returned = sold.reduce((s, t) => s + t.solNet, 0);
     const round = {
       id: 'r' + ts.toString(36) + Math.random().toString(36).slice(2, 7),
@@ -569,13 +592,97 @@
       pnlPct: pos.investedSol > 0 ? (returned / pos.investedSol - 1) * 100 : 0,
       peakPnlSol: pos.peakPnlSol,
       troughPnlSol: pos.troughPnlSol,
-      tradeIds: state.journal.filter((t) => t.mint === pos.mint && t.ts >= pos.openedAt).map((t) => t.id),
+      tradeIds: state.journal.filter((t) => tradeInRound(t, pos)).map((t) => t.id),
       aiReview: null,
       recordingFile: null,
     };
     state.rounds.unshift(round);
     if (state.rounds.length > 500) state.rounds.length = 500;
     return round;
+  }
+
+  /**
+   * F-51 — a fresh-launch fill lands while the page still shows the PAIR
+   * stand-in address, so the position is keyed under the stand-in. When the
+   * prewatch probe or the resolver upgrades the token to its real mint, the
+   * lookup key changes underneath the open position and the card renders
+   * empty on the very coin that was just bought — "it just wipes the
+   * position like i never bought" (cantstoplarping, Discord 2026-08-11).
+   * The armed-buy intent already survived this rename; the position never
+   * did.
+   *
+   * Rekeying moves every LIVE structure keyed by the stand-in: the position,
+   * armed orders, alerts, and post-exit watches. The journal and closed
+   * rounds are deliberately untouched — fill rows are hashed into the
+   * attestation chain, so rewriting their mint would fork the record. Round
+   * arithmetic instead matches fills by sessionId (tradeInRound), which
+   * survives the rename.
+   *
+   * Returns true when anything moved, so callers know whether to persist.
+   */
+  function rekeyMint(state, oldMint, newMint) {
+    if (!state || !oldMint || !newMint || oldMint === newMint) return false;
+    let moved = false;
+
+    const positions = state.positions || {};
+    const pos = positions[oldMint];
+    if (pos) {
+      const existing = positions[newMint];
+      if (existing) {
+        // The same token held under both identities — an earlier stack under
+        // the real mint, a fresh buy under the stand-in. One bag, one card.
+        existing.qty += pos.qty;
+        existing.costSol += pos.costSol;
+        existing.investedSol += pos.investedSol;
+        existing.netInvestedSol = (Number(existing.netInvestedSol) || 0)
+          + (Number(pos.netInvestedSol) || 0);
+        existing.openedAt = Math.min(existing.openedAt, pos.openedAt);
+        // Same token, same price series: the combined extremes are at least
+        // each stack's own. The exact combined series is unknowable after
+        // the fact — these bounds are honest, a fabricated series is not.
+        existing.peakPnlSol = Math.max(Number(existing.peakPnlSol) || 0, Number(pos.peakPnlSol) || 0);
+        existing.troughPnlSol = Math.min(Number(existing.troughPnlSol) || 0, Number(pos.troughPnlSol) || 0);
+        if (!existing.thesis) existing.thesis = pos.thesis;
+        if (Number(pos.lastPriceNative) > 0) existing.lastPriceNative = pos.lastPriceNative;
+        if (pos.lastPriceUsd) existing.lastPriceUsd = pos.lastPriceUsd;
+        if (!existing.pairAddress) existing.pairAddress = pos.pairAddress;
+        // The absorbed stack's fills still carry its sessionId — remember it
+        // so tradeInRound keeps the round's money arithmetic whole.
+        const absorbed = [pos.sessionId, ...(Array.isArray(pos.mergedSessionIds) ? pos.mergedSessionIds : [])];
+        for (const sid of absorbed) {
+          if (!sid || sid === existing.sessionId) continue;
+          if (!Array.isArray(existing.mergedSessionIds)) existing.mergedSessionIds = [];
+          if (existing.mergedSessionIds.indexOf(sid) === -1) existing.mergedSessionIds.push(sid);
+        }
+      } else {
+        positions[newMint] = pos;
+        pos.mint = newMint;
+      }
+      delete positions[oldMint];
+      moved = true;
+    }
+
+    if (state.orders && state.orders[oldMint]) {
+      const carried = ordersFor(state, oldMint).map((o) => ({ ...o, mint: newMint }));
+      if (carried.length) state.orders[newMint] = [...ordersFor(state, newMint), ...carried];
+      delete state.orders[oldMint];
+      moved = true;
+    }
+
+    if (state.alerts && state.alerts[oldMint]) {
+      const carried = alertsFor(state, oldMint).map((a) => ({ ...a, mint: newMint }));
+      if (carried.length) state.alerts[newMint] = [...alertsFor(state, newMint), ...carried];
+      delete state.alerts[oldMint];
+      moved = true;
+    }
+
+    if (Array.isArray(state.postWatch)) {
+      for (const w of state.postWatch) {
+        if (w && w.mint === oldMint) { w.mint = newMint; moved = true; }
+      }
+    }
+
+    return moved;
   }
 
   /* ---------------- post-exit truth ("The After") ----------------
@@ -965,6 +1072,11 @@
       conviction: conviction >= 1 && conviction <= 5 ? Math.round(conviction) : null,
       targetPct: target > 0 ? target : null,
       stopPct: stop > 0 ? stop : null,
+      // When the overlay snapped the chart as the thesis was written, this is
+      // the frame's capture timestamp. The image itself lives in pt_frames
+      // (joined by sessionId + time) — embedding it here would balloon every
+      // pt_state write with a JPEG.
+      frameAt: Number(raw.frameAt) > 0 ? Number(raw.frameAt) : null,
       // Written BEFORE the outcome is known — that is what makes it evidence.
       at: Number(ts) || Date.now(),
     };
@@ -1693,7 +1805,10 @@
     let fills;
 
     if (position) {
-      fills = journal.filter((t) => t.mint === mint && Number(t.ts) >= Number(position.openedAt));
+      // tradeInRound, not a bare mint match: a fresh-launch buy committed
+      // under the PAIR stand-in address keeps feeding the average lines
+      // after the position is rekeyed to its real mint (F-51).
+      fills = journal.filter((t) => tradeInRound(t, position));
     } else {
       // Rounds are stored newest-first (unshift), so .find() over the raw
       // array already returns the most recent round for this mint.
@@ -1864,6 +1979,7 @@
     buy,
     sell,
     getPosition,
+    rekeyMint,
     markPosition,
     unrealizedPnl,
     equitySol,
