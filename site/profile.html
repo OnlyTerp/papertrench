@@ -257,9 +257,10 @@
 .ar-card-actions .ar-btn { flex: 1 1 180px; }
 
 /* ============================================================== on X ===== */
-/* The presence card is the GUARANTEED rendering: X's live timeline is
-   login-walled and adblocked for a large share of visitors, so the card is
-   the design and the timeline is the bonus — never the other way round. */
+/* The presence card is the GUARANTEED rendering; below it, recent posts are
+   rendered NATIVELY from the verifier's /api/x-feed — sanitized JSON, not
+   X's iframe — so every visitor (logged-out, adblocked) sees the same pane
+   in the page's own card language. */
 .ar-x-card {
   display: flex;
   align-items: center;
@@ -290,18 +291,61 @@
   white-space: nowrap;
 }
 .ar-x-card .ar-btn { flex: 0 0 auto; }
-/* The timeline mount: X renders an iframe into it. The frame gets the same
-   surface treatment as the share card so a successful embed sits in the
-   page's own card language rather than floating as foreign chrome. */
-.ar-x-embed {
+/* Post cards: the same surface + 1px border + radius grammar as every other
+   card on the page, so the feed reads as part of the profile, not a guest. */
+.ar-x-posts {
   margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  max-width: 640px;
+}
+.ar-xp {
   border: var(--edge);
   border-radius: 14px;
-  overflow: hidden;
   background: #07090e;
-  max-width: 560px;
+  padding: 12px 14px;
 }
-.ar-x-embed:empty { display: none; }
+.ar-xp-text {
+  font-size: 13.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ar-xp-text a { color: var(--blue); text-decoration: none; }
+.ar-xp-text a:hover { text-decoration: underline; }
+.ar-xp-media {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+}
+.ar-xp-media img {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: var(--edge);
+  background: var(--pane-hi);
+}
+.ar-xp-meta {
+  margin-top: 9px;
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.ar-xp-meta a { color: var(--muted); text-decoration: none; }
+.ar-xp-meta a:hover { color: var(--text); }
+.ar-xp-more {
+  display: block;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: none;
+  padding: 10px 14px;
+}
+.ar-xp-more:hover { color: var(--text); background: var(--pane-hi); }
 
 /* ==================================================== reduced motion ===== */
 /* arena.css already stills everything it owns; this stills what this page adds
@@ -883,61 +927,69 @@
 
   /* -------------------------------------------------------------- on X --- */
   /*
-   * The X presence card, plus a best-effort live timeline under it.
+   * The X presence card, plus the trader's recent posts rendered NATIVELY.
    *
-   * The honest hierarchy, current as of 2026: X's embedded timelines are
-   * login-walled (logged-out visitors get "Nothing to see here"), and
-   * platform.twitter.com is on every ad-blocker's list — so a page that
-   * NEEDS the widget to render has a hole in it for a third of its readers.
-   * The card therefore renders first, always, from data the API already
-   * returned (sign-in is X OAuth, so profile.handle IS the X handle — the
-   * server refreshes it from X on every login, it is not a claimed link).
-   * The timeline is then attempted lazily, below the card, and is validated
-   * before it is trusted: if the script is blocked, times out, or renders
-   * X's empty login-wall stub, the mount is removed and the card stands
-   * alone. Nothing on this page ever waits on X to paint.
+   * Posts come from the verifier's /api/x-feed — the worker fetches X's
+   * public syndication timeline once, sanitizes it at ingest (plain text,
+   * ids, timestamps, pbs.twimg.com images only — never markup), and caches
+   * it — so every visitor sees the same pane: logged out, adblocked, all of
+   * them. No platform.twitter.com script, no iframe, no login wall. The card
+   * renders first, always, from data the API already returned (sign-in is
+   * X OAuth, so profile.handle IS the X handle — the server refreshes it
+   * from X on every login, it is not a claimed link); when the feed has
+   * nothing to say (protected account, upstream down, no posts) the pane is
+   * exactly the card. Nothing on this page ever waits on X to paint.
    */
 
-  const X_EMBED_TIMEOUT_MS = 8000;
-  // X's login-wall stub renders a near-empty frame; a timeline with even one
-  // post is comfortably taller than this.
-  const X_EMBED_MIN_HEIGHT = 140;
+  const X_POST_URL = (handle, id) => 'https://x.com/' + handle + '/status/' + id;
 
-  function loadWidgetsJs() {
-    return new Promise((resolve, reject) => {
-      if (window.twttr && window.twttr.widgets) { resolve(window.twttr); return; }
-      const script = document.createElement('script');
-      script.src = 'https://platform.twitter.com/widgets.js';
-      script.async = true;
-      // Some blockers stub the request instead of failing it, so onload alone
-      // proves nothing — the object has to actually be there.
-      script.onload = () => {
-        if (window.twttr && window.twttr.ready) window.twttr.ready(resolve);
-        else reject(new Error('widgets.js loaded empty'));
-      };
-      script.onerror = () => reject(new Error('widgets.js blocked'));
-      document.head.appendChild(script);
-    });
+  // The worker already refuses to forward markup, and this renderer refuses
+  // to trust that: every token is escaped on its way into HTML, and hrefs are
+  // built only from tokens whose WHOLE shape passed a whitelist regex.
+  function richText(text) {
+    const parts = String(text).split(/(https?:\/\/[^\s]+|[@#][A-Za-z0-9_]+)/g);
+    return parts.map((part) => {
+      if (/^https?:\/\/\S+$/.test(part)) {
+        const shown = part.replace(/^https?:\/\/(www\.)?/, '');
+        return `<a href="${esc(part)}" target="_blank" rel="noopener nofollow">` +
+          esc(shown.length > 36 ? shown.slice(0, 33) + '…' : shown) + '</a>';
+      }
+      if (/^@[A-Za-z0-9_]{1,15}$/.test(part)) {
+        return `<a href="https://x.com/${part.slice(1)}" target="_blank" rel="noopener">${esc(part)}</a>`;
+      }
+      if (/^#[A-Za-z0-9_]+$/.test(part)) {
+        return `<a href="https://x.com/hashtag/${part.slice(1)}" target="_blank" rel="noopener">${esc(part)}</a>`;
+      }
+      return esc(part);
+    }).join('');
   }
 
-  const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  async function attemptTimeline(handle, mount) {
-    const twttr = await loadWidgetsJs();
-    const widget = await twttr.widgets.createTimeline(
-      { sourceType: 'profile', screenName: handle }, mount,
-      { theme: 'dark', dnt: true, height: 480, chrome: 'noheader nofooter transparent' });
-    // createTimeline resolves undefined when X declines to render at all.
-    if (!widget) throw new Error('not rendered');
-    // Let the frame lay out, then measure: the login-wall stub is a sliver.
-    await settle(1200);
-    if ((widget.offsetHeight || 0) < X_EMBED_MIN_HEIGHT) throw new Error('empty frame');
-    return widget;
+  function postCard(handle, post) {
+    const id = String(post.id || '').replace(/[^0-9]/g, '');
+    // Belt and braces: the worker only emits X's own CDN, and this renderer
+    // only accepts it — a poisoned cache row still cannot point elsewhere.
+    const photos = (Array.isArray(post.photos) ? post.photos : [])
+      .filter((u) => typeof u === 'string' && u.startsWith('https://pbs.twimg.com/'));
+    const media = photos.length
+      ? `<div class="ar-xp-media">${photos.map((u) =>
+          `<img src="${esc(u)}" alt="" loading="lazy" referrerpolicy="no-referrer">`).join('')}</div>`
+      : '';
+    const likes = Number(post.likes) > 0
+      ? `<span>♥ ${esc(fmt(Number(post.likes), 0))}</span>` : '';
+    return `
+      <article class="ar-xp">
+        <div class="ar-xp-text">${richText(post.text)}</div>
+        ${media}
+        <div class="ar-xp-meta">
+          <a href="${esc(X_POST_URL(handle, id))}" target="_blank" rel="noopener">${esc(ago(post.createdAt))} ↗</a>
+          ${likes}
+        </div>
+      </article>`;
   }
 
   function renderX(profile) {
     // The handle came from X via OAuth so it is already [A-Za-z0-9_], but it
-    // is going into a URL and an embed config — belt and braces.
+    // is going into URLs — belt and braces.
     const handle = String(profile.handle || '').replace(/[^A-Za-z0-9_]/g, '');
     if (!handle) return;
     const url = 'https://x.com/' + handle;
@@ -953,31 +1005,33 @@
         </div>
         <a class="ar-btn" href="${url}" target="_blank" rel="noopener">View on X ↗</a>
       </div>
-      <div class="ar-x-embed" id="x-embed"></div>
+      <div class="ar-x-posts" id="x-posts" hidden></div>
       <p class="ar-note" style="margin-top:12px">Sign-in here is X OAuth, so this handle is the same
-        account — a fact the server checked, not a link someone typed. Recent posts load from X's
-        servers when this pane scrolls into view; X shows them at its own discretion (login walls,
-        blockers), and when it will not, the button above still lands.</p>`);
+        account — a fact the server checked, not a link someone typed. Recent posts come through the
+        verifier's cache of X's public feed, refreshed about every twenty minutes.</p>`);
 
-    // Lazy on purpose: no request leaves for platform.twitter.com until the
-    // pane is actually on screen, and none at all if the visitor never gets
-    // here. dnt:true is set on the widget besides.
-    const mount = document.getElementById('x-embed');
+    // Lazy on purpose: the feed request leaves when the pane approaches the
+    // viewport, and never for visitors who don't get here.
     const observer = new IntersectionObserver(async (entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
       observer.disconnect();
-      xNoteEl.textContent = 'asking X…';
+      xNoteEl.textContent = 'fetching posts…';
       try {
-        await Promise.race([
-          attemptTimeline(handle, mount),
-          settle(X_EMBED_TIMEOUT_MS).then(() => { throw new Error('timeout'); }),
-        ]);
-        xNoteEl.innerHTML = '<span style="color:var(--green)">live from x.com</span>';
+        const { status, body } = await L.api('/api/x-feed?handle=' + encodeURIComponent(handle));
+        const posts = status === 200 && body && body.ok && Array.isArray(body.posts)
+          ? body.posts.filter((post) => post && typeof post.text === 'string') : [];
+        if (!posts.length) {
+          // Nothing to show is not an error: the card above IS the pane.
+          xNoteEl.textContent = '';
+          return;
+        }
+        const mount = document.getElementById('x-posts');
+        mount.innerHTML = posts.map((post) => postCard(handle, post)).join('') +
+          `<a class="ar-xp ar-xp-more" href="${url}" target="_blank" rel="noopener">View more on X ↗</a>`;
+        mount.hidden = false;
+        xNoteEl.innerHTML = '<span style="color:var(--green)">' +
+          posts.length + ' recent post' + (posts.length === 1 ? '' : 's') + '</span>';
       } catch {
-        // Blocked, walled, rate-limited, or empty: the card above is the
-        // rendering, and an explanation would dress an absence up as an
-        // error. Remove the mount so no hole is left behind.
-        mount.remove();
         xNoteEl.textContent = '';
       }
     }, { rootMargin: '200px' });

@@ -23,11 +23,18 @@ import * as clan from '../core/clan.js';
 import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
 import { makeGetCandles } from './candles.js';
+// Default-imported for the same CJS-lexer reason as core/chain.js above.
+import xfeed from './xfeed.js';
 
 const SEG_SIZE = 500;
 const SUBMITS_PER_HOUR = 6;
 const DUELS_PER_HOUR = 10;
 const CLAN_ACTIONS_PER_HOUR = 12;
+// The X feed endpoint: only cache MISSES cost an upstream fetch, so the
+// per-IP leash sits on those, not on reads a cache can answer.
+const XFEED_PER_HOUR = 120;
+const XFEED_FRESH_MS = 20 * 60 * 1000;
+const XFEED_STALE_MS = 7 * 24 * 3600 * 1000;
 /** window_id for a clan's since-join season slice, alongside ISO week ids. */
 const SEASON_WINDOW_ID = 'season';
 const CANDLE_BUDGET_PER_RUN = 25;
@@ -555,6 +562,63 @@ async function handleActivity(env) {
   }
   events.sort((a, b) => b.ts - a.ts);
   return json({ events: events.slice(0, 40) });
+}
+
+/* ---------------- X feed ----------------
+ *
+ * A trader's recent public posts, served to EVERY visitor. X's own widgets
+ * are login-walled and adblocked client-side, so the worker fetches X's
+ * syndication timeline once, sanitizes it at ingest (xfeed.js — plain text,
+ * ids, timestamps, pbs.twimg.com media only), and caches it in D1. A stale
+ * feed beats a hole; a hole beats an invented one.
+ */
+async function handleXFeed(request, env) {
+  const url = new URL(request.url);
+  const asked = String(url.searchParams.get('handle') || '').trim().replace(/^@+/, '');
+  if (!xfeed.HANDLE_RE.test(asked)) return json({ ok: false, reason: 'bad-handle' }, 400);
+
+  // Not an open proxy: only handles with an account HERE are ever asked
+  // upstream, and the row's casing — X's casing — is the one echoed back.
+  const user = await env.DB.prepare(
+    'SELECT handle FROM users WHERE handle = ? COLLATE NOCASE').bind(asked).first();
+  if (!user) return json({ ok: false, reason: 'unknown-handle' }, 404);
+  const handle = user.handle;
+  const cacheKey = handle.toLowerCase();
+
+  const cached = await env.DB.prepare(
+    'SELECT fetched_at, posts_json FROM x_feed_cache WHERE handle = ?').bind(cacheKey).first();
+  const now = Date.now();
+  const answer = (posts, fetchedAt) => json({ ok: true, handle, posts, fetchedAt });
+
+  if (cached && now - Number(cached.fetched_at) < XFEED_FRESH_MS) {
+    return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!(await allowRate(env, 'xfeed:' + ip, XFEED_PER_HOUR))) {
+    // Over the leash a stale answer still beats a refusal — the limit exists
+    // to protect the upstream fetch, and serving the cache costs it nothing.
+    if (cached) return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
+
+  try {
+    const posts = await xfeed.fetchPosts(handle);
+    await env.DB.prepare(`
+      INSERT INTO x_feed_cache (handle, fetched_at, posts_json) VALUES (?, ?, ?)
+      ON CONFLICT(handle) DO UPDATE SET
+        fetched_at = excluded.fetched_at, posts_json = excluded.posts_json`)
+      .bind(cacheKey, now, JSON.stringify(posts)).run();
+    return answer(posts, now);
+  } catch {
+    if (cached && now - Number(cached.fetched_at) < XFEED_STALE_MS) {
+      return answer(JSON.parse(cached.posts_json), Number(cached.fetched_at));
+    }
+    // No cache and no upstream: an empty list, which the site renders as the
+    // presence card alone. Not an error — there is nothing wrong to report,
+    // only nothing to show.
+    return answer([], null);
+  }
 }
 
 /* ---------------- duels ---------------- */
@@ -1302,6 +1366,9 @@ export default {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleProfile(env, handle));
       }
       else if (path === '/api/activity') response = await edgeCached(request, ctx, 20, () => handleActivity(env));
+      // Keyed by full URL, so each handle caches separately at the edge; the
+      // D1 layer inside the handler is what protects the upstream.
+      else if (path === '/api/x-feed') response = await edgeCached(request, ctx, 300, () => handleXFeed(request, env));
       // Duels are live and per-viewer, so they are never edge-cached.
       else if (path === '/api/duel/create' && request.method === 'POST') response = await handleDuelCreate(request, env);
       else if (path === '/api/duel/join' && request.method === 'POST') response = await handleDuelJoin(request, env);

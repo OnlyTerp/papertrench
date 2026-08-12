@@ -162,3 +162,12 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   window_start INTEGER NOT NULL,
   count INTEGER NOT NULL
 );
+
+-- Cached, ingest-sanitized X posts per handle (lowercased). One row per
+-- trader; the JSON is the already-clean output of worker/xfeed.js, never
+-- upstream markup. Fresh for ~20 minutes, servable stale for days.
+CREATE TABLE IF NOT EXISTS x_feed_cache (
+  handle TEXT PRIMARY KEY,
+  fetched_at INTEGER NOT NULL,
+  posts_json TEXT NOT NULL
+);

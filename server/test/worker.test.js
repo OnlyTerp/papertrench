@@ -385,3 +385,132 @@ test('red verdicts age out of the LIVE feed; green events persist and dedupe', a
   assert.ok(/s\.outcome = 'accepted' OR s\.created_at > \?/.test(feedSql),
     'the query itself must refuse stale red rows');
 });
+
+/* ---------------- the X feed endpoint ---------------- */
+
+/** The syndication page the worker scrapes, built from raw tweet objects. */
+function syndicationHtml(tweets) {
+  const data = { props: { pageProps: { timeline: {
+    entries: tweets.map((tweet) => ({ content: { tweet } })) } } } };
+  // Next.js escapes `<` inside the embedded JSON (so a tweet can never close
+  // the script tag early); the fixture must be as honest as the real page.
+  return '<html><body><script id="__NEXT_DATA__" type="application/json">' +
+    JSON.stringify(data).replace(/</g, '\\u003c') + '</script></body></html>';
+}
+
+function xfeedRoute(opts) {
+  const options = opts || {};
+  return (sql) => {
+    if (sql.includes('FROM users WHERE handle')) {
+      return 'user' in options ? options.user : { handle: 'Terp_X' };
+    }
+    if (sql.includes('FROM x_feed_cache')) return options.cache || null;
+    if (sql.includes('INSERT INTO rate_limits')) return { count: options.rateCount || 1 };
+    return null;
+  };
+}
+
+async function getFeed(worker, db, query) {
+  const response = await worker.fetch(
+    new Request('https://api.test/api/x-feed' + query), makeEnv(db), { waitUntil: () => {} });
+  return { status: response.status, body: await response.json() };
+}
+
+/** Run fn with the upstream network replaced; returns [result, calls]. */
+async function withUpstream(impl, fn) {
+  const real = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push(String(url)); return impl(url, init); };
+  try { return [await fn(), calls]; } finally { globalThis.fetch = real; }
+}
+
+test('the X feed endpoint is not an open proxy', async () => {
+  const worker = await loadWorker();
+  const [, calls] = await withUpstream(() => { throw new Error('must not be reached'); }, async () => {
+    const bad = await getFeed(worker, fakeDB(xfeedRoute()), '?handle=not%20a%20handle');
+    assert.equal(bad.status, 400);
+    const missing = await getFeed(worker, fakeDB(xfeedRoute({ user: null })), '?handle=stranger');
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.reason, 'unknown-handle');
+  });
+  assert.equal(calls.length, 0, 'no upstream fetch may fire for a handle we do not host');
+});
+
+test('a fresh cache answers without touching X, in the row\'s own casing', async () => {
+  const worker = await loadWorker();
+  const cache = { fetched_at: Date.now() - 60000,
+    posts_json: JSON.stringify([{ id: '1', text: 'hi', createdAt: 5, photos: [], likes: 0 }]) };
+  const [res, calls] = await withUpstream(() => { throw new Error('cache was fresh'); },
+    () => getFeed(worker, fakeDB(xfeedRoute({ cache })), '?handle=terp_x'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.handle, 'Terp_X', 'the users row decides the casing, not the query string');
+  assert.equal(res.body.posts[0].text, 'hi');
+  assert.equal(calls.length, 0);
+});
+
+test('ingest sanitizes: text stays text, foreign media drops, retweets skip, eight max', async () => {
+  const worker = await loadWorker();
+  const tweets = [{
+    id_str: '111', created_at: '2026-08-10T12:00:00.000Z', favorite_count: 3,
+    full_text: 'look <script>alert(1)</script> at https://t.co/abc',
+    entities: { urls: [{ url: 'https://t.co/abc', expanded_url: 'https://example.com/x' }] },
+    photos: [{ url: 'https://pbs.twimg.com/media/ok.jpg' }, { url: 'https://evil.example/x.jpg' }],
+  }, {
+    id_str: '222', created_at: '2026-08-09T12:00:00.000Z',
+    full_text: 'RT @someone: not their words', retweeted_status: {},
+  }];
+  for (let i = 0; i < 10; i++) {
+    tweets.push({ id_str: String(1000 + i), favorite_count: i,
+      created_at: new Date(Date.UTC(2026, 7, 1 + i)).toISOString(), full_text: 'post ' + i });
+  }
+  const db = fakeDB(xfeedRoute());
+  const [res] = await withUpstream(() => new Response(syndicationHtml(tweets)),
+    () => getFeed(worker, db, '?handle=Terp_X'));
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.posts.length, 8, 'capped — a feed, not an archive');
+  const marked = res.body.posts.find((p) => p.id === '111');
+  assert.ok(marked.text.includes('<script>alert(1)</script>'),
+    'markup survives as INERT TEXT in JSON — neutralizing it is the renderer\'s job, twice-guarded');
+  assert.ok(marked.text.includes('https://example.com/x'), 't.co stubs expand to what they stand for');
+  assert.deepEqual(marked.photos, ['https://pbs.twimg.com/media/ok.jpg'],
+    'media not on X\'s own CDN is dropped, never proxied');
+  assert.ok(!res.body.posts.some((p) => p.text.includes('not their words')),
+    'retweets are other people\'s words and stay off the pane');
+  const write = db.log.find((e) => e.sql.includes('INSERT INTO x_feed_cache'));
+  assert.ok(write, 'a successful fetch is cached');
+  assert.equal(write.args[0], 'terp_x', 'cache keys are case-folded');
+});
+
+test('a stale cache beats a broken upstream; an empty answer beats an invented one', async () => {
+  const worker = await loadWorker();
+  const stale = { fetched_at: Date.now() - 2 * 3600 * 1000,
+    posts_json: JSON.stringify([{ id: '9', text: 'old but real', createdAt: 1, photos: [], likes: 0 }]) };
+  const [kept] = await withUpstream(() => new Response('nope', { status: 503 }),
+    () => getFeed(worker, fakeDB(xfeedRoute({ cache: stale })), '?handle=Terp_X'));
+  assert.equal(kept.status, 200);
+  assert.equal(kept.body.posts[0].text, 'old but real');
+
+  const [empty] = await withUpstream(() => new Response('nope', { status: 503 }),
+    () => getFeed(worker, fakeDB(xfeedRoute()), '?handle=Terp_X'));
+  assert.equal(empty.status, 200);
+  assert.deepEqual(empty.body.posts, [], 'no cache and no upstream is an empty list, not a 500');
+});
+
+test('the upstream leash is per IP and never blocks what the cache can answer', async () => {
+  const worker = await loadWorker();
+  const overDb = fakeDB(xfeedRoute({ rateCount: 999 }));
+  const [denied] = await withUpstream(() => { throw new Error('leashed'); },
+    () => getFeed(worker, overDb, '?handle=Terp_X'));
+  assert.equal(denied.status, 429);
+  const rateOp = overDb.log.find((e) => e.sql.includes('rate_limits'));
+  assert.ok(String(rateOp.args[0]).startsWith('xfeed:'), 'keyed per requester, not globally');
+
+  const stale = { fetched_at: Date.now() - 2 * 3600 * 1000,
+    posts_json: JSON.stringify([{ id: '9', text: 'served anyway', createdAt: 1, photos: [], likes: 0 }]) };
+  const [served] = await withUpstream(() => { throw new Error('leashed'); },
+    () => getFeed(worker, fakeDB(xfeedRoute({ rateCount: 999, cache: stale })), '?handle=Terp_X'));
+  assert.equal(served.status, 200);
+  assert.equal(served.body.posts[0].text, 'served anyway',
+    'the limit protects the upstream fetch; a cached answer costs it nothing');
+});
