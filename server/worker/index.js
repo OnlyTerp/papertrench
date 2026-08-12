@@ -479,7 +479,15 @@ async function handleProfile(env, handle) {
  * fire on thin candle data as easily as on fraud — must not publicly brand a
  * named person a cheat. The event and its reason are shown; the name is not.
  */
+// How long a red verdict stays on the PUBLIC feed (DEFECT L-13). A rejection
+// is operational evidence, not a trophy: on a quiet board, week-old REJECTED
+// lines under a "LIVE" badge read as a product on fire, indefinitely. Fresh
+// verdicts stream for three days — plenty for "watch the checks happen" — and
+// then age out like any log line. Green events are achievements and persist.
+const FEED_REJECTION_WINDOW_MS = 72 * 3600 * 1000;
+
 async function handleActivity(env) {
+  const redCutoff = Date.now() - FEED_REJECTION_WINDOW_MS;
   const [subs, verifications] = await Promise.all([
     // 'shape:unknown-version' is quarantined from the PUBLIC feed (DEFECT
     // L-12): for five days that reason was our own gate bug (L-01) firing on
@@ -489,28 +497,41 @@ async function handleActivity(env) {
     // past the 40-row window. The rows stay in D1 as the audit trail, and a
     // submitter who trips the gate still gets the full reason in their 422;
     // it just isn't broadcast as a verdict about a trader. Real verdicts
-    // (chain-invalid, chain-replaced, …) still stream.
+    // (chain-invalid, chain-replaced, …) still stream — for the L-13 window.
     env.DB.prepare(`
-      SELECT s.outcome, s.chain_len, s.created_at, u.handle
+      SELECT s.outcome, s.head, s.chain_len, s.created_at, u.handle
       FROM submissions s JOIN users u ON u.id = s.user_id
       WHERE s.outcome NOT IN ('duplicate', 'shape:unknown-version')
-      ORDER BY s.created_at DESC LIMIT 40`).all(),
+        AND (s.outcome = 'accepted' OR s.created_at > ?)
+      ORDER BY s.created_at DESC LIMIT 40`).bind(redCutoff).all(),
     env.DB.prepare(`
       SELECT u.handle, r.status, r.chain_len, r.pricing_json, r.verified_at
       FROM records r JOIN users u ON u.id = r.user_id
       WHERE r.verified_at IS NOT NULL
-      ORDER BY r.verified_at DESC LIMIT 25`).all(),
+        AND (r.status = 'verified' OR r.verified_at > ?)
+      ORDER BY r.verified_at DESC LIMIT 25`).bind(redCutoff).all(),
   ]);
 
   const events = [];
+  // One accepted line per distinct chain: before L-04, every resubmission of
+  // the same head logged its own 'accepted' row, and nine copies of the same
+  // green line are feed spam of a friendlier color. Rows arrive newest-first,
+  // so the survivor is the most recent.
+  const seenAccepted = new Set();
   for (const row of subs.results) {
     // A duplicate is a no-op, not a verdict — showing it as an anonymous
     // "rejection" would report an impatient double-click as suspected fraud.
-    // Both filters are enforced here as well as in the SQL above so the
-    // behavior holds even if the two queries ever drift apart.
+    // Every SQL filter above is enforced here as well, so the behavior holds
+    // even if the two layers ever drift apart.
     if (row.outcome === 'duplicate') continue;
     if (row.outcome === 'shape:unknown-version') continue;
     const accepted = row.outcome === 'accepted';
+    if (!accepted && row.created_at <= redCutoff) continue;
+    if (accepted) {
+      const key = row.handle + '|' + row.head;
+      if (seenAccepted.has(key)) continue;
+      seenAccepted.add(key);
+    }
     events.push({
       kind: accepted ? 'accepted' : 'rejected',
       // Rejections are anonymous on purpose — see the note above.
@@ -520,6 +541,7 @@ async function handleActivity(env) {
     });
   }
   for (const row of verifications.results) {
+    if (row.status !== 'verified' && row.verified_at <= redCutoff) continue;
     const pricing = row.pricing_json ? JSON.parse(row.pricing_json) : null;
     events.push({
       kind: row.status === 'verified' ? 'verified' : row.status,

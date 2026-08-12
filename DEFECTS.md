@@ -1732,6 +1732,24 @@ about traders. Real verdicts (chain-invalid, chain-replaced) still stream, and t
 quarantine also lives in the SQL so pre-filtered spam cannot crowd real events out of
 the 40-row window.
 
+**L-13 · S3 · The LIVE feed had no clock — on a quiet board, launch-week red verdicts dominated the stream indefinitely**
+`server/worker/index.js` handleActivity · every Arena visitor while the board is
+quiet · confirmed (six-day-old `chain-replaced`/`chain-invalid` lines under a
+"LIVE" badge were the whole visible feed) · **fixed v3.5.0** (server hotfix:
+rejection events age out of the public feed after 72 hours, in SQL and in JS;
+accepted events dedupe per chain — pre-L-04 rows logged the same head accepted
+nine times; verified records persist as achievements; locked by worker.test.js)
+The stale rows themselves were audited before being aged out, and every one is a
+GENUINE verdict, kept in D1: all seven trace to a single launch-morning account
+whose journal shrank between submissions (17 → 10 → 9 links, four distinct heads —
+resets, not growth) and whose repeat of head `9079ce…` verified at 06:40 but failed
+re-hashing at 06:46, i.e. the file was edited between attempts. The extend anchor
+check (`chain[previous.chainLen-1].hash === previous.head`) was correct in the
+deployed code, and rekeying (F-51) did not exist yet, so none of L-02's replay bugs
+could have produced them. The defect is purely temporal: a rejection is operational
+evidence, not a trophy, and a "live" stream that never lets red scroll off turns
+one tester's week-old session into a permanent facade of a product on fire.
+
 ### S5 — latent hazards
 
 **L-09 · S5 · Re-pricing hardcoded Solana's candle network — the chain label v2 links COMMIT was never consulted by the verifier it was committed for**

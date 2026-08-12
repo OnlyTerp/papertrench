@@ -297,17 +297,20 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
 
 test('the public feed never rebroadcasts our own gate bug as a verdict', async () => {
   const worker = await loadWorker();
-  const sub = (outcome, ts) => ({ outcome, chain_len: 5, created_at: ts, handle: 'terp' });
+  // Fresh timestamps: this test is about the REASON quarantine, so the rows
+  // must all be inside the L-13 recency window or they would age out anyway.
+  const NOW = Date.now();
+  const sub = (outcome, ts) => ({ outcome, head: 'H' + ts, chain_len: 5, created_at: ts, handle: 'terp' });
   const db = fakeDB((sql) => {
     if (sql.includes('FROM submissions s')) {
       // What five days of the L-01 gate bug actually left in the table: a
       // wall of unknown-version rejections on top, honest events underneath.
       return [
-        sub('shape:unknown-version', 5000),
-        sub('shape:unknown-version', 4000),
-        sub('duplicate', 3000),
-        sub('chain-invalid', 2000),
-        sub('accepted', 1000),
+        sub('shape:unknown-version', NOW - 1000),
+        sub('shape:unknown-version', NOW - 2000),
+        sub('duplicate', NOW - 3000),
+        sub('chain-invalid', NOW - 4000),
+        sub('accepted', NOW - 5000),
       ];
     }
     if (sql.includes('FROM records r')) return [];
@@ -331,4 +334,54 @@ test('the public feed never rebroadcasts our own gate bug as a verdict', async (
   const feedSql = db.log.find((e) => e.sql.includes('FROM submissions s')).sql;
   assert.ok(feedSql.includes("NOT IN ('duplicate', 'shape:unknown-version')"),
     'the window must not be crowded out by rows the feed will drop anyway');
+});
+
+/* ---------------- feed freshness (DEFECT L-13) ---------------- */
+
+test('red verdicts age out of the LIVE feed; green events persist and dedupe', async () => {
+  const worker = await loadWorker();
+  const NOW = Date.now();
+  const OLD = NOW - 6 * 24 * 3600 * 1000;   // launch week
+  const FRESH = NOW - 3600 * 1000;          // an hour ago
+  const sub = (outcome, ts, head) => ({ outcome, head: head || 'H', chain_len: 3, created_at: ts, handle: 'terp' });
+  const db = fakeDB((sql) => {
+    if (sql.includes('FROM submissions s')) {
+      return [
+        sub('chain-invalid', FRESH),          // a fresh verdict must stream
+        sub('accepted', OLD, 'HEAD-A'),       // pre-L-04: the same chain
+        sub('accepted', OLD - 1, 'HEAD-A'),   // logged accepted nine times —
+        sub('accepted', OLD - 2, 'HEAD-A'),   // the feed owes ONE green line
+        sub('chain-replaced', OLD),           // launch-week red: aged out
+        sub('chain-invalid', OLD),
+      ];
+    }
+    if (sql.includes('FROM records r')) {
+      return [
+        { handle: 'terp', status: 'verified', chain_len: 3,
+          pricing_json: null, verified_at: OLD },      // achievement: persists
+        { handle: 'x', status: 'rejected', chain_len: 3,
+          pricing_json: null, verified_at: OLD },      // old red: aged out
+      ];
+    }
+    return null;
+  });
+
+  const response = await worker.fetch(
+    new Request('https://api.test/api/activity'), makeEnv(db), { waitUntil: () => {} });
+  const body = await response.json();
+
+  const kinds = body.events.map((e) => e.kind);
+  assert.deepEqual(kinds.filter((k) => k === 'rejected'), ['rejected'],
+    'exactly one red line: the fresh verdict, not the launch-week wall');
+  assert.equal(body.events.find((e) => e.kind === 'rejected').detail, 'chain-invalid');
+  assert.equal(kinds.filter((k) => k === 'accepted').length, 1,
+    'nine copies of the same accepted chain are one event');
+  assert.equal(kinds.filter((k) => k === 'verified').length, 1,
+    'a verified record is an achievement and does not age out');
+
+  // The recency window must also live in the SQL, so old red rows cannot
+  // crowd the 40-row window before the JS filter ever sees them.
+  const feedSql = db.log.find((e) => e.sql.includes('FROM submissions s')).sql;
+  assert.ok(/s\.outcome = 'accepted' OR s\.created_at > \?/.test(feedSql),
+    'the query itself must refuse stale red rows');
 });
