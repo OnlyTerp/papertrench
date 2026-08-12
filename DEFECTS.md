@@ -378,7 +378,7 @@ and the existing armed-buy suite.
 **F-41 · S1 · One buy drew TWO bubbles, and the average line never appeared — a dead self-write guard duplicated every fill, and a stale-ledger veto quietly relocated the line off-screen**
 `content.js` watchStorage/doBuy/doSellInner · `price-bridge.js`
 vettedMcapClose/paper-lines · fomo.family, maintainer field test ·
-**fixed (unreleased)** — two independent defects behind one screenshot,
+**fixed v3.4.0** — two independent defects behind one screenshot,
 both found by live probing rather than reading.
 
 *Two bubbles.* `chrome.storage.onChanged` delivers a STRUCTURED CLONE, so
@@ -419,7 +419,7 @@ exact expected row — which is what ruled it out and pointed upstream.
 `attest.js` fillPreimage / chainOf · `server/core/chain.js` ·
 `test/chaincommit.test.js` · found by a community probe (amogus0471, via the
 Discord, 2026-08-06) asking what the chain actually protects ·
-**fixed (unreleased)**.
+**fixed v3.4.0**.
 `appendFill` stored `chain` on every link, but `fillPreimage` committed ten
 fields and none of them was it. The comment justified this with the solNet
 precedent — except solNet is safe for the OPPOSITE reason: `committedAmount()`
@@ -459,7 +459,7 @@ writes v2 links reaches a user.**
 **F-50 · S1 · lute prices the same token at TWO SCALES — an immediate round trip booked −90.2%**
 extension price pipeline on lute.gg (scale acceptance, suspects below) ·
 caught by `featurepass.mjs lute`, 2026-08-10, harness profile, BONK ·
-**fixed (unreleased) — acceptance point named by constant, guard landed and
+**fixed v3.4.0 — acceptance point named by constant, guard landed and
 mutation-locked (`test/scalestep.test.js`), close condition met: a green
 lute featurepass whose round trip books fees only (−2.08%, 2026-08-10)**.
 The acceptance point was no suspect in the end: `ACCEPT_RATIO = 20` — the
@@ -504,6 +504,52 @@ RESOLVER ANCHOR, never against the token state they themselves wrote.
 Repro: `node featurepass.mjs lute` (seeded profile) — twice on 2026-08-10.
 Close only with the acceptance point named by test, a guard mutation-locked,
 and a green featurepass on lute whose round trip books fees only.
+
+**F-51 · S2 · a fresh-launch buy vanishes from the card the moment the coin learns its real name**
+`content.js` prewatch/setToken identity upgrades vs `state.positions` keying ·
+cantstoplarping, Discord 2026-08-11 ("sometime when im in a coin it just
+wipes the position like i never bought"); same shape as immreeper,
+2026-08-09 ("the paper trade dissapears") · **fixed v3.4.0**
+(`engine.rekeyMint` + content `rekeyLiveState`, locked by
+`test/rekey.test.js`).
+On pair-URL sites (Axiom /meme/, Photon, BullX) a fresh launch trades under
+the PAIR stand-in address until the prewatch probe or the resolver discovers
+the base mint. A fill in that window keys the position under the stand-in;
+both upgrade paths then renamed `token.mint` and every later render looked
+the bag up under the NEW key — empty card over live money, on the very coin
+that was just bought. The armed-buy INTENT survived this exact rename (the
+"ARMED … but nothing executed" fix); the committed position never did.
+Sells, armed orders, alerts and the post-exit watch all shared the dead key.
+Fix: `rekeyMint` moves every live mint-keyed structure across the rename —
+position (merging stacks when both identities were held), orders, alerts,
+post-exit watches — and both content upgrade paths call it; the write rides
+the CAS queue with a remutate like every other mutation (F-46). The journal
+and closed rounds are deliberately untouched: fill mints are hashed into the
+attestation chain (F-14), so rewriting history would fork the record. Round
+arithmetic instead matches fills by sessionId (`tradeInRound`), which
+survives the rename — the stand-in buy still counts in the round's money,
+its tradeIds, and the chart's average-entry line.
+
+**F-52 · S1 · fills land up to 6% away from the number the trader clicked on**
+`content.js pickQuoteForTrade` chain-first ladder · superski, Discord
+2026-08-11 ("sometimes your average entry isn't calculated properly, it'll
+fill you in lower than ur actual entry or higher sometimes") · **fixed
+v3.4.0** (fresh screen prices the fill; executed regression in
+`test/quietscreen.test.js`, ladder contract in `test/load.test.js`).
+The ladder asked the chain first and let it price the fill whenever it sat
+within `ONSCREEN_AGREE_RATIO` (1.06) of a fresh on-screen quote — so the
+recorded entry routinely landed a few percent above or below the number on
+screen at click time, and the average-entry line drawn from those fills sat
+visibly off the trader's own eyes. F-33 already ruled that a sub-second
+screen beats a DISAGREEING chain read; trusting the trader's screen only
+when the chain was wrong by MORE than 6% was the inconsistency, and the gap
+band was wide enough to notice on every quick scalp. Fix: an on-screen price
+at most `ONCHAIN_SCREEN_CHECK_MAX_AGE_MS` (600ms) old prices the fill,
+unconditionally — it is the number the trader acted on. The chain remains
+the authority on a quiet screen, with the F-48 evidence demotion unchanged,
+and the F-47 witness still judges every candidate before it becomes money.
+Fresh-screen fills also stopped paying the chain round trip entirely, which
+makes the common fill faster on exactly the launches that move too fast.
 
 **F-48 · S1 · a sell booked ~20% under the chart the trader watched — a win rendered as -9.6%**
 extension price pipeline (suspects ranked below) · Terp, lute.gg screenshot,
@@ -580,7 +626,7 @@ Receipts landed in cb17fe1 for exactly this conversation.
 **F-47 · S1 · a fill could execute at a resurrected dead price — a loss rendered as +167%**
 content.js quoteForTrade / quote.js · chatcabal, Twitch + Matt Buitrago's
 Discord screenshots, 2026-08-06 (Axiom, migrated Pump-AMM coin "fork",
-871M supply) · **fixed (unreleased)**.
+871M supply) · **fixed v3.4.0**.
 The market crashed ~$30K → ~$8K market cap inside a minute. His DCA buy
 filled honestly at the crashed level ($6.8K MC — proof the pipeline HAD the
 truth), and the SELL sixty seconds later filled at the pre-crash level
@@ -613,8 +659,7 @@ mutateState, popup restore, content quickResetWallet) · LYAR, X DM field
 report, TWICE ("place several buys, suddenly the position vanish from the
 overlay… then there is a difference between cash and equity"; after a first
 "should be fixed": "the issue is still here… most of the time it goes back
-in the green and the pnl is false then, it goes both ways") · **fixed
-(unreleased)**.
+in the green and the pnl is false then, it goes both ways") · **fixed v3.4.0**.
 Every context wrote the whole state blob with a bare
 `chrome.storage.local.set`. `seq` was advisory: two writers reading the same
 base both stamped N+1 and the second silently destroyed the first. The
@@ -692,7 +737,7 @@ that silently resolves to nothing.
 `price-bridge.js` sameBasisFamily / paper-lines intake ·
 `test/basisflap.test.js` · fomo.family, maintainer field report 2026-08-06
 ("the avg fill line and where the entry thought it was just keeps teleporting
-everywhere — completely unusable") · **fixed (unreleased)**.
+everywhere — completely unusable") · **fixed v3.4.0**.
 `mcap` (USD cap) and `native-mcap` (SOL cap) are not declared by the chart —
 they are inferred per tick from which band the value lands in, and the
 boundary between them moves with the SOL/USD rate, so a value near it
@@ -726,7 +771,7 @@ tests, and nothing else moves in either direction.
 
 **F-42 · S2 · The line was DESTROYED whenever its level briefly could not be computed, and the F-41 handoff test could not fail for its stated reason**
 `price-bridge.js` syncLineSlot · `test/fomodraws.test.js` ·
-**fixed (unreleased)** — found by a 35-agent adversarial audit of F-41, two
+**fixed v3.4.0** — found by a 35-agent adversarial audit of F-41, two
 findings it confirmed against my own just-landed work.
 (1) `syncLineSlot` opened with `if (!(price > 0)) { clearLineSlot(slot); }`,
 which conflates two different facts: "this side has no average" (clear it)
@@ -752,7 +797,7 @@ dead self-write guard pass this suite for months.
 `price-bridge.js` layoutBubbles · `content.js` adoptState · fomo.family,
 maintainer field test minutes after F-39 shipped ("for a 2nd you can see
 it, but then it disappears… blinks in while zooming… moving a little bit
-with the chart") · **fixed (unreleased)** — F-32's lesson, relearned one
+with the chart") · **fixed v3.4.0** — F-32's lesson, relearned one
 layer down: a fill's level is a CONSTANT in axis units, but the bubble
 layer called shapeLevelFor per FRAME — so the chip rode the moving close
 against the 2s-throttled current price ("moving with the chart"), and the
@@ -775,7 +820,7 @@ draw the moment discovery finds one), and adoption-replay source locks.
 **F-39 · S1 · fomo STILL showed no buys and no lines after F-38 — the standalone charting library THROWS on every broker draw call, and the fixture implemented what the field refuses**
 `price-bridge.js` syncLineSlot/spawnExecutionShape · fomo.family, maintainer
 report ("I asked you to fix a function. And you don't.") ·
-**fixed (unreleased)** — probed on the LIVE chart (in-app browser,
+**fixed v3.4.0** — probed on the LIVE chart (in-app browser,
 2026-08-05): fomo ships TradingView's STANDALONE charting library. The chart
 API *carries* createOrderLine and createExecutionShape, and calling either
 throws "… is only available on Trading Platform" — so F-38's bar hook was
@@ -804,7 +849,7 @@ failing against the pre-fix bridge, with Padre/GMGN/legacy suites green.
 
 **F-38 · S1 · fomo showed NO buys and NO lines — discovery never reached the datafeed, and the test fixture modeled a fiber production doesn't serve**
 `price-bridge.js` widgetsFromIframes · fomo.family, maintainer report ·
-**fixed (unreleased)** — reverse-engineered on the LIVE site (in-app browser,
+**fixed v3.4.0** — reverse-engineered on the LIVE site (in-app browser,
 2026-08-05): the real fomo page has NO React fiber on or above the
 tradingview iframe; the widget api is `contentWindow.tradingViewApi` and the
 widget's OPTIONS BAG — including the datafeed — sits in `window[frameId]`.
@@ -820,7 +865,7 @@ against the pre-fix bridge.
 
 **F-37 · S1 · The second buy "teleported to a random spot" — the mark snap grid followed whichever same-token subscription came LAST**
 `price-bridge.js` noteResolution/snapMarkTime · Padre (maintainer repro
-screenshot: 1s chart, multi-preset panels) · **fixed (unreleased)**
+screenshot: 1s chart, multi-preset panels) · **fixed v3.4.0**
 F-35's twin in the TIME axis: the C-14 token gate admits every same-token
 subscription, and lastResolutionMs took the newest SUBSCRIBER — so a hidden
 1m preset panel flipped the grid and every new mark snapped to minute
@@ -907,6 +952,23 @@ A nav landing in that window is recorded but never acted on; every later tick
 early-returns (`href === lastHref && settled`). Panel keeps token A's card and sell
 buttons on token B's page; `doBuy` fills token A's mint. Self-heals only on the next
 navigation. `fastDetectTimer` can't rescue (returns unless `token.pending`).
+
+**O-30 · S1 · the positions-bar chip and the position card disagree about the same bag's P&L**
+`content.js` livePositionPrices vs `quote.js positionRows` priority ·
+superski, Discord 2026-08-11 ("The pnl on the actual instant trader vs on
+the hot bar isn't synced sometimes properly") · **fixed v3.4.0**
+(`positionRows` activeQuote + poller-cache shed in setToken; locked in
+`test/positionsbar.test.js`).
+The batch poller deliberately skips the token on screen — its price comes
+from the page's own feed — but the LAST batch quote cached while the token
+was off-screen lingered in the live-price map, and `positionRows` preferred
+ANY live-map entry over the stored mark. So the chip marked the bag from
+Dexscreener's last answer while the card marked it from the live page feed:
+same bag, two venues, two P&Ls, sitting one inch apart. Fix: the bar hands
+`positionRows` the page feed's own quote for the active mint (bounded by the
+same staleness mark the header uses, so a dead feed still reads stale), and
+`setToken` sheds the poller's cached entry the moment a token comes ON
+screen — the page feed owns it from there.
 
 ### S2 — silent death / resource leaks
 
@@ -1067,7 +1129,7 @@ the PAPER PERPS ticket sat on Hyperliquid anyway (amogus field report,
 2026-08-07, screenshot with both in frame). The perps stack shipped after
 appEnabled existed and never learned it — "off means PaperTrench exists
 NOWHERE" held for spot, warm links, and the bar, but not the newest surface.
-confirmed · **fixed (unreleased)** (applyMasterSwitch: off → leavePage, the
+confirmed · **fixed v3.4.0** (applyMasterSwitch: off → leavePage, the
 location poll refuses to remount, the FIRST mount waits for the settings
 read so an OFF user never sees a flash; locked in masterswitch.test.js)
 
@@ -1498,7 +1560,8 @@ v2.11.0 tag in a temp worktree.
 **D-54 · S2 · The graduation thesis criterion could never pass — coverage counted only legacy STRING theses while the engine stores objects**
 `mastery.js` thesisCoverage · dashboard graduation bar, all users ·
 found building the gamification rank ladder on top of the criterion
-(2026-08-05) · **fixed (unreleased, post-v2.9.1)**
+(2026-08-05) · **fixed v2.10.0** (labeled "unreleased, post-v2.9.1" until
+the v3.4.0 sweep checked `git tag --contains` — v2.10.0 shipped it)
 `normalizeThesis` has stored the thesis as an OBJECT ({ text, tags, plan,
 … }) since it exists, and closeRound copies that object onto rounds — but
 thesisCoverage counted `typeof r.thesis === 'string'` only, so every real

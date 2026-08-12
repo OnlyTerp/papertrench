@@ -3,7 +3,54 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## Unreleased
+## v3.4.0 — 2026-08-11
+
+Every fix in this batch traces to one Discord feedback thread from the last
+two days — average entries that didn't match the click, a hot bar that
+disagreed with the trade panel, and positions that "wiped like I never
+bought". The thread also asked for in-trader journaling; that shipped too.
+This is also the first tagged build to carry the prediction-market engine
+written up under v3.3.0 below, and everything fixed since v3.2.2.
+
+- **Your entry is the number you clicked on.** A fill used to ask the chain
+  first and let it price the trade whenever it sat within 6% of a fresh
+  on-screen quote — so your recorded entry routinely landed a few percent
+  above or below the price you actually acted on ("it'll fill you in lower
+  than ur actual entry or higher sometimes"). Now a sub-second-fresh
+  on-screen price fills the trade, full stop; the chain prices fills only
+  when the screen has gone quiet, and every candidate still has to pass the
+  fill witness before it becomes money. Bonus: fresh-screen fills skip the
+  chain round trip entirely, so the common fill got faster on exactly the
+  launches that move too fast.
+
+- **The position that "wiped like you never bought" is fixed.** On pair-URL
+  sites (Axiom's /meme/ and friends) a fresh launch trades under the pool's
+  stand-in address until the coin's real mint is discovered. A buy in that
+  window was filed under the stand-in — and the moment the coin learned its
+  real name, the card looked your bag up under the new name, found nothing,
+  and rendered empty over live money. The whole live record — position,
+  armed orders, alerts, post-exit watch, the chart's average-entry line —
+  now follows the coin across that rename. Your journal history is not
+  rewritten (those rows are cryptographically attested); round arithmetic
+  matches fills by session instead, which survives the rename.
+
+- **The hot bar and the trade panel agree about your P&L now.** The
+  positions bar could keep marking the coin on your screen from an
+  aggregator quote cached minutes ago, while the panel an inch above it
+  marked the same bag from the live page feed — same position, two venues,
+  two P&Ls. The bar now prices the on-screen coin from the same live feed
+  the panel uses, and sheds the stale cached quote the moment a coin comes
+  on screen.
+
+- **Instant thesis with a chart snap, inside the trader.** "U need to go
+  into a separate tab… new pairs moves too quick" — you never did need the
+  tab (the *＋ Why this trade?* composer has lived in the instant trader for
+  a while), and now it does the one thing it couldn't: one tap snaps the
+  chart exactly as you see it and files the frame with your thesis. On by
+  default when you save, one tap to opt out, works even if automatic coach
+  frames are off — an explicit snap is its own consent. Snaps land in the
+  dashboard's coach gallery and session replays, joined to the round they
+  belong to; the thesis itself still grades against what actually happened.
 
 - **The launch tweet, on the button your cursor is already on.** Several
   terminals put their tweet preview behind a hotkey you have to HOLD. New
