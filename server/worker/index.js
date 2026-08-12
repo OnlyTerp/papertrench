@@ -635,15 +635,22 @@ async function handleXFeed(request, env) {
     return json({ ok: false, reason: 'rate-limited' }, 429);
   }
 
-  // Layered: syndication first (free, no token spend), and when it errors OR
-  // serves its silent empty timeline, the user's own token. Only what a
-  // source actually produced is cached; only produced results beat stale.
+  // Layered cheapest-first. Syndication (free widget feed) → the logged-out
+  // web page (free, reaches the syndication-invisible like @naskvr) → the
+  // user's own token (last resort). A layer that throws or comes back empty
+  // falls through to the next; only what a source actually produced is
+  // cached, and only produced results beat a stale cache.
   let posts = null;
-  try { posts = await xfeed.fetchPosts(handle); } catch { posts = null; }
-  if (!posts || posts.length === 0) {
-    const own = await tokenPosts(env, user);
-    if (own && (own.length > 0 || posts === null)) posts = own;
-  }
+  const tryLayer = async (fn) => {
+    if (posts && posts.length) return;
+    try {
+      const got = await fn();
+      if (got && (got.length > 0 || posts === null)) posts = got;
+    } catch { /* fall through to the next source */ }
+  };
+  await tryLayer(() => xfeed.fetchPosts(handle));
+  await tryLayer(() => xfeed.fetchPublicPosts(handle));
+  await tryLayer(() => tokenPosts(env, user));
 
   if (posts) {
     await env.DB.prepare(`

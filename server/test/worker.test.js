@@ -497,6 +497,89 @@ test('a stale cache beats a broken upstream; an empty answer beats an invented o
   assert.deepEqual(empty.body.posts, [], 'no cache and no upstream is an empty list, not a 500');
 });
 
+/* ---------------- the logged-out web-page (SSR flight) layer ---------------- */
+
+/** A minimal x.com logged-out flight payload for the given tweets. Mirrors
+ *  the real normalized-cache shape: base64 Tweet ids across :details/:counts
+ *  facets, comma-joined so facet-boundary detection works, each key appearing
+ *  as both a __ref pointer and its real definition (as the live page does). */
+function flightHtml(tweets) {
+  const parts = ['"client:seed:seed":$R[0]={ok:true}'];
+  for (const t of tweets) {
+    const key = Buffer.from('Tweet:' + t.id).toString('base64');
+    const media = (t.photos || []).map((u) => ',media_url_https:"' + u + '"').join('');
+    const rt = t.repost ? 'retweeted_status_results:$R[8]={n:1}' : 'retweeted_status_results:null';
+    // A pointer to the details object, as the real payload carries first.
+    parts.push('parent:$R[7]={details:$R[6]={__ref:"client:' + key + ':details"}}');
+    parts.push('"client:' + key + ':counts":$R[1]={__id:"client:' + key +
+      ':counts",__typename:"ApiCounts",favorite_count:' + (t.likes || 0) + ',reply_count:0}');
+    parts.push('"client:' + key + ':details":$R[2]={__id:"client:' + key +
+      ':details",__typename:"TBirdData",' + rt + ',created_at_ms:' + t.at +
+      ',display_text_range:$R[3]=[0,5],full_text:"' + t.text + '"' + media + '}');
+  }
+  parts.push('"client:tail:tail":$R[99]={done:true}');
+  return '<html><body><script>window.x=(' + parts.join(',') + ')</script></body></html>';
+}
+
+test('the logged-out page parser: real posts in, sanitized posts out (@naskvr\'s class)', async () => {
+  const xfeed = (await import('../worker/xfeed.js')).default;
+  const html = flightHtml([
+    { id: '2085358060785000550', at: 1785807080000, likes: 1, text: 'Where\\u2019s the memecoin crowd?' },
+    { id: '2085205964588830730', at: 1785770817000, likes: 3,
+      text: 'look <script>alert(1)</script> at it',
+      photos: ['https://pbs.twimg.com/media/ok.jpg', 'https://evil.example/x.jpg'] },
+    { id: '2082578205030932631', at: 1785360311000, likes: 0, repost: true, text: 'not my words' },
+  ]);
+  const posts = xfeed.parseTimelineFlight(html);
+  assert.equal(posts.length, 2, 'two originals kept, the repost dropped');
+  assert.equal(posts[0].id, '2085358060785000550', 'newest first');
+  assert.equal(posts[0].text, 'Where\u2019s the memecoin crowd?', 'JS-string escapes decode to real chars');
+  const withMedia = posts.find((p) => p.id === '2085205964588830730');
+  assert.ok(withMedia.text.includes('<script>alert(1)</script>'),
+    'markup survives as INERT TEXT in JSON; neutralizing it is the renderer\'s job');
+  assert.deepEqual(withMedia.photos, ['https://pbs.twimg.com/media/ok.jpg'],
+    'only X\'s own image CDN survives; foreign media is dropped');
+  assert.equal(withMedia.likes, 3);
+  assert.ok(!posts.some((p) => p.text.includes('not my words')), 'reposts stay off the pane');
+});
+
+test('a reshaped page yields no posts, never a throw', async () => {
+  const xfeed = (await import('../worker/xfeed.js')).default;
+  assert.deepEqual(xfeed.parseTimelineFlight('<html>totally different now</html>'), []);
+  assert.deepEqual(xfeed.parseTimelineFlight(''), []);
+});
+
+test('layering: syndication-empty falls to the logged-out page, which wins', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(xfeedRoute());
+  const html = flightHtml([{ id: '999', at: 1785807080000, likes: 5, text: 'served logged-out' }]);
+  const [res, calls] = await withUpstream((url) => {
+    if (String(url).includes('syndication.twitter.com')) return new Response(syndicationHtml([]));
+    if (String(url) === 'https://x.com/Terp_X') return new Response(html);
+    throw new Error('unexpected upstream ' + url);
+  }, () => getFeed(worker, db, '?handle=Terp_X'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.posts.length, 1);
+  assert.equal(res.body.posts[0].text, 'served logged-out');
+  assert.ok(!calls.some((u) => u.includes('api.x.com')),
+    'the logged-out page answered, so no user token was spent');
+  assert.ok(db.log.some((e) => e.sql.includes('INSERT INTO x_feed_cache')));
+});
+
+test('layering: logged-out page empty falls through to the user token', async () => {
+  const worker = await loadWorker();
+  const user = await tokenUser({ access: 'tok-abc', refresh: 'r1', exp: Date.now() + 3600000 });
+  const [res, calls] = await withUpstream((url) => {
+    if (String(url).includes('syndication.twitter.com')) return new Response(syndicationHtml([]));
+    if (String(url) === 'https://x.com/Terp_X') return new Response('<html>no timeline here</html>');
+    if (String(url).includes('api.x.com/2/users/900/tweets')) return new Response(JSON.stringify(V2_PAYLOAD));
+    throw new Error('unexpected upstream ' + url);
+  }, () => getFeed(worker, fakeDB(xfeedRoute({ user })), '?handle=Terp_X'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.posts[0].id, '555', 'the token layer caught what the public page could not');
+  assert.ok(calls.some((u) => u === 'https://x.com/Terp_X'), 'the public page was tried first');
+});
+
 test('sealed OAuth tokens survive the round trip and refuse tampering', async () => {
   const xfeed = (await import('../worker/xfeed.js')).default;
   const pair = { access: 'tok-abc', refresh: 'r1', exp: 123456789 };

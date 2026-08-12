@@ -1,24 +1,33 @@
 /* X feed ingestion — fetch, parse, and SANITIZE a trader's public posts.
  *
- * TWO sources, one output shape, because neither alone reaches everyone:
+ * THREE sources, one output shape, because no single one reaches everyone.
+ * They are tried cheapest-first (see worker/index.js handleXFeed):
  *
  *  1. X's syndication timeline (syndication.twitter.com) — the machinery X
- *     ships for its embedded widgets. Verified working from real Cloudflare
- *     egress (2026-08-12: 200 + 101 entries for a live handle); needs no
- *     auth. But it silently serves ZERO entries for some accounts (new,
- *     small, or flagged ones — observed live: an existing account with
- *     hasResults:true and an empty timeline).
- *  2. The user's OWN OAuth token against API v2 /users/:id/tweets — sign-in
+ *     ships for its embedded widgets. No auth. Works for many handles, but
+ *     silently serves ZERO entries for others (small/new/flagged accounts —
+ *     observed live for @naskvr: 200, hasResults:true, empty timeline).
+ *  2. X's LOGGED-OUT web page (x.com/<handle>) — the exact thing a browser
+ *     with no account loads. Modern x-web streams the profile timeline into
+ *     the initial HTML as a React-Server-Components flight payload; parsing
+ *     it yields the same posts a logged-out visitor sees. This is the layer
+ *     that reaches the syndication-invisible (verified live for @naskvr:
+ *     5 real posts). It needs no token. It is also UNOFFICIAL and the shape
+ *     drifts — every fragile constant lives in PUBLIC_SOURCE below, and a
+ *     parse miss degrades to the next layer rather than erroring.
+ *     (The classic guest-token GraphQL UserTweets flow is NOT used: in 2026
+ *     it returns 200 with an empty timeline for guest tokens — X's guest
+ *     lockdown — so it buys nothing the SSR page doesn't already give.)
+ *  3. The user's OWN OAuth token against API v2 /users/:id/tweets — sign-in
  *     here IS X OAuth with tweet.read, so every account has handed us a key
- *     to its own posts. This is the layer that reaches the
- *     syndication-invisible; user-context rate limits are per-user, so it
- *     scales with the userbase by construction.
+ *     to its own posts. The last resort for anything even the logged-out
+ *     page hides; user-context rate limits are per-user, so it scales.
  *
- * Sanitization happens HERE, at ingest, on purpose, for BOTH sources: what
- * leaves this module is plain text, numbers, post ids, and media URLs pinned
- * to X's own image CDN — never markup from the wire. The site escapes at
- * render besides; a tweet must not be able to carry script into a profile
- * page from either side of the cache.
+ * Sanitization happens HERE, at ingest, for EVERY source: what leaves this
+ * module is plain text, numbers, post ids, and media URLs pinned to X's own
+ * image CDN — never markup from the wire. The site escapes at render besides;
+ * a tweet must not be able to carry script into a profile page from either
+ * side of the cache.
  *
  * Tokens are write-only secrets: sealed with AES-GCM under a key derived
  * from SESSION_SECRET before they touch D1, opened only inside a fetch, and
@@ -129,6 +138,117 @@ async function fetchPosts(handle) {
   const entries = parseTimelineHtml(await response.text());
   if (entries === null) throw new Error('upstream shape changed');
   return sanitizeEntries(entries);
+}
+
+/* ---------------- the logged-out web-page layer (SSR flight) ----------------
+ *
+ * EVERYTHING fragile about scraping x.com's logged-out page lives in this one
+ * object, because X reshapes it without warning. If posts stop coming back,
+ * this is the first and usually only place to look. Confirmed 2026-08-12
+ * against x.com/naskvr (5 real posts) from real egress.
+ */
+const PUBLIC_SOURCE = {
+  // The page a browser with no account loads. Its initial HTML streams the
+  // profile timeline as an RSC "flight" payload (a normalized cache, Relay
+  // style: objects keyed by base64 ids across :details / :counts facets).
+  profileUrl: (handle) => `https://x.com/${handle}`,
+  // A real browser UA + language: the page shells differently for bare UAs.
+  headers: {
+    'User-Agent': UA,
+    'Accept-Language': 'en-US,en;q=0.9',
+    Accept: 'text/html',
+  },
+  // How a tweet's fields are spelled in the flight payload today.
+  detailsKey: /"client:([A-Za-z0-9+\/=]+):details"/g,
+  tweetIdFromCacheKey: /^Tweet:(\d{1,25})$/,
+  createdAtMs: /created_at_ms:(\d{10,16})/,
+  fullText: /full_text:"((?:\\.|[^"\\])*)"/,
+  favoriteCount: /favorite_count:(\d+)/,
+  mediaUrl: /media_url_https:"((?:\\.|[^"\\])*)"/g,
+  // A tweet that IS a repost carries a non-null retweeted_status_results —
+  // those are someone else's words and are dropped.
+  isRepost: /retweeted_status_results:(?!null)/,
+};
+
+const b64decode = (text) => {
+  try { return decodeURIComponent(escape(atob(String(text)))); }
+  catch { try { return atob(String(text)); } catch { return ''; } }
+};
+
+/** A JS-string-literal body → its real characters (\n, \uXXXX, …). */
+function unescapeJsString(body) {
+  try { return JSON.parse('"' + body + '"'); } catch { return String(body); }
+}
+
+/** The one facet OBJECT for a cache key. Each key appears twice in the
+ *  payload — as a {__ref:"…"} pointer and as the real "…":$R[n]={…}
+ *  definition; only the definition carries fields. */
+function facetBody(html, cacheKey) {
+  const marker = '"client:' + cacheKey + '"';
+  let at = html.indexOf(marker + ':$R');
+  if (at < 0) at = html.indexOf(marker + ':{');
+  if (at < 0) return '';
+  let end = html.indexOf(',"client:', at + marker.length);
+  if (end < 0 || end - at > 4000) end = at + 4000;
+  return html.slice(at, end);
+}
+
+/**
+ * The logged-out profile page's flight payload → clean post objects.
+ *
+ * Anchors on each tweet's :details facet (which holds full_text +
+ * created_at_ms), joins :counts for likes and any media facet for photos,
+ * dedupes (facets repeat across stream chunks), drops reposts, and keeps at
+ * most MAX_POSTS newest. A shape the parser no longer recognizes yields [],
+ * which the pipeline treats as "this source had nothing", not an error.
+ */
+function parseTimelineFlight(html) {
+  const text = String(html);
+  const seen = new Set();
+  const posts = [];
+  for (const match of text.matchAll(PUBLIC_SOURCE.detailsKey)) {
+    const cacheKey = match[1];
+    if (seen.has(cacheKey)) continue;
+    seen.add(cacheKey);
+    const idMatch = PUBLIC_SOURCE.tweetIdFromCacheKey.exec(b64decode(cacheKey));
+    if (!idMatch) continue;
+
+    const details = facetBody(text, cacheKey + ':details');
+    if (!details || PUBLIC_SOURCE.isRepost.test(details)) continue;
+    const at = PUBLIC_SOURCE.createdAtMs.exec(details);
+    const body = PUBLIC_SOURCE.fullText.exec(details);
+    if (!at || !body) continue;
+
+    const counts = facetBody(text, cacheKey + ':counts');
+    const fav = counts && PUBLIC_SOURCE.favoriteCount.exec(counts);
+
+    const photos = [];
+    const mediaScope = details + facetBody(text, cacheKey + ':media');
+    for (const m of mediaScope.matchAll(PUBLIC_SOURCE.mediaUrl)) {
+      const url = safePhoto(unescapeJsString(m[1]));
+      if (url && photos.length < MAX_PHOTOS) photos.push(url);
+    }
+
+    posts.push({
+      id: idMatch[1],
+      text: cleanText(unescapeJsString(body[1])),
+      createdAt: Number(at[1]),
+      photos,
+      likes: fav ? Math.max(0, Number(fav[1])) : 0,
+    });
+  }
+  posts.sort((a, b) => b.createdAt - a.createdAt);
+  return posts.slice(0, MAX_POSTS);
+}
+
+/** Fetch + parse the logged-out profile page. Throws on an HTTP refusal (so
+ *  the caller can fall through); returns [] when the page loaded but carried
+ *  no recognizable timeline (protected, empty, or a reshape). */
+async function fetchPublicPosts(handle) {
+  if (!HANDLE_RE.test(String(handle))) throw new Error('bad handle');
+  const response = await fetch(PUBLIC_SOURCE.profileUrl(handle), { headers: PUBLIC_SOURCE.headers });
+  if (!response.ok) throw new Error('public ' + response.status);
+  return parseTimelineFlight(await response.text());
 }
 
 /* ------------------- the user-token layer (API v2) ------------------- */
@@ -276,5 +396,6 @@ async function primeFeedCache(env, xId, handle, accessToken) {
 
 module.exports = {
   HANDLE_RE, MAX_POSTS, fetchPosts, parseTimelineHtml, sanitizeEntries, expandText,
+  PUBLIC_SOURCE, parseTimelineFlight, fetchPublicPosts,
   sealTokens, openTokens, refreshAccess, sanitizeV2, fetchUserTweets, primeFeedCache,
 };
