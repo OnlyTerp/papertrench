@@ -28,6 +28,19 @@
 
   const RELEASES = [
     {
+      v: '3.5.0', date: 'Aug 11, 2026', iso: '2026-08-11',
+      tags: ['fix', 'security'],
+      title: 'The Arena repair — submissions accepted again, and the pipeline audited for prize money',
+      blurb: 'The leaderboard broke the day v3.4.0 shipped: every submission was refused over a version stamp while every fill inside it verified. Fixing it became the full adversarial audit the paid tournaments were going to force anyway — eleven defects found, fixed, and locked with tests.',
+      points: [
+        '<b>Submitting your record works again.</b> A version bump meant for the fill format leaked onto the submission envelope, so the server refused every v3.4.0 sync as a format it didn’t know — the board sat empty while the chains inside were flawless. The two version numbers are now separate contracts, the server accepts the mislabeled exports already in the wild, and regression tests pin both sides so this class of break can’t ship twice.',
+        '<b>Fresh-launch records rank correctly.</b> A position bought under a pool’s stand-in address and renamed to the real mint mid-round used to lose its exit on the server: the round never closed, and P&L, win rate and round count all understated — for exactly the traders who live on fresh launches. Every server walk now follows the same hash-committed session thread the engine itself uses, so a rename never orphans a round.',
+        '<b>Cheating got materially harder, ahead of real prize money.</b> A fill’s committed cash must now be consistent with its own committed price (no more sells that “received” 25× their value), Sprint/duel/clan baselines derive purely from hash-committed fields (editing the unhashed copies used to inflate every windowed return), and fills are priced against the chain they committed to — failing closed on anything the verifier can’t check.',
+        '<b>The board is fair at scale, and boring under load.</b> The 500-row cut goes by rank, not recency (past 500 entrants, the season’s best used to silently fall off); ties are deterministic — the earlier verification keeps the rank. Re-syncing an unchanged record is a no-op instead of a verification reset, everything a submission changes commits in one transaction, the rate limit is one atomic statement, and a record whose market data won’t load steps aside with a recorded reason instead of pinning the verification queue.',
+        '<b>“Extension not detected” fixed for big records.</b> The Arena gave the extension 1.5 seconds to answer, but building the attestation for a long journal takes longer — so the more you traded, the more certainly the site said the extension wasn’t installed. Record requests now get the time they need; the quick presence check stays quick.',
+      ],
+    },
+    {
       v: '3.4.0', date: 'Aug 11, 2026', iso: '2026-08-11',
       tags: ['fix', 'feature', 'speed'],
       title: 'Your entry is the number you clicked on',
