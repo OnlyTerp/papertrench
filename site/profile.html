@@ -256,6 +256,53 @@
 }
 .ar-card-actions .ar-btn { flex: 1 1 180px; }
 
+/* ============================================================== on X ===== */
+/* The presence card is the GUARANTEED rendering: X's live timeline is
+   login-walled and adblocked for a large share of visitors, so the card is
+   the design and the timeline is the bonus — never the other way round. */
+.ar-x-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ar-x-face {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 18px;
+  overflow: hidden;
+  border: var(--edge);
+  background: var(--pane-hi);
+}
+.ar-x-face img { width: 100%; height: 100%; object-fit: cover; }
+.ar-x-id { min-width: 0; flex: 1 1 200px; }
+.ar-x-handle { font-weight: 800; font-size: 16px; }
+.ar-x-name {
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ar-x-card .ar-btn { flex: 0 0 auto; }
+/* The timeline mount: X renders an iframe into it. The frame gets the same
+   surface treatment as the share card so a successful embed sits in the
+   page's own card language rather than floating as foreign chrome. */
+.ar-x-embed {
+  margin-top: 14px;
+  border: var(--edge);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #07090e;
+  max-width: 560px;
+}
+.ar-x-embed:empty { display: none; }
+
 /* ==================================================== reduced motion ===== */
 /* arena.css already stills everything it owns; this stills what this page adds
    so the card is simply present rather than arriving. */
@@ -363,6 +410,20 @@
     <div class="ar-pane-head"><span class="glyph">§</span><span id="state-h" role="heading" aria-level="2">This profile</span></div>
     <div id="state-body"></div>
   </section>
+
+  <!-- The trader on X. Deliberately OUTSIDE the record shell: sign-in is X
+       OAuth, so every account here is an X account whether or not a chain has
+       been submitted — and on a "no record yet" profile this pane is the one
+       thing with life in it. Hidden until a real profile loads; 404s and
+       unreachable-verifier states never show it. -->
+  <section class="ar-pane" id="x-pane" hidden aria-labelledby="x-h" style="margin-top:18px">
+    <div class="ar-pane-head">
+      <span class="glyph" style="color:var(--blue)">𝕏</span><span id="x-h" role="heading" aria-level="2">On X</span>
+      <span class="spacer"></span>
+      <span class="ar-note" id="x-note"></span>
+    </div>
+    <div id="x-body"></div>
+  </section>
 </main>
 
 <footer>
@@ -400,6 +461,9 @@
   const proofEl = document.getElementById('proof');
   const sprintsEl = document.getElementById('sprints');
   const shareEl = document.getElementById('share');
+  const xPaneEl = document.getElementById('x-pane');
+  const xBodyEl = document.getElementById('x-body');
+  const xNoteEl = document.getElementById('x-note');
 
   // A handle may arrive typed by hand, so tolerate the leading @ people paste.
   // Everything after load renders from body.handle instead — the server owns
@@ -817,6 +881,109 @@
       at the window's open, so a 10 ◎ bankroll and a 1,000 ◎ one race on the same axis.</p>`);
   }
 
+  /* -------------------------------------------------------------- on X --- */
+  /*
+   * The X presence card, plus a best-effort live timeline under it.
+   *
+   * The honest hierarchy, current as of 2026: X's embedded timelines are
+   * login-walled (logged-out visitors get "Nothing to see here"), and
+   * platform.twitter.com is on every ad-blocker's list — so a page that
+   * NEEDS the widget to render has a hole in it for a third of its readers.
+   * The card therefore renders first, always, from data the API already
+   * returned (sign-in is X OAuth, so profile.handle IS the X handle — the
+   * server refreshes it from X on every login, it is not a claimed link).
+   * The timeline is then attempted lazily, below the card, and is validated
+   * before it is trusted: if the script is blocked, times out, or renders
+   * X's empty login-wall stub, the mount is removed and the card stands
+   * alone. Nothing on this page ever waits on X to paint.
+   */
+
+  const X_EMBED_TIMEOUT_MS = 8000;
+  // X's login-wall stub renders a near-empty frame; a timeline with even one
+  // post is comfortably taller than this.
+  const X_EMBED_MIN_HEIGHT = 140;
+
+  function loadWidgetsJs() {
+    return new Promise((resolve, reject) => {
+      if (window.twttr && window.twttr.widgets) { resolve(window.twttr); return; }
+      const script = document.createElement('script');
+      script.src = 'https://platform.twitter.com/widgets.js';
+      script.async = true;
+      // Some blockers stub the request instead of failing it, so onload alone
+      // proves nothing — the object has to actually be there.
+      script.onload = () => {
+        if (window.twttr && window.twttr.ready) window.twttr.ready(resolve);
+        else reject(new Error('widgets.js loaded empty'));
+      };
+      script.onerror = () => reject(new Error('widgets.js blocked'));
+      document.head.appendChild(script);
+    });
+  }
+
+  const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function attemptTimeline(handle, mount) {
+    const twttr = await loadWidgetsJs();
+    const widget = await twttr.widgets.createTimeline(
+      { sourceType: 'profile', screenName: handle }, mount,
+      { theme: 'dark', dnt: true, height: 480, chrome: 'noheader nofooter transparent' });
+    // createTimeline resolves undefined when X declines to render at all.
+    if (!widget) throw new Error('not rendered');
+    // Let the frame lay out, then measure: the login-wall stub is a sliver.
+    await settle(1200);
+    if ((widget.offsetHeight || 0) < X_EMBED_MIN_HEIGHT) throw new Error('empty frame');
+    return widget;
+  }
+
+  function renderX(profile) {
+    // The handle came from X via OAuth so it is already [A-Za-z0-9_], but it
+    // is going into a URL and an embed config — belt and braces.
+    const handle = String(profile.handle || '').replace(/[^A-Za-z0-9_]/g, '');
+    if (!handle) return;
+    const url = 'https://x.com/' + handle;
+
+    xPaneEl.hidden = false;
+    xBodyEl.innerHTML = pad(`
+      <div class="ar-x-card">
+        ${face(profile, 'ar-x-face')}
+        <div class="ar-x-id">
+          <div class="ar-x-handle">@${esc(handle)}</div>
+          ${profile.displayName && profile.displayName !== profile.handle
+            ? '<div class="ar-x-name">' + esc(profile.displayName) + '</div>' : ''}
+        </div>
+        <a class="ar-btn" href="${url}" target="_blank" rel="noopener">View on X ↗</a>
+      </div>
+      <div class="ar-x-embed" id="x-embed"></div>
+      <p class="ar-note" style="margin-top:12px">Sign-in here is X OAuth, so this handle is the same
+        account — a fact the server checked, not a link someone typed. Recent posts load from X's
+        servers when this pane scrolls into view; X shows them at its own discretion (login walls,
+        blockers), and when it will not, the button above still lands.</p>`);
+
+    // Lazy on purpose: no request leaves for platform.twitter.com until the
+    // pane is actually on screen, and none at all if the visitor never gets
+    // here. dnt:true is set on the widget besides.
+    const mount = document.getElementById('x-embed');
+    const observer = new IntersectionObserver(async (entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      xNoteEl.textContent = 'asking X…';
+      try {
+        await Promise.race([
+          attemptTimeline(handle, mount),
+          settle(X_EMBED_TIMEOUT_MS).then(() => { throw new Error('timeout'); }),
+        ]);
+        xNoteEl.innerHTML = '<span style="color:var(--green)">live from x.com</span>';
+      } catch {
+        // Blocked, walled, rate-limited, or empty: the card above is the
+        // rendering, and an explanation would dress an absence up as an
+        // error. Remove the mount so no hole is left behind.
+        mount.remove();
+        xNoteEl.textContent = '';
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(xPaneEl);
+  }
+
   /* -------------------------------------------------------- share card --- */
   /*
    * A 1200×630 render of exactly what the API returned, and nothing else.
@@ -1208,6 +1375,9 @@
     }
 
     renderHero(body, record);
+    // The X pane renders for every real profile, record or none: on a blank
+    // "no record yet" page it is the one pane with something alive in it.
+    renderX(body);
 
     // Crawlers only ever see the static tags above, so these exist for the tab
     // title and for anything that renders the live DOM. Every value is one the
