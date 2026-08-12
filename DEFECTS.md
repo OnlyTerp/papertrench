@@ -1716,6 +1716,22 @@ shared fuse the reply arrived moments after the site had already declared the
 extension missing — silently excluding exactly the most active traders and sending
 them off to reinstall a working extension.
 
+**L-12 · S3 · The public verifier feed rebroadcast our own gate bug as a wall of anonymous REJECTED verdicts**
+`server/worker/index.js` handleActivity · every visitor to the Arena during the L-01
+outage · confirmed (54 `shape:unknown-version` rows dominated all 40 feed slots for
+five days; maintainer report: "nobody can use it, it's terrible and confusing") ·
+**fixed v3.5.0** (server hotfix, deployed the same night: that reason is quarantined
+from the public feed in SQL and in JS; rows stay in D1 as the audit trail and the
+submitter still gets the full reason in their 422; locked by worker.test.js)
+The feed exists because "we check everything" is a claim and watching the checks
+happen is evidence — but when the thing being watched is the server's OWN envelope
+gate bug (L-01), every honest sync becomes an anonymous public "REJECTED", and the
+page reads as mass fraud or a broken product. A rejection reason that indicts the
+server rather than the submission does not belong in a stream framed as verdicts
+about traders. Real verdicts (chain-invalid, chain-replaced) still stream, and the
+quarantine also lives in the SQL so pre-filtered spam cannot crowd real events out of
+the 40-row window.
+
 ### S5 — latent hazards
 
 **L-09 · S5 · Re-pricing hardcoded Solana's candle network — the chain label v2 links COMMIT was never consulted by the verifier it was committed for**

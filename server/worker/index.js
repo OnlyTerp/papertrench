@@ -481,9 +481,19 @@ async function handleProfile(env, handle) {
  */
 async function handleActivity(env) {
   const [subs, verifications] = await Promise.all([
+    // 'shape:unknown-version' is quarantined from the PUBLIC feed (DEFECT
+    // L-12): for five days that reason was our own gate bug (L-01) firing on
+    // every honest v3.4.0 export, and the feed rebroadcast all 54 of those
+    // server-side failures as an anonymous wall of "REJECTED" — which reads
+    // as either mass fraud or a broken product, and buried every real event
+    // past the 40-row window. The rows stay in D1 as the audit trail, and a
+    // submitter who trips the gate still gets the full reason in their 422;
+    // it just isn't broadcast as a verdict about a trader. Real verdicts
+    // (chain-invalid, chain-replaced, …) still stream.
     env.DB.prepare(`
       SELECT s.outcome, s.chain_len, s.created_at, u.handle
       FROM submissions s JOIN users u ON u.id = s.user_id
+      WHERE s.outcome NOT IN ('duplicate', 'shape:unknown-version')
       ORDER BY s.created_at DESC LIMIT 40`).all(),
     env.DB.prepare(`
       SELECT u.handle, r.status, r.chain_len, r.pricing_json, r.verified_at
@@ -496,7 +506,10 @@ async function handleActivity(env) {
   for (const row of subs.results) {
     // A duplicate is a no-op, not a verdict — showing it as an anonymous
     // "rejection" would report an impatient double-click as suspected fraud.
+    // Both filters are enforced here as well as in the SQL above so the
+    // behavior holds even if the two queries ever drift apart.
     if (row.outcome === 'duplicate') continue;
+    if (row.outcome === 'shape:unknown-version') continue;
     const accepted = row.outcome === 'accepted';
     events.push({
       kind: accepted ? 'accepted' : 'rejected',

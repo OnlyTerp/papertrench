@@ -292,3 +292,43 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
   const pick = db.log.find((e) => e.sql.includes("status = 'pending'")).sql;
   assert.ok(pick.includes('stalledUntil'), 'the picker must honour the backoff');
 });
+
+/* ---------------- public feed hygiene (DEFECT L-12) ---------------- */
+
+test('the public feed never rebroadcasts our own gate bug as a verdict', async () => {
+  const worker = await loadWorker();
+  const sub = (outcome, ts) => ({ outcome, chain_len: 5, created_at: ts, handle: 'terp' });
+  const db = fakeDB((sql) => {
+    if (sql.includes('FROM submissions s')) {
+      // What five days of the L-01 gate bug actually left in the table: a
+      // wall of unknown-version rejections on top, honest events underneath.
+      return [
+        sub('shape:unknown-version', 5000),
+        sub('shape:unknown-version', 4000),
+        sub('duplicate', 3000),
+        sub('chain-invalid', 2000),
+        sub('accepted', 1000),
+      ];
+    }
+    if (sql.includes('FROM records r')) return [];
+    return null;
+  });
+
+  const response = await worker.fetch(
+    new Request('https://api.test/api/activity'), makeEnv(db), { waitUntil: () => {} });
+  const body = await response.json();
+
+  const details = body.events.map((e) => e.detail);
+  assert.ok(!details.some((d) => d.includes('unknown-version')),
+    'a server-side gate bug is not a verdict about a trader');
+  assert.equal(body.events.filter((e) => e.kind === 'rejected').length, 1,
+    'real verdicts still stream');
+  assert.equal(body.events.find((e) => e.kind === 'rejected').detail, 'chain-invalid');
+  assert.equal(body.events.find((e) => e.kind === 'accepted').handle, 'terp');
+
+  // The quarantine must also live in the SQL, so the 40-row window is spent
+  // on events worth showing rather than pre-filtered spam.
+  const feedSql = db.log.find((e) => e.sql.includes('FROM submissions s')).sql;
+  assert.ok(feedSql.includes("NOT IN ('duplicate', 'shape:unknown-version')"),
+    'the window must not be crowded out by rows the feed will drop anyway');
+});
