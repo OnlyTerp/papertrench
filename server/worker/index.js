@@ -80,22 +80,26 @@ function json(data, status, extra) {
   });
 }
 
-/** Fixed-window rate limit in D1. Returns true when the call is allowed. */
+/** Fixed-window rate limit in D1. Returns true when the call is allowed.
+ *
+ * One atomic upsert, not a read followed by a write (DEFECT L-08): the old
+ * SELECT-then-UPDATE pair let every request in flight at once read the same
+ * count and all conclude they were under the limit — so the one limiter
+ * guarding the expensive path (submissions cost chain verification and
+ * candle lookups) was exactly as strong as the attacker was slow. The CASE
+ * folds the window rollover into the same statement, and RETURNING reads the
+ * count the write actually produced rather than a count somebody else may
+ * have bumped in between. */
 async function allowRate(env, key, perHour) {
-  const now = Date.now();
-  const windowStart = Math.floor(now / 3600000) * 3600000;
-  const row = await env.DB.prepare('SELECT window_start, count FROM rate_limits WHERE key = ?')
-    .bind(key).first();
-  if (!row || row.window_start !== windowStart) {
-    await env.DB.prepare(`
-      INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
-      ON CONFLICT(key) DO UPDATE SET window_start = ?, count = 1`)
-      .bind(key, windowStart, windowStart).run();
-    return true;
-  }
-  if (row.count >= perHour) return false;
-  await env.DB.prepare('UPDATE rate_limits SET count = count + 1 WHERE key = ?').bind(key).run();
-  return true;
+  const windowStart = Math.floor(Date.now() / 3600000) * 3600000;
+  const row = await env.DB.prepare(`
+    INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
+    ON CONFLICT(key) DO UPDATE SET
+      count = CASE WHEN window_start = ?2 THEN count + 1 ELSE 1 END,
+      window_start = ?2
+    RETURNING count`)
+    .bind(key, windowStart).first();
+  return !!row && Number(row.count) <= perHour;
 }
 
 /** Serve a GET from the edge cache, computing + caching on miss. */
@@ -121,7 +125,10 @@ async function edgeCached(request, ctx, ttlSec, compute) {
 
 /* ---------------- chain storage ---------------- */
 
-async function storeChain(env, userId, chain) {
+/** The statements that replace a user's stored chain. Returned rather than
+ * run so handleSubmit can put them in the same transaction as everything
+ * else the submission changes (DEFECT L-07). */
+function chainStatements(env, userId, chain) {
   const statements = [
     env.DB.prepare('DELETE FROM chain_segments WHERE user_id = ?').bind(userId),
   ];
@@ -130,7 +137,7 @@ async function storeChain(env, userId, chain) {
       'INSERT INTO chain_segments (user_id, seg_no, links_json) VALUES (?, ?, ?)')
       .bind(userId, Math.floor(i / SEG_SIZE), JSON.stringify(chain.slice(i, i + SEG_SIZE))));
   }
-  await env.DB.batch(statements);
+  return statements;
 }
 
 async function loadChain(env, userId) {
@@ -156,7 +163,8 @@ async function handleSubmit(request, env) {
   try { payload = JSON.parse(raw); } catch { return json({ ok: false, reason: 'bad-json' }, 400); }
 
   const previousRow = await env.DB.prepare(
-    'SELECT head, chain_len, starting_sol FROM records WHERE user_id = ?').bind(user.id).first();
+    `SELECT head, chain_len, starting_sol, status, stats_json
+     FROM records WHERE user_id = ?`).bind(user.id).first();
   const previous = previousRow
     ? { head: previousRow.head, chainLen: previousRow.chain_len,
         startingSol: previousRow.starting_sol }
@@ -164,14 +172,36 @@ async function handleSubmit(request, env) {
 
   const result = await fastChecks(payload, previous);
   const now = Date.now();
+
+  // An exact resubmission — same head, same length — of the chain already on
+  // file. Detected BEFORE any write (DEFECT L-04): the old path treated it as
+  // a fresh submission, resetting a 'verified' record to 'pending' and
+  // throwing away every pricing verdict already earned, so double-clicking
+  // the sync button knocked a player off the board for hours while the cron
+  // re-derived what it already knew. Verification state is content-addressed
+  // by (head, length); the same content keeps its verdict.
+  const duplicate = !!(result.accepted && previousRow &&
+    previousRow.head === payload.head &&
+    previousRow.chain_len === payload.chain.length);
+
   await env.DB.prepare(
     'INSERT INTO submissions (user_id, head, chain_len, outcome, created_at) VALUES (?, ?, ?, ?, ?)')
     .bind(user.id, String(payload && payload.head || ''),
       payload && Array.isArray(payload.chain) ? payload.chain.length : 0,
-      result.accepted ? 'accepted' : result.reason, now)
+      result.accepted ? (duplicate ? 'duplicate' : 'accepted') : result.reason, now)
     .run();
   if (!result.accepted) {
     return json({ ok: false, reason: result.reason, problems: result.problems || [] }, 422);
+  }
+  if (duplicate) {
+    return json({
+      ok: true,
+      status: previousRow.status,
+      duplicate: true,
+      note: 'this exact chain is already on file; verification state unchanged',
+      stats: previousRow.stats_json ? JSON.parse(previousRow.stats_json) : result.stats,
+      claimMismatch: result.claimMismatch,
+    });
   }
 
   const start = Number(payload.claim.startingBalanceSol);
@@ -182,8 +212,17 @@ async function handleSubmit(request, env) {
     chain: payload.chain, startingSol: start, chainLen: payload.chain.length,
     pricingStatus: 'pending', coverage: 0,
   });
-  await storeChain(env, user.id, payload.chain);
-  await env.DB.prepare(`
+
+  // EVERYTHING a submission changes — chain segments, the record row, the
+  // sprint slice, duel slices, clan slices — commits in one transaction
+  // (DEFECT L-07). These used to be five separate awaits, so an eviction or
+  // error between any two left the store split-brained: segments holding a
+  // chain the record row did not describe, or a record whose sprint entry
+  // was computed from the PREVIOUS chain. D1's batch is transactional; if
+  // any statement fails, none of them happened, and the client gets a clean
+  // 500 to retry rather than a half-written identity.
+  const statements = chainStatements(env, user.id, payload.chain);
+  statements.push(env.DB.prepare(`
     INSERT INTO records (user_id, head, chain_len, starting_sol, status, claim_mismatch,
                          stats_json, badges_json, pricing_json, pricing_progress_json,
                          submitted_at, verified_at)
@@ -197,20 +236,18 @@ async function handleSubmit(request, env) {
       submitted_at = excluded.submitted_at, verified_at = NULL`)
     .bind(user.id, payload.head, payload.chain.length, start,
       result.claimMismatch ? 1 : 0, JSON.stringify(result.stats),
-      JSON.stringify(badges), now)
-    .run();
+      JSON.stringify(badges), now));
 
   // Sprint entry for the current window, derived from the same chain.
   const window = windowOf(now);
   const entry = sprintEntry(payload.chain, start, window);
-  await env.DB.prepare(`
+  statements.push(env.DB.prepare(`
     INSERT INTO sprint_entries (week_id, user_id, entry_json, score, rounds, updated_at)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(week_id, user_id) DO UPDATE SET
       entry_json = excluded.entry_json, score = excluded.score,
       rounds = excluded.rounds, updated_at = excluded.updated_at`)
-    .bind(window.weekId, user.id, JSON.stringify(entry), entry.score, entry.rounds, now)
-    .run();
+    .bind(window.weekId, user.id, JSON.stringify(entry), entry.score, entry.rounds, now));
 
   // Refresh this player's slice of every duel they are in whose window has not
   // been settled. Computing it here — once per submission — is what keeps a
@@ -223,18 +260,19 @@ async function handleSubmit(request, env) {
   for (const duel of duels.results) {
     const duelEntry = windowEntry(payload.chain, start,
       { startTs: duel.start_ts, endTs: duel.end_ts });
-    await env.DB.prepare(`
+    statements.push(env.DB.prepare(`
       INSERT INTO duel_entries (duel_id, user_id, entry_json, submitted_at)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(duel_id, user_id) DO UPDATE SET
         entry_json = excluded.entry_json, submitted_at = excluded.submitted_at`)
-      .bind(duel.id, user.id, JSON.stringify(duelEntry), now)
-      .run();
+      .bind(duel.id, user.id, JSON.stringify(duelEntry), now));
   }
 
   // And this player's clan slices, if they are in one. Same reason as the duel
   // refresh above: computed once per submission so a clan board is a read.
-  await refreshClanEntries(env, user.id, payload.chain, start, now);
+  statements.push(...await clanEntryStatements(env, user.id, payload.chain, start, now));
+
+  await env.DB.batch(statements);
 
   return json({
     ok: true,
@@ -309,7 +347,18 @@ async function handleLeaderboard(env) {
     -- would choose. Unverified records still appear on their own profile,
     -- labeled — they simply do not take a position on the board.
     WHERE r.status = 'verified'
-    ORDER BY r.submitted_at DESC LIMIT 500`).all();
+      AND json_extract(r.stats_json, '$.rankable')
+    -- The ORDER decides WHO makes the cut, so it must be the ranking order
+    -- (DEFECT L-05): the old ORDER BY submitted_at DESC LIMIT 500 selected
+    -- the five hundred most RECENT records and only then sorted by score —
+    -- meaning entrant #501 silently pushed the season's best score off the
+    -- board if it had not resubmitted lately. Ties break by verified_at
+    -- (first to prove the score keeps the rank — a later submitter cannot
+    -- displace them by equalling them), then handle, so two reads of the
+    -- board never disagree about order.
+    ORDER BY json_extract(r.stats_json, '$.score') DESC,
+             r.verified_at ASC, u.handle ASC
+    LIMIT 500`).all();
   const entries = rows.results
     .map((row) => {
       const stats = JSON.parse(row.stats_json);
@@ -330,7 +379,10 @@ async function handleLeaderboard(env) {
       };
     })
     .filter((e) => e.stats.rankable)
-    .sort((a, b) => b.stats.score - a.stats.score);
+    .sort((a, b) =>
+      (b.stats.score - a.stats.score) ||
+      ((a.verifiedAt || 0) - (b.verifiedAt || 0)) ||
+      String(a.handle).localeCompare(String(b.handle)));
   return json({ board: 'global', entries });
 }
 
@@ -347,7 +399,10 @@ async function handleSprint(env) {
     -- Same rule as the season board: a week's slice of an unverified record
     -- is still an unverified record.
     WHERE s.week_id = ? AND s.rounds > 0 AND r.status = 'verified'
-    ORDER BY s.score DESC LIMIT 200`).bind(window.weekId).all();
+    -- Deterministic ties, same doctrine as the season board (DEFECT L-05):
+    -- the earlier entry keeps the rank, then handle as the fixed final key.
+    ORDER BY s.score DESC, s.updated_at ASC, u.handle ASC LIMIT 200`)
+    .bind(window.weekId).all();
   return json({
     weekId: window.weekId,
     startTs: window.startTs,
@@ -439,6 +494,9 @@ async function handleActivity(env) {
 
   const events = [];
   for (const row of subs.results) {
+    // A duplicate is a no-op, not a verdict — showing it as an anonymous
+    // "rejection" would report an impatient double-click as suspected fraud.
+    if (row.outcome === 'duplicate') continue;
     const accepted = row.outcome === 'accepted';
     events.push({
       kind: accepted ? 'accepted' : 'rejected',
@@ -646,9 +704,9 @@ async function clanRoster(env, clanId) {
  * Storing it is the same trade the Sprint and duels already make: a clan board
  * is then a read, not a walk over fifty lifetime chains.
  */
-async function refreshClanEntries(env, userId, chain, startingSol, now) {
+async function clanEntryStatements(env, userId, chain, startingSol, now) {
   const membership = await membershipOf(env, userId);
-  if (!membership) return;
+  if (!membership) return [];
   const week = windowOf(now);
   const slices = [
     { id: SEASON_WINDOW_ID, window: clan.SEASON_WINDOW },
@@ -669,6 +727,11 @@ async function refreshClanEntries(env, userId, chain, startingSol, now) {
       .bind(membership.clan_id, userId, slice.id, JSON.stringify(entry),
         entry.score, entry.rounds, now));
   }
+  return statements;
+}
+
+async function refreshClanEntries(env, userId, chain, startingSol, now) {
+  const statements = await clanEntryStatements(env, userId, chain, startingSol, now);
   if (statements.length) await env.DB.batch(statements);
 }
 
@@ -1084,7 +1147,24 @@ async function drainPricing(env) {
       maxLookups: Math.max(1, Math.floor(CANDLE_BUDGET_PER_RUN / 3)),
     });
   } catch (err) {
-    return; // nothing verified this run; the next cron tick retries
+    // A throw here (candle source down, malformed stored progress) used to
+    // return silently — which kept this record at the HEAD of the queue,
+    // because the ORDER BY picks the oldest pending record and this one never
+    // stopped being it. One permanently-throwing record therefore starved
+    // every submission behind it, invisibly, forever (DEFECT L-10). Record a
+    // stall so the queue moves on and the failure is visible in the row.
+    const stalls = progress ? (Number(progress.stalls) || 0) + 1 : 1;
+    await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
+      .bind(JSON.stringify({
+        cursor: before,
+        verdicts: progress && Array.isArray(progress.verdicts) ? progress.verdicts : [],
+        stalledUntil: now + PRICING_BACKOFF_MS,
+        stalls,
+        lastStallAt: now,
+        lastError: String(err && err.message || err).slice(0, 200),
+      }), row.user_id)
+      .run();
+    return;
   }
 
   if (!result.done) {

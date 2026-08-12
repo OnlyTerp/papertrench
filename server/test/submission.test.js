@@ -175,8 +175,13 @@ test('a claim that disagrees with the replay is flagged, and replay wins', async
 
 test('shape gates turn absurd payloads away before any crypto runs', async () => {
   assert.equal(shapeProblem(null), 'not-an-object');
-  assert.equal(shapeProblem({ version: 2 }), 'unknown-version');
+  // 1 is the envelope's own version; 2 is the F-44 mislabel that shipped in
+  // v3.4.0 exports (byte-identical envelope, wrong stamp — DEFECT L-01).
+  // Both name a shape we have actually defined and checked. 3 names nothing.
+  assert.equal(shapeProblem({ version: 3 }), 'unknown-version');
   assert.equal(shapeProblem({ version: 1, chain: [] }), 'chain-empty');
+  assert.equal(shapeProblem({ version: 2, chain: [] }), 'chain-empty',
+    'a v2-stamped envelope must clear the version gate (L-01)');
   const payload = await honestPayload();
   assert.equal(shapeProblem(Object.assign({}, payload, {
     claim: Object.assign({}, payload.claim, { startingBalanceSol: 0 }),
@@ -184,6 +189,83 @@ test('shape gates turn absurd payloads away before any crypto runs', async () =>
   assert.equal(shapeProblem(Object.assign({}, payload, { head: 'nope' })), 'head-mismatch');
   const huge = Object.assign({}, payload, { chain: { length: MAX_CHAIN_LINKS + 1 } });
   assert.equal(shapeProblem(huge), 'chain-missing'); // not an array → gate fires
+});
+
+test('a v3.4.0 export stamped version 2 is accepted end to end (L-01)', async () => {
+  // The mislabel that emptied the board: the F-44 link bump leaked into the
+  // envelope stamp, and this exact payload — honest, verifiable, and
+  // byte-identical to a v1 envelope — was refused as shape:unknown-version
+  // on every submission. It must sail through now and forever.
+  const payload = await honestPayload();
+  payload.version = 2;
+  const result = await fastChecks(payload, null);
+  assert.equal(result.accepted, true);
+  assert.equal(result.claimMismatch, false);
+});
+
+/* ---------------- amount plausibility (DEFECT L-03) ----------------
+ *
+ * Re-pricing proves the PRICE existed; these prove the CASH matched it. The
+ * preimage commits one money field per fill (gross on buys, net on sells),
+ * and the replay books exactly that cash — so before this gate, a chain with
+ * honest mints, timestamps and prices could still commit a sell that
+ * "received" any number it liked and walk onto the board.
+ */
+
+test('a sell committing more cash than its own price supports is rejected', async () => {
+  seq = 300;
+  const richSell = { id: 'f-rich', sessionId: 's', mint: 'M1', side: 'sell',
+    qty: 1000, priceNative: 0.002, solGross: 2,
+    solNet: 50, // committed! the chain verifies; the arithmetic does not
+    ts: 20 * MIN };
+  const chain = await chainOf([buy('M1', 1, 10 * MIN), richSell]);
+  const payload = {
+    version: 1, submittedAt: 21 * MIN, identity: { handle: 'someone' },
+    claim: { startingBalanceSol: 10, realizedPnlSol: 49 },
+    chain, head: chain[chain.length - 1].hash,
+  };
+  const result = await fastChecks(payload, null);
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'amount-implausible');
+  assert.equal(result.problems[0].reason, 'sell-exceeds-priced-value');
+});
+
+test('a buy committing less cash than its own price demands is rejected', async () => {
+  seq = 310;
+  const freeBuy = { id: 'f-free', sessionId: 's', mint: 'M1', side: 'buy',
+    qty: 1000, priceNative: 0.001, // worth 1 SOL
+    solGross: 0.01,                // committed as costing nothing
+    solNet: 0.01, ts: 10 * MIN };
+  const chain = await chainOf([freeBuy, sell('M1', 1000, 0.002, 20 * MIN)]);
+  const payload = {
+    version: 1, submittedAt: 21 * MIN, identity: { handle: 'someone' },
+    claim: { startingBalanceSol: 10, realizedPnlSol: 1.97 },
+    chain, head: chain[chain.length - 1].hash,
+  };
+  const result = await fastChecks(payload, null);
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, 'amount-implausible');
+  assert.equal(result.problems[0].reason, 'buy-cheaper-than-priced');
+});
+
+test('honest fees pass the amount gate: they only push in the honest direction', async () => {
+  seq = 320;
+  const chain = await chainOf([
+    // 1% fee on top of a 1 SOL buy: gross 1.01 >= value 1. Honest.
+    { id: 'f-buy', sessionId: 's', mint: 'M1', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1.01, solNet: 1, ts: 10 * MIN },
+    // Fees and tx costs off a 2 SOL exit: net 1.93 <= value 2. Honest.
+    { id: 'f-sell', sessionId: 's', mint: 'M1', side: 'sell',
+      qty: 1000, priceNative: 0.002, solGross: 2, solNet: 1.93, ts: 20 * MIN },
+  ]);
+  const payload = {
+    version: 1, submittedAt: 21 * MIN, identity: { handle: 'someone' },
+    claim: { startingBalanceSol: 10, realizedPnlSol: 0.92 },
+    chain, head: chain[chain.length - 1].hash,
+  };
+  const result = await fastChecks(payload, null);
+  assert.equal(result.accepted, true,
+    'no fee setting a real user can choose may trip the gate');
 });
 
 /* ---------------- resumable pricing ---------------- */

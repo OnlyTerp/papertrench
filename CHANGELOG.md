@@ -3,6 +3,62 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.5.0 — 2026-08-11
+
+The Arena repair. The leaderboard broke the day v3.4.0 shipped — every
+submission was being refused over a version stamp while every fill inside it
+verified perfectly — and with paid tournaments coming, the whole pipeline got
+the adversarial audit it was always going to need. Eleven defects found,
+fixed, and locked with tests (L-01…L-11 in DEFECTS.md); the suite grew from
+1,678 to 1,696.
+
+- **Submitting your record works again.** A version bump meant for the fill
+  format leaked onto the submission envelope, so the server refused every
+  v3.4.0 sync as a format it didn't know — the board sat empty while the
+  chains inside were flawless. The two version numbers are now separate
+  contracts, the server accepts the mislabeled exports already in the wild,
+  and a regression test pins each one so this class of break can't ship
+  twice.
+
+- **Fresh-launch records rank correctly now.** If a position was bought
+  under a pool's stand-in address and rekeyed to the real mint mid-round
+  (the v3.4.0 rename fix), the server matched its sells by mint, found
+  nothing, and quietly dropped the round — undercounting P&L, win rate and
+  round count for exactly the traders who live on fresh launches. Every
+  server walk now follows the same hash-committed session thread the engine
+  itself uses, so a rename never orphans an exit.
+
+- **Cheating got materially harder, ahead of real prize money.** Three new
+  server-side gates: a fill's committed cash must be consistent with its own
+  committed price (you can no longer declare a sell that "received" 25× what
+  it was worth), Sprint/duel/clan baselines are now derived purely from
+  hash-committed fields (editing the unhashed copies used to inflate every
+  windowed return), and a fill is priced against the chain it committed to,
+  failing closed on any chain the verifier can't check.
+
+- **The board is fair at scale.** The 500-row cut is now taken by rank, not
+  by recency — past 500 entrants, the season's best score used to fall off
+  the board if it hadn't resubmitted lately. Ties are deterministic: the
+  earlier verification keeps the rank, so a later submitter can't displace
+  you by equalling you.
+
+- **Re-syncing an unchanged record is a no-op now.** It used to reset your
+  verified status to pending and throw away every pricing verdict already
+  earned — double-clicking Sync knocked you off the board for hours.
+
+- **The verifier is harder to knock over.** Everything a submission changes
+  commits in one transaction (no more half-written records if the worker is
+  evicted mid-write), the submission rate limit is a single atomic statement
+  (parallel requests can't slip past it together), and a record whose market
+  data won't load steps aside with a recorded reason instead of silently
+  pinning the verification queue forever.
+
+- **"Extension not detected" fixed for big records.** The Arena gave the
+  extension 1.5 seconds to answer, but building the attestation for a long
+  journal takes longer than that — so the more you traded, the more
+  certainly the site told you the extension wasn't installed. Record
+  requests now get the time they need; the quick presence check stays quick.
+
 ## v3.4.0 — 2026-08-11
 
 Every fix in this batch traces to one Discord feedback thread from the last

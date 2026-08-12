@@ -177,7 +177,15 @@ async function cachedCandle(env, key, minuteTs, fetchWindow) {
  * treats as "stop here, resume next run".
  */
 function makeGetCandles(env, budget) {
-  return async function getCandles(mint, minuteTs) {
+  return async function getCandles(mint, minuteTs, chain) {
+    // Fail CLOSED on any chain this adapter cannot price (DEFECT L-09). Both
+    // lookups below are Solana-only — the pool resolver queries the Solana
+    // network and the conversion series is SOL/USD — so answering for another
+    // chain would judge the fill against a market it never traded in. Null
+    // means 'no-data': the fill never counts as verified, and it spends none
+    // of the budget. Absent chain is a v1 link, which predates multichain
+    // and can only be Solana.
+    if (chain && chain !== 'solana') return null;
     const spend = async (fn) => {
       if (budget.used >= budget.max) throw new Error('candle-budget-exhausted');
       const result = await fn();

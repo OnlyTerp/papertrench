@@ -277,6 +277,21 @@
    * or zip. Same-window, same-origin, nonce-matched; a missing extension is
    * a clean null after the timeout.
    */
+  /* How long each bridge request may take before it reads as "no extension"
+   * (DEFECT L-11). A ping is a constant-time echo, so a short fuse is right
+   * for it — that is what keeps the arena snappy when the extension truly is
+   * absent. get_record is NOT constant-time: the service worker loads the
+   * whole journal and hashes every link to build the attestation payload,
+   * after a possible cold start. Under the old flat 1500ms fuse, the bigger
+   * a trader's record, the more certainly the site told them the extension
+   * was not installed — the board silently excluded exactly its most active
+   * users, with a message that sent them off to reinstall a working
+   * extension. The reply still arrived moments later; nobody was listening.
+   */
+  const BRIDGE_TIMEOUT_MS = { pt_bridge_ping: 1500, pt_bridge_get_record: 12000 };
+  const bridgeTimeout = (message) =>
+    (message && BRIDGE_TIMEOUT_MS[message.type]) || 2500;
+
   function relaySend(message) {
     return new Promise((resolve) => {
       let nonce = '';
@@ -296,7 +311,7 @@
         if (!data || data.type !== 'pt_site_bridge_reply' || data.nonce !== nonce) return;
         done(data.reply || null);
       };
-      const timer = setTimeout(() => done(null), 1500);
+      const timer = setTimeout(() => done(null), bridgeTimeout(message));
       window.addEventListener('message', onReply);
       window.postMessage({ type: 'pt_site_bridge', nonce, request: message }, window.location.origin);
     });
@@ -324,7 +339,7 @@
         } catch { tryId(index + 1); }
       };
       tryId(0);
-      setTimeout(() => finish(null), 2500);
+      setTimeout(() => finish(null), bridgeTimeout(message));
     });
   }
 

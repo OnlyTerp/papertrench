@@ -13,7 +13,7 @@ Status: `open` → `fixing` → `fixed vX.Y.Z` (with the regression test that lo
 `not-repro` (with what we need from the reporter).
 
 ID prefixes: **F** feed/fill path · **O** overlay lifecycle · **D** dashboard/state ·
-**C** chart markers/lines · **V** visual polish.
+**C** chart markers/lines · **V** visual polish · **L** leaderboard/Arena/server.
 
 ---
 
@@ -1585,6 +1585,149 @@ Writers: content.js:1107 ✔ · dashboard.js:166 ✔ (but RMW, D-22) · dashboar
 
 *(Phase 4 screenshot sweep pending. Already queued from code audits: O-27, O-28, C-27,
 C-28, D-32, D-44–D-50.)*
+
+---
+
+## L — Leaderboard, Arena & verification server (audit: 2026-08-11, end-to-end pipeline)
+
+Maintainer report: "the leaderboard has been fucked" — everyone wants it, nobody could
+get on it. Audited the whole pipeline (extension attestation → site bridge → arena →
+worker ingestion → D1 → ranking → pricing cron) ahead of paid tournaments, where every
+one of these is a payout bug.
+
+### S1 — wrong numbers
+
+**L-02 · S1 · Rekeyed positions vanish from the ranked record — the server walked positions by MINT while rekeyMint renames them mid-round**
+`server/core/ranking.js` roundsFromChain · `extension/attest.js` replayChain · every
+fresh-launch trader since v3.4.0 (F-51) · confirmed · **fixed v3.5.0** (session-first,
+mint-fallback position book shared by replayChain, walkCommitted and windowEntry;
+locked by rekey tests in attest.test.js, ranking.test.js, window.test.js)
+A fresh launch is bought under the PAIR stand-in address; `E.rekeyMint` renames the
+live position to the real mint and — deliberately — never rewrites the journal. So the
+buy is committed under one label, the sells under another, and only the hash-committed
+`sessionId` (preimage field four) ties them. Every server walk was keyed by mint alone:
+the sell found no bag, the round never closed, and P&L, round count, win rate and
+rankability all understated — for exactly the traders this product is for. The engine's
+own `tradeInRound` has matched session-first from the start; the server now does the
+same, and chains that predate sessionIds fall back to mint intact.
+
+**L-03 · S1 · Committed cash was never checked against committed price — a verified chain could simply declare richer fills than its own prices support**
+`server/core/submission.js` fastChecks · anti-cheat, tournament-critical · found by
+audit (adversarial pass) · **fixed v3.5.0** (one-sided amount plausibility gate;
+locked by amount tests in submission.test.js)
+Re-pricing proves a fill's PRICE existed; nothing proved its CASH matched it. The
+preimage commits one money field per fill — gross on buys, net on sells — and the
+replay books exactly that cash, so a chain forged with honest mints, timestamps and
+prices could commit a sell that "received" 25× what qty × price is worth and walk
+straight onto the board. The engine's arithmetic makes the honest bounds one-sided
+(buy gross ≥ value; sell net ≤ value — fees only push in the honest direction), so the
+gate rejects only the two directions that mint money, and no fee setting a real user
+can choose trips it.
+
+**L-06 · S1 · Window baselines (Sprint / duels / clans) replayed UNHASHED fields — a pre-window edit inflated every windowed return without breaking a digest**
+`server/core/window.js` windowEntry · every windowed competition · found by audit
+(adversarial pass) · **fixed v3.5.0** (baseline equity from walkCommitted's committed
+flows; locked by window.test.js tamper test)
+`equityAtStart` came from replayChain, whose cash flow reads the uncommitted `amount`
+copy. Editing a pre-window link's `amount` upward collapsed the baseline, and the same
+in-window P&L became a multiple of itself as a return — the denominator of every
+Sprint, duel and clan score was attacker-writable. The baseline is now built from the
+same committed-basis walk the season board uses (which also prices rekeyed carry-in
+positions into the baseline correctly).
+
+### S2 — silent death
+
+**L-01 · S2 · The board-killer: every v3.4.0 submission refused as `shape:unknown-version` — the F-44 LINK version bump leaked into the submission ENVELOPE stamp**
+`extension/attest.js` buildSubmission vs `server/core/submission.js` shapeProblem ·
+every submission since v3.4.0 shipped · confirmed against production (40/40 recent
+submissions rejected with this reason) · **fixed v3.5.0** (SUBMISSION_VERSION split
+from VERSION; server accepts both envelope stamps by name; locked in attest.test.js
+and submission.test.js)
+`VERSION` is the fill-link preimage contract and moved to 2 when F-44 committed the
+chain field. `buildSubmission` stamped that same constant onto the envelope, whose
+shape has never changed — so every v3.4.0 export and site sync arrived labeled as an
+envelope nobody had defined, and the shape gate refused all of them while every link
+inside verified perfectly. The board sat empty; users blamed themselves. The envelope
+now carries its own version, the two v2-labelled exports in the wild stay accepted by
+name, and anything else is still refused.
+
+**L-07 · S2 · Submission writes were five separate awaits — an eviction mid-sequence left segments, record, sprint, duel and clan rows describing different chains**
+`server/worker/index.js` handleSubmit · every submission under Worker eviction or D1
+error · found by audit · **fixed v3.5.0** (all submission writes in ONE D1 batch =
+one transaction; locked by worker.test.js)
+Chain segments, the record row, the sprint slice, duel slices and clan slices each
+committed on their own. A crash between any two left the store split-brained — e.g.
+segments holding a chain the record row does not describe, which the pricing cron then
+verifies against the wrong stats. D1 batches are transactional: now either everything
+a submission changes lands, or nothing does and the client gets a clean 500 to retry.
+
+**L-10 · S2 · A throwing pricing run returned silently — one poisoned record could pin the head of the verification queue forever**
+`server/worker/index.js` drainPricing catch · verification queue liveness · found by
+audit · **fixed v3.5.0** (catch records a stall + backoff with the error message;
+locked by worker.test.js queue-liveness test)
+The cron picks the OLDEST pending record, and the catch around priceRecord returned
+without writing anything — so a record that made the pricer throw (candle source down,
+poisoned progress state) never stopped being the oldest, and every submission behind
+it starved, invisibly. A throw now records `stalledUntil` + the error, the picker
+already skips backing-off records, and the queue keeps moving.
+
+### S3 — wrong presence
+
+**L-04 · S3 · Resubmitting the SAME chain reset a verified record to pending — double-clicking Sync knocked players off the board for hours**
+`server/worker/index.js` handleSubmit · every re-sync of an unchanged record ·
+confirmed · **fixed v3.5.0** (exact resubmissions — same head, same length — are
+detected before any write and return the existing status; logged as 'duplicate', which
+the activity feed skips rather than branding an anonymous "rejection"; locked by
+worker.test.js)
+Verification state is content-addressed by (head, chain length); the same content must
+keep its verdict. Before: any duplicate reset status to 'pending', threw away every
+pricing verdict already earned, and re-derived it all through the candle budget — an
+hours-long absence from the board, self-inflicted by an impatient click, and a free
+amplification lever on the pricing cron.
+
+**L-05 · S3 · The board's LIMIT cut by recency, not rank — entrant #501 silently evicted the season's best score; ties were nondeterministic**
+`server/worker/index.js` handleLeaderboard, handleSprint · any board past 500 records
+(tournament scale) · found by audit · **fixed v3.5.0** (SQL orders by score with
+verified_at-then-handle tie-breaks, so the LIMIT cuts by rank; JS re-sorts with the
+same keys; locked by worker.test.js)
+`ORDER BY submitted_at DESC LIMIT 500` selected the five hundred most RECENT records
+and only then sorted by score in JS — so once the board passed 500 entrants, a high
+scorer who had not resubmitted lately fell off entirely. Equal scores had no defined
+order at all, so two reads of the board could disagree. Ties now go to the EARLIER
+verification (first to prove the score keeps the rank — a later submitter cannot
+displace by equalling), then handle.
+
+**L-08 · S3 · The submission rate limit was read-then-write — N parallel requests all read the same count and all passed**
+`server/worker/index.js` allowRate · abuse resistance on the expensive path · found by
+audit · **fixed v3.5.0** (one atomic upsert with RETURNING; locked by worker.test.js)
+The one limiter guarding chain verification + candle spending was exactly as strong as
+the attacker was slow: SELECT then UPDATE means every request in flight at once sees
+the same count. Now a single INSERT … ON CONFLICT … RETURNING both counts and decides,
+with the window rollover folded into the same statement.
+
+**L-11 · S3 · The site's bridge timeout was one flat 1500 ms fuse — the bigger a trader's record, the more certainly the Arena told them the extension was not installed**
+`site/arena.js` relaySend/bridgeSend · every large-journal user syncing on
+papertrench.com · confirmed (field reports of "extension not detected" with a working
+install) · **fixed v3.5.0** (per-operation timeouts: ping stays at 1.5 s, get_record
+gets 12 s)
+`pt_bridge_ping` is a constant-time echo; `pt_bridge_get_record` loads the whole
+journal and hashes every link, after a possible service-worker cold start. Under one
+shared fuse the reply arrived moments after the site had already declared the
+extension missing — silently excluding exactly the most active traders and sending
+them off to reinstall a working extension.
+
+### S5 — latent hazards
+
+**L-09 · S5 · Re-pricing hardcoded Solana's candle network — the chain label v2 links COMMIT was never consulted by the verifier it was committed for**
+`server/core/pricing.js` priceChain · `server/worker/candles.js` makeGetCandles ·
+latent (the multichain gate is closed; no foreign-chain fill exists) · found by audit ·
+**fixed v3.5.0** (the committed chain rides into every lookup and keys the memo; the
+adapter fails CLOSED — a chain it cannot price is 'no-data', never a pass; locked by
+pricing.test.js)
+F-44 hashed `chain` into the preimage precisely so a verifier would judge fills
+against the right market — and the verifier ignored it. Latent today, S1 the day the
+multichain gate opens: an EVM fill would have been judged against a Solana pool that
+never traded it. Fails closed now, so it can never become that S1.
 
 ---
 

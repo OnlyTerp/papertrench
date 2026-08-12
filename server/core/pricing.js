@@ -54,10 +54,20 @@ function judgeFill(fill, candles, tolerance) {
 /**
  * Re-price a whole chain.
  *
- * getCandles(mint, minuteTs) -> Promise<{tokenUsd, solUsd} | null>; the
- * caller owns caching and rate limits. maxLookups bounds work per call so a
- * runtime can verify incrementally; fills beyond the budget stay 'unpriced'
+ * getCandles(mint, minuteTs, chain) -> Promise<{tokenUsd, solUsd} | null>;
+ * the caller owns caching and rate limits. maxLookups bounds work per call so
+ * a runtime can verify incrementally; fills beyond the budget stay 'unpriced'
  * and the caller re-enters with the returned cursor.
+ *
+ * The chain rides along because v2 links commit one (DEFECT L-09): the
+ * lookup used to be hardcoded to Solana's candle network, so a fill honestly
+ * committed to any other chain would have been judged against a network its
+ * token never traded on. No such fill exists yet — the extension's
+ * multichain gate has been closed since v3.0.0 — but the chain field is
+ * attacker-writable the day the gate opens, so the verifier resolves candles
+ * for the chain the fill actually commits to, and a chain it cannot price is
+ * answered 'no-data', never a pass. Absent chain means a v1 link, which
+ * could only ever be Solana.
  */
 async function priceChain(links, getCandles, opts) {
   const options = opts || {};
@@ -74,13 +84,14 @@ async function priceChain(links, getCandles, opts) {
 
   for (let i = startAt; i < list.length; i++) {
     const link = list[i];
-    const key = String(link.mint) + '|' + minuteOf(Number(link.ts) || 0);
+    const chain = typeof link.chain === 'string' && link.chain ? link.chain : 'solana';
+    const key = chain + '|' + String(link.mint) + '|' + minuteOf(Number(link.ts) || 0);
     if (!cache.has(key)) {
       if (lookups >= maxLookups) { cursor = i; paused = true; break; }
       lookups++;
       let candles;
       try {
-        candles = await getCandles(String(link.mint), minuteOf(Number(link.ts) || 0));
+        candles = await getCandles(String(link.mint), minuteOf(Number(link.ts) || 0), chain);
       } catch (err) {
         // Failing to ASK is not evidence of absence. A thrown lookup means
         // exhausted budget, an upstream rate limit, or a network fault — none

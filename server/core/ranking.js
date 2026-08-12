@@ -71,15 +71,52 @@ function minCashDuringReplay(links, startingSol) {
 }
 
 /**
- * Reconstruct closed rounds from chain links.
+ * One walk over the chain on the committed cash basis: closed rounds, the
+ * cost basis still open at the end, and the net committed cash flow.
  *
- * A round is a mint's position going flat, carrying entry/exit times, cost
- * in, and realized P&L — all on the committed cash basis above.
+ * Positions are found by sessionId FIRST, mint second — the same priority
+ * the engine's tradeInRound uses, for the same reason (DEFECT L-02). The
+ * sessionId is hash-committed on every link (field four of the preimage) and
+ * survives a rekeyMint rename (F-51): a fresh-launch buy is committed under
+ * the PAIR stand-in address while the sells that close it are committed
+ * under the real mint, so a walk that matches by mint alone silently drops
+ * the exit — the round never closes, the board's round count and win rate
+ * understate exactly the traders this product is for, and a five-round
+ * record can read as unrankable. Safe to trust because the sessionId is
+ * inside the preimage: editing it breaks the digest like editing the mint
+ * would. Chains that predate sessionIds fall back to mint intact.
  */
-function roundsFromChain(links) {
+function walkCommitted(links) {
   const list = Array.isArray(links) ? links : [];
-  const open = new Map(); // mint -> { qty, cost, openedTs }
+  const bySession = new Map(); // sessionId -> held bag
+  const byMint = new Map();    // mint -> held bag
+  const open = new Set();      // distinct open bags
   const rounds = [];
+  let cashDelta = 0;
+
+  const sessionOf = (link) =>
+    (typeof link.sessionId === 'string' && link.sessionId ? link.sessionId : null);
+  const findHeld = (link) => {
+    const sid = sessionOf(link);
+    if (sid && bySession.has(sid)) return bySession.get(sid);
+    return byMint.get(link.mint) || null;
+  };
+  const adopt = (link, held) => {
+    const sid = sessionOf(link);
+    if (sid && bySession.get(sid) !== held) {
+      held.sessions.push(sid);
+      bySession.set(sid, held);
+    }
+    if (byMint.get(link.mint) !== held) {
+      held.mints.push(link.mint);
+      byMint.set(link.mint, held);
+    }
+  };
+  const drop = (held) => {
+    open.delete(held);
+    for (const sid of held.sessions) if (bySession.get(sid) === held) bySession.delete(sid);
+    for (const mint of held.mints) if (byMint.get(mint) === held) byMint.delete(mint);
+  };
 
   for (const link of list) {
     const qty = Number(link.qty) || 0;
@@ -88,17 +125,26 @@ function roundsFromChain(links) {
     if (!(qty > 0) || !(price > 0)) continue;
 
     if (link.side === 'buy') {
-      const held = open.get(link.mint)
-        || { qty: 0, cost: 0, openedTs: Number(link.ts) || 0, realized: 0, costOut: 0 };
+      cashDelta -= amount;
+      let held = findHeld(link);
+      if (!held) {
+        held = { qty: 0, cost: 0, openedTs: Number(link.ts) || 0,
+                 realized: 0, costOut: 0, sessions: [], mints: [] };
+        open.add(held);
+      }
       if (held.qty <= 0) held.openedTs = Number(link.ts) || 0;
       held.qty += qty;
       held.cost += amount;
-      open.set(link.mint, held);
+      adopt(link, held);
     } else if (link.side === 'sell') {
-      const held = open.get(link.mint);
+      const held = findHeld(link);
       if (!held || held.qty <= 0) continue;
+      // Remember the sell's identifiers too: after a rekey the position's
+      // remaining fills may arrive under either label.
+      adopt(link, held);
       const share = Math.min(1, qty / held.qty);
       const costOut = held.cost * share;
+      cashDelta += amount;
       held.qty -= qty;
       held.cost -= costOut;
       // Every leg accumulates. Scaling out is the disciplined exit this
@@ -117,13 +163,24 @@ function roundsFromChain(links) {
           pnlSol: held.realized,
           win: held.realized > 0,
         });
-        open.delete(link.mint);
-      } else {
-        open.set(link.mint, held);
+        drop(held);
       }
     }
   }
-  return rounds;
+
+  let openCost = 0;
+  for (const held of open) openCost += held.cost;
+  return { rounds, openCost, cashDelta };
+}
+
+/**
+ * Reconstruct closed rounds from chain links.
+ *
+ * A round is a position going flat, carrying entry/exit times, cost in, and
+ * realized P&L — all on the committed cash basis above.
+ */
+function roundsFromChain(links) {
+  return walkCommitted(links).rounds;
 }
 
 /** Largest peak-to-trough drop of the realized-equity curve, as a fraction
@@ -205,6 +262,6 @@ function recordStats(links, startingSol) {
 
 module.exports = {
   REVENGE_WINDOW_MS, MIN_RANKED_ROUNDS,
-  committedAmount, minCashDuringReplay, roundsFromChain, maxDrawdown, revengeRatio,
-  seasonScore, recordStats,
+  committedAmount, minCashDuringReplay, walkCommitted, roundsFromChain,
+  maxDrawdown, revengeRatio, seasonScore, recordStats,
 };

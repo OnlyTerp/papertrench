@@ -62,6 +62,33 @@ test('one lookup serves every fill in the same mint-minute', async () => {
   assert.ok(run.verdicts.every((v) => v.verdict === 'ok'));
 });
 
+test('a fill is judged against the chain it COMMITTED to, and only that (L-09)', async () => {
+  // The lookup used to hardcode Solana's candle network, so the committed
+  // chain label — hashed into every v2 link precisely so a verifier would
+  // consult it — was ignored. The chain now rides into every lookup, keys
+  // the memo (same mint-minute on two chains is two different markets), and
+  // an unpriceable chain comes back null → 'no-data', never a pass.
+  const calls = [];
+  const getCandles = async (mint, minute, chain) => {
+    calls.push(chain + ':' + mint + '@' + minute);
+    return chain === 'solana' ? CANDLES : null; // the adapter fails closed
+  };
+  const links = [
+    Object.assign(link('M1', 60000, 0.01), { chain: 'solana' }),
+    Object.assign(link('M1', 60000, 0.01), { chain: 'ethereum' }),
+    link('M2', 60000, 0.01), // absent chain = v1 link = Solana by definition
+  ];
+  const run = await priceChain(links, getCandles, {});
+  assert.equal(run.done, true);
+  assert.deepEqual(calls, [
+    'solana:M1@60000', 'ethereum:M1@60000', 'solana:M2@60000',
+  ], 'same mint-minute on different chains must be looked up separately');
+  assert.equal(run.verdicts[0].verdict, 'ok');
+  assert.equal(run.verdicts[1].verdict, 'no-data',
+    'a chain the verifier cannot price never verifies');
+  assert.equal(run.verdicts[2].verdict, 'ok');
+});
+
 test('a lookup budget pauses the run at a resumable cursor', async () => {
   const getCandles = async () => CANDLES;
   const links = [link('M1', 60000, 0.01), link('M2', 120000, 0.01), link('M3', 180000, 0.01)];

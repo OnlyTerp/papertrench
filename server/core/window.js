@@ -15,36 +15,13 @@
  */
 'use strict';
 
-const { roundsFromChain, seasonScore, maxDrawdown, revengeRatio, committedAmount } =
+const { walkCommitted, roundsFromChain, seasonScore, maxDrawdown, revengeRatio } =
   require('./ranking.js');
-const { replayChain } = require('./chain.js');
 
 /** Cost basis still open after replaying `links` — the carried half of
  * window-start equity, on the same committed cash basis the rounds use. */
 function openCostAfter(links) {
-  const open = new Map();
-  for (const link of Array.isArray(links) ? links : []) {
-    const qty = Number(link.qty) || 0;
-    const amount = committedAmount(link);
-    if (!(qty > 0)) continue;
-    if (link.side === 'buy') {
-      const held = open.get(link.mint) || { qty: 0, cost: 0 };
-      held.qty += qty;
-      held.cost += amount;
-      open.set(link.mint, held);
-    } else if (link.side === 'sell') {
-      const held = open.get(link.mint);
-      if (!held || held.qty <= 0) continue;
-      const share = Math.min(1, qty / held.qty);
-      held.cost -= held.cost * share;
-      held.qty -= qty;
-      if (held.qty <= 1e-12) open.delete(link.mint);
-      else open.set(link.mint, held);
-    }
-  }
-  let cost = 0;
-  for (const held of open.values()) cost += held.cost;
-  return cost;
+  return walkCommitted(links).openCost;
 }
 
 /**
@@ -55,8 +32,15 @@ function openCostAfter(links) {
 function windowEntry(links, startingSol, window) {
   const list = Array.isArray(links) ? links : [];
   const before = list.filter((l) => Number(l.ts) < window.startTs);
-  const baseline = replayChain(before, startingSol);
-  const equityAtStart = baseline.cashSol + (before.length ? openCostAfter(before) : 0);
+  // Window-start equity from COMMITTED fields only (DEFECT L-06). The old
+  // baseline replayed with replayChain, whose cash flow reads the unhashed
+  // `amount` copy — so editing a pre-window link's uncommitted fields could
+  // shrink the denominator of every Sprint, duel and clan return without
+  // breaking a single digest. walkCommitted reads gross-out/net-in exactly
+  // as the preimage commits them, and shares the sessionId-aware position
+  // book, so a rekeyed carry-in position is priced into the baseline too.
+  const baseline = walkCommitted(before);
+  const equityAtStart = (Number(startingSol) || 0) + baseline.cashDelta + baseline.openCost;
 
   const rounds = roundsFromChain(list).filter((r) =>
     r.openedTs >= window.startTs && r.closedTs < window.endTs);

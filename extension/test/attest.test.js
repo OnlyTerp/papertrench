@@ -157,11 +157,16 @@ test('a claim that disagrees with the chain is flagged', async () => {
 });
 
 test('a multi-token chain replays each position independently', async () => {
+  // Distinct sessionIds per position, exactly as the engine mints them: a
+  // sessionId names ONE round of ONE position, so two concurrent tokens can
+  // never share one. (The replay keys by session first — that is how rekeyed
+  // positions survive, DEFECT L-02 — so test data that reused one session
+  // across tokens would model a chain no engine has ever produced.)
   const chain = await chainOf([
-    fill({ id: 'a1', mint: MINT_A, side: 'buy', qty: 1000, priceNative: 0.001, solGross: 1, ts: 1_000 }),
-    fill({ id: 'b1', mint: MINT_B, side: 'buy', qty: 500, priceNative: 0.004, solGross: 2, ts: 2_000 }),
-    fill({ id: 'a2', mint: MINT_A, side: 'sell', qty: 1000, priceNative: 0.003, solGross: 3, ts: 3_000 }),
-    fill({ id: 'b2', mint: MINT_B, side: 'sell', qty: 500, priceNative: 0.002, solGross: 1, ts: 4_000 }),
+    fill({ id: 'a1', sessionId: 'pts-a', mint: MINT_A, side: 'buy', qty: 1000, priceNative: 0.001, solGross: 1, ts: 1_000 }),
+    fill({ id: 'b1', sessionId: 'pts-b', mint: MINT_B, side: 'buy', qty: 500, priceNative: 0.004, solGross: 2, ts: 2_000 }),
+    fill({ id: 'a2', sessionId: 'pts-a', mint: MINT_A, side: 'sell', qty: 1000, priceNative: 0.003, solGross: 3, ts: 3_000 }),
+    fill({ id: 'b2', sessionId: 'pts-b', mint: MINT_B, side: 'sell', qty: 500, priceNative: 0.002, solGross: 1, ts: 4_000 }),
   ]);
 
   const replayed = AT.replayChain(chain, 10);
@@ -188,6 +193,79 @@ test('a submission carries the full chain so a server can re-verify it', async (
   assert.equal(submission.identity.handle, 'someone');
   assert.match(submission.trustModel, /server must re-verify/,
     'the payload must state plainly that it is evidence, not proof');
+});
+
+test('the envelope version is the ENVELOPE\'s contract, not the link format\'s (L-01)', async () => {
+  // The board-killer: buildSubmission used to stamp the fill-link contract
+  // version (VERSION) onto the envelope, so the F-44 link bump to v2 silently
+  // relabelled every export as an envelope the server had never defined, and
+  // the shape gate refused 100% of production submissions while every link
+  // inside verified. The two contracts move independently; this pins that.
+  const chain = await chainOf([fill()]);
+  const submission = AT.buildSubmission({ chain, startingBalanceSol: 10 });
+  assert.equal(submission.version, AT.SUBMISSION_VERSION);
+  assert.equal(AT.SUBMISSION_VERSION, 1,
+    'the envelope has carried the same five fields since day one; ' +
+    'this number moves only when the envelope SHAPE does');
+  assert.equal(chain[0].version, AT.VERSION,
+    'links keep stamping their own format version');
+});
+
+/* ---------------- rekey survival (DEFECT L-02) ----------------
+ *
+ * Fresh launches are detected under a PAIR stand-in address; E.rekeyMint
+ * later renames the live position to the real mint (F-51). The journal is
+ * deliberately never rewritten, so the buy is committed under one label and
+ * the sells under another — only the hash-committed sessionId ties them.
+ */
+
+test('a sell under the real mint settles a buy committed under the pair address', async () => {
+  const PAIR = MINT_A; // what the terminal showed at entry
+  const REAL = MINT_B; // what the position was rekeyed to
+  const chain = await chainOf([
+    fill({ id: 'r1', sessionId: 'pts-rk', mint: PAIR, side: 'buy',
+           qty: 1000, priceNative: 0.001, solGross: 1, ts: 1_000 }),
+    fill({ id: 'r2', sessionId: 'pts-rk', mint: REAL, side: 'sell',
+           qty: 1000, priceNative: 0.003, solGross: 3, solNet: 3, ts: 2_000 }),
+  ]);
+  assert.equal((await AT.verifyChain(chain)).valid, true,
+    'a rekey must never invalidate the chain');
+
+  const replayed = AT.replayChain(chain, 10);
+  assert.equal(replayed.openPositions, 0,
+    'mint-only matching would strand the buy open forever');
+  assert.equal(replayed.rounds, 1);
+  assert.equal(replayed.wins, 1);
+  assert.ok(Math.abs(replayed.realizedPnlSol - 2) < 1e-9,
+    'the exit\'s P&L must not vanish with the rename');
+});
+
+test('averaging up AFTER a rekey lands on the same position', async () => {
+  const chain = await chainOf([
+    fill({ id: 'k1', sessionId: 'pts-rk2', mint: MINT_A, side: 'buy',
+           qty: 1000, priceNative: 0.001, solGross: 1, ts: 1_000 }),
+    // Rekeyed between these fills: same round, new label, MORE size.
+    fill({ id: 'k2', sessionId: 'pts-rk2', mint: MINT_B, side: 'buy',
+           qty: 1000, priceNative: 0.002, solGross: 2, ts: 2_000 }),
+    fill({ id: 'k3', sessionId: 'pts-rk2', mint: MINT_B, side: 'sell',
+           qty: 2000, priceNative: 0.003, solGross: 6, solNet: 6, ts: 3_000 }),
+  ]);
+  const replayed = AT.replayChain(chain, 10);
+  assert.equal(replayed.openPositions, 0);
+  assert.equal(replayed.rounds, 1, 'one position, one round, two labels');
+  assert.ok(Math.abs(replayed.realizedPnlSol - 3) < 1e-9, '6 in, 3 out');
+});
+
+test('chains that predate sessionIds still replay by mint', async () => {
+  const chain = await chainOf([
+    fill({ id: 'v1a', sessionId: '', mint: MINT_A, side: 'buy',
+           qty: 1000, priceNative: 0.001, solGross: 1, ts: 1_000 }),
+    fill({ id: 'v1b', sessionId: '', mint: MINT_A, side: 'sell',
+           qty: 1000, priceNative: 0.002, solGross: 2, solNet: 2, ts: 2_000 }),
+  ]);
+  const replayed = AT.replayChain(chain, 10);
+  assert.equal(replayed.rounds, 1, 'no sessionId means the mint is the key, as it always was');
+  assert.ok(Math.abs(replayed.realizedPnlSol - 1) < 1e-9);
 });
 
 test('every fill carries what a verifier needs to re-price it', async () => {

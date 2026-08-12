@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { roundsFromChain, recordStats, seasonScore, revengeRatio, maxDrawdown,
-        MIN_RANKED_ROUNDS } = require('../core/ranking.js');
+        walkCommitted, MIN_RANKED_ROUNDS } = require('../core/ranking.js');
 const { appendFill, GENESIS, verifyChain } = require('../core/chain.js');
 
 async function chainOf(fills) {
@@ -172,6 +172,49 @@ test('drawdown measures giving winnings back, as a fraction of the peak', () => 
   ];
   assert.ok(Math.abs(maxDrawdown(rounds, 10) - 0.4) < 1e-9);
   assert.equal(maxDrawdown([], 10), 0);
+});
+
+/* ---------------- rekey survival (DEFECT L-02) ----------------
+ *
+ * A fresh-launch position is bought under a PAIR stand-in address and rekeyed
+ * to the real mint mid-flight (F-51); the journal is never rewritten, so the
+ * buy and its sells carry different mint labels. The hash-committed sessionId
+ * is the thread that ties them, and the ranked walk must follow it — a
+ * mint-keyed walk drops the exit, the round never closes, and the board
+ * undercounts exactly the traders this product is for.
+ */
+
+test('a rekeyed round still closes and ranks (session ties pair-buy to mint-sell)', async () => {
+  seq = 800;
+  const links = await chainOf([
+    { id: 'rk1', sessionId: 'sess-rk', mint: 'PAIRADDR', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 10 * MIN },
+    { id: 'rk2', sessionId: 'sess-rk', mint: 'REALMINT', side: 'sell',
+      qty: 1000, priceNative: 0.002, solGross: 2, solNet: 1.98, ts: 20 * MIN },
+  ]);
+  const rounds = roundsFromChain(links);
+  assert.equal(rounds.length, 1, 'the rename must not orphan the exit');
+  assert.equal(rounds[0].win, true);
+  // Committed basis straight across the rekey: 1.00 gross out, 1.98 net in.
+  assert.ok(Math.abs(rounds[0].pnlSol - 0.98) < 1e-9);
+
+  const stats = recordStats(links, 10);
+  assert.equal(stats.rounds, 1, 'ranked stats must count the rekeyed round');
+});
+
+test('walkCommitted books rounds, open cost and cash flow in one committed-basis pass', async () => {
+  seq = 900;
+  const links = await chainOf([
+    buy('W1', 1, 10 * MIN),
+    sell('W1', 1000, 0.002, 20 * MIN), // closes: 1 gross out, 1.98 net in
+    buy('W2', 2, 30 * MIN),            // still open: 2 gross committed
+  ]);
+  const walked = walkCommitted(links);
+  assert.equal(walked.rounds.length, 1);
+  assert.ok(Math.abs(walked.openCost - 2) < 1e-9,
+    'open cost is the COMMITTED gross, not the editable solNet');
+  assert.ok(Math.abs(walked.cashDelta - (-1 + 1.98 - 2)) < 1e-9,
+    'cash delta is exactly the committed flows: -1 +1.98 -2');
 });
 
 test('fewer than MIN_RANKED_ROUNDS closed rounds never ranks', async () => {

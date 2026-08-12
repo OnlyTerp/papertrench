@@ -29,6 +29,17 @@
   // recorded-but-unhashed: editable while every digest still verified. See
   // fillPreimage for why the bump is safe for chains already in the wild.
   const VERSION = 2;
+  // The submission ENVELOPE format — a different contract from VERSION above,
+  // and the distinction is written in blood. VERSION is the fill-link
+  // preimage contract and bumps whenever the hashed bytes change; the
+  // envelope (version/claim/chain/head) has carried the same five fields
+  // since day one. buildSubmission used to stamp VERSION onto the envelope,
+  // so when F-44 moved VERSION to 2 every v3.4.0 export and site sync was
+  // refused by the server's shape gate as `shape:unknown-version` — 40 of
+  // the last 40 production submissions — while every link inside verified
+  // perfectly, and the board sat empty (DEFECT L-01). Links carry their own
+  // versions; this number only moves when the ENVELOPE shape itself does.
+  const SUBMISSION_VERSION = 1;
   const GENESIS = 'papertrench-genesis-v1';
   // How many independent link digests verifyChain may have in flight at once.
   // Bounds both concurrency and peak preimage memory on the shared server path
@@ -227,7 +238,7 @@
     const chain = Array.isArray(options.chain) ? options.chain : [];
     const stats = options.stats || {};
     return {
-      version: VERSION,
+      version: SUBMISSION_VERSION,
       submittedAt: Date.now(),
       identity: options.identity || null,
       // Claimed result — treated as untrusted until the server recomputes it.
@@ -256,10 +267,47 @@
   function replayChain(links, startingBalanceSol) {
     const list = Array.isArray(links) ? links : [];
     let cash = Number(startingBalanceSol) || 0;
-    const positions = new Map();
+    // Positions are found by sessionId FIRST, mint second — the same priority
+    // the engine's tradeInRound uses, for the same reason (DEFECT L-02). The
+    // sessionId is hash-committed on every link (field four of the preimage)
+    // and survives a rekeyMint rename (F-51): a fresh-launch buy is committed
+    // under the PAIR stand-in address while the sells that close it are
+    // committed under the real mint, so a replay that matches by mint alone
+    // silently drops the exit — the realized P&L vanishes, the round never
+    // closes, and an honest wallet reads as tampered the moment it trades a
+    // fresh launch. Chains that predate sessionIds fall back to mint intact,
+    // and a bag remembers every identity it has traded under so late fills
+    // land on it whichever label they carry.
+    const bySession = new Map(); // sessionId -> held bag
+    const byMint = new Map();    // mint -> held bag
+    const open = new Set();      // distinct open bags
     let realized = 0;
     let wins = 0;
     let losses = 0;
+
+    const sessionOf = (link) =>
+      (typeof link.sessionId === 'string' && link.sessionId ? link.sessionId : null);
+    const findHeld = (link) => {
+      const sid = sessionOf(link);
+      if (sid && bySession.has(sid)) return bySession.get(sid);
+      return byMint.get(link.mint) || null;
+    };
+    const adopt = (link, held) => {
+      const sid = sessionOf(link);
+      if (sid && bySession.get(sid) !== held) {
+        held.sessions.push(sid);
+        bySession.set(sid, held);
+      }
+      if (byMint.get(link.mint) !== held) {
+        held.mints.push(link.mint);
+        byMint.set(link.mint, held);
+      }
+    };
+    const drop = (held) => {
+      open.delete(held);
+      for (const sid of held.sessions) if (bySession.get(sid) === held) bySession.delete(sid);
+      for (const mint of held.mints) if (byMint.get(mint) === held) byMint.delete(mint);
+    };
 
     for (const link of list) {
       const qty = Number(link.qty) || 0;
@@ -272,7 +320,11 @@
 
       if (link.side === 'buy') {
         cash -= amount;
-        const held = positions.get(link.mint) || { qty: 0, cost: 0 };
+        let held = findHeld(link);
+        if (!held) {
+          held = { qty: 0, cost: 0, sessions: [], mints: [] };
+          open.add(held);
+        }
         held.qty += qty;
         // D-02/D-03: the cost basis accumulates at the NET amount (gross
         // minus the buy fee) because that is exactly how the engine books it
@@ -291,10 +343,13 @@
         // the sell link's solNet.
         held.cost += (Number(link.solNet) > 0 ? Number(link.solNet) : amount)
           + (Number(link.txCostSol) || 0);
-        positions.set(link.mint, held);
+        adopt(link, held);
       } else if (link.side === 'sell') {
-        const held = positions.get(link.mint);
+        const held = findHeld(link);
         if (!held || held.qty <= 0) continue;
+        // Remember the sell's identifiers too: after a rekey the position's
+        // remaining fills may arrive under either label.
+        adopt(link, held);
         const share = Math.min(1, qty / held.qty);
         const costOut = held.cost * share;
         cash += amount;
@@ -302,17 +357,15 @@
         held.qty -= qty;
         held.cost -= costOut;
         if (held.qty <= 1e-12) {
-          positions.delete(link.mint);
+          drop(held);
           if (amount - costOut > 0) wins += 1; else losses += 1;
-        } else {
-          positions.set(link.mint, held);
         }
       }
     }
 
     return {
       cashSol: cash,
-      openPositions: positions.size,
+      openPositions: open.size,
       realizedPnlSol: realized,
       wins,
       losses,
@@ -458,7 +511,7 @@
   }
 
   const api = {
-    VERSION, GENESIS,
+    VERSION, SUBMISSION_VERSION, GENESIS,
     sha256, fillPreimage, appendFill, verifyChain, chainOf,
     buildSubmission, replayChain, claimMatchesChain,
     CHAIN_META_KEY, CHAIN_SEG_PREFIX, CHAIN_SEG_SIZE,

@@ -11,6 +11,7 @@ const AT = require('../../extension/attest.js');
 
 module.exports = {
   VERSION: AT.VERSION,
+  SUBMISSION_VERSION: AT.SUBMISSION_VERSION,
   GENESIS: AT.GENESIS,
   sha256: AT.sha256,
   fillPreimage: AT.fillPreimage,
@@ -22,4 +23,5 @@ module.exports = {
   verifyChain: AT.verifyChain,
   replayChain: AT.replayChain,
   claimMatchesChain: AT.claimMatchesChain,
+  buildSubmission: AT.buildSubmission,
 };
