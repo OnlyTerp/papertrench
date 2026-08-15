@@ -212,7 +212,7 @@
 (() => {
   'use strict';
   const L = window.PTArena;
-  const { esc, fmt, signed, face, clanTag, crest, pips } = L;
+  const { esc, fmt, signed, face, clanTag, crest, pips, blockedDisplay } = L;
 
   const boardEl = document.getElementById('clan-board');
   const noteEl = document.getElementById('board-note');
@@ -260,7 +260,7 @@
       <span class="ar-clan-id">
         ${crest(entry.tag)}
         <span style="min-width:0">
-          <span class="nm">${esc(entry.name)}</span>
+          <span class="nm">${blockedDisplay(entry.name) ? '·' : esc(entry.name)}</span>
           <span class="sub">[${esc(entry.tag)}] · ${entry.open ? 'open' : 'invite only'} · founded by @${esc(entry.founder)}</span>
         </span>
       </span>
@@ -461,7 +461,7 @@
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
         ${crest(mine.tag)}
         <div style="min-width:0">
-          <div style="font-weight:800;font-size:15px">${esc(mine.name)}</div>
+          <div style="font-weight:800;font-size:15px">${blockedDisplay(mine.name) ? '·' : esc(mine.name)}</div>
           <div class="ar-note">${clanTag(mine.tag)} · ${esc(String(mine.roster))}/${esc(String(mine.maxMembers))} members
             ${mine.isFounder ? '<span class="ar-role">founder</span>' : ''}</div>
         </div>

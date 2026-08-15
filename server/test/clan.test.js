@@ -431,7 +431,9 @@ const MUST_PASS = [
   // Violence as market metaphor, and hostility to institutions and rivals.
   'Nuke China Longs', 'Kill The Yen', 'Fuck The SEC', 'Your Exit Liquidity',
   'Punch Nazis', 'Grammar Nazi',
-  // Found by a red team RUNNING the filter rather than reading it. Every one of
+  // The 'nigar' entry's innocent neighbour: the ordinary verb keeps its
+  // substring, the respelling does not (see the production-clan test below).
+  'Denigrate Rivals',  // Found by a red team RUNNING the filter rather than reading it. Every one of
   // these was rejected by the first implementation.
   'Snigger Squad', 'Sniggering Bears', 'Spiced Rum Runners', 'Spicing Up The Chart',
   'Spicer Capital', 'Spicers Of Solana', 'Tardies And Tendies', 'Fire Retarding Bags',
@@ -455,6 +457,7 @@ const MUST_PASS_MOTTOS = [
   'we only get one shot as a team',
   'a chin king among traders',
   'fuck the fed, buy the dip',
+  'we denigrate the competition, politely.',
 ];
 
 test('the filter rejects NONE of the 54 legitimate names it was measured against', () => {
@@ -481,6 +484,27 @@ test('slurs are refused in a name, a tag and a motto alike', () => {
   // could otherwise be laundered past a create-time check.
   assert.equal(C.createProblem({ tag: 'OK', name: 'Fine Name', motto: 'pedo jokes' }),
     'motto-blocked');
+});
+
+test('the production slur clan is refused in every field it wore', () => {
+  // Found live on the clan board (2026-08): name "nigar Rapers On chain",
+  // tag NIGAR. The name reads as a slur only if you know the respelling, and
+  // the tag was caught by nothing at all — which is the parity point: the
+  // SAME list judges both fields, so a term refused as a name cannot
+  // reappear as five uppercase characters. Deleting the live row is the
+  // operator half of this fix (see the wave-1 PR runbook).
+  assert.equal(C.nameProblem('nigar Rapers On chain'), 'name-blocked');
+  assert.equal(C.tagProblem('NIGAR'), 'tag-blocked');
+  // The respelling gets the same treatment as the term it imitates: plural
+  // via the suffix set, digits via leet folding, compounds via the substring
+  // tier.
+  for (const name of ['Nigars On Chain', 'N1gar Crew', 'N1g4r Crew', 'Nlgar Rapers']) {
+    assert.equal(C.nameProblem(name), 'name-blocked', name + ' must be refused');
+  }
+  // And the neighbours it must NOT catch.
+  assert.equal(C.nameProblem('Niger Delta Bulls'), null);
+  assert.equal(C.nameProblem('Nigerian Apes'), null);
+  assert.equal(C.nameProblem('Denigrate Rivals'), null);
 });
 
 test('spelling around the list does not get you past it', () => {

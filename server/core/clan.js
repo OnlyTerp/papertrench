@@ -127,6 +127,17 @@ const MOTTO_RE = /^[A-Za-z0-9 .,!?'"&:;()\/-]*$/;
  * no ordinary use as a standalone word in this product's register. */
 const BLOCKED_TOKENS = new Set([
   // Racial and ethnic.
+  //
+  // The 'nigar' family is the live-clan entry (name "nigar Rapers On chain",
+  // tag NIGAR, found on the board 2026-08): 'nigar' is not a word in any
+  // register — online it exists only as a respelling of the term it dances
+  // around. Deliberately distinct from 'niger', the nation/river/surname,
+  // which stays legal; the corpus below pins that neighbour. The l-spellings
+  // ('nlgar', 'nlgaar', 'nlgga') are keyboard-adjacent substitutions the leet
+  // fold cannot derive — it folds digits, not letters — so each earns its own
+  // entry. 'nigars', 'n1gar' and 'n1gga' are derivable (suffix set, digit
+  // folds) and kept anyway: listed is cheaper than argued about, and a Set
+  // lookup does not care.
   'nigga', 'niggas', 'niggaz', 'nigg', 'nigar', 'nigars', 'nlgar', 'nlgaar',
   'n1gar', 'nlgga', 'n1gga', 'coon', 'spic', 'wetback', 'chink',
   'gook', 'kike', 'kaffir', 'paki', 'raghead', 'towelhead', 'beaner',

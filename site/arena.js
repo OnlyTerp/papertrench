@@ -104,6 +104,38 @@
   /* --------------------------------------------------------------- clans */
 
   /**
+   * A mirror of the server's slur list for the strings the boards render —
+   * clan tags and clan names, and a trader's display name.
+   *
+   * The SERVER is the enforcement point (core/clan.js refuses these at every
+   * write path, and the operator can delete a row that predates a list
+   * entry). This is the second door, and it exists for the gap between the
+   * two: a row created before a term was listed is still served by the API,
+   * and a board that prints it while the deletion is pending is a board that
+   * published a slur next to verified numbers. Same list, same tokens — a
+   * client copy is acceptable here precisely because it REFUSES TO RENDER
+   * and never mutes a legitimate clan: the must-pass corpus in
+   * server/test/clan.test.js passes this check too.
+   *
+   * Deliberately narrower than the server's: no leet folding, no suffix
+   * stems. This is defense in depth for the exact production spelling, not a
+   * re-implementation — and a short list is a list that stays in sync.
+   */
+  const BLOCKED_TERMS = [
+    'nigar', 'nigger', 'nigga', 'nigg', 'nlgar', 'faggot', 'fag', 'tranny',
+    'shemale', 'spic', 'chink', 'gook', 'kike', 'wetback', 'beaner', 'coon',
+    'retard',
+  ];
+
+  /** True when a rendered string carries a blocked term as one of its words. */
+  function blockedDisplay(raw) {
+    const words = String(raw || '')
+      .replace(/[^A-Za-z0-9 ]/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
+    return words.some((word) => BLOCKED_TERMS.includes(word)
+      || BLOCKED_TERMS.some((term) => word === term + 's'));
+  }
+
+  /**
    * The [TAG] chip that rides beside a handle on every board.
    *
    * Returns an empty string when the trader is in no clan — deliberately not a
@@ -112,6 +144,8 @@
    */
   function clanTag(tag, options) {
     if (!tag) return '';
+    // A tag is a single word by construction, so the display guard is exact.
+    if (blockedDisplay(tag)) return '';
     const opts = options || {};
     const [bg, fg] = tone('clan:' + tag);
     const style = `background:${bg};color:${fg};border-color:transparent`;
@@ -125,6 +159,7 @@
   /** The tag at crest size, tinted from the same hash as the chip so a clan
    * looks like itself on every surface. */
   function crest(tag, className) {
+    if (blockedDisplay(tag)) tag = '?';
     const [bg, fg] = tone('clan:' + tag);
     return `<span class="ar-crest ${className || ''}" style="background:${bg};color:${fg}"
       aria-hidden="true">${esc(String(tag || '?').slice(0, 5))}</span>`;
@@ -510,7 +545,7 @@
   window.PTArena = {
     API, API_LIVE, EXTENSION_IDS,
     esc, fmt, signed, dirClass, ago, initials, tone, face,
-    clanTag, crest, pips,
+    blockedDisplay, clanTag, crest, pips,
     CHIP, chipFor,
     api, getOrThrow, me, signIn, logout, submit,
     bridgePing, bridgeGetRecord,

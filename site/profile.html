@@ -641,7 +641,7 @@
             <div class="ar-prof-chips">
               ${record ? chipFor(record.status) : '<span class="ar-provisional">No record submitted</span>'}
               ${profile.clan ? L.clanTag(profile.clan.tag, { title: profile.clan.name }) : ''}
-              ${record && !record.stats.rankable ? '<span class="ar-provisional">Unranked · 5 rounds minimum</span>' : ''}
+              ${record && !boardRanked(record, record.stats) ? '<span class="ar-provisional">Unranked · ' + (record.status === 'verified' ? '5 rounds minimum' : 'verification pending') + '</span>' : ''}
               ${tier ? `<div class="ar-badge t-${esc(tier)}" title="Highest badge tier in this trader's case. The card's edge follows it."><div class="mark" aria-hidden="true">★</div><div><div class="nm">${esc(tier[0].toUpperCase() + tier.slice(1))} case</div><div class="ev">${esc(String((record.badges || []).length))} badge${(record.badges || []).length === 1 ? '' : 's'} earned</div></div></div>` : ''}
             </div>
             ${clanLine(profile.clan, record)}
@@ -661,7 +661,17 @@
     </div>`;
   }
 
-  function renderRecord(stats) {
+  // The board admits a record when the worker's query does: status
+  // 'verified' AND stats.rankable (five closed rounds). The stats object
+  // alone cannot answer that — rankable says the ROUND COUNT clears the bar,
+  // not that re-pricing did. `record` is passed in rather than read from an
+  // enclosing scope: the merged version of this label reached for an outer
+  // `record` that does not exist here, and threw on every profile with a
+  // record.
+  const boardRanked = (record, stats) =>
+    !!(record && record.status === 'verified' && stats && stats.rankable);
+
+  function renderRecord(record, stats) {
     recordEl.innerHTML = pad(`<div class="ar-stats">
       ${tile('—', 'ROI on bankroll', { tile: 'head', num: dirClass(stats.roiPct), attr: 'data-roi="' + esc(String(stats.roiPct)) + '"' })}
       ${tile(esc(signed(stats.realizedPnlSol, 2)) + ' ◎', 'Realized P&amp;L', { num: dirClass(stats.realizedPnlSol) })}
@@ -678,11 +688,13 @@
     const roiEl = recordEl.querySelector('.num[data-roi]');
     if (roiEl) L.countUp(roiEl, Number(roiEl.dataset.roi), 1, '%');
 
-    recordNoteEl.innerHTML = (stats.rankable && record.status === 'verified')
+    recordNoteEl.innerHTML = boardRanked(record, stats)
       ? '<span class="ar-note">' + esc(fmt(stats.rounds, 0)) + ' rounds · ranked</span>'
-      : (stats.rankable && record.status !== 'verified'
-          ? '<span class="ar-provisional">' + esc(fmt(stats.rounds, 0)) + ' rounds · not ranked — ' + esc(record.status) + '</span>'
-          : '<span class="ar-provisional">Not ranked yet</span>');
+      // Which bar is unmet is stated, because "not ranked" without a reason
+      // reads as a verdict on the trader rather than on the pipeline.
+      : '<span class="ar-provisional">' + (record.status !== 'verified'
+        ? 'Not ranked — verification ' + esc(String(record.status)) + '. Figures are replayed, not ranked.'
+        : 'Not ranked — five closed rounds minimum.') + '</span>';
   }
 
   /* ------------------------------------------------------------- score --- */
@@ -701,7 +713,7 @@
    * of amplifying it; the split would then need a negative segment, so the bar
    * is withheld and the reason is written out instead.
    */
-  function renderScore(stats) {
+  function renderScore(record, stats) {
     const t = L.scoreTerms(stats);
     const roiMag = Math.abs(t.roiPct);
     const total = roiMag * t.reps;
@@ -748,7 +760,9 @@
         <span style="font-family:var(--mono)">1 − ½·revenge − ¼·drawdown</span>, floored at 0.25.
         This record re-entered a mint it had just lost on in
         <strong>${esc(fmt((Number(stats.revengeRatio) || 0) * 100, 0))}%</strong> of its losing rounds.
-        ${stats.rankable ? '' : 'Fewer than five closed rounds, so this score is computed but does not rank.'}</p>`);
+        ${boardRanked(record, stats) ? '' : (record.status === 'verified'
+          ? 'Fewer than five closed rounds, so this score is computed but does not rank.'
+          : 'Verification has not cleared, so this score is computed but does not rank.')}</p>`);
   }
 
   /* ------------------------------------------------------------ badges --- */
@@ -1267,7 +1281,7 @@
     // can be enormous. The chip says REJECTED; this says it again in words,
     // because a screenshot is read at a glance and once.
     if (record.status === 'rejected') caveats.push('Failed verification — these are the replayed figures of a rejected submission.');
-    if (!stats.rankable) caveats.push('Not ranked — five clean-repricing rounds minimum.');
+    if (!boardRanked(record, stats)) caveats.push('Not ranked — ' + (record.status === 'verified' ? 'five closed rounds minimum.' : 'verification ' + record.status + '.'));
     if (record.claimMismatch) caveats.push('Displayed P&L differed from the chain replay; the replayed number is shown.');
     if (caveats.length) {
       g.font = '600 15px ' + SANS;
@@ -1461,13 +1475,14 @@
       showState(L.empty('⛓', '@' + body.handle + ' is here. Their chain is not.',
         'This account exists but has never submitted a committed record, so there is nothing to ' +
         'replay and nothing true to put on the page. One export from the extension\'s Leaderboard tab ' +
-        'is the whole of it — five closed rounds and this becomes a ranked profile. Until then it ' +
-        'stays honestly blank.'));
+        'is the whole of it. Ranking asks for three things — five closed rounds, a fill on every ' +
+        'candle the verifier can check, and a clean re-price of the lot — and until a record clears ' +
+        'all three it stays honestly unranked.'));
       return;
     }
 
-    renderRecord(record.stats);
-    renderScore(record.stats);
+    renderRecord(record, record.stats);
+    renderScore(record, record.stats);
     renderBadges(record.badges);
     renderProof(record);
     renderSprints(body.sprints);

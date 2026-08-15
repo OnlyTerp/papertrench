@@ -94,7 +94,7 @@
 (() => {
   'use strict';
   const L = window.PTArena;
-  const { esc, fmt, signed, dirClass, face, crest, pips, chipFor } = L;
+  const { esc, fmt, signed, dirClass, face, crest, pips, chipFor, blockedDisplay } = L;
 
   const headEl = document.getElementById('head');
   const rosterEl = document.getElementById('roster');
@@ -116,14 +116,19 @@
   /* ---------------- header ---------------- */
 
   function renderHead() {
-    document.title = 'PaperTrench — [' + clan.tag + '] ' + clan.name;
+    // A name the server list would refuse is not reprinted here while the
+    // row awaits operator deletion — the display guard (arena.js) is the
+    // second door. The title especially: it is the browser chrome, not page
+    // content, and it was rendered unescaped before.
+    const shownName = blockedDisplay(clan.name) ? '[' + clan.tag + ']' : clan.name;
+    document.title = 'PaperTrench — [' + clan.tag + '] ' + shownName;
     const standing = mode === 'season' ? clan.season : clan.week;
     headEl.innerHTML = `
       <section class="ar-pane">
         <div class="pad" style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
           ${crest(clan.tag, 'lg')}
           <div style="flex:1;min-width:220px">
-            <h1 class="ar-title" style="font-size:34px;margin:0">${esc(clan.name)}</h1>
+            <h1 class="ar-title" style="font-size:34px;margin:0">${esc(shownName)}</h1>
             <p class="ar-note" style="margin-top:8px">
               <span class="ar-clan-tag" style="margin-right:6px">[${esc(clan.tag)}]</span>
               ${clan.open ? 'Open to anyone signed in' : 'Invite only'} ·
