@@ -127,7 +127,8 @@ const MOTTO_RE = /^[A-Za-z0-9 .,!?'"&:;()\/-]*$/;
  * no ordinary use as a standalone word in this product's register. */
 const BLOCKED_TOKENS = new Set([
   // Racial and ethnic.
-  'nigga', 'niggas', 'niggaz', 'nigg', 'coon', 'spic', 'wetback', 'chink',
+  'nigga', 'niggas', 'niggaz', 'nigg', 'nigar', 'nigars', 'nlgar', 'nlgaar',
+  'n1gar', 'nlgga', 'n1gga', 'coon', 'spic', 'wetback', 'chink',
   'gook', 'kike', 'kaffir', 'paki', 'raghead', 'towelhead', 'beaner',
   'gyppo', 'pikey', 'wog', 'darkie', 'squaw', 'zipperhead', 'slopehead',
   // Homophobic and transphobic. The anti-lesbian term is deliberately ABSENT:
@@ -161,7 +162,7 @@ const BLOCKED_TOKENS = new Set([
  * "…tron") that no closed suffix set can, and the space-splits that tokens miss.
  */
 const BLOCKED_SUBSTRINGS = [
-  'nigger', 'nigga', 'faggot', 'childporn', 'childrape',
+  'nigger', 'nigga', 'nigar', 'faggot', 'childporn', 'childrape',
 ];
 
 /**
