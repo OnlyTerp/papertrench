@@ -7,7 +7,7 @@
 <meta name="description" content="Team standings built from the same verified trade chains as the individual board. A clan scores the mean of its five best members, counted only from the day each of them joined.">
 <meta property="og:title" content="PaperTrench — Clans">
 <meta property="og:description" content="Five verified members to rank. The mean of your best five. Nothing you did before you joined counts — so nobody can buy a clan a rank.">
-<meta property="og:image" content="https://onlyterp.github.io/papertrench/assets/video-poster.jpg">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="assets/icon128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -260,8 +260,8 @@
       <span class="ar-clan-id">
         ${crest(entry.tag)}
         <span style="min-width:0">
-          <span class="nm">${esc(entry.name)}</span>
-          <span class="sub">[${esc(entry.tag)}] · ${entry.open ? 'open' : 'invite only'} · founded by @${esc(entry.founder)}</span>
+          <span class="nm">${L.clanLabel(entry.name)}</span>
+          <span class="sub">[${L.clanLabel(entry.tag)}] · ${entry.open ? 'open' : 'invite only'} · founded by @${esc(entry.founder)}</span>
         </span>
       </span>
       <span class="val dim">${esc(String(standing.roster))}<span style="color:var(--dim)">/${esc(String(payload.maxMembers))}</span></span>

@@ -7,7 +7,7 @@
 <meta name="description" content="Season standings recomputed server-side from tamper-evident trade chains. Every fill re-checked against real market history — no self-reported numbers, ever.">
 <meta property="og:title" content="PaperTrench — The Arena">
 <meta property="og:description" content="A paper-trading leaderboard that can't be faked: hash-chained fills, server-side replay, every price re-verified against real market history.">
-<meta property="og:image" content="https://onlyterp.github.io/papertrench/assets/video-poster.jpg">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="assets/icon128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -296,7 +296,7 @@
     if (!entries.length) {
       podiumEl.innerHTML = L.empty('🏴',
         'The board is empty. Someone has to be first.',
-        'Five closed rounds gets you ranked. Nothing is shown here until a real chain has been submitted, replayed, and re-priced — no seeded names, no demo traders.');
+        'Five closed rounds over fully re-priced fills gets you onto the board. Nothing is shown here until a real chain has been submitted, replayed, and re-priced — no seeded names, no demo traders.');
       plinthEl.innerHTML = '';
       towerEl.innerHTML = '';
       countEl.textContent = '';

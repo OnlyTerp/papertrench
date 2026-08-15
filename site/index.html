@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench — Paper-trade Solana memecoins on the sites you already use</title>
-<meta name="description" content="A Chrome extension that overlays a paper-trading terminal on Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, and Lute. Real prices. Fake money. A record you can actually learn from.">
+<meta name="description" content="A Chrome extension that overlays a paper-trading terminal on Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Lute, Hyperliquid, Kalshi, Polymarket, and Limitless. Real prices. Fake money. A record you can actually learn from.">
 <meta property="og:title" content="PaperTrench — Real prices. Fake money. Real lessons.">
 <meta property="og:description" content="Paper-trade Solana memecoins with live chart bubbles, screen-recorded trade replays, a trading journal, and a verifiable leaderboard record.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
@@ -53,14 +53,15 @@
       <a class="btn btn-ghost" href="docs/ONBOARDING-BOT.md">Tag @PaperTrenchBot on X for the one-minute start guide</a>
       -->
     </div>
-    <!-- Both of these are hand-typed and both had gone stale (9 sites when the
+    <!-- Both figures are hand-typed and both had gone stale (9 sites when the
          shipped build supports 10; 872 tests when the suites report 1212).
-         scripts/preflight.sh now recomputes them. The site count describes what
+         scripts/preflight.sh recomputes both from the manifest and the suites
+         and fails the release on over-claiming. The site count describes what
          you can INSTALL today, so it tracks the released tag, not the working
-         tree — HEAD currently adds Hyperliquid, which is committed but not
-         released, and claiming it here would advertise a capability nobody has.
-         The guard therefore fails on over-claiming and tolerates under-claiming
-         during an unreleased window. 1491 = 1373 extension + 118 server. -->
+         tree — an unreleased window under-claims on purpose. The marquee below
+         must name the same sites the count claims: 15 chips for 15 hosts, or
+         the hero counts a site the page never names. 1712 = 1548 extension +
+         148 server + 16 bot. -->
     <div class="hero-stats reveal d3">
       <div class="hero-stat"><div class="num o" data-check="sites">15</div><div class="lbl">TRADING SITES</div></div>
       <div class="hero-stat"><div class="num g" data-check="tests">1712</div><div class="lbl">TESTS PASSING</div></div>
@@ -127,13 +128,17 @@
       <span class="site-chip"><span class="sq" style="background:#8bd450"></span>Pump.fun</span>
       <span class="site-chip"><span class="sq" style="background:#e879f9"></span>Fomo</span>
       <span class="site-chip"><span class="sq" style="background:#d4a574"></span>Lute</span>
+      <span class="site-chip"><span class="sq" style="background:#38bdf8"></span>Hyperliquid</span>
+      <span class="site-chip"><span class="sq" style="background:#22d3ee"></span>Kalshi</span>
+      <span class="site-chip"><span class="sq" style="background:#a3e635"></span>Polymarket</span>
+      <span class="site-chip"><span class="sq" style="background:#fb923c"></span>Limitless</span>
     </div>
   </div>
   <div class="wrap" style="margin-top:38px">
     <a class="news-strip reveal" href="news.html">
       <div class="txt">
-        <h3>New in v3.5.0: quick edits on the trading tab, the rug guard, and snipeable fresh launches</h3>
-        <p>Plus Terminal Turbo, X-Ray's coin history — and an honest write-up of the build we told people not to trade on. All the patch notes.</p>
+        <h3>New in v3.5.0: the Arena repair — a leaderboard that verifies every price you claimed</h3>
+        <p>Eleven audited defects closed across the verifier pipeline, ahead of real prize money — plus the three releases that came before it. All the patch notes.</p>
       </div>
       <span class="go">What's new →</span>
     </a>
