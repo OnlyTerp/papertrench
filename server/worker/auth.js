@@ -10,6 +10,7 @@
 'use strict';
 
 const xfeed = require('./xfeed.js');
+const { blockedContent } = require('../core/clan.js');
 
 const SESSION_COOKIE = 'pt_session';
 const OAUTH_COOKIE = 'pt_oauth';
@@ -184,6 +185,16 @@ async function finishLogin(request, env, ctx) {
     refresh: token.refresh_token ? String(token.refresh_token) : null,
     exp: now + (Number(token.expires_in) || 7200) * 1000,
   });
+  // The display name is the one identity field X lets a user set freely,
+  // and it renders on profile pages right beside verified numbers — the same
+  // surfaces the clan-content filter exists for. A slur worn in from X is the
+  // same slur, so it trips the same list (core/clan.js — parity, not a second
+  // copy of the list). The sign-in itself is never refused over it: identity
+  // is not hostage to a display string, so the handle stands in until the
+  // user changes their name on X. Non-ASCII names pass untouched — the check
+  // reads tokens, it does not police charset.
+  const displayName = blockedContent(String(me.name || ''))
+    ? me.username : (me.name || me.username);
   await env.DB.prepare(`
     INSERT INTO users (x_id, handle, display_name, avatar_url, x_tokens, created_at, last_login_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -193,7 +204,7 @@ async function finishLogin(request, env, ctx) {
       avatar_url = excluded.avatar_url,
       x_tokens = excluded.x_tokens,
       last_login_at = excluded.last_login_at`)
-    .bind(me.id, me.username, me.name || me.username, me.profile_image_url || null,
+    .bind(me.id, me.username, displayName, me.profile_image_url || null,
       sealed, now, now)
     .run();
   // Spend the freshest token the user will ever have right now: their feed
