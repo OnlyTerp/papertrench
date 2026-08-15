@@ -113,6 +113,9 @@
   function clanTag(tag, options) {
     if (!tag) return '';
     const opts = options || {};
+    // The display floor applies here too: this chip rides beside handles on
+    // every board, so a masked clan must not print its tag anywhere.
+    if (clanLabelBlocked(tag)) return '';
     const [bg, fg] = tone('clan:' + tag);
     const style = `background:${bg};color:${fg};border-color:transparent`;
     const label = '[' + esc(tag) + ']';
@@ -122,12 +125,52 @@
       href="clan.html?tag=${encodeURIComponent(tag)}">${label}</a>`;
   }
 
+  /* ------------------------------------------------- clan label floor ---
+   *
+   * A DISPLAY floor, not the filter. The server's word list
+   * (server/core/clan.js) is the real gate and it is deliberately narrow and
+   * clever — tokens, suffixes, leet readings — none of which belongs in a
+   * browser bundle. This is the layer underneath it: if a spelling slips the
+   * list (one did — a clan founded 2026-08-09 carried a respelled slur for
+   * three days), no Arena page prints it either.
+   *
+   * Substrings only, and only the handful the server itself holds in its
+   * substring tier because they have no innocent host word in English. That
+   * keeps this check false-positive-free by construction rather than by
+   * measurement, which matters here: there is no suite under this file, so
+   * nothing would catch an over-broad entry refusing a legitimate clan name.
+   *
+   * Masked, never deleted — the row still renders (its members still exist),
+   * and the maintainer's delete is the real backstop.
+   */
+  const CLAN_LABEL_BLOCKED = ['nigger', 'nigga', 'nigar', 'faggot', 'childporn', 'childrape'];
+
+  /** Does this clan label carry a blocked term? */
+  function clanLabelBlocked(raw) {
+    let key = String(raw == null ? '' : raw).toLowerCase().replace(/[^a-z0-9]/g, '');
+    // The innocent hosts the server carves out of its own substring tier
+    // (core/clan.js ALLOWED_SUBSTRINGS). Stripping them first is what keeps
+    // "Snigger Squad" passing — its collapsed key contains the base term by
+    // accident of spelling. One pass is enough: a real occurrence wrapped in
+    // a host ("sniggerniggersquad") survives the strip and still blocks.
+    for (const host of ['snigger', 'niggard']) key = key.split(host).join('');
+    return CLAN_LABEL_BLOCKED.some((term) => key.includes(term));
+  }
+
+  /** A clan name or tag as it may be printed, masked when it carries a
+   * blocked term. Same output shape as esc() — a plain string. */
+  function clanLabel(raw) {
+    const text = String(raw == null ? '' : raw);
+    if (clanLabelBlocked(text)) return 'clan-blocked';
+    return esc(text);
+  }
+
   /** The tag at crest size, tinted from the same hash as the chip so a clan
    * looks like itself on every surface. */
   function crest(tag, className) {
     const [bg, fg] = tone('clan:' + tag);
     return `<span class="ar-crest ${className || ''}" style="background:${bg};color:${fg}"
-      aria-hidden="true">${esc(String(tag || '?').slice(0, 5))}</span>`;
+      aria-hidden="true">${clanLabel(tag)}</span>`;
   }
 
   /** "3 of 5" as countable pips, for a clan that has not fielded five yet. */
@@ -510,7 +553,7 @@
   window.PTArena = {
     API, API_LIVE, EXTENSION_IDS,
     esc, fmt, signed, dirClass, ago, initials, tone, face,
-    clanTag, crest, pips,
+    clanTag, crest, pips, clanLabel,
     CHIP, chipFor,
     api, getOrThrow, me, signIn, logout, submit,
     bridgePing, bridgeGetRecord,

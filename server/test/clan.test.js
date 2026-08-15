@@ -595,6 +595,23 @@ test('padding, digit insertion and compounds do not get past the list', () => {
   }
 });
 
+test('the production respelling is refused in a tag, a name and a motto alike', () => {
+  // The clan that motivated this: tag NIGAR, name and motto "nigar Rapers On
+  // chain" — the slur respelled with one g, a spelling no list entry covered.
+  // Found live on the board, not by reading the code: name and tag already ran
+  // through blockedContent, and passed, on 2026-08-09.
+  assert.equal(C.tagProblem('NIGAR'), 'tag-blocked');
+  assert.equal(C.nameProblem('nigar Rapers On chain'), 'name-blocked');
+  assert.equal(C.mottoProblem('nigar Rapers On chain'), 'motto-blocked');
+  assert.equal(C.createProblem({ tag: 'NIGAR', name: 'nigar Rapers On chain', motto: '' }),
+    'tag-blocked');
+  // The respelling compounds and folds exactly like the base term.
+  assert.equal(C.nameProblem('Nigarcrew'), 'name-blocked');
+  assert.equal(C.nameProblem('N1gar Squad'), 'name-blocked');
+  // The country it is one vowel away from stays untouched.
+  assert.equal(C.nameProblem('Niger Delta Bulls'), null);
+});
+
 test('every blocked entry is stored in the form the matcher actually compares', () => {
   // A blocked entry that does not survive its own normalization would silently
   // never match, and nothing else would notice.

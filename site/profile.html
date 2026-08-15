@@ -12,7 +12,7 @@
 <meta name="description" content="One trader's public PaperTrench record: hash-chained fills, a server-side replay, every price re-checked against real market history, and the verification status stated plainly.">
 <meta property="og:title" content="PaperTrench — a trader's public record">
 <meta property="og:description" content="Chain-committed fills, replayed server-side and re-priced against real market history. Nothing on this page is self-reported except the declared bankroll.">
-<meta property="og:image" content="https://onlyterp.github.io/papertrench/assets/video-poster.jpg">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="assets/icon128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -662,6 +662,15 @@
   }
 
   function renderRecord(stats) {
+    // The ranked label needs the verifier's verdict as well as the arithmetic:
+    // `stats.rankable` alone let a REJECTED record print "46 rounds · ranked"
+    // beside its own "✕ Rejected" chip. rankable says five closed rounds
+    // happened; the verdict is what makes them count. The caller threads
+    // `verified`/`statusText` through stats because renderRecord is
+    // module-scope here while `record` is bound inside the loader IIFE below —
+    // reaching for `record` directly throws a ReferenceError that takes the
+    // rest of the profile down with it.
+    const isRanked = stats.rankable && stats.verified === true;
     recordEl.innerHTML = pad(`<div class="ar-stats">
       ${tile('—', 'ROI on bankroll', { tile: 'head', num: dirClass(stats.roiPct), attr: 'data-roi="' + esc(String(stats.roiPct)) + '"' })}
       ${tile(esc(signed(stats.realizedPnlSol, 2)) + ' ◎', 'Realized P&amp;L', { num: dirClass(stats.realizedPnlSol) })}
@@ -678,10 +687,10 @@
     const roiEl = recordEl.querySelector('.num[data-roi]');
     if (roiEl) L.countUp(roiEl, Number(roiEl.dataset.roi), 1, '%');
 
-    recordNoteEl.innerHTML = (stats.rankable && record.status === 'verified')
+    recordNoteEl.innerHTML = isRanked
       ? '<span class="ar-note">' + esc(fmt(stats.rounds, 0)) + ' rounds · ranked</span>'
-      : (stats.rankable && record.status !== 'verified'
-          ? '<span class="ar-provisional">' + esc(fmt(stats.rounds, 0)) + ' rounds · not ranked — ' + esc(record.status) + '</span>'
+      : (stats.rankable && stats.verified === false
+          ? '<span class="ar-provisional">' + esc(fmt(stats.rounds, 0)) + ' rounds · not ranked — ' + esc(stats.statusText) + '</span>'
           : '<span class="ar-provisional">Not ranked yet</span>');
   }
 
@@ -1461,12 +1470,13 @@
       showState(L.empty('⛓', '@' + body.handle + ' is here. Their chain is not.',
         'This account exists but has never submitted a committed record, so there is nothing to ' +
         'replay and nothing true to put on the page. One export from the extension\'s Leaderboard tab ' +
-        'is the whole of it — five closed rounds and this becomes a ranked profile. Until then it ' +
-        'stays honestly blank.'));
+        'is the whole of it — and once it holds five closed rounds over fills that all re-price ' +
+        'cleanly, it becomes a ranked profile. Until then it stays honestly blank.'));
       return;
     }
 
-    renderRecord(record.stats);
+    renderRecord(Object.assign({}, record.stats,
+      { verified: record.status === 'verified', statusText: record.status }));
     renderScore(record.stats);
     renderBadges(record.badges);
     renderProof(record);

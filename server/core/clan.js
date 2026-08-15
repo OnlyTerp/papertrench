@@ -160,6 +160,12 @@ const BLOCKED_TOKENS = new Set([
  * false positives, so it stays at the size where every entry can be argued for
  * out loud. Substring matching is what catches the compounds ("…naut", "…ry",
  * "…tron") that no closed suffix set can, and the space-splits that tokens miss.
+ *
+ * 'nigar' is the single-g respelling of the first entry: not a word in any
+ * register, and the spelling that carried a slur clan onto the live board
+ * (2026-08-09) because the list held only the standard spellings. It sits in
+ * both tiers for the same reason 'nigga' does — the token tier refuses it as a
+ * whole word, the substring tier refuses the compounds and space-splits.
  */
 const BLOCKED_SUBSTRINGS = [
   'nigger', 'nigga', 'nigar', 'faggot', 'childporn', 'childrape',

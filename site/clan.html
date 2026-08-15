@@ -7,7 +7,7 @@
 <meta name="description" content="A PaperTrench clan: its roster, what each member has contributed since joining, and the five verified records its score is the mean of.">
 <meta property="og:title" content="PaperTrench — Clan">
 <meta property="og:description" content="Five verified members to rank. The mean of the best five. Nothing anyone did before joining counts.">
-<meta property="og:image" content="https://onlyterp.github.io/papertrench/assets/video-poster.jpg">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="assets/icon128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -116,21 +116,25 @@
   /* ---------------- header ---------------- */
 
   function renderHead() {
-    document.title = 'PaperTrench — [' + clan.tag + '] ' + clan.name;
+    // Display floor (arena.js clanLabel): a clan that slips the server's
+    // word list is masked here rather than printed on its own page. The title
+    // uses the masked name too, so the slur never reaches a browser tab.
+    const shownName = L.clanLabel(clan.name);
+    document.title = 'PaperTrench — [' + L.clanLabel(clan.tag) + '] ' + shownName;
     const standing = mode === 'season' ? clan.season : clan.week;
     headEl.innerHTML = `
       <section class="ar-pane">
         <div class="pad" style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
           ${crest(clan.tag, 'lg')}
           <div style="flex:1;min-width:220px">
-            <h1 class="ar-title" style="font-size:34px;margin:0">${esc(clan.name)}</h1>
+            <h1 class="ar-title" style="font-size:34px;margin:0">${shownName}</h1>
             <p class="ar-note" style="margin-top:8px">
-              <span class="ar-clan-tag" style="margin-right:6px">[${esc(clan.tag)}]</span>
+              <span class="ar-clan-tag" style="margin-right:6px">[${L.clanLabel(clan.tag)}]</span>
               ${clan.open ? 'Open to anyone signed in' : 'Invite only'} ·
               founded ${esc(day(clan.createdAt))} by
               <a href="profile.html?handle=${encodeURIComponent(clan.founder)}">@${esc(clan.founder)}</a>
             </p>
-            ${clan.motto ? `<p style="margin-top:10px;font-size:14.5px;color:var(--muted)">“${esc(clan.motto)}”</p>` : ''}
+            ${clan.motto ? `<p style="margin-top:10px;font-size:14.5px;color:var(--muted)">“${L.clanLabel(clan.motto)}”</p>` : ''}
           </div>
           <div id="join-box" style="min-width:200px"></div>
         </div>
