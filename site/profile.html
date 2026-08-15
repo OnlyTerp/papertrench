@@ -678,9 +678,11 @@
     const roiEl = recordEl.querySelector('.num[data-roi]');
     if (roiEl) L.countUp(roiEl, Number(roiEl.dataset.roi), 1, '%');
 
-    recordNoteEl.innerHTML = stats.rankable
+    recordNoteEl.innerHTML = (stats.rankable && record.status === 'verified')
       ? '<span class="ar-note">' + esc(fmt(stats.rounds, 0)) + ' rounds · ranked</span>'
-      : '<span class="ar-provisional">Not ranked yet</span>';
+      : (stats.rankable && record.status !== 'verified'
+          ? '<span class="ar-provisional">' + esc(fmt(stats.rounds, 0)) + ' rounds · not ranked — ' + esc(record.status) + '</span>'
+          : '<span class="ar-provisional">Not ranked yet</span>');
   }
 
   /* ------------------------------------------------------------- score --- */
@@ -1265,7 +1267,7 @@
     // can be enormous. The chip says REJECTED; this says it again in words,
     // because a screenshot is read at a glance and once.
     if (record.status === 'rejected') caveats.push('Failed verification — these are the replayed figures of a rejected submission.');
-    if (!stats.rankable) caveats.push('Not ranked — five closed rounds minimum.');
+    if (!stats.rankable) caveats.push('Not ranked — five clean-repricing rounds minimum.');
     if (record.claimMismatch) caveats.push('Displayed P&L differed from the chain replay; the replayed number is shown.');
     if (caveats.length) {
       g.font = '600 15px ' + SANS;

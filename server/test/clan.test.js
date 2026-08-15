@@ -603,3 +603,4 @@ test('every blocked entry is stored in the form the matcher actually compares', 
     assert.equal(entry, entry.toLowerCase(), entry + ' must be stored lowercase');
   }
 });
+// regression: live NIGAR clan from the 2026-08-14 audit
