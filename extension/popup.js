@@ -59,6 +59,26 @@ function freshState(settings) {
   };
 }
 
+/** jb (ideas): lifetime bought / held / sold SOL from the journal alone,
+ * so historical wallets get correct numbers with no migration. Held is the
+ * surviving cost basis of open positions (what actually went in and is
+ * still at risk), not current mark — matching the dashboard sidebar. */
+function journalFlow(journal, positions) {
+  let boughtSol = 0;
+  let soldSol = 0;
+  // solGross = the order size the user placed (what they mean by "bought");
+  // fall back to |solNet| for pre-gross legacy rows.
+  for (const t of journal || []) {
+    if (t.side === 'buy') boughtSol += Math.abs(Number(t.solGross) || Number(t.solNet) || 0);
+    else if (t.side === 'sell') soldSol += Math.abs(Number(t.solGross) || Number(t.solNet) || 0);
+  }
+  let heldSol = 0;
+  for (const p of Object.values(positions || {})) {
+    heldSol += Number(p.grossOpenCostSol) || 0;
+  }
+  return { boughtSol, heldSol, soldSol };
+}
+
 /** Equity = cash + mark-to-market value of every open position. */
 function computeStats(state, settings) {
   const positions = Object.values(state.positions || {});
@@ -77,12 +97,16 @@ function computeStats(state, settings) {
       (s, t) => s + (t.side === 'sell' ? (Number(t.pnlSol) || 0) : 0), 0
     );
   }
+  const flow = journalFlow(state.journal || [], state.positions || {});
   return {
     equitySol: equity,
     openPositions: positions.length,
     realizedPnlSol: realized,
     rounds: rounds.length,
     equityVsStart: equity - settings.balanceStartSol,
+    boughtSol: flow.boughtSol,
+    heldSol: flow.heldSol,
+    soldSol: flow.soldSol,
   };
 }
 
@@ -128,6 +152,13 @@ async function load() {
     const pct = settings.balanceStartSol ? (stats.equityVsStart / settings.balanceStartSol) * 100 : 0;
     deltaEl.textContent = `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(stats.equityVsStart, 3)} SOL (${up ? '+' : ''}${pct.toFixed(1)}%)`;
     deltaEl.className = 'delta ' + (up ? 'green' : 'red');
+
+    // jb (ideas): lifetime bought / held / sold, journal-derived.
+    const flowEl = $('flow');
+    if (flowEl) {
+      flowEl.textContent = `In ${fmt(stats.boughtSol, 2)} · holding ${fmt(stats.heldSol, 2)} · out ${fmt(stats.soldSol, 2)} SOL`;
+      flowEl.title = 'Lifetime flow: total bought, cost still held open, total sold back out.';
+    }
 
     $('toggle').textContent = settings.overlayEnabled !== false
       ? 'Disable overlay'

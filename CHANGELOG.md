@@ -3,6 +3,28 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.6.0 — 2026-08-20
+
+The feedback batch. You talked in the Discord, we shipped: four of the most
+requested UI pieces plus the three crash-level bugs (see the P0 notes below),
+all locked with tests — the suite grew from 1,548 to 1,567.
+
+- **See how much you've bought, held, and sold.** jb asked for lifetime flow
+  numbers "whilst trading" — they're now on the dashboard sidebar and in the
+  popup. Bought/sold are the order sizes you placed (not fee-shrunk), held is
+  the surviving cost of open positions. Old wallets get correct numbers with
+  no migration.
+- **Thicker order lines.** TP/SL and average lines have a width setting now
+  (1–4 px) for dense charts — and changing it redraws lines you already
+  placed.
+- **Quick-buy chip no longer sits on top of the MC in ultra terminal
+  format** (jb, again). The chip checks where it's about to paint and drops
+  to the bottom-right gutter if it would cover the row's own content — on
+  every site format we inject into, Padre's pill included. Prefer it pinned
+  there forever? New setting: Quick-buy chip placement → Bottom-right.
+- **Quick-buy chip size + position**: the size slider you know
+  (0.6–1.5×) stays, and placement is now controllable too.
+
 ## v3.5.0 — 2026-08-11
 
 The Arena repair. The leaderboard broke the day v3.4.0 shipped — every

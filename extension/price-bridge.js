@@ -1357,13 +1357,17 @@
   }
 
   function configureAverageLine(line, price, label, color) {
-    // Exact configuration used by Padre's K5r average-line helper.
+    // Exact configuration used by Padre's K5r average-line helper, except
+    // the width now rides the same thickness setting as TP/SL lines (both
+    // default to their old values: TP/SL 2, averages 1).
+    const width = Math.max(1, Math.min(4, Math.round(
+      Number(paperLineSpec && paperLineSpec.lineWidth) || 1)));
     return line
       .setText('')
       .setQuantity('')
       .setLineColor(color)
       .setLineStyle(2)
-      .setLineWidth(1)
+      .setLineWidth(width)
       .setPrice(Number(price))
       .setText(label)
       .setBodyFont('11px Inter, sans-serif')
@@ -1447,12 +1451,17 @@
 
   function configureOrderLine(line, order, level) {
     const color = order.kind === 'tp' ? ORDER_TP_COLOR : ORDER_SL_COLOR;
+    // Line width rides the spec (settings.chartOrderLineThickness): 1
+    // hairline, 2 default, 3 thick for dense charts. Clamped, because a
+    // restored settings blob can carry anything.
+    const width = Math.max(1, Math.min(4, Math.round(
+      Number(paperOrderSpec && paperOrderSpec.lineWidth) || 2)));
     return line
       .setText(order.label || (order.kind === 'tp' ? 'TAKE PROFIT' : 'STOP LOSS'))
       .setQuantity(order.sizePct >= 100 ? 'ALL' : `${order.sizePct}%`)
       .setLineColor(color)
       .setLineStyle(0)
-      .setLineWidth(2)
+      .setLineWidth(width)
       .setPrice(Number(level))
       .setBodyFont('11px Inter, sans-serif')
       .setBodyTextColor(color)
@@ -2892,6 +2901,7 @@
         currentPriceNative: numberValue(payload && payload.currentPriceNative),
         currentPriceUsd: numberValue(payload && payload.currentPriceUsd),
         orders,
+        lineWidth: numberValue(payload.lineWidth),
       };
       const synced = syncPaperOrderLines();
       emit('paper-orders-status', {
@@ -3122,6 +3132,39 @@
    */
   const PILL_RETRY_MS = 1000;
 
+  /**
+   * F-53 helper: does the chip's anchored BODY land on the row's own
+   * content? The anchor point alone is not enough — the chip extends LEFT
+   * of its anchor by its own width, so the probe reads elementFromPoint at
+   * the body's midpoint (anchor.x minus half the measured chip width).
+   * READ-phase only: no style writes. Returns true when the hit is an
+   * element INSIDE the row that is neither the row container nor the chip
+   * itself — i.e. real content (text, stat, avatar) the chip would cover.
+   * A hit outside the row entirely (page background, whitespace) is fine:
+   * the anchor is in the gutter already.
+   */
+  function rowAnchorHitsContent(anchor, rect, row, entry, pillRect) {
+    const chipWidth = (entry && entry.el && entry.el.getBoundingClientRect)
+      ? entry.el.getBoundingClientRect().width
+      : 0;
+    const bodyX = Math.max(1, Math.round(anchor.x - (chipWidth > 0 ? chipWidth / 2 : 14)));
+    const bodyY = Math.min(Math.max(Math.round(anchor.y), 1), (window.innerHeight || 1) - 1);
+    let hit = null;
+    try { hit = document.elementFromPoint(bodyX, bodyY); } catch (_) { return false; }
+    if (!hit || hit === entry.el || entry.el.contains(hit)) return false;
+    if (hit === row) return false;
+    // Content INSIDE the row (or the pill the anchor belongs to): covered.
+    try {
+      if (row.contains(hit)) return true;
+    } catch (_) {}
+    if (pillRect && hit.getBoundingClientRect) {
+      const hr = hit.getBoundingClientRect();
+      if (hr.width > 0 && hr.right > pillRect.left && hr.left < pillRect.right
+          && hr.bottom > pillRect.top && hr.top < pillRect.bottom) return true;
+    }
+    return false;
+  }
+
   function positionRowChip(entry) {
     // READ phase: measures and decides; touches no styles. Returns the write
     // plan for applyRowChip, or null when the row is gone.
@@ -3180,6 +3223,17 @@
       if (pill) {
         const pr = pill.getBoundingClientRect();
         anchor = { x: pr.left - 6, y: pr.top + pr.height / 2, align: 'right-center' };
+        // F-53 (jb, Padre "ultra" format): the chip sits immediately LEFT of
+        // the site's own pill — but the ultra row compresses the layout so
+        // the chip's body (which extends further left from the anchor)
+        // lands on the row's market-cap text. The pill position itself is
+        // the site's truth, so the probe shifts onto the CHIP's body
+        // midpoint, and a hit on row content drops the chip to the
+        // bottom-right gutter (below the MC, clear of the pill).
+        if (entry.placementPref === 'bottom'
+            || rowAnchorHitsContent(anchor, rect, row, entry, pr)) {
+          anchor = { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' };
+        }
       } else {
         anchor = { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' };
       }
@@ -3189,6 +3243,21 @@
       anchor = { x: rect.right - 8, y: rect.top, align: 'right-center' };
     } else {
       anchor = { x: rect.right - 6, y: rect.top + 6, align: 'right-top' };
+      // F-53 (jb, Axiom "ultra" format): compact rows put the market cap
+      // exactly at that top-right corner, and the chip painted over it. The
+      // float anchor is a GUESS about the row's layout; when the guess is
+      // wrong the honest move is the row's bottom-right gutter — the same
+      // anchor the pill-miss fallback already uses, clear of both the MC
+      // and the site's own buttons. Probing the anchor point is one
+      // elementFromPoint the sweep already pays for the overlay check; a
+      // hit that is neither the row container itself nor outside the row
+      // means the anchor lands ON content: drop to the gutter. 'bottom'
+      // (explicit user preference) skips the probe and pins the gutter.
+      if (entry.placementPref === 'bottom') {
+        anchor = { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' };
+      } else if (rowAnchorHitsContent(anchor, rect, row, entry)) {
+        anchor = { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' };
+      }
     }
 
     // DEFECT O-22: the chip layer sits BELOW the PaperTrench panel/bar by
@@ -3291,6 +3360,7 @@
         mode: e.place.mode,
         hasPill: Boolean(e.pill),
         display: e.el.style.display,
+        align: e.applied ? e.applied.transform : null,
         rowRect: e.row.isConnected ? (({ x, y, width, height }) => ({
           x: Math.round(x), y: Math.round(y), w: Math.round(width), h: Math.round(height) }))(e.row.getBoundingClientRect()) : null,
       })),
@@ -3353,6 +3423,14 @@
   function scanScreenerRows(spec) {
     const amount = numberValue(spec && spec.amount) || 0.1;
     const size = Math.max(0.6, Math.min(1.5, numberValue(spec && spec.size) || 1));
+    // jb (#bug-reports): on Axiom's "ultra" compact terminal format the
+    // float anchor (top-right of the row) sits exactly on the row's market
+    // cap. 'auto' probes the anchor and drops to the bottom-right gutter
+    // only when it lands on row content; 'bottom' pins the gutter anchor
+    // unconditionally; anything else keeps the per-site default untouched.
+    const placementPref = spec && (spec.placementPref === 'bottom' || spec.placementPref === 'auto')
+      ? spec.placementPref
+      : null;
     const selectors = spec && Array.isArray(spec.linkSelectors) ? spec.linkSelectors : [];
     const groupRows = spec && spec.containerMode === 'group';
     const beforeButton = spec && spec.placement === 'before-buy-button';
@@ -3434,6 +3512,7 @@
         existing.address = address;
         existing.verifiedAt = now;
         existing.size = size;
+        existing.placementPref = placementPref;
         continue;
       }
 
@@ -3449,6 +3528,7 @@
         pill: null,
         verifiedAt: now,
         size,
+        placementPref,
         place: { mode: beforeButton ? 'before-buy-button' : (spec && spec.placement) || 'float', pattern },
       };
       // Taps are handled by the window-level capture listener above — a

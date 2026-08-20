@@ -864,6 +864,11 @@ function renderSidebar() {
       <div class="num">${stats.openPositions} <span style="opacity:.35">/</span> ${stats.rounds}</div>
       <div class="sub ${stats.unrealizedSol >= 0 ? 'green' : 'red'}">${stats.unrealizedSol >= 0 ? '+' : ''}${fmt(stats.unrealizedSol, 3)} SOL unrealized</div>
     </div>
+    <div class="kpi">
+      <div class="lab">Flow — bought / held / sold</div>
+      <div class="num" style="font-size:16px">${fmt(stats.boughtSol, 2)} <span style="opacity:.35">/</span> ${fmt(stats.heldSol, 2)} <span style="opacity:.35">/</span> ${fmt(stats.soldSol, 2)} <span style="font-size:11px;font-weight:700;opacity:.6">SOL</span></div>
+      <div class="sub">Lifetime: what went in, what's still on, what came back out</div>
+    </div>
   `;
   // Writing identical markup still forces a repaint; skip it.
   if (sb.innerHTML !== markup) sb.innerHTML = markup;
@@ -3966,6 +3971,7 @@ function renderSettings(el) {
         <div class="field field-check"><label><input type="checkbox" id="set-instant-buy" ${settings.instantBuyEnabled !== false ? 'checked' : ''}> One-click quick buy</label><small>Tapping a preset amount fires the buy immediately, like Axiom and Padre. Off makes presets only select the amount for the BUY button.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-list-quick-buy" ${settings.listQuickBuyEnabled !== false ? 'checked' : ''}> One-tap buy buttons on token lists</label><small>A "P" button on every token row of Axiom Pulse, Padre Trenches and GMGN Trenches — buys the first preset amount without opening the chart.</small></div>
     <div class="field"><label for="set-list-quick-buy-size">Buy-button size on lists <span id="val-list-quick-buy-size">${(settings.listQuickBuySize || 1).toFixed(2)}</span>x</label><input id="set-list-quick-buy-size" type="range" min="0.6" max="1.5" step="0.05" value="${Number(settings.listQuickBuySize || 1).toFixed(2)}"><small>Make the list buy buttons larger or smaller to fit your screen density.</small></div>
+    <div class="field"><label for="set-list-quick-buy-placement">Buy-button position on lists</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-panel-buy" ${settings.panelBuyEnabled !== false ? 'checked' : ''}> Buy section in the trade tab</label><small>Shows the quick-buy presets, custom amount and BUY button in the overlay. Off makes the trade tab view-only.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-panel-presets" ${settings.panelPresetsEnabled !== false ? 'checked' : ''}> Quick-buy preset buttons</label><small>The one-tap SOL amount buttons. Off keeps the custom amount and BUY button.</small></div>
       </div>
@@ -3973,6 +3979,7 @@ function renderSettings(el) {
         <h3>Exits — take profit &amp; stop loss</h3>
         <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Arm a level on the chart and the position exits itself when the market gets there. Drag the line to place it exactly, the way a terminal does it.</p>
         <div class="field field-check"><label><input type="checkbox" id="set-chart-orders" ${settings.chartOrdersEnabled !== false ? 'checked' : ''}> Take profit / stop loss on the chart</label><small>Adds a TP/SL section to the trade panel and draggable order lines to the chart. Costs nothing until a level is actually armed.</small></div>
+        <div class="field"><label for="set-chart-line-thickness">Order-line thickness</label><select id="set-chart-line-thickness"><option value="1" ${(settings.chartOrderLineThickness || 2) === 1 ? 'selected' : ''}>Thin (1px)</option><option value="2" ${(settings.chartOrderLineThickness || 2) === 2 ? 'selected' : ''}>Standard (2px)</option><option value="3" ${(settings.chartOrderLineThickness || 3) === 3 ? 'selected' : ''}>Thick (3px)</option><option value="4" ${(settings.chartOrderLineThickness || 4) === 4 ? 'selected' : ''}>Extra thick (4px)</option></select><small>Width of TP/SL and average-cost lines on the chart. Thicker lines are easier to grab and drag.</small></div>
         <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>When a level is watched:</strong> while a page feeding that token's price is open. PaperTrench checks armed levels against the prices your own tabs are already receiving — nothing runs in the background, and an armed level says so on the chart.</p>
         <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>How a paper stop fills:</strong> at the next price this machine actually observed after your level was crossed — never at the level itself. On an illiquid coin a stop can gap well past where you put it, and the journal records both numbers (“stop 180K → filled 154K”). A paper stop that always fills exactly where you placed it would teach an exit quality that does not exist.</p>
       </div>
@@ -4271,6 +4278,8 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     instantBuyEnabled: document.getElementById('set-instant-buy').checked,
     listQuickBuyEnabled: document.getElementById('set-list-quick-buy').checked,
     listQuickBuySize: Math.max(0.6, Math.min(1.5, Number(document.getElementById('set-list-quick-buy-size').value) || 1)),
+    listQuickBuyPlacement: document.getElementById('set-list-quick-buy-placement').value === 'bottom' ? 'bottom' : 'auto',
+    chartOrderLineThickness: Math.max(1, Math.min(4, Math.round(Number(document.getElementById('set-chart-line-thickness').value) || 2))),
     panelBuyEnabled: document.getElementById('set-panel-buy').checked,
     panelPresetsEnabled: document.getElementById('set-panel-presets').checked,
     sellPcts: sellPcts.length ? sellPcts : [25, 50, 75, 100],

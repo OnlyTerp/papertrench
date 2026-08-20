@@ -51,6 +51,19 @@
     // Scale factor for the screener row quick-buy chip. 1.0 is the default
     // compact size; users can make it larger on dense trench/pulse screens.
     listQuickBuySize: 1.0,
+    // Where the screener row chip sits when the site default (float,
+    // top-right) collides with that row format's own content — the Axiom
+    // "ultra" compact terminal format puts the market cap exactly there.
+    // 'auto' keeps the per-site default and only drops to the row's
+    // bottom-right gutter when the anchor point lands on row content;
+    // 'bottom' pins the gutter anchor everywhere. The maintainer default is
+    // auto: the collision is the exception, not the rule.
+    listQuickBuyPlacement: 'auto',
+    // TradingView order/level line width for TP/SL and average-entry lines.
+    // 1 = hairline (old hard-coded look), 2 = default, 3 = thick, easier to
+    // read on dense charts and small screens. Same knob for both line
+    // families so the chart reads as one system.
+    chartOrderLineThickness: 2,
     // Master switch for the buy controls in the trade tab (presets, custom
     // amount, BUY button). Off makes the panel view-only for people who
     // never buy from the overlay.
@@ -1028,6 +1041,18 @@
       equityVsStart: eq - settings.balanceStartSol,
       feesPaidSol: Number(st.feesPaidSol) || 0,
       trades: state.journal.length,
+      // jb (#ideas): "able to see how much u've bought/held/sold whilst
+      // trading". Bought/sold are the journal's NET SOL per fill (what the
+      // wallet actually moved); held is open positions at cost basis —
+      // the same basis the equity number itself uses.
+      // solGross is the order size the user typed/tapped — what they mean
+      // by "I bought 2 SOL" — not the fee-adjusted solNet.
+      boughtSol: (state.journal || []).reduce(
+        (s, t) => s + (t.side === 'buy' ? (Math.abs(Number(t.solGross) || Number(t.solNet) || 0)) : 0), 0),
+      soldSol: (state.journal || []).reduce(
+        (s, t) => s + (t.side === 'sell' ? (Math.abs(Number(t.solGross) || Number(t.solNet) || 0)) : 0), 0),
+      heldSol: Object.values(state.positions).reduce(
+        (s, p) => s + grossOpenCostSol(p), 0),
     };
   }
 

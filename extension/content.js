@@ -2027,8 +2027,12 @@
     // The signature covers everything the bridge draws from. The live price
     // is deliberately EXCLUDED: levels are absolute, so a moving price does
     // not move a line, and including it would repost on every tick.
+    const orderLineWidth = Math.max(1, Math.min(4, Math.round(
+      Number(settings.chartOrderLineThickness) || 2)));
+    // Thickness rides the signature so a settings change alone redraws
+    // (orders/axis unchanged otherwise would leave stale-width lines up).
     const signature = JSON.stringify(orders.map((o) => [o.id, o.kind, o.triggerPrice, o.sizePct]))
-      + '|' + chartAxisBasis;
+      + '|' + chartAxisBasis + '|' + orderLineWidth;
     if (!force && signature === lastOrderSpecSignature) return;
     lastOrderSpecSignature = signature;
 
@@ -2036,6 +2040,9 @@
       enabled: true,
       axisBasis: chartAxisBasis,
       refPrice,
+      // settings.chartOrderLineThickness (1..4): TP/SL line width on the
+      // native TradingView chart. The bridge clamps; here it just rides.
+      lineWidth: orderLineWidth,
       currentPriceNative: token.priceNative,
       currentPriceUsd: token.priceUsd,
       orders: orders.map((o) => ({
@@ -2274,6 +2281,11 @@
         // Ground truth from the live chart ticks: draw in exactly the unit
         // the chart's Y axis is showing (price vs MC, USD vs SOL).
         axisBasis: chartAxisBasis,
+        // Average-line width rides the same thickness setting as TP/SL
+        // lines (settings.chartOrderLineThickness); the bridge defaults
+        // averages to 1 (their old look) when absent.
+        lineWidth: Math.max(1, Math.min(4, Math.round(
+          Number(settings.chartOrderLineThickness) || 2))),
         currentPriceNative: token.priceNative,
         currentPriceUsd: token.priceUsd,
         // F-35's close discriminator needs the resolver's live cap to prefer
@@ -5215,6 +5227,12 @@
       size: Math.max(0.6, Math.min(1.5, Number(settings.listQuickBuySize) || 1)),
       linkSelectors: site.rowBuy.linkSelectors,
       placement: site.rowBuy.placement,
+      // F-53 (jb): 'auto' probes the default anchor and drops to the row's
+      // bottom-right gutter when it lands on row content (Axiom/Padre
+      // "ultra" compact format puts the MC exactly there); 'bottom' pins
+      // the gutter everywhere. Null keeps the per-site default untouched.
+      placementPref: settings.listQuickBuyPlacement === 'bottom' ? 'bottom'
+        : settings.listQuickBuyPlacement === 'auto' ? 'auto' : null,
       buyButtonPattern: site.rowBuy.buyButtonPattern || null,
       containerMode: site.rowBuy.containerMode || 'heuristic',
     });
