@@ -53,8 +53,11 @@ building. Ranked by leverage:
    get this treatment from day one.
 7. **Streaks with status.** Duolingo: 60% of DAU have a 7-day+ streak.
    The overlay bar already has the streak chip; give it a visual ladder
-   (ember → flame → blaze) and a freeze mechanic (one rest day/week) so a
-   missed day doesn't zero the identity.
+   (ember → flame → blaze → torch) and a freeze mechanic (one rest day/week)
+   so a missed day doesn't zero the identity. **v3.8.2: ladder shipped.**
+   Freeze turned out to be unnecessary — our streaks count rounds, not
+   days, so absence never breaks one (only an undisciplined round does);
+   that is the better property and we keep it.
 
 ## Distribution (parallel track)
 

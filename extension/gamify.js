@@ -199,15 +199,10 @@
     return tier;
   }
 
-  /** Freeze: one rest day per week protects the streak. A day with no
-   *  closed rounds counts as rest (not a break) if there were <= FREEZE_DAYS
-   *  such days inside the current streak's span. Derived: we walk the
-   *  rounds of the streak backwards; gaps of exactly one calendar day
-   *  are freezes, longer gaps end the streak (they already did, by
-   *  definition — a day with a closed non-qualifying round breaks it).
-   *  Pure over the journal; nothing stored. */
-  const FREEZE_DAYS = 1;
-
+  /** Ladder view over a streak. Deliberately NO day-based freeze mechanic:
+   *  PaperTrench streaks count ROUNDS, not days — a trader who takes a week
+   *  off loses nothing (only an undisciplined round breaks the run). Duolingo
+   *  needs freezes because its streaks punish absence; ours never do. */
   function streakLadder(state, kind) {
     const st = streaks(state);
     const s = st[kind];
