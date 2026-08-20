@@ -3,6 +3,14 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.8.1 — 2026-08-20
+
+Your trench, your colors. The overlay can now wear three skins: **Trench**
+(the default amber-on-slate), **Lute** (deep indigo with violet accents —
+asked for by a trader who lives there), and **Solana** (terminal green).
+Settings → Trade → Panel theme; it switches live, no reload. The site's own
+page is never touched — only the panel's colors.
+
 ## v3.8.0 — 2026-08-20
 
 The trainer that tells the truth — and the chart you never saw.

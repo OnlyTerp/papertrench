@@ -1952,6 +1952,9 @@
       const settingsChange = changes[E.STORAGE_KEYS.settings];
       if (settingsChange && settingsChange.newValue) {
         settings = E.mergeSettings(settingsChange.newValue);
+        // Theme switches live on the attribute, not a remount — cheap and
+        // flicker-free while the rest of the overlay stays mounted.
+        applyTheme(settings.panelTheme);
         positionsBarHidden = settings.positionsBarHidden === true;
         // appEnabled is the app-wide master switch: when it is off, nothing
         // PaperTrench owns may exist on the page, whatever the sub-settings
@@ -2910,6 +2913,71 @@
     'eye-off': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.7 0 0 1 12 19c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94m2.8-2.8A16.46 16.46 0 0 1 21.94 4.06 18.45 18.45 0 0 1 23 12s-4 8-11 8a12.92 12.92 0 0 1-6.06-1.06M1 1l22 22"/></svg>',
     resize: '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15l-6 6M16 10l-9 9M3 21V3h18"/></svg>',
   };
+
+  // Panel themes (ark_trades13's ask, 8/17: "on Lute can you change the main
+  // theme of the page?"). Lute's surface is a deep indigo; the overlay's own
+  // tokens are re-skinned so the panel reads as native to whichever dex the
+  // user lives in — the SITE's page is never touched, only our shadow DOM.
+  // Add a theme = add one entry; every token below the fold.
+  const THEMES = {
+    trench: null, // default — the tokens in :host above
+    lute: {
+      label: 'Lute — deep indigo, violet accents',
+      tokens: {
+        '--pt-void': '#0A0714',
+        '--pt-bg': '#100B1E',
+        '--pt-surface': 'rgba(28, 20, 48, 0.86)',
+        '--pt-raised': 'rgba(40, 30, 66, 0.72)',
+        '--pt-amber': '#A78BFA',
+        '--pt-amber-soft': 'rgba(167, 139, 250, 0.16)',
+        '--pt-green': '#5EEAD4',
+        '--pt-green-soft': 'rgba(94, 234, 212, 0.15)',
+        '--pt-red': '#FB7185',
+        '--pt-red-soft': 'rgba(251, 113, 133, 0.15)',
+      },
+    },
+    solana: {
+      label: 'Solana — void green, terminal phosphor',
+      tokens: {
+        '--pt-void': '#04120B',
+        '--pt-bg': '#071B11',
+        '--pt-surface': 'rgba(10, 36, 22, 0.88)',
+        '--pt-raised': 'rgba(14, 50, 30, 0.74)',
+        '--pt-amber': '#14F195',
+        '--pt-amber-soft': 'rgba(20, 241, 149, 0.14)',
+        '--pt-green': '#14F195',
+        '--pt-green-soft': 'rgba(20, 241, 149, 0.15)',
+        '--pt-red': '#FF6B6B',
+        '--pt-red-soft': 'rgba(255, 107, 107, 0.15)',
+        '--pt-dim': '#7FB99A',
+        '--pt-faint': '#4E7A62',
+      },
+    },
+  };
+
+  // One CSS block with every theme's token overrides, gated on the host's
+  // data-pt-theme attribute — injected once, switches live on attribute set.
+  function themeCss() {
+    let css = '\n    /* Panel themes — token overrides, live-switchable via data-pt-theme */\n';
+    for (const [name, t] of Object.entries(THEMES)) {
+      if (!t) continue;
+      css += `    :host([data-pt-theme="${name}"]) {\n`;
+      for (const [token, value] of Object.entries(t.tokens)) {
+        css += `      ${token}: ${value};\n`;
+      }
+      css += '    }\n';
+    }
+    return css;
+  }
+
+  // Live theme application without remount: set the attribute, the token
+  // cascade does the rest. The bar and every panel live inside the shadow
+  // tree, so :host([data-pt-theme]) selectors read this one attribute —
+  // nothing else needs touching. Unknown/absent theme = trench default.
+  function applyTheme(name) {
+    const theme = THEMES[name] ? name : 'trench';
+    if (host) host.setAttribute('data-pt-theme', theme);
+  }
 
   const CSS = `
     /* ============================================================
@@ -4165,8 +4233,9 @@
     host = document.createElement('div');
     host.id = HOST_ID;
     shadow = host.attachShadow({ mode: 'open' });
+    applyTheme(settings.panelTheme);
     shadow.innerHTML = `
-      <style>${CSS}</style>
+      <style>${CSS}${themeCss()}</style>
       <div class="pt-wrap">
         <div class="pt-bar pt-hidden" id="pt-bar">
           <div class="pt-bar-grip" id="pt-bar-grip" title="Drag to move">${ICONS.grip}</div>

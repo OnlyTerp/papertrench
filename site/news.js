@@ -28,6 +28,17 @@
 
   const RELEASES = [
     {
+      v: '3.8.1', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'Your trench, your colors — panel themes',
+      blurb: 'The overlay learns to match the dex you live in. Trench (default amber-on-slate), Lute (deep indigo, violet accents), and Solana (terminal green). Settings \u2192 Trade \u2192 Panel theme; it switches live, no reload, and the site\u2019s own page is never touched \u2014 only the panel\u2019s colors.',
+      points: [
+        '<b>Three skins.</b> Trench stays the default; Lute was asked for by a trader who lives there; Solana wears the network\u2019s phosphor green.',
+        '<b>Live switch, no reload.</b> Theme rides a host attribute the panel\u2019s design tokens read \u2014 changing it never rebuilds the overlay, so nothing flickers mid-trade.',
+        '<b>8 new tests</b> (1,602 total): theme contracts, color-safety (every override is a design token; the host page is provably untouched).',
+      ],
+    },
+    {
       v: '3.8.0', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'The trainer that tells the truth — fees on the card, the chart you never saw',
