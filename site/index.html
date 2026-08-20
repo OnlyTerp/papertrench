@@ -53,6 +53,15 @@
       <a class="btn btn-ghost" href="docs/ONBOARDING-BOT.md">Tag @PaperTrenchBot on X for the one-minute start guide</a>
       -->
     </div>
+    <!-- Launch video: served from this site because GitHub's blob viewer
+         cannot play a 15 MB mp4 (issue #28). Poster-first, click-to-load. -->
+    <div class="reveal d3" style="margin-top:28px;max-width:720px">
+      <video controls preload="none" poster="assets/video-poster.jpg" style="width:100%;border-radius:14px;border:1px solid var(--border,#2a2f3a);box-shadow:0 12px 40px rgba(0,0,0,.45);display:block">
+        <source src="assets/launch.mp4" type="video/mp4">
+        <a href="assets/launch.mp4">Watch the launch video</a>
+      </video>
+      <div style="font-size:13px;color:var(--muted,#8b93a5);margin-top:8px">The 90-second launch tour — paper trading on the live trenches.</div>
+    </div>
     <!-- Both figures are hand-typed and both had gone stale (9 sites when the
          shipped build supports 10; 872 tests when the suites report 1212).
          scripts/preflight.sh recomputes both from the manifest and the suites

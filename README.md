@@ -14,9 +14,11 @@ Real prices. Fake money. A record you can actually learn from.
 
 <div align="center">
 
-### [▶ Watch the launch video](docs/video/papertrench-launch.mp4)
+### [▶ Watch the launch video](https://papertrench.com/assets/launch.mp4)
 
-<a href="docs/video/papertrench-launch.mp4"><img src="docs/assets/preview.gif" alt="PaperTrench launch video preview" width="82%"></a>
+<a href="https://papertrench.com/assets/launch.mp4"><img src="docs/assets/preview.gif" alt="PaperTrench launch video preview" width="82%"></a>
+
+*(GitHub's file viewer can't stream the 15 MB mp4 — it plays on the site.)*
 
 </div>
 
