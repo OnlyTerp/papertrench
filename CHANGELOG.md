@@ -3,6 +3,20 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.7.0 — 2026-08-20
+
+The last mile of the feedback batch: making sure the people who reported
+bugs actually *get* the fixes.
+
+- **The popup now tells you when a new PaperTrench is out.** PaperTrench
+  installs from a zip — no Chrome Web Store — so Chrome never auto-updates
+  it, and several field reports this week described bugs that were fixed
+  days earlier: stale installs with no way to know. The popup now checks
+  GitHub once a day and, if a newer release exists, shows one amber banner
+  with the version and a direct download link. Dismiss it and it stays
+  quiet until the *next* release. Offline, rate-limited, or any failure:
+  the popup looks exactly as it always did.
+
 ## v3.6.1 — 2026-08-20
 
 One ask, shipped same-day. ark_trades13: "Do yall know if you can get your

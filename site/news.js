@@ -28,6 +28,15 @@
 
   const RELEASES = [
     {
+      v: '3.7.0', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'The update nudge — fixes can now reach the people who reported the bugs',
+      blurb: 'Several field reports this week described bugs that were fixed days earlier — stale installs, no discovery path. PaperTrench ships as a zip, so Chrome never auto-updates it. The popup now checks GitHub once a day and tells you when a new release is out.',
+      points: [
+        '<b>One amber banner in the popup</b> when a newer release exists: the version, one line, a direct download link. Checked at most once a day, quiet after you dismiss it until the next release, and invisible when anything goes wrong — offline or rate-limited looks exactly like the old popup.',
+      ],
+    },
+    {
       v: '3.6.1', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'Where your SOL sits — now on the stream overlay',

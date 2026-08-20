@@ -147,6 +147,33 @@
     .green { color: var(--green); } .red { color: var(--red); } .dim { color: var(--dim); }
     .mono { font-family: var(--mono); }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  /* Update nudge — shown only when a newer release exists on GitHub. */
+  .update-banner {
+    margin: 10px 12px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 157, 69, 0.35);
+    background: rgba(255, 157, 69, 0.10);
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .update-banner .upd-ico { font-size: 15px; line-height: 1.2; }
+  .update-banner .upd-txt { flex: 1; min-width: 0; }
+  .update-banner .upd-txt b { color: var(--amber-2); font-weight: 600; }
+  .update-banner .upd-txt a {
+    color: var(--amber-2);
+    text-decoration: none;
+    border-bottom: 1px dotted rgba(255, 192, 129, 0.6);
+  }
+  .update-banner .upd-dismiss {
+    flex: none;
+    background: none; border: none; cursor: pointer;
+    color: var(--faint); font-size: 13px; padding: 0 2px; line-height: 1.2;
+  }
+  .update-banner .upd-dismiss:hover { color: var(--text); }
   </style>
 </head>
 <body>
@@ -155,6 +182,12 @@
     <h1>PaperTrench</h1>
     <span class="badge" id="badge">PAPER</span>
   </header>
+
+  <div class="update-banner" id="update-banner" hidden>
+    <span class="upd-ico">⬆</span>
+    <span class="upd-txt" id="update-txt">A newer PaperTrench is out.</span>
+    <button class="upd-dismiss" id="update-dismiss" title="Dismiss">×</button>
+  </div>
 
   <div class="hero">
     <div class="lab">Paper equity</div>

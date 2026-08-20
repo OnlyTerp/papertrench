@@ -41,6 +41,94 @@ $('xray').addEventListener('click', toggleXRay);
 $('power').addEventListener('click', togglePower);
 $('qs-apply').addEventListener('click', applyQuickSettings);
 
+/* ---- update nudge ---------------------------------------------------
+ * PaperTrench ships as a zip from GitHub — no Chrome Web Store, so Chrome
+ * never auto-updates it. Field reports from 8/16–19 described bugs fixed
+ * on 8/6: stale installs, no discovery path. The popup now asks GitHub
+ * (rate-limit-safe unauthenticated REST, cached in storage, checked at
+ * most once a day) whether a newer release exists, and shows one amber
+ * banner: the version, one line, the download link. Dismiss stores the
+ * seen version so the nudge is quiet until the NEXT release.
+ * Fail-open by design: any error (offline, rate-limited, schema drift)
+ * leaves the popup exactly as it was.
+ */
+
+const UPDATER = (() => {
+  const REL_URL = 'https://api.github.com/repos/OnlyTerp/papertrench/releases/latest';
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function vCmp(a, b) {
+    const pa = String(a).split('.').map(Number);
+    const pb = String(b).split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d;
+    }
+    return 0;
+  }
+
+  async function check(force) {
+    const now = Date.now();
+    let cache = {};
+    try { cache = (await chainGet(['pt_update_check']))['pt_update_check'] || {}; }
+    catch (_) { /* storage read failed — treat as uncached */ }
+    if (!force && cache.checkedAt && now - cache.checkedAt < DAY_MS) return null;
+    // Reserve the slot even before the fetch: two popups opened in the same
+    // day (or a hung fetch) must not re-hit GitHub.
+    const stamp = { checkedAt: now };
+    try { await chrome.storage.local.set({ pt_update_check: stamp }); } catch (_) {}
+    try {
+      const res = await fetch(REL_URL, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) return null;
+      const rel = await res.json();
+      const latest = (rel.tag_name || '').replace(/^v/, '');
+      const assetUrl = (rel.assets || []).find((a) => a && a.name && a.name.endsWith('.zip'))
+        ? (rel.assets.find((a) => a.name.endsWith('.zip')) || {}).browser_download_url
+        : null;
+      return { latest, url: assetUrl || rel.html_url || 'https://github.com/OnlyTerp/papertrench/releases/latest' };
+    } catch (_) {
+      return null; // offline / rate-limited — silent, popup unchanged
+    }
+  }
+
+  async function render() {
+    const banner = document.getElementById('update-banner');
+    const txt = document.getElementById('update-txt');
+    const dismiss = document.getElementById('update-dismiss');
+    if (!banner || !txt || !dismiss) return;
+    let info = null;
+    try { info = await check(); } catch (_) { return; }
+    if (!info || !info.latest || vCmp(info.latest, chrome.runtime.getManifest().version) <= 0) {
+      return;
+    }
+    let seen = {};
+    try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
+    const nowMs = Date.now();
+    if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
+    txt.innerHTML = '';
+    const b = document.createElement('b');
+    b.textContent = 'v' + info.latest + ' is out';
+    txt.appendChild(b);
+    txt.appendChild(document.createElement('br'));
+    const a = document.createElement('a');
+    a.href = info.url;
+    a.textContent = 'Download the update →';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    txt.appendChild(a);
+    banner.hidden = false;
+    const onDismiss = () => {
+      try { chrome.storage.local.set({ pt_update_seen: { version: info.latest, at: Date.now() } }); } catch (_) {}
+      banner.hidden = true;
+    };
+    dismiss.addEventListener('click', onDismiss);
+  }
+
+  return { check, render };
+})();
+
+UPDATER.render();
+
 function fmt(n, dp = 4) {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: dp });
