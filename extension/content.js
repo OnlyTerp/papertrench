@@ -2726,13 +2726,33 @@
   }
 
   /** Streak chip on the positions bar: visible from 3 up — below that it is
-   *  noise, not fire. Built into the bar template; textContent-only updates. */
+   *  noise, not fire. Built into the bar template; textContent-only updates.
+   *  Ladder (ROADMAP.md item 7): the tier glyph + count carries identity
+   *  (ember → flame → blaze → torch); "n to Flame" makes the next rung
+   *  visible. Tier glyphs are inline SVG (crisp, inherit currentColor). */
+  const STREAK_TIER_GLYPHS = {
+    ember: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6" opacity="0.55"/><circle cx="12" cy="12" r="3.2"/></svg>',
+    flame: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c1 4-3 5.5-3 9a3 3 0 0 0 6 0c0-1.4-.6-2.4-1.2-3.4C15.8 9 18 10.5 18 14a6 6 0 0 1-12 0c0-5 5-7 6-12z"/></svg>',
+    blaze: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1c.8 3.2-2.4 4.4-2.4 7.2a2.4 2.4 0 0 0 4.8 0c0-1.1-.5-1.9-1-2.7C15.4 7 17 8.4 17 11a5 5 0 0 1-10 0c0-4 4-6 5-10z"/><path d="M7 13c-.6 3.4 1.6 6 5 6s5.6-2.6 5-6c2.4 1.6 4 3.8 4 6.5 0 2-1.6 3.5-3.6 3.5H6.6C4.6 23 3 21.5 3 19.5 3 16.8 4.6 14.6 7 13z" opacity="0.75"/></svg>',
+    torch: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M9 2h6l-1 5h3l-8 15 2-9H8l1-13z"/></svg>',
+  };
+
   function updateTrenchBarChip() {
     if (!els.barStreak) return;
     const st = trenchStreaks;
     const parts = [];
-    if (st && st.journal.current >= 3) parts.push(`🔥${st.journal.current} journal`);
-    if (st && st.cleanExit.current >= 3) parts.push(`🔥${st.cleanExit.current} clean`);
+    let titleBits = [];
+    const G = window.PTGamify;
+    if (st && G && G.streakLadder) {
+      for (const kind of ['journal', 'cleanExit']) {
+        const lad = G.streakLadder(state, kind);
+        if (lad.current >= 3) {
+          const glyph = lad.tier ? (STREAK_TIER_GLYPHS[lad.tier] || '') : '';
+          parts.push(`${glyph}${lad.current} ${kind === 'journal' ? 'journal' : 'clean'}`);
+          if (lad.tier) titleBits.push(`${lad.label} ${kind} streak (${lad.current})` + (lad.toNext ? ` — ${lad.toNext} to ${lad.next.label}` : ' — summit tier'));
+        }
+      }
+    }
     // A Gauntlet run within reach of the summit rides the same chip.
     if (trenchGauntlet && trenchGauntlet.current >= 3) {
       parts.push(`⚔ ${trenchGauntlet.current}/10 gauntlet`);
@@ -2743,7 +2763,8 @@
       return;
     }
     els.barStreak.classList.remove('pt-hidden');
-    els.barStreak.textContent = parts.join(' · ');
+    els.barStreak.innerHTML = parts.join('<span style="opacity:.45"> · </span>');
+    if (titleBits.length) els.barStreak.title = titleBits.join(' · ');
   }
 
   async function doSell(fraction) {

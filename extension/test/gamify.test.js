@@ -334,3 +334,52 @@ test('gamify never mutates the state it reads', () => {
   G.challenges(s);
   assert.equal(JSON.stringify(s), before, 'derived means derived');
 });
+
+/* ---------------- streak ladder (ROADMAP.md item 7) ---------------- */
+
+test('streak tiers: ember at 3, flame at 7, blaze at 14, torch at 30', () => {
+  const mk = (n) => state(Array.from({ length: n }, (_, i) => mkRound({ closedAt: 1_800_000_000_000 + i * 3_600_000 })));
+  assert.equal(G.streakLadder(mk(2), 'journal').tier, null, '2 is pre-ember: noise, not fire');
+  assert.equal(G.streakLadder(mk(3), 'journal').tier, 'ember');
+  assert.equal(G.streakLadder(mk(6), 'journal').tier, 'ember', '6 still ember');
+  assert.equal(G.streakLadder(mk(7), 'journal').tier, 'flame');
+  assert.equal(G.streakLadder(mk(14), 'journal').tier, 'blaze');
+  assert.equal(G.streakLadder(mk(30), 'journal').tier, 'torch');
+  assert.equal(G.streakLadder(mk(50), 'journal').tier, 'torch', 'torch is the summit');
+});
+
+test('ladder reports the distance to the next rung', () => {
+  const st = state(Array.from({ length: 5 }, (_, i) => mkRound({ closedAt: 1_800_000_000_000 + i * 3_600_000 })));
+  const lad = G.streakLadder(st, 'journal');
+  assert.equal(lad.tier, 'ember');
+  assert.equal(lad.toNext, 2, '5 + 2 = 7 = flame');
+  assert.equal(lad.next.name, 'flame');
+});
+
+test('a broken streak drops to zero and the ladder follows', () => {
+  const rounds = [
+    ...Array.from({ length: 8 }, (_, i) => mkRound({ closedAt: 1_800_000_000_000 + i * 3_600_000 })),
+    mkRound({ thesis: null, closedAt: 1_800_000_000_100 + 9 * 3_600_000 }), // breaks journal streak
+    mkRound({ closedAt: 1_800_000_000_100 + 10 * 3_600_000 }),
+  ];
+  const lad = G.streakLadder(state(rounds), 'journal');
+  assert.equal(lad.current, 1);
+  assert.equal(lad.tier, null);
+  assert.equal(lad.best, 8, 'the best run survives the break');
+});
+
+test('unknown kind degrades safely, not explosively', () => {
+  const lad = G.streakLadder(state([mkRound()]), 'nope');
+  assert.equal(lad.current, 0);
+  assert.equal(lad.tier, null);
+});
+
+test('STREAK_TIERS is exported and monotonic', () => {
+  assert.ok(Array.isArray(G.STREAK_TIERS));
+  let prev = 0;
+  for (const t of G.STREAK_TIERS) {
+    assert.ok(t.at > prev, 'thresholds strictly increase');
+    assert.ok(t.name && t.label, 'every tier has identity');
+    prev = t.at;
+  }
+});

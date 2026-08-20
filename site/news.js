@@ -28,6 +28,17 @@
 
   const RELEASES = [
     {
+      v: '3.8.2', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'The streak learns to burn — Ember, Flame, Blaze, Torch',
+      blurb: 'Discipline streaks now climb a ladder instead of counting forever into the dark. Ember at 3, Flame at 7, Blaze at 14, Torch at 30. The chip wears the tier\u2019s glyph; the tooltip says how far to the next rung. Same doctrine as ever: streaks count discipline \u2014 journaled rounds, clean exits \u2014 never profit.',
+      points: [
+        '<b>Tier glyphs on the bar chip.</b> Ember (a coal), Flame, Blaze, Torch \u2014 identity you can see from across the screen, inline SVG so it stays crisp.',
+        '<b>The next rung is always visible.</b> Hover the chip: \u201c2 to Flame\u201d. Duolingo\u2019s lesson is that the streak \u2014 not its difficulty \u2014 is what keeps people coming back.',
+        '<b>5 new tests</b> (1,607 total): tier thresholds, rung distance, break-and-recover, unknown-kind safety, monotonic tiers.',
+      ],
+    },
+    {
       v: '3.8.1', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'Your trench, your colors — panel themes',

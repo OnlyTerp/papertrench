@@ -3,6 +3,14 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.8.2 — 2026-08-20
+
+The streak learns to burn. Discipline streaks on the bar now climb a ladder —
+**Ember** at 3, **Flame** at 7, **Blaze** at 14, **Torch** at 30 — with the
+tier's glyph on the chip and the distance to the next rung in the tooltip.
+Same doctrine as always: streaks count discipline (journaled rounds, clean
+exits), never profit; a red round that followed the plan feeds the fire.
+
 ## v3.8.1 — 2026-08-20
 
 Your trench, your colors. The overlay can now wear three skins: **Trench**

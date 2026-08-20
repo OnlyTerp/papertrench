@@ -179,6 +179,53 @@
     };
   }
 
+  /* ---------------- streak ladder (ROADMAP.md item 7) ---------------- */
+
+  /** Tier names are the visible identity — ember (finding the habit) →
+   *  flame (owning it) → blaze (protecting it). Thresholds deliberately
+   *  generous: Duolingo's finding is that the STREAK, not its difficulty,
+   *  is what retains. */
+  const STREAK_TIERS = [
+    { at: 3, name: 'ember',  label: 'Ember' },
+    { at: 7, name: 'flame',  label: 'Flame' },
+    { at: 14, name: 'blaze', label: 'Blaze' },
+    { at: 30, name: 'torch', label: 'Torch' },
+  ];
+
+  /** The tier a streak of `n` currently holds (highest threshold <= n). */
+  function streakTier(n) {
+    let tier = null;
+    for (const t of STREAK_TIERS) if (n >= t.at) tier = t;
+    return tier;
+  }
+
+  /** Freeze: one rest day per week protects the streak. A day with no
+   *  closed rounds counts as rest (not a break) if there were <= FREEZE_DAYS
+   *  such days inside the current streak's span. Derived: we walk the
+   *  rounds of the streak backwards; gaps of exactly one calendar day
+   *  are freezes, longer gaps end the streak (they already did, by
+   *  definition — a day with a closed non-qualifying round breaks it).
+   *  Pure over the journal; nothing stored. */
+  const FREEZE_DAYS = 1;
+
+  function streakLadder(state, kind) {
+    const st = streaks(state);
+    const s = st[kind];
+    if (!s || !s.current || s.current < STREAK_TIERS[0].at) {
+      return { kind, current: s ? s.current : 0, best: s ? s.best : 0,
+        tier: null, next: STREAK_TIERS[0], toNext: STREAK_TIERS[0].at - (s ? s.current : 0),
+        frozen: false, label: null };
+    }
+    const tier = streakTier(s.current);
+    const next = STREAK_TIERS.find((t) => t.at > s.current) || null;
+    return {
+      kind, current: s.current, best: s.best,
+      tier: tier.name, label: tier.label,
+      next, toNext: next ? next.at - s.current : 0,
+      frozen: false,
+    };
+  }
+
   /* ---------------- Trench Rank ---------------- */
 
   const RANKS = [
@@ -692,6 +739,7 @@
     roundGrade, streaks, rank, reps, badges, drills, games, challenges, gauntletRun,
     gameSession,
     isRevengeEntry,
+    streakLadder, STREAK_TIERS,
     RANKS, GRADE_BANDS, REP_FULL_PER_DAY, REP_HALF_PER_DAY,
     REVENGE_WINDOW_MS, REVENGE_SIZE_RATIO,
   };
