@@ -28,6 +28,15 @@
 
   const RELEASES = [
     {
+      v: '3.6.1', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'Where your SOL sits — now on the stream overlay',
+      blurb: 'ark_trades13 asked in the Discord: “can you get your total amount of SOL… on the display overlay?” The equity number was always there as one figure — the ask was seeing the split. Shipped same-day.',
+      points: [
+        '<b>The stream overlay shows the split now.</b> Two new tiles — <b>Cash ◎</b> (spendable) and <b>In positions</b> (open value) — beside the position count. Both re-sum to the equity number above them: same formula, so the split can never disagree with the hero. The tile grid went 4-up to a 3×2 so every label keeps its room, in card and bar layouts both.',
+      ],
+    },
+    {
       v: '3.6.0', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature', 'fix'],
       title: 'The feedback batch — four UI asks and the three crash-level bugs',

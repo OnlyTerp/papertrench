@@ -108,7 +108,7 @@
 
     .tiles {
       position: relative; z-index: 1;
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px;
       padding: 11px 16px 6px;
     }
     .tile {
@@ -152,7 +152,7 @@
     body.layout-bar .hero { white-space: nowrap; }
     body.layout-bar .spark-wrap { width: 120px; padding: 0 6px; display: flex; align-items: center; min-height: 84px; }
     body.layout-bar .spark-wrap canvas { height: 40px; }
-    body.layout-bar .tiles { flex: none; padding: 8px 10px; grid-template-columns: repeat(4, auto); align-content: center; gap: 6px; }
+    body.layout-bar .tiles { flex: none; padding: 8px 10px; grid-template-columns: repeat(3, auto); align-content: center; gap: 6px; }
     body.layout-bar .tile { padding: 6px 9px; }
     body.layout-bar .positions {
       flex: 1; min-width: 0; padding: 0 12px;
@@ -251,7 +251,9 @@
       <div class="tile"><div class="k">Realized</div><div class="v" id="realized">—</div></div>
       <div class="tile"><div class="k">Win rate</div><div class="v" id="winrate">—</div></div>
       <div class="tile"><div class="k">Rounds</div><div class="v" id="rounds">—</div></div>
-      <div class="tile"><div class="k">Open</div><div class="v" id="open">—</div></div>
+      <div class="tile"><div class="k">Cash ◎</div><div class="v" id="cash">—</div></div>
+      <div class="tile"><div class="k">In positions</div><div class="v" id="openval">—</div></div>
+      <div class="tile"><div class="k">Positions</div><div class="v" id="open">—</div></div>
     </div>
     <div class="positions" id="positions"></div>
     <div class="foot">

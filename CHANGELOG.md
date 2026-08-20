@@ -3,6 +3,19 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.6.1 — 2026-08-20
+
+One ask, shipped same-day. ark_trades13: "Do yall know if you can get your
+sol total amount of sol you have on the on the display overlay?" The equity
+number at the top of the stream overlay has always been cash + positions as
+one figure — the ask was seeing *where it sits*.
+
+- **The stream overlay now shows the split.** Two new tiles: **Cash ◎**
+  (spendable) and **In positions** (open value), beside the position count.
+  Both re-sum to the equity number above them — same formula, so the split
+  can never disagree with the hero. The tile grid went 4-up to a 3×2 so
+  every label keeps its room; card and bar layouts both.
+
 ## v3.6.0 — 2026-08-20
 
 The feedback batch. You talked in the Discord, we shipped: four of the most

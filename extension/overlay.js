@@ -194,6 +194,14 @@ async function render() {
 
   $('winrate').textContent = stats.winRate === null ? '—' : stats.winRate.toFixed(0) + '%';
   $('rounds').textContent = stats.rounds;
+  // ark_trades13 ask (8/20): "your total amount of SOL on the display
+  // overlay" — the equity hero shows the sum; the tiles now show where it
+  // sits. Cash + open value always re-sums to the equity number above, so
+  // the split can never disagree with the hero.
+  const openValue = stats.positions.reduce(
+    (s, p) => s + (p.qty || 0) * (p.lastPriceNative || 0), 0);
+  $('cash').textContent = fmt(state.cashSol || 0, 2);
+  $('openval').textContent = fmt(openValue, 2);
   $('open').textContent = stats.positions.length;
 
   const maxPos = prefs.layout === 'bar' ? MAX_POS_BAR : MAX_POS_CARD;
