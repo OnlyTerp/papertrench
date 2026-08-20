@@ -9,7 +9,7 @@
 
 
 if (typeof importScripts === 'function') {
-  importScripts('replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js');
+  importScripts('replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js', 'sites.js');
 }
 const RP = self.PTReplay;
 const AT = self.PTAttest;
@@ -2499,6 +2499,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (message.round && settings.recordingEnabled) await stopRecording(message.round.id);
         await recordReplay(session, message.round || null);
         await refreshFrameInterval();
+        // #29: a quick-buy chip on a screener list opens a NEW position in a
+        // token whose chart the user never opened. If the fill came from a
+        // list page (no chart for THIS mint can be on screen there) the
+        // chart opens for them — as a background tab, never stealing focus
+        // (the v3.1.0 lesson: "PaperTrench never opens a tab you didn't
+        // click for" — this IS the click's consequence, so it is allowed,
+        // but it stays a background tab until the user goes to it).
+        if (message.kind === 'buy' && message.opened && message.trade
+            && message.trade.source === 'list-chip' && settings.listQuickOpen !== false) {
+          try {
+            const url = self.PaperTrenchSites
+              && self.PaperTrenchSites.tokenUrlFor(message.trade.mint, {
+                siteId: message.trade.site || null,
+                pairAddress: message.trade.pairAddress || null,
+                chain: message.trade.chain || 'solana',
+              });
+            if (url) chrome.tabs.create({ url, active: false });
+          } catch (_) { /* a failed tab open must never fail the fill event */ }
+        }
         if (message.round && settings.autoReview && message.round.id) {
           autoReview(message.round.id).catch(() => {});
         }

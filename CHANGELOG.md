@@ -3,6 +3,23 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.8.0 — 2026-08-20
+
+The trainer that tells the truth — and the chart you never saw.
+
+- **A one-tap list buy now opens the token's chart (#29).** A quick-buy
+  chip on a screener list opens a NEW position in a token whose chart you
+  never saw. The chart now opens in a background tab — never stealing
+  focus — on the site the position was opened on, so the position is one
+  click from management. Off switch in Settings → Trade ("Open the chart
+  tab after a list buy").
+- **Every PnL card now prints its fees.** The share card's journey line
+  shows the round trip's total simulated fees — `INCL 0.040 SOL FEES` —
+  so a 3x that nets 2.4x is explained on the artifact itself. Rounds from
+  before fees were recorded stay fee-silent; nothing is invented.
+- 7 new tests (1,594 total): list-chip tab behavior (5) and card fee
+  honesty (2).
+
 ## v3.7.0 — 2026-08-20
 
 The last mile of the feedback batch: making sure the people who reported

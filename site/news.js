@@ -28,6 +28,17 @@
 
   const RELEASES = [
     {
+      v: '3.8.0', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'The trainer that tells the truth — fees on the card, the chart you never saw',
+      blurb: 'Two asks from the research pass. Every PnL card now prints the round trip\u2019s total simulated fees, so a 3x that nets 2.4x is explained on the artifact itself. And a one-tap list buy now opens the token\u2019s chart in a background tab — the position is one click from management.',
+      points: [
+        '<b>Fee honesty on the share card (#31 cousin).</b> The journey line now reads INCL 0.040 SOL FEES when the round recorded fees — the number is the journal\u2019s own sum, never invented. Rounds that predate fee recording stay fee-silent.',
+        '<b>Chart tab after a list buy (#29).</b> A quick-buy chip on a screener list opens a NEW position whose chart you never saw. The chart opens backgrounded, on the site the position was opened on, never stealing focus. Off switch in Settings \u2192 Trade.',
+        '<b>7 new tests</b> (1,594 total): list-chip tab behavior and card fee honesty.',
+      ],
+    },
+    {
       v: '3.7.0', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'The update nudge — fixes can now reach the people who reported the bugs',

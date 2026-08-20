@@ -2862,6 +2862,13 @@
       side: t.side,
       mint: t.mint,
       symbol: t.symbol,
+      site: t.site,
+      pairAddress: t.pairAddress || null,
+      chain: t.chain || 'solana',
+      // #29: 'list-chip' marks a fill whose origin was a screener-list
+      // quick-buy chip — background uses it to open the chart tab. Panel
+      // buys leave this absent: their chart is already on screen.
+      source: t.source || null,
       qty: t.qty,
       priceNative: t.priceNative,
       priceUsd: t.priceUsd,
@@ -5414,13 +5421,19 @@
         return { trade: filled.trade, position: filled.position, opened: filled.opened };
       });
       if (!result) return;
-      sendMessage({
-        type: 'pt_trade_event',
-        kind: 'buy',
-        opened: result.opened,
-        session: summarizeSession(result.position),
-        trade: summarizeTrade(result.trade),
-      }).catch(() => {});
+      if (result) {
+        // #29: mark the fill's origin on the SUMMARY COPY only — the engine
+        // trade was already hashed into the attestation chain inside
+        // withState, so the committed object must not gain fields after
+        // the fact. Background reads source to open the chart tab.
+        sendMessage({
+          type: 'pt_trade_event',
+          kind: 'buy',
+          opened: result.opened,
+          session: summarizeSession(result.position),
+          trade: summarizeTrade({ ...result.trade, source: 'list-chip' }),
+        }).catch(() => {});
+      }
       runTradeEffect('buy');
       playTradeSound('buy');
       const atMcap = result.trade.mcap ? ` at ${fmtMoney(result.trade.mcap)} MC` : '';

@@ -204,3 +204,34 @@ test('the dashboard exposes a share action and loads the card module', () => {
   assert.match(js, /function openShareCard/);
   assert.match(js, /accept="image\/\*"/.test(html) ? /./ : /never/, 'the picker accepts images');
 });
+
+/* ---------------- fee honesty on the card ---------------- */
+
+test('the card prints the round trip cost when fills recorded fees', () => {
+  // A 0.1 SOL buy + full sell with 1% fees each leg: the engine records
+  // feeSol on every fill; the card must print the sum, uppercased on the
+  // journey line: "INCL 0.003 SOL FEES".
+  const settings = Object.assign(E.defaultSettings(), { feeBps: 100, balanceStartSol: 10 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: 1000, mint: MINT, symbol: 'FEE', site: 'padre', priceNative: 0.001, solAmount: 1 });
+  E.sell(state, settings, { ts: 4000, mint: MINT, qtyFraction: 1, priceNative: 0.003 });
+  const round = state.rounds[0];
+  const model = PC.cardModel(PC.roundCardSource(round, state.journal));
+  assert.ok(model.feesText, 'fees line present when fees were paid');
+  // The number is the journal's own sum over the round's fills — derived,
+  // never pasted (the house rule).
+  const fills = state.journal.filter((t) => round.tradeIds.includes(t.id));
+  const sum = fills.reduce((acc, t) => acc + (t.feeSol || 0), 0);
+  assert.ok(sum > 0, 'journal carries fees: ' + sum);
+  assert.equal(model.feesText, 'incl ' + PC.formatSol(sum) + ' SOL fees',
+    'prints the journal sum, formatSol-rounded: ' + model.feesText);
+});
+
+test('rounds without fee data stay fee-silent rather than inventing a fee', () => {
+  const settings = Object.assign(E.defaultSettings(), { feeBps: 0, balanceStartSol: 10 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: 1000, mint: MINT, symbol: 'NOFEE', site: 'padre', priceNative: 0.001, solAmount: 1 });
+  E.sell(state, settings, { ts: 4000, mint: MINT, qtyFraction: 1, priceNative: 0.002 });
+  const model = PC.cardModel(state.rounds[0]);
+  assert.equal(model.feesText, '', 'zero fees = no fees line');
+});

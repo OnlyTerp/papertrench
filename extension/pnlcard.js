@@ -161,6 +161,19 @@
   }
 
   /**
+   * Sum of every fill's simulated fee, buys and sells alike — the cost of
+   * the round trip printed on the card. Zero when no fill recorded a fee
+   * (pre-fee rounds stay silent), null-safe against junk shapes.
+   */
+  function feesTotal(fills) {
+    const list = (Array.isArray(fills) ? fills : []).filter((f) => f && num(f.feeSol) > 0);
+    if (!list.length) return 0;
+    let total = 0;
+    for (const fill of list) total += num(fill.feeSol);
+    return total;
+  }
+
+  /**
    * Gallery admission for user-uploaded backgrounds.
    *
    * Pure and side-effect free so the refusals can be tested directly. A full
@@ -220,6 +233,11 @@
       exitMcap: weighted(sells, 'mcap'),
       investedUsd: usdTotal(trades, 'buy', 'solGross'),
       returnedUsd: usdTotal(trades, 'sell', 'solNet'),
+      // The trainer that tells the truth: every fill's simulated fee is
+      // summed onto the card so "why is my +3x only +2.4x" has an answer
+      // printed on the artifact itself. Old rounds without fee data stay
+      // fee-silent rather than fabricating a number.
+      feesSol: feesTotal(trades),
     };
   }
 
@@ -256,6 +274,7 @@
       exitMcap: null,
       investedUsd: usdTotal(fills, 'buy', 'solGross'),
       returnedUsd: Number.isFinite(lastUsd) && lastUsd > 0 ? qty * lastUsd : null,
+      feesSol: feesTotal(fills),
     };
   }
 
@@ -366,6 +385,9 @@
 
     const pnlPct = num(source.pnlPct) !== null ? num(source.pnlPct) : (pnlSol / basis) * 100;
     const win = pnlSol >= 0;
+    // The cost of the round trip, when the fills recorded it. Printed on
+    // the card so the multiple and the fees are never a mystery apart.
+    const fees = num(source.feesSol) || 0;
     // Traders read multiples, not percentages, on a flex card.
     const multiple = (basis + pnlSol) / basis;
 
@@ -438,6 +460,7 @@
         ? formatMarketCap(source.exitMcap)
         : formatPrice(source.exitPrice ?? source.lastPriceNative),
       heldText: formatHeld(source.heldMs),
+      feesText: fees > 0 ? `incl ${formatSol(fees)} SOL fees` : '',
       dateText: stampAt > 0 ? formatStamp(stampAt) : '',
       afterText,
       afterColor,
@@ -640,6 +663,7 @@
     if (model.entryText && model.entryText !== '—') journey.push('ENTRY ' + model.entryText);
     if (!model.open && model.exitText && model.exitText !== '—') journey.push('EXIT ' + model.exitText);
     if (model.heldText && model.heldText !== '0s') journey.push('HELD ' + model.heldText);
+    if (model.feesText) journey.push(model.feesText.toUpperCase());
     let journeyRightEdge = 64;
     if (journey.length) {
       ctx.fillStyle = COLORS.dim;
