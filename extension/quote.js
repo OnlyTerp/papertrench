@@ -197,6 +197,11 @@
       resolvedAt: Date.now(),
       chain: chain,
       solUsdAtResolve: solUsdAtResolve,
+      // F-55: surfaced so a drained pool can be told from a trading one. A
+      // rug empties liquidity; a real runner's pool deepens. Null when the
+      // source reports none — the mark guard stands aside rather than guess.
+      liquidityUsd: Number(pair.liquidity && pair.liquidity.usd) > 0
+        ? Number(pair.liquidity.usd) : null,
     };
   }
 
@@ -860,6 +865,27 @@
   // The window is generous (memecoins genuinely 4x in a minute — a REAL
   // move is confirmed by any fresh witness and fills normally); the ratio
   // is what a 1s chart cannot do between two consecutive honest reads.
+  // F-55 (Rems 3x/wk, husm, Tanza): the coin RUGS, the pool drains to dust,
+  // and the next resolver print from that dust pool re-marks the open bag at
+  // an absurd price — a dead position rendered gloriously green. Liquidity
+  // is the honest discriminator: a rug empties the pool, and you cannot sell
+  // into a drained pool AT A HIGHER PRICE. An up-print from a collapsed pool
+  // is the phantom (refuse the mark; the position keeps its last honest
+  // mark); a DOWN-print is the honest rug mark and must ALWAYS pass — a rug
+  // is supposed to hurt. Missing liquidity data (null) means the guard
+  // stands aside; it never blocks on absence.
+  var RUG_GUARD_DUST_USD = 2000;      // below this a pool is "collapsed"
+  var RUG_GUARD_UP_RATIO = 1.25;      // +25% print from a dust pool = phantom
+
+  /** May this resolver print re-mark a position? Pure, no state. */
+  function rugGuardVerdict(nextNative, prevNative, liquidityUsd) {
+    if (!(nextNative > 0) || !(prevNative > 0)) return 'pass';
+    if (!(Number(liquidityUsd) > 0)) return 'pass';       // no data, no guard
+    if (Number(liquidityUsd) > RUG_GUARD_DUST_USD) return 'pass'; // pool healthy
+    // Collapsed pool. Down-prints are honest rug marks; up-prints are dust.
+    return nextNative > prevNative * RUG_GUARD_UP_RATIO ? 'refuse' : 'pass';
+  }
+
   var FILL_WITNESS_WINDOW_MS = 120000;
   var FILL_WITNESS_RATIO = 2;
   var FILL_WITNESS_AGREE_RATIO = 1.6;
@@ -1254,6 +1280,7 @@
   var api = {
     pickBestPair,
     normalizePair,
+    rugGuardVerdict,
     tokenFromPayload,
     validateTick,
     bootstrapTick,

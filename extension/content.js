@@ -69,6 +69,21 @@
   let thesisComposerOpen = false;
   // A buy requested before the first quote existed, to be executed on arrival.
   let armedBuy = null;
+  // P0-3: survives a graduation/navigation swap. When the URL changes to a
+  // different address, detectLoop immediately swaps in a new pending
+  // stand-in (the panel must react to the page, not wait on the network).
+  // That swap drops the armed buy and orphans anything keyed to the old
+  // identity — correct for a genuine coin switch, fatal for a pump.fun
+  // graduation where the SAME coin reappears under its migration pool URL.
+  // Shape: { fromMint, armedBuy, at }. Set at the swap, settled in
+  // detectLoop once the resolver answers for the new page. Never restored
+  // without proof; the armed TTL keeps bounding it the whole time.
+  let swapStash = null;
+  // F-54: how many prices this token has ACCEPTED since the panel attached.
+  // The first bootstrap tick is self-witnessing — an armed buy must wait for
+  // the second (the feed proving itself) or a resolver quote.
+  let acceptedTickCount = 0;
+  let lastTokenKey = '';
   // Trade ids already drawn on THIS page's chart. What makes journal replay
   // idempotent: state adoption re-runs it on every external write (a row
   // snipe in another tab), and a fill already on the chart must never draw
@@ -635,6 +650,13 @@
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
     lastAcceptedMarket = { priceNative: verdict.priceNative, at: Date.now() };
+    // F-54: track accepted-tick count per token (reset on token change).
+    const tokenKey = String(token.mint || token.symbol || '');
+    if (tokenKey !== lastTokenKey) {
+      lastTokenKey = tokenKey;
+      acceptedTickCount = 0;
+    }
+    acceptedTickCount += 1;
 
     // For a brand-new coin, the first accepted on-screen tick becomes the
     // anchor until the resolver catches up. For resolved coins the anchor is
@@ -815,7 +837,7 @@
     if (location.href === lastHref && settled) return;
     site = S.currentSite();
     const candidate = site.detect();
-    if (!candidate) { lastHref = location.href; setToken(null); return; }
+    if (!candidate) { lastHref = location.href; swapStash = null; setToken(null); return; }
     if (settled && (token.mint === candidate.address || token.pairAddress === candidate.address || token.srcAddress === candidate.address)) { lastHref = location.href; return; }
     // lastHref is only committed once this tick actually acts on the URL. If a
     // resolve is still in flight, leave it uncommitted so a navigation that
@@ -835,6 +857,20 @@
     const alreadyPendingSame = token && token.pending
       && (token.mint === candidate.address || token.srcAddress === candidate.address);
     if (!alreadyPendingSame) {
+      // P0-3: stash the identity being replaced (and any armed intent keyed
+      // to it) so the resolve below can prove or disprove "same coin, new
+      // home" — a pump.fun graduation reappears under its migration pool
+      // URL. A plain navigation disproves it and drops the armed buy exactly
+      // as before; only a proven re-appearance of the same mint restores it.
+      if (token && token.mint && token.mint !== candidate.address) {
+        swapStash = {
+          fromMint: token.mint,
+          armedBuy: (armedBuy && armedBuy.mint === token.mint) ? armedBuy : null,
+          at: Date.now(),
+        };
+      } else {
+        swapStash = null;
+      }
       setToken({
         mint: candidate.address, srcAddress: candidate.address, symbol: null, name: null,
         priceNative: null, priceUsd: null, pending: true,
@@ -899,6 +935,38 @@
       data.kind = candidate.kind;
       if (candidate.chain && !data.chain) data.chain = candidate.chain;
       setToken(data);
+      // P0-3 graduation bridge: settle the swap stash (created at the swap,
+      // above) now that the new page's identity is known. Dexscreener keeps
+      // a graduated pump curve listed under the same base mint forever
+      // (verified on-chain 2026-08-20), so resolving the OLD stand-in is a
+      // deterministic identity check: it returns the real mint on BOTH sides
+      // of a migration. Same mint => it was one coin all along => restore
+      // the armed intent and rekey the bag from the stand-in to the real
+      // mint. A different mint, or no answer, => a genuine coin switch; the
+      // legacy drop semantics stand.
+      // This must run AFTER setToken: the restore would otherwise be
+      // re-dropped by setToken's rename logic, and the rekey targets the
+      // STAND-IN key, not the pending intermediate identity setToken just
+      // renamed away from.
+      const stash = swapStash;
+      swapStash = null;
+      if (stash && stash.fromMint && data.mint) {
+        let proven = stash.fromMint === data.mint;
+        if (!proven) {
+          try {
+            const old = await R.resolve(stash.fromMint, { chain: candidate.chain, maxAgeMs: 30000 });
+            if (old && old.mint && old.mint === data.mint) proven = true;
+          } catch (e) { /* best-effort: unprovable keeps the legacy drop */ }
+        }
+        if (proven) {
+          if (stash.armedBuy) {
+            armedBuy = stash.armedBuy;
+            armedBuy.mint = data.mint;
+            renderBuyButton();
+          }
+          if (stash.fromMint !== data.mint) rekeyLiveState(stash.fromMint, data.mint);
+        }
+      }
       // Rug verdicts read Solana holder state — a foreign chain has no
       // verdict, and the guard stays silent rather than pretending.
       if (!data.chain || data.chain === 'solana') refreshRugVerdict(data.mint);
@@ -1228,13 +1296,29 @@
       lastPriceAt = Date.now();
       series.push({ t: lastPriceAt, p: token.priceNative, usd: token.priceUsd });
       if (series.length > SERIES_CAP) series.shift();
-      E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
+      // F-55: this resolver adoption also re-marks any HELD position in this
+      // token — the same dust-pool phantom guard applies before it may.
+      {
+        const pos55 = state.positions[token.mint];
+        const guard55 = pos55
+          ? Q.rugGuardVerdict(fresh.priceNative, pos55.lastPriceNative, fresh.liquidityUsd)
+          : 'pass';
+        if (guard55 === 'refuse') {
+          console.debug('PaperTrench: refused phantom up-mark for ' + token.mint
+            + ' from a collapsed pool (resolver refresh, ' + fresh.liquidityUsd
+            + ' USD liq) F-55');
+        } else {
+          E.markPosition(state, token.mint, fresh.priceNative, fresh.priceUsd);
+        }
+      }
       maybeProfitAlert(token.mint);
       // A resolver quote is the only fresh cap a brand-new pair gets before
       // the site's feed is hookable; an alert armed on one must fire here too.
       evaluateMcAlerts(token.mint, token);
       // C-01: an adopted resolver quote moves the price like any tick does.
       maybeRepostAverageLines();
+      // F-55 partner: the resolver path re-marks held positions below; the
+      // batch-path guard comment applies identically here — see batch path.
       if (usesSvgMarkers()) CM.tickPrice(genericChartPoint(token.priceNative, token.priceUsd, token.mcap).plot);
       persistSoon();
       renderHeader();
@@ -1243,6 +1327,10 @@
       // resolver indexes it before the site's chart feed is hookable — so an
       // armed buy must fire from this path too, or the button stays "ARMED"
       // forever while the price is plainly on screen.
+      // F-54: a resolver quote IS the independent second source — it
+      // corroborates whatever the bootstrap tick said (or provides the first
+      // price itself, in which case the page feed will corroborate it).
+      acceptedTickCount += 1;
       flushArmedBuy();
     } catch (e) {
       /* transient network failure; the next beat retries */
@@ -5112,6 +5200,16 @@
       toast('Armed buy expired — the quote took too long');
       return;
     }
+    // F-54: on a fresh launch the FIRST accepted price is self-witnessing —
+    // a lagging site feed can be minutes stale while the coin already ran.
+    // Require corroboration: a second accepted tick OR two sources total
+    // (bootstrap tick + resolver quote, in either order). The TTL expiry
+    // above still bounds the wait; a genuinely new price fills one beat
+    // later when its second source lands.
+    if (acceptedTickCount < 2) {
+      renderBuyButton();
+      return;
+    }
     let amount = armedBuy.amount;
     const armedUsd = Number(armedBuy.usd) > 0 ? Number(armedBuy.usd) : null;
     armedBuy = null;
@@ -5602,11 +5700,24 @@
         const quote = prices[mint];
         if (!quote || !(quote.priceNative > 0)) continue;
         if (positionMints.includes(mint)) {
-          livePositionPrices[mint] = { priceNative: quote.priceNative, priceUsd: quote.priceUsd };
-          // Mark the engine too, so peak/trough and equity stay truthful for
-          // positions the user never has on screen.
-          E.markPosition(state, mint, quote.priceNative, quote.priceUsd);
-          changed = true;
+          // F-55: an up-print from a collapsed pool is a dust-pool phantom —
+          // it may not re-mark a position (the rug-green-PnL bug). Down
+          // prints pass: a rug is supposed to hurt.
+          const pos55 = state.positions[mint];
+          const guard55 = pos55
+            ? Q.rugGuardVerdict(quote.priceNative, pos55.lastPriceNative, quote.liquidityUsd)
+            : 'pass';
+          if (guard55 === 'refuse') {
+            console.debug('PaperTrench: refused phantom up-mark for ' + mint
+              + ' from a collapsed pool (' + quote.liquidityUsd + ' USD liq, '
+              + pos55.lastPriceNative + ' -> ' + quote.priceNative + ') F-55');
+          } else {
+            livePositionPrices[mint] = { priceNative: quote.priceNative, priceUsd: quote.priceUsd };
+            // Mark the engine too, so peak/trough and equity stay truthful for
+            // positions the user never has on screen.
+            E.markPosition(state, mint, quote.priceNative, quote.priceUsd);
+            changed = true;
+          }
         }
         if (E.notePostExitPrice(state, mint, quote.priceNative, now)) changed = true;
         if (mcAlertsOn() && E.triggeredAlerts(state, mint, quote).length) dueAlerts.push([mint, quote]);

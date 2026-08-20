@@ -7,7 +7,7 @@ details live in the commit messages.
 
 The feedback batch. You talked in the Discord, we shipped: four of the most
 requested UI pieces plus the three crash-level bugs (see the P0 notes below),
-all locked with tests — the suite grew from 1,548 to 1,567.
+all locked with tests — the suite grew from 1,548 to 1,579.
 
 - **See how much you've bought, held, and sold.** jb asked for lifetime flow
   numbers "whilst trading" — they're now on the dashboard sidebar and in the
@@ -24,6 +24,33 @@ all locked with tests — the suite grew from 1,548 to 1,567.
   there forever? New setting: Quick-buy chip placement → Bottom-right.
 - **Quick-buy chip size + position**: the size slider you know
   (0.6–1.5×) stays, and placement is now controllable too.
+- **A fresh-launch snipe no longer fills on the first price it sees.**
+  Field reports (Terp ×3, rashawn; seeded by sednation): a snipe on a
+  20k-MC coin recorded at 6k — the first quote after indexing lagged the
+  market, and with no earlier price on file there was nothing to disagree
+  with, so it witnessed itself. An armed buy now needs corroboration — a
+  second accepted tick or an independent resolver quote — before it may
+  fill. A lone quote leaves the intent armed until its own TTL expires it
+  visibly. Never a fill on a guess.
+- **A dead bag can no longer render gloriously green.** Field reports
+  (Rems ×3/week, husm "from 2.7 to +300", Tanza): the coin rugs, the pool
+  drains to dust, and the next print out of that dust pool re-marks your
+  open bag at an absurd price — equity exploding on a coin that already
+  died. Liquidity is the honest discriminator: you cannot sell into a
+  drained pool at a higher price. An up-print beyond +25% from a
+  collapsed pool (under $2k of liquidity) is refused and the position
+  keeps its last honest mark; a down-print always passes, because a rug
+  is supposed to hurt. Missing liquidity data means the guard stands
+  aside — it never blocks on absence.
+- **Your armed buy and your bag survive graduation.** When a pump.fun
+  coin graduates, the terminal redirects from the curve page to the pool
+  page under a new address — and an armed buy or open bag filed under the
+  curve's stand-in address used to be dropped in the move, rendered as if
+  you never armed or bought. The armed order and the position now ride
+  across the redirect when the pool resolves to the same base coin
+  (identity proven, never guessed), rekeyed to the real mint — and the
+  armed buy revives and fires at the pool's first honest quote. A
+  different coin never inherits anything.
 
 ## v3.5.0 — 2026-08-11
 

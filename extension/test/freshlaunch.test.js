@@ -788,3 +788,83 @@ test('measured supply: bootstrapSupply prefers the measured value and refuses th
   assert.equal(Q.bootstrapSupply({ mint: BONK_MINT }), null,
     'no measurement and no protocol constant -> no supply, honestly');
 });
+
+
+/* ---------------- F-54: the first quote alone must not fill a snipe --------
+ *
+ * Field reports (Terp x3, rashawn; seeded by sednation): fresh-launch snipes
+ * filled at a stale/lagging first quote — a 20k-MC coin recorded at 6k. The
+ * fill witness (F-47) guards divergence against ACCEPTED evidence, but at
+ * bootstrap there is no prior evidence: the first tick is self-witnessing.
+ * F-54 requires corroboration — a second accepted tick or a resolver quote —
+ * before an armed buy may fill. One lone quote must leave the intent armed
+ * until its TTL expires it visibly, never filling on a guess.
+ */
+
+test('F-54: a single uncorroborated first quote never fills an armed buy', async () => {
+  let indexed = false;
+  const ov = runFreshLaunch({ resolved: () => indexed });
+
+  await ov.advance(2000);
+  assert.match(ov.priceText() || '', /waiting|fetching/i, 'pending before indexing');
+
+  ov.setInput('pt-custom', '1');
+  ov.clickShadow('pt-buy');
+  assert.match(ov.buyButtonText() || '', /ARMED/, 'the intent arms while unindexed');
+
+  // Exactly ONE resolver adoption: a 100ms window is shorter than the
+  // requote cadence (single-flight, >=300ms), so one fetch round sees it.
+  indexed = true;
+  await ov.advance(100);
+  indexed = false;
+
+  // The price is on screen now (first accepted quote) — but it is
+  // self-witnessing. The armed buy must NOT fill on it.
+  assert.match(ov.buyButtonText() || '', /ARMED/,
+    'F-54: one lone first quote must not price the snipe');
+  let st = ov.storage().pt_state;
+  assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
+    'no position may exist after a single uncorroborated quote');
+
+  // Silence after: no second source ever corroborates. The TTL must expire
+  // the intent visibly instead of filling on a guess.
+  await ov.advance(61_000);
+  assert.doesNotMatch(ov.buyButtonText() || '', /ARMED/,
+    'the lone-quote intent must expire, not linger');
+  st = ov.storage().pt_state;
+  assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
+    'F-54: an expired lone-quote buy must never have filled');
+});
+
+test('F-54: corroboration is structural — the guard and its counters are wired', () => {
+  const content = fsMod.readFileSync(pathMod.join(__dirname, '..', 'content.js'), 'utf8');
+
+  // The counter exists and is per-token (reset when the panel switches coins).
+  assert.match(content, /let acceptedTickCount = 0;/,
+    'the accepted-tick counter must exist');
+  assert.match(content, /acceptedTickCount = 0;/,
+    'it must reset when the on-screen token changes');
+
+  // Page ticks count.
+  assert.match(content, /acceptedTickCount \+= 1;/,
+    'accepted page ticks must increment corroboration');
+
+  // The resolver path is an independent source and counts too.
+  const resolverIdx = content.indexOf('F-54: a resolver quote IS the independent second source');
+  assert.ok(resolverIdx !== -1,
+    'the resolver adoption site must document its F-54 role');
+  const afterResolver = content.slice(resolverIdx, resolverIdx + 600);
+  assert.match(afterResolver, /acceptedTickCount \+= 1;/,
+    'a resolver quote must corroborate the bootstrap price');
+
+  // The guard itself sits in flushArmedBuy, before any doBuy call.
+  const fnStart = content.indexOf('function flushArmedBuy()');
+  const fnEnd = content.indexOf('function renderBuyButton()', fnStart);
+  const fn = content.slice(fnStart, fnEnd);
+  assert.match(fn, /if \(acceptedTickCount < 2\)/,
+    'flushArmedBuy must refuse to fill below two accepted prices');
+  const guardIdx = fn.indexOf('if (acceptedTickCount < 2)');
+  const buyIdx = fn.indexOf('doBuy(');
+  assert.ok(guardIdx !== -1 && buyIdx !== -1 && guardIdx < buyIdx,
+    'the corroboration guard must run before the fill');
+});
