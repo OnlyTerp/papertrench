@@ -28,6 +28,21 @@
 
   const RELEASES = [
     {
+      v: '3.6.0', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature', 'fix'],
+      title: 'The feedback batch — four UI asks and the three crash-level bugs',
+      blurb: 'You talked in the Discord, we shipped: lifetime flow numbers whilst trading, thicker order lines, a quick-buy chip that stops covering the market cap — and the three bugs that made fills lie: snipes filling on one lagging quote, dead bags rendering gloriously green after a rug, and armed buys vanishing at pump.fun graduation.',
+      points: [
+        '<b>See how much you’ve bought, held, and sold — whilst trading.</b> Lifetime flow numbers are now on the dashboard sidebar and in the popup. Bought and sold are the order sizes you placed (not fee-shrunk); held is the surviving cost of open positions. Old wallets get correct numbers with no migration.',
+        '<b>Thicker order lines.</b> TP/SL and average lines have a width setting (1–4 px) for dense charts — and changing it redraws lines you already placed.',
+        '<b>The quick-buy chip no longer sits on top of the market cap</b> in ultra terminal format. It checks where it’s about to paint and drops to the bottom-right gutter if it would cover the row’s own content — on every site we inject into. Prefer it pinned there forever? New setting: chip placement → bottom-right.',
+        '<b>Quick-buy chip size and position are both controllable now</b> — the size slider stays, placement is new.',
+        '<b>A fresh-launch snipe no longer fills on the first price it sees.</b> Reported again and again: a snipe on a 20k-MC coin recorded at 6k. At bootstrap the first quote had nothing to disagree with, so it witnessed itself. An armed buy now needs corroboration — a second accepted tick or an independent resolver quote — before it may fill; a lone quote leaves the intent armed until its own TTL expires it visibly. Never a fill on a guess.',
+        '<b>A dead bag can no longer render gloriously green.</b> The coin rugs, the pool drains to dust, and the next print out of that dust pool used to re-mark your open bag at an absurd price — “from 2.7 to +300”. You cannot sell into a drained pool at a higher price, so an up-print beyond +25% from a collapsed pool (under $2k liquidity) is refused and the position keeps its last honest mark. Down-prints always pass — a rug is supposed to hurt.',
+        '<b>Your armed buy and your bag survive graduation.</b> When a pump.fun coin graduates, the terminal redirects to the pool page under a new address — and anything filed under the curve’s stand-in address was dropped in the move, as if you never armed or bought. The armed order and the position now ride across the redirect when the pool provably resolves to the same base coin, rekeyed to the real mint — and the armed buy revives and fires at the pool’s first honest quote. A different coin never inherits anything.',
+      ],
+    },
+    {
       v: '3.5.0', date: 'Aug 11, 2026', iso: '2026-08-11',
       tags: ['fix', 'security'],
       title: 'The Arena repair — submissions accepted again, and the pipeline audited for prize money',
