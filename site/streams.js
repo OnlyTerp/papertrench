@@ -20,11 +20,21 @@
       name: 'OnlyTerp',                  // display name on the card
       blurb: 'Builds PaperTrench and trades the same paper wallet as everyone else — live launches, real charts, zero real money.',
     },
-    // {
-    //   login: 'thetrenchking',            // twitch.tv/<login> — lowercase
-    //   name: 'The Trench King',           // display name on the card
-    //   blurb: 'Scalps fresh pump.fun launches with 0.5 SOL clips and a hard stop rule.',
-    // },
+    {
+      login: 'profitabledegen',          // twitch.tv/<login> — lowercase
+      name: 'ProfitableDegen',           // display name on the card
+      blurb: 'Unhinged trencher from NYC, streaming the challenge daily.',
+    },
+    {
+      login: 'chillygmi',                // twitch.tv/<login> — lowercase
+      name: 'Chillygmi',                 // display name on the card
+      blurb: 'Heavy 2024–25 memecoin trader documenting the comeback run on TikTok and Twitch.',
+    },
+    {
+      login: 'plahstickk',               // twitch.tv/<login> — lowercase
+      name: 'plahstickk',                // display name on the card
+      blurb: 'Weekend challenge runs — fresh eyes on the trenches.',
+    },
   ];
 
   // Where "Sign up as a streamer" points. Paste the Google Form share link
