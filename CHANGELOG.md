@@ -3,6 +3,25 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.16 — 2026-08-21
+
+**The snipe survives the click-through; TP/SL hold their line.** Four live
+reports:
+
+- **Bought on the board, opened the chart — nothing there.** The armed chip
+  buy lived only in the board tab; clicking the coin killed it. The intent
+  now mirrors into the extension itself and the coin's own page adopts it:
+  the fill lands where you're looking, position and line included.
+- **TP/SL lines moved as MC moved.** The chart draw re-derived the level
+  from the live price every sweep. A level set at an MC is now pinned to
+  that MC — the market can 4x under it and the line stays put.
+- **Some coins still weren't instant.** The armed buy only probed twice;
+  a coin whose sources missed both moments waited for the next board tick.
+  It now re-probes every 1.5 s until it fills or the minute runs out.
+- **The quickbuy box showed the CA.** Before falling back to the short
+  mint, the panel now reads the coin's name off the page itself — every
+  venue headlines what it's showing.
+
 ## v3.9.15 — 2026-08-21
 
 **Identity heals; the buy latch can never wedge.** Two live reports from the
