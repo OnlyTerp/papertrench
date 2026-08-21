@@ -3,6 +3,25 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.15 — 2026-08-21
+
+**Identity heals; the buy latch can never wedge.** Two live reports from the
+stream floor:
+
+- Sniping a brand-new pair showed **"Unknown token"** as the panel title and
+  **"Bought 0.1 SOL of (null)"** as the fill toast. The panel now backfills
+  the coin's symbol/name from the page's own first symbol-carrying tick —
+  header, toast, and positions bar all heal live — and before any symbol
+  arrives the title shows the shortened mint (DezX…B263) instead of the
+  dead-end string. `null` can never print again.
+- One failed snipe on a weird pair left **"Row buy already in progress…"**
+  on every following buy, on every coin, until reload. Root cause: the
+  pricing cascade awaited with no bound, so a hung resolver/RPC never
+  released the in-flight latch. The cascade is now raced against a hard 10s
+  bound (a hung source falls through to the normal arm-and-fire), and the
+  1-second heartbeat frees any buy/sell/row latch older than 20s with a
+  visible "released — try again" toast. Belt and suspenders.
+
 ## v3.9.14 — 2026-08-21
 
 **The board chip never refuses a fresh coin.** Tapping a quick-buy chip on
