@@ -28,6 +28,13 @@
 
   const RELEASES = [
     {
+      v: '3.9.4', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['fix', 'honesty'],
+      title: 'Honest cards — no more made-up market caps',
+      blurb: 'If any fill on a side of the round predates the mcap feed, the card shows the price line instead of a quietly wrong average. All-or-nothing, same as the USD rule.',
+      link: '',
+    },
+    {
       v: '3.9.3', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'The discipline co-crown — P&L’s quiet rival',

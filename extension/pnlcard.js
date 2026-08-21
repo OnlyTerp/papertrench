@@ -225,12 +225,27 @@
       );
       return total > 0 ? total / qty : null;
     };
+    // D-09: an mcap average is only honest if EVERY fill on the side
+    // recorded one. Fresh-launch fills often pre-date the mcap tick and
+    // carry mcap: null; the plain weighted() above counts their qty in the
+    // denominator but 0 in the numerator, understating the entry/exit mcap
+    // on the card — the exact shape usdTotal/weightedUsd guard against
+    // elsewhere. All-or-nothing: incomplete set → null → the card falls
+    // back to the price line, never a partial average that pretends to be
+    // the whole story.
+    const weightedMcap = (list) => {
+      // Only fills that actually contribute qty to the average get a vote;
+      // a zero-qty row carries no information either way.
+      const real = list.filter((t) => num(t.qty) > 0);
+      const ok = real.length > 0 && real.every((t) => num(t.mcap) > 0);
+      return ok ? weighted(real, 'mcap') : null;
+    };
     return {
       ...round,
       entryPrice: weighted(buys, 'priceNative'),
       exitPrice: weighted(sells, 'priceNative'),
-      entryMcap: weighted(buys, 'mcap'),
-      exitMcap: weighted(sells, 'mcap'),
+      entryMcap: weightedMcap(buys),
+      exitMcap: weightedMcap(sells),
       investedUsd: usdTotal(trades, 'buy', 'solGross'),
       returnedUsd: usdTotal(trades, 'sell', 'solNet'),
       // The trainer that tells the truth: every fill's simulated fee is

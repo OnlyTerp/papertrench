@@ -1375,8 +1375,9 @@ Baseline changes without touching cashSol → fresh wallet + set 1 → "Total re
 **fixed v2.0.0** (gross-invested basis for open AND closed %, netInvestedSol tracked through partials)
 
 **D-09 · S1 · Share card entry/exit mcap understated when any fill lacks mcap**
-`dashboard.js:1512-1519` · confirmed · open — null-mcap fills contribute qty to the
-denominator, 0 to the numerator; the exact bug `weightedUsd` guards against elsewhere.
+`dashboard.js:1512-1519` · confirmed · **fixed v3.9.4** (all-or-nothing mcap average in `roundCardSource`: if any fill on a side lacks mcap, the average is null and the card falls back to the price line — same discipline as `usdTotal`/`weightedUsd`; zero-qty fills carry no vote; locked by `test/d09_mcap.test.js`)
+`weighted(buys, 'mcap')` counts null-mcap fills' qty in the denominator, 0 in the
+numerator; the exact bug `weightedUsd` guards against elsewhere.
 
 **D-10 · S1 · Quick-sell presets accept >100 % → a "500%" button that sells 100 %**
 `dashboard.js:2039`, `content.js:3464-3471`, `engine.js:284` · confirmed · **fixed v2.0.0** (sell presets validated 1..100, deduped, capped 8)
@@ -1530,6 +1531,7 @@ sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js:1126-1137` · con
 **fixed v2.1.0** — renderMomentMedia, renderReplayTape AND formatUnix deleted (correction: the v2.0.0 close-out claimed formatUnix was already gone; it was still live with zero call sites).
 **partial v2.0.0:** formatUnix removed; renderMomentMedia/renderReplayTape deletions deferred to the next dashboard touch.
 **D-47 · S5** "Saved." written into the AI-test output span and never cleared — `dashboard.js:2077`.
+**fixed v1.3.0** (register catch-up 2026-08-20: fix landed with the wave-1 batch `b252e52`, locked by `test/dashboardfixes.test.js`, but was never marked here).
 **D-48 · S5** Journal fee column shows entire gross as fee for legacy fills missing solNet; recorded feeSol unused — `dashboard.js:634`.
 **fixed v2.0.0** — fee column prefers the recorded feeSol; em-dash when underivable.
 **D-49 · S5** Coach prompts stamp UTC ISO; calendar buckets local days — day boundaries disagree — `dashboard.js:810`, `background.js:456`, `engine.js:704-708`.
@@ -1539,7 +1541,9 @@ sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js:1126-1137` · con
 **fixed v2.1.0** — both live dataUrl interpolations escaped; the third site was inside deleted dead code.
 **backlog (v2.1):** frame data URLs are self-generated JPEG captures (attacker cannot control content), so exposure is low; esc() them on the next dashboard touch anyway.
 **D-51 · S5** seq double-bumped on dashboard reset — `engine.js:932` + `dashboard.js:2013`.
+**fixed v1.3.0** (register catch-up 2026-08-20: dashboard no longer bumps seq after `E.resetState` — the engine owns the bump; locked by `test/dashboardfixes.test.js`).
 **D-52 · S5** sessionStats counts break-even rounds as losses — `engine.js:407`.
+**fixed v1.3.0** (register catch-up 2026-08-20: a break-even round is neither win nor loss; win rate is judged over decided rounds only; locked by `test/dashboardfixes.test.js`).
 **D-53 · S5** dashboard.js loaded before #card-modal — currently safe only by accident of async init — `dashboard.html:643-644`.
 **fixed v2.0.0** — the modal now precedes the dashboard.js script tag for real.
 

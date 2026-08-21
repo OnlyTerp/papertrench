@@ -3,6 +3,15 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.4 — 2026-08-20
+
+**Honest cards** — no more made-up market caps. If even one fill on a side of
+the round happened before the market-cap feed woke up, the card now shows the
+price line instead of a quietly wrong "in at 200K" that was really 240K. Same
+all-or-nothing rule the USD figures always followed. Five new tests lock it.
+Register catch-up: D-47/D-51/D-52 were already fixed in code but never marked
+in DEFECTS.md — now they are.
+
 ## v3.9.3 — 2026-08-20
 
 **Discipline co-crown** — the KPI row now grades your process, not just your
