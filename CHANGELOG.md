@@ -3,6 +3,20 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.14 — 2026-08-21
+
+**The board chip never refuses a fresh coin.** Tapping a quick-buy chip on
+a coin seconds old used to answer "Could not price that token yet" — the
+banned refusal — while the panel path already knew how to arm and fire.
+Now the row path arms exactly like the panel: the cascade (freshest
+network read → 60s display cache → the row's own realtime print → a direct
+pool/bonding-curve probe) never ends in a refusal; a miss arms the trade,
+and the armed intent fires the instant any leg lands a price — the board's
+own mint tick, a resolver response, or the chain probe returning — within
+a 60s TTL, after which it expires honestly with a toast instead of
+trading stale. Measured live: a brand-new pair's chip filled in 1.85s with
+zero refusals; the panel path re-verified at 0.5s on an established coin.
+
 ## v3.9.13 — 2026-08-21
 
 **Click. Fill. No narration, no corroboration wait.** Buying a coin the
