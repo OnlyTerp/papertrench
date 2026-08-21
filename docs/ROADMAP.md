@@ -52,6 +52,9 @@ building. Ranked by leverage:
 5. **Survival mode (opt-in).** Blow the season stake = eliminated from the
    season (not from the product). Scarcity makes the paper money feel
    real; elimination is the honest lesson. Opt-in, one season at a time.
+   **v3.9.1: SHIPPED** — Survival Season, elimination at 20% of
+   season-start equity (reconstructed from the journal; nothing stored),
+   standard season untouched.
 6. **Spoiler-free share cards.** Wordle's grid beat its gameplay: the card
    must not spoil (no final PnL), must be legible in 2 seconds, must
    provoke "what happened?" The round card is close; season cards (item 1)
