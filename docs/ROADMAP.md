@@ -32,6 +32,11 @@ building. Ranked by leverage:
    rank ladder + rounds ledger. Add: a season pointer (`activeGame` pattern
    already exists, GAMIFY.md §4), a Monday-reset window, and a season-end
    share card. Discipline-graded, never PnL-ranked (doctrine §1).
+   **v3.9.0: SHIPPED** — opt-in 7-day season (rolling from start), three
+   gates (10+ rounds / 80% journaled / avg grade B+), belt banks on
+   qualification, past belts derived from journal windows. Remaining on
+   this item: global cohorts + season-end share card (need the leaderboard
+   backend → wrangler re-auth).
 2. **Broad payouts, not winner-takes-all.** Moomoo paid 61k of ~150k
    entrants — nobody needs top-3 to feel like a winner. Season rewards
    should pay down a long tail (top 40% by discipline grade), matching the
