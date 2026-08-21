@@ -49,6 +49,9 @@ building. Ranked by leverage:
    PnL board AND discipline board, same trophy. The discipline board is
    the on-brand one; the PnL board is the bait that gets looked at.
    Gamify.js already computes both grades — surface them side by side.
+   **v3.9.3: LOCAL HALF SHIPPED** — KPI row carries the lifetime
+   discipline letter (S–D, /4 avg) beside Realized P&L at equal weight.
+   Boards half (two boards, two kings) lands with the D1 leaderboard.
 5. **Survival mode (opt-in).** Blow the season stake = eliminated from the
    season (not from the product). Scarcity makes the paper money feel
    real; elimination is the honest lesson. Opt-in, one season at a time.
