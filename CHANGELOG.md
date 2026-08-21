@@ -3,6 +3,20 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.9 — 2026-08-21
+
+**New-pairs sniping is chain-native now** — the board buys you're doing the
+second a coin lists no longer depend on any aggregator.
+- Screener quick-buys (the chips on the new-listed / about-to-bond / just
+  graduated boards) now go straight to the CHAIN when the aggregators and
+  the site API haven't indexed the coin yet: the same on-chain probe the
+  chart panel uses reads the pool or bonding curve directly from RPC state
+  and fills on tap — pump curves included. A coin on the board for one
+  second prices on tap; the "open its chart to buy" refusal now only
+  survives for something literally not on-chain.
+- Panel buys keep the venue-quote + click-acquisition ladder from 3.9.8;
+  the armed state remains the last resort.
+
 ## v3.9.8 — 2026-08-21
 
 **Buying a coin that just came out now fills INSTANTLY — no more "waiting for

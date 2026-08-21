@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.9.9', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'New-pairs sniping is chain-native — the tap prices straight from the pool',
+        body: 'The quick-buy chips on the new-listed, about-to-bond and just-graduated boards no longer depend on any aggregator or site API to price a coin that is one second old. The tap probes the pool or bonding curve directly on chain — the same probe the chart panel uses — and fills on the spot, pump curves included. The "open its chart to buy" refusal now only survives for a coin that is not on chain yet.'
+      },
+      {
         v: '3.9.8', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'buy'],
         title: 'Fresh-launch buys fill instantly — "waiting for the first quote" is gone',

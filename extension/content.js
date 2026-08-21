@@ -5503,6 +5503,29 @@
     };
   }
 
+  /** The CHAIN layer for a row snipe (D-38). A pair on a new-coin board is
+   * on-chain the second the card renders — the pool or bonding curve holds
+   * a price long before any aggregator indexes it. The prewatch probe reads
+   * it directly (pump curve from a mint; a pool from its account), exactly
+   * as the panel's pending-token path does. An identity/supply-only answer
+   * stays honest: no price, no fill. */
+  async function rowChainQuote(addr, kind) {
+    if (!addr || !ROW_ADDR_RE.test(addr)) return null;
+    const ids = kind === 'pair' ? { pool: addr } : { mint: addr };
+    const found = await R.onchainPrewatch(ids).catch(() => null);
+    if (!found || !found.mint || !(Number(found.priceNative) > 0)) return null;
+    return {
+      mint: found.mint,
+      pairAddress: found.pool || null,
+      symbol: null,
+      name: null,
+      priceNative: Number(found.priceNative),
+      priceUsd: null,
+      mcap: null,
+      priceSource: 'row-onchain',
+    };
+  }
+
   /**
    * Chips on screener rows are injected by the MAIN-world bridge (only it can
    * read React fibers, which rows without an address link need for their
@@ -5576,7 +5599,9 @@
       // D-38: a coin minutes old is unindexed by every aggregator while the
       // row's own realtime feed already prints it. Cascade: freshest network
       // read, then the 60 s display cache, then the row feed (GMGN
-      // token_activity — mint-tagged USD), then the honest refusal.
+      // token_activity — mint-tagged USD), then the CHAIN — a new-coin row
+      // is on-chain the second the card exists, and the prewatch probe
+      // prices the pool/curve directly — then the honest refusal.
       let data = await R.resolve(address, { maxAgeMs: 3000 });
       if (!data || !(data.priceNative > 0)) data = await R.resolve(address);
       if (!data || !(data.priceNative > 0)) {
@@ -5589,6 +5614,9 @@
             priceSource: 'row-feed',
           };
         }
+      }
+      if (!data || !(data.priceNative > 0)) {
+        data = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
       }
       if (!data || !(data.priceNative > 0)) {
         toast('Could not price that token yet — open its chart to buy');

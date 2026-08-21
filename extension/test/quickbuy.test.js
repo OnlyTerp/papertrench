@@ -170,7 +170,9 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // The tap must not trigger the row's own navigation or click handlers.
   assert.match(bridge, /ev\.preventDefault\(\);\s*\n\s*ev\.stopPropagation\(\);\s*\n\s*ev\.stopImmediatePropagation\(\);/);
   // The fill goes through the engine and the attestation chain, like any buy.
-  assert.match(content, /doRowBuy[\s\S]{0,2600}E\.buy\(state, settings/);
+  // (Window widened when the D-38 CHAIN leg — rowChainQuote — joined the
+  // cascade: a new-coin row is priced straight from the pool/curve on-chain.)
+  assert.match(content, /doRowBuy[\s\S]{0,3400}E\.buy\(state, settings/);
   assert.match(content, /doRowBuy[\s\S]{0,3400}commitFill\(filled\.trade\)/);
   // The screener's own realtime price is preferred when fresh.
   assert.match(content, /recentRowPrices/);
@@ -287,7 +289,8 @@ test('a row tap prices from its own live feed when every resolver source is sile
   // A coin minutes old is unindexed by every aggregator while the row's own
   // realtime feed already prints it. The row buy cascades: freshest network
   // read, then the 60 s display cache, then the row feed itself, then the
-  // honest refusal — never a guessed price.
+  // CHAIN — a new-coin row is on-chain the second the card exists — then
+  // the honest refusal. Never a guessed price.
   assert.match(content, /let data = await R\.resolve\(address, \{ maxAgeMs: 3000 \}\)/,
     'the fill path still demands feed-fresh prices first');
   assert.match(content, /if \(!data \|\| !\(data\.priceNative > 0\)\) data = await R\.resolve\(address\);/,
@@ -298,6 +301,14 @@ test('a row tap prices from its own live feed when every resolver source is sile
     'it reads the mint-tagged USD price the row itself displays');
   assert.match(content, /priceSource: 'row-feed'/,
     'a row-feed fill is attributed to its source, never laundered');
+  assert.match(content, /async function rowChainQuote\(addr, kind\)/,
+    'the chain leg of the cascade exists');
+  assert.match(content, /rowChainQuote\(address, site && site\.rowBuy && site\.rowBuy\.kind\)/,
+    'the row buy asks the chain with the row kind that keys its probe');
+  assert.match(content, /onchainPrewatch\(ids\)/,
+    'the probe runs through the same prewatch the panel uses');
+  assert.match(content, /priceSource: 'row-onchain'/,
+    'a chain-filled row is attributed to the chain, never laundered');
   assert.match(content, /Bought .*E\.fmt\(amount, 3\).*SOL of/,
     'the confirmation still reads like a fill, not a placeholder');
 });
