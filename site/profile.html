@@ -641,7 +641,7 @@
             <div class="ar-prof-chips">
               ${record ? chipFor(record.status) : '<span class="ar-provisional">No record submitted</span>'}
               ${profile.clan ? L.clanTag(profile.clan.tag, { title: profile.clan.name }) : ''}
-              ${record && !record.stats.rankable ? '<span class="ar-provisional">Unranked · 5 rounds minimum</span>' : ''}
+              ${record && !(record.stats.rankable && record.status === 'verified') ? '<span class="ar-provisional">Unranked · ' + (record.status === 'verified' ? '5 rounds minimum' : 'verification pending') + '</span>' : ''}
               ${tier ? `<div class="ar-badge t-${esc(tier)}" title="Highest badge tier in this trader's case. The card's edge follows it."><div class="mark" aria-hidden="true">★</div><div><div class="nm">${esc(tier[0].toUpperCase() + tier.slice(1))} case</div><div class="ev">${esc(String((record.badges || []).length))} badge${(record.badges || []).length === 1 ? '' : 's'} earned</div></div></div>` : ''}
             </div>
             ${clanLine(profile.clan, record)}
@@ -757,7 +757,9 @@
         <span style="font-family:var(--mono)">1 − ½·revenge − ¼·drawdown</span>, floored at 0.25.
         This record re-entered a mint it had just lost on in
         <strong>${esc(fmt((Number(stats.revengeRatio) || 0) * 100, 0))}%</strong> of its losing rounds.
-        ${stats.rankable ? '' : 'Fewer than five closed rounds, so this score is computed but does not rank.'}</p>`);
+        ${(stats.rankable && stats.verified === true) ? '' : (stats.verified === true
+          ? 'Fewer than five closed rounds, so this score is computed but does not rank.'
+          : 'Verification has not cleared, so this score is computed but does not rank.')}</p>`);
   }
 
   /* ------------------------------------------------------------ badges --- */
@@ -1276,7 +1278,7 @@
     // can be enormous. The chip says REJECTED; this says it again in words,
     // because a screenshot is read at a glance and once.
     if (record.status === 'rejected') caveats.push('Failed verification — these are the replayed figures of a rejected submission.');
-    if (!stats.rankable) caveats.push('Not ranked — five clean-repricing rounds minimum.');
+    if (!(stats.rankable && record.status === 'verified')) caveats.push('Not ranked — ' + (record.status === 'verified' ? 'five closed rounds minimum.' : 'verification ' + record.status + '.'));
     if (record.claimMismatch) caveats.push('Displayed P&L differed from the chain replay; the replayed number is shown.');
     if (caveats.length) {
       g.font = '600 15px ' + SANS;
@@ -1477,7 +1479,8 @@
 
     renderRecord(Object.assign({}, record.stats,
       { verified: record.status === 'verified', statusText: record.status }));
-    renderScore(record.stats);
+    renderScore(Object.assign({}, record.stats,
+      { verified: record.status === 'verified' }));
     renderBadges(record.badges);
     renderProof(record);
     renderSprints(body.sprints);

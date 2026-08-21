@@ -612,6 +612,33 @@ test('the production respelling is refused in a tag, a name and a motto alike', 
   assert.equal(C.nameProblem('Niger Delta Bulls'), null);
 });
 
+test('the l-respelling is refused, and the innocent hosts near it are not', () => {
+  // 'nlgar' is the same term with i read as lowercase-L — a substitution the
+  // leet fold cannot derive (it folds digits, not letters), so it is its own
+  // entry on the token list rather than a derived one. The corpus additions
+  // are the neighbours that could have been caught along with it and were
+  // not: the ordinary verb, whose SUBSTRING contains nothing blocked at all,
+  // in a name and in a motto.
+  assert.equal(C.nameProblem('Nlgar Rapers'), 'name-blocked');
+  assert.equal(C.nameProblem('Denigrate Rivals'), null);
+  assert.equal(C.mottoProblem('we denigrate the competition, politely.'), null);
+});
+
+test('the auth write path judges a display name by the same list', async () => {
+  // finishLogin upserts users.display_name from X's me.name — the one place
+  // a user-authored string enters the users table without passing through a
+  // clan form. The lock here is on the judgement itself (blockedContent,
+  // imported by worker/auth.js): the policy is "store the handle instead",
+  // never "refuse the sign-in", and that policy lives in the worker where
+  // the harness below exercises it end to end.
+  assert.equal(C.blockedContent('nigar Rapers On chain'), true);
+  assert.equal(C.blockedContent('Nlgar Crew'), true);
+  assert.equal(C.blockedContent('Denigrate The Competition'), false);
+  assert.equal(C.blockedContent('Niger Delta Bulls'), false);
+  const auth = (await import('../worker/auth.js')).default;
+  assert.equal(typeof auth.finishLogin, 'function', 'the upsert path exists and is exported');
+});
+
 test('every blocked entry is stored in the form the matcher actually compares', () => {
   // A blocked entry that does not survive its own normalization would silently
   // never match, and nothing else would notice.
@@ -620,4 +647,3 @@ test('every blocked entry is stored in the form the matcher actually compares', 
     assert.equal(entry, entry.toLowerCase(), entry + ' must be stored lowercase');
   }
 });
-// regression: live NIGAR clan from the 2026-08-14 audit
