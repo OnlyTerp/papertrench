@@ -3,6 +3,19 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.13 — 2026-08-21
+
+**Click. Fill. No narration, no corroboration wait.** Buying a coin the
+second its chart comes up now fills on the FIRST accepted price — the old
+rule that held a click until a second source agreed is gone for clicks (it
+survives only for intents that were never clicked into being). The quoted
+click also adopts the board row's own realtime price the instant it can —
+the chart is up, the site printed the price, so no resolver or chain round
+trip gets to delay the fill. And the "Buy armed — fires the instant the
+first quote lands" line is deleted, not hidden: an armed intent's only cue
+is the amber button pulse. Measured on the live board: BUY clicked at
+panel-mount filled in ~0.5s, no banner, no waiting state.
+
 ## v3.9.12 — 2026-08-21
 
 **The BUY button reads plain "BUY" — always.** No more "Buy when quoted"

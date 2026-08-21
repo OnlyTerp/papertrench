@@ -54,8 +54,8 @@ test('foreign-chain panels quick-buy in DOLLARS at the recorded rate', () => {
 });
 
 test('a dollar buy on a still-resolving token arms in dollars and converts at fire time', () => {
-  assert.match(content, /armedBuy = \{ amount: solAmount, usd: quotedUsd, at: Date\.now\(\), mint: token\.mint \};/,
-    'the armed intent remembers the currency it was placed in');
+  assert.match(content, /armedBuy = \{ amount: solAmount, usd: quotedUsd, at: Date\.now\(\), mint: token\.mint, fromClick: true \};/,
+    'the armed intent remembers its currency and that a click created it (D-39)');
   assert.match(content, /amount = armedUsd \/ rate;/,
     'the fire-time quote brings the rate the click-time conversion lacked');
   assert.match(content, /if \(!guard\.ok\) \{ toast\(guard\.message\); return; \}/,
@@ -326,6 +326,8 @@ test('a panel buy on a fresh coin acquires the quote on the click before arming 
     'the beat resolves the token actually on the page');
   assert.match(content, /maxAgeMs: 0, chain/,
     'the beat forces a fresh resolver pass — no display-cache land');
-  assert.match(content, /Buy armed — fires the instant the first quote lands/,
-    'arming survives only as the last resort, unchanged in intent');
+  assert.doesNotMatch(content, /Buy armed/,
+    'arming must never narrate — no "Buy armed" wording of any kind (D-39)');
+  assert.match(content, /fromClick === true|fromClick !== true|fromClick: true/,
+    'the click-origin flag is wired through arming and flush');
 });

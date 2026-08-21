@@ -807,18 +807,21 @@ test('measured supply: bootstrapSupply prefers the measured value and refuses th
 });
 
 
-/* ---------------- F-54: the first quote alone must not fill a snipe --------
+/* ---------------- D-39: the first quote fills a CLICK (F-54 roll-on) ------
  *
  * Field reports (Terp x3, rashawn; seeded by sednation): fresh-launch snipes
  * filled at a stale/lagging first quote — a 20k-MC coin recorded at 6k. The
  * fill witness (F-47) guards divergence against ACCEPTED evidence, but at
  * bootstrap there is no prior evidence: the first tick is self-witnessing.
- * F-54 requires corroboration — a second accepted tick or a resolver quote —
- * before an armed buy may fill. One lone quote must leave the intent armed
- * until its TTL expires it visibly, never filling on a guess.
+ * Old F-54 demanded a second source before an armed buy may fill. Terp's
+ * 8/21 roll-on ("no blockers or delays") supersedes it: a click-armed buy
+ * fills on the FIRST accepted quote — the chart is up, the site's own data
+ * prices the coin, and a delayed paper fill is worse than an honest one.
+ * The corroboration gate now applies only to intents never clicked into
+ * existence (structural lock below).
  */
 
-test('F-54: a single uncorroborated first quote never fills an armed buy', async () => {
+test('D-39: a click-armed buy fills on the very FIRST lone quote — no corroboration wait', async () => {
   let indexed = false;
   const ov = runFreshLaunch({ resolved: () => indexed });
 
@@ -830,34 +833,28 @@ test('F-54: a single uncorroborated first quote never fills an armed buy', async
   await ov.settle();
   assert.ok(ov.buyButtonArmed(), 'the intent arms while unindexed');
 
-  // Exactly ONE resolver adoption: a 100ms window is shorter than the
-  // requote cadence (single-flight, >=300ms), so one fetch round sees it.
+  // A short indexed window: requote is single-flight (>=300ms apart), so
+  // at most a beat or two of adoptions land while the coin is visible to
+  // the resolver — nowhere near the two-source wait the old F-54 demanded.
   indexed = true;
-  await ov.advance(100);
+  await ov.advance(700);
   indexed = false;
+  await ov.advance(2000);
 
-  // The price is on screen now (first accepted quote) — but it is
-  // self-witnessing. The armed buy must NOT fill on it.
-  assert.ok(ov.buyButtonArmed(),
-    'F-54: one lone first quote must not price the snipe');
-  let st = ov.storage().pt_state;
-  assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
-    'no position may exist after a single uncorroborated quote');
-
-  // Silence after: no second source ever corroborates. The TTL must expire
-  // the intent visibly instead of filling on a guess.
-  await ov.advance(61_000);
+  // D-39 (Terp 8/21, "no blockers or delays"): the first accepted quote
+  // FILLS a click-armed buy. The chart is on screen — the site's own data
+  // prices that coin — waiting on a second source is a delay, not a guard.
+  const st = ov.storage().pt_state;
+  assert.ok(st && st.positions && Object.keys(st.positions).length > 0,
+    'the first accepted quote must FILL the click-armed buy immediately');
   assert.ok(!ov.buyButtonArmed(),
-    'the lone-quote intent must expire, not linger');
-  st = ov.storage().pt_state;
-  assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
-    'F-54: an expired lone-quote buy must never have filled');
+    'the armed cue clears the moment the fill lands');
 });
 
-test('F-54: corroboration is structural — the guard and its counters are wired', () => {
+test('D-39: corroboration gates non-click intents only — the wiring is structural', () => {
   const content = fsMod.readFileSync(pathMod.join(__dirname, '..', 'content.js'), 'utf8');
 
-  // The counter exists and is per-token (reset when the panel switches coins).
+  // The counter must exist and reset when the panel switches coins.
   assert.match(content, /let acceptedTickCount = 0;/,
     'the accepted-tick counter must exist');
   assert.match(content, /acceptedTickCount = 0;/,
@@ -870,19 +867,35 @@ test('F-54: corroboration is structural — the guard and its counters are wired
   // The resolver path is an independent source and counts too.
   const resolverIdx = content.indexOf('F-54: a resolver quote IS the independent second source');
   assert.ok(resolverIdx !== -1,
-    'the resolver adoption site must document its F-54 role');
+    'the resolver adoption site must document its corroboration role');
   const afterResolver = content.slice(resolverIdx, resolverIdx + 600);
   assert.match(afterResolver, /acceptedTickCount \+= 1;/,
     'a resolver quote must corroborate the bootstrap price');
 
-  // The guard itself sits in flushArmedBuy, before any doBuy call.
+  // The gate itself: click-created intents skip corroboration entirely;
+  // the guard survives for intents never clicked into existence.
   const fnStart = content.indexOf('function flushArmedBuy()');
   const fnEnd = content.indexOf('function renderBuyButton()', fnStart);
   const fn = content.slice(fnStart, fnEnd);
-  assert.match(fn, /if \(acceptedTickCount < 2\)/,
-    'flushArmedBuy must refuse to fill below two accepted prices');
-  const guardIdx = fn.indexOf('if (acceptedTickCount < 2)');
+  assert.match(fn, /armedBuy\.fromClick !== true && acceptedTickCount < 2/,
+    'the corroboration gate must apply ONLY to non-click intents (D-19)');
+  const guardIdx = fn.indexOf('acceptedTickCount < 2');
   const buyIdx = fn.indexOf('doBuy(');
   assert.ok(guardIdx !== -1 && buyIdx !== -1 && guardIdx < buyIdx,
-    'the corroboration guard must run before the fill');
+    'the gate must still run before the fill');
+});
+
+test('D-39: the click acquisition leads with the board row price, and arming is silent', () => {
+  const content = fsMod.readFileSync(pathMod.join(__dirname, '..', 'content.js'), 'utf8');
+
+  const fnStart = content.indexOf('async function acquireClickQuote');
+  const chunk = content.slice(fnStart, fnStart + 2000);
+  const rowIdx = chunk.indexOf('recentRowPrices.get(addr)');
+  const resolveIdx = chunk.indexOf('R.resolve(addr');
+  assert.ok(rowIdx !== -1 && resolveIdx !== -1 && rowIdx < resolveIdx,
+    'the captured row price must be consulted BEFORE the resolver (instant board→chart adopt)');
+
+  assert.doesNotMatch(content, /Buy armed — fires the instant the first quote lands/,
+    'the arming narration toast must be gone forever');
+  assert.doesNotMatch(content, /Buy armed/, 'no arming narration may exist in any form');
 });

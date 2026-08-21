@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.9.13', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'speed', 'buy'],
+        title: 'No waiting, no narration — the click fills on the first price',
+        body: 'A chart that just rendered is a chart whose price exists — so the buy no longer waits for a second source to agree with the first one. A click-armed fill now happens on the FIRST accepted price, and when the coin came from a board row, its on-screen price is adopted the instant it can be, with no resolver or on-chain round trip in the way. Measured live: click at panel mount, filled in under half a second. The "Buy armed — fires the instant the first quote lands" message is deleted from the product — an armed intent\'s only cue is the amber button pulse.'
+      },
+      {
         v: '3.9.12', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'buy'],
         title: 'The BUY button says plain "BUY" — always',

@@ -2506,7 +2506,31 @@
    * upgrades are allowed only while the token is still pending (a pair
    * stand-in resolving to its real mint); a settled token is never renamed. */
   async function acquireClickQuote(addr, chain) {
-    let data = await R.resolve(addr, { maxAgeMs: 0, chain });
+    // D-39: the row that opened this chart already carried the site's own
+    // realtime price (noteRowPrice, mint-tagged). If it is still fresh, the
+    // click adopts it INSTANTLY — the chart is up, the board printed it, so
+    // no resolver or RPC round trip may gate the fill.
+    let data = null;
+    const row = addr && recentRowPrices.get(addr);
+    if (row && row.usd > 0 && Date.now() - row.at < ROW_PRICE_TTL_MS) {
+      const rate = await R.solUsd().catch(() => 0);
+      if (rate > 0) {
+        data = {
+          mint: addr,
+          pairAddress: null,
+          symbol: row.symbol || null,
+          name: row.name || null,
+          priceNative: row.usd / rate,
+          priceUsd: row.usd,
+          mcap: null,
+          priceSource: 'row-feed',
+          resolvedAt: Date.now(),
+        };
+      }
+    }
+    if (!data || !(Number(data.priceNative) > 0)) {
+      data = await R.resolve(addr, { maxAgeMs: 0, chain });
+    }
     if ((!data || !(Number(data.priceNative) > 0)) && token && token.pending) {
       // D-38: the aggregators and venue APIs still do not know a one-second-
       // old coin, but its pool / bonding curve is ALREADY on chain. Probe it
@@ -2630,9 +2654,12 @@
           return;
         }
       }
-      armedBuy = { amount: solAmount, usd: quotedUsd, at: Date.now(), mint: token.mint };
+      armedBuy = { amount: solAmount, usd: quotedUsd, at: Date.now(), mint: token.mint, fromClick: true };
+      // D-39: a click-armed buy NEVER narrates its state (no arming toast
+      // of any kind) and never waits for a second source — flushArmedBuy
+      // fills it on the FIRST accepted quote. The only cue is the amber
+      // pulse.
       renderBuyButton();
-      toast('Buy armed — fires the instant the first quote lands');
       return;
     }
     buyInFlight = true;
@@ -5403,7 +5430,13 @@
     // (bootstrap tick + resolver quote, in either order). The TTL expiry
     // above still bounds the wait; a genuinely new price fills one beat
     // later when its second source lands.
-    if (acceptedTickCount < 2) {
+    //
+    // D-39 (Terp 8/21, "no blockers or delays"): an EXPLICIT click-armed
+    // intent supersedes that compromise. The chart is on screen — the
+    // site's own data already prices the coin — so the first accepted
+    // quote fills the click immediately. The corroboration gate survives
+    // only for intents that were never clicked into existence.
+    if (armedBuy.fromClick !== true && acceptedTickCount < 2) {
       renderBuyButton();
       return;
     }
