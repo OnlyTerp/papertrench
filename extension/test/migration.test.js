@@ -250,6 +250,10 @@ function runMigration(opts) {
     clickShadow: (id) => shadowRoot.getElementById(id).click(),
     setInput: (id, v) => { shadowRoot.getElementById(id).value = String(v); },
     buyButtonText: () => (nodesById['pt-buy'] || {}).textContent || '',
+    buyButtonArmed: () => {
+      const el = nodesById['pt-buy'];
+      return !!(el && el.classList.contains('pt-buy-armed'));
+    },
     storage: () => storage,
     CURVE, REAL_MINT, NEW_POOL, OTHER_MINT,
   };
@@ -267,12 +271,12 @@ test('P0-3 positive: graduation rekeys the bag and revives the armed buy', async
 
   // Phase 1 — the curve page: pending stand-in, armed buy, seeded bag.
   await ov.advance(3000);
-  assert.match(ov.buyButtonText(), /waiting|quoted|—/i,
+  assert.equal(ov.buyButtonText(), 'BUY',
     'the panel must be live on the curve page');
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText(), /ARMED/,
+  assert.ok(ov.buyButtonArmed(),
     'a buy on a pending curve page must arm, not fail');
 
   // Phase 2 — graduation: URL redirects to the migration pool; the world
@@ -287,7 +291,7 @@ test('P0-3 positive: graduation rekeys the bag and revives the armed buy', async
   // pool's first quote (the F-54 flush): the button is back to plain BUY.
   // A plain "dropped" armed buy would also show BUY, so the PROOF is the
   // rekeyed bag growing — the seeded 1M tokens plus the 0.5 SOL fill.
-  assert.doesNotMatch(ov.buyButtonText(), /ARMED/,
+  assert.ok(!ov.buyButtonArmed(),
     'the armed buy must fire at the first quote on the migrated pool');
   // The bag rekeyed from the stand-in curve to the real mint, in storage.
   const positions = ov.storage().pt_state.positions || {};
@@ -310,7 +314,7 @@ test('P0-3 negative: a different coin never inherits the armed buy or the bag', 
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText(), /ARMED/,
+  assert.ok(ov.buyButtonArmed(),
     'armed before the navigation');
 
   // The new page is a DIFFERENT coin: the old address resolves to a
@@ -320,7 +324,7 @@ test('P0-3 negative: a different coin never inherits the armed buy or the bag', 
   ov.navigate(`https://axiom.trade/meme/${NEW_POOL}?chain=sol`);
   await ov.advance(4000);
 
-  assert.doesNotMatch(ov.buyButtonText(), /ARMED/,
+  assert.ok(!ov.buyButtonArmed(),
     'an armed buy for one coin must never fire on a different coin');
   const positions = ov.storage().pt_state.positions || {};
   assert.ok(positions[CURVE], 'the stand-in bag is preserved, not inherited by the other coin');

@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.9.12', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'The BUY button says plain "BUY" — always',
+        body: 'No more "Buy when quoted" on a label that should just buy. The instant-buy intent still works exactly as before — the tap on a just-listed coin prices straight from the chain and fills immediately, and a claimed arm fires the second the first quote lands — but the button never says so. Its label is plain BUY from first render to fill, and the only cue an armed intent gives you is an amber pulse.'
+      },
+      {
         v: '3.9.11', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'buy'],
         title: 'The "waiting for first quote" line is gone — fresh coins just buy',

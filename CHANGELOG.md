@@ -3,6 +3,16 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.12 — 2026-08-21
+
+**The BUY button reads plain "BUY" — always.** No more "Buy when quoted"
+on a coin in its first seconds: a buy button buys, it never narrates. The
+instant-buy engine is untouched (a tap on a just-listed coin still prices
+straight from the pool / bonding curve in milliseconds), and a click whose
+intent stays armed for its first quote still fires the second one lands —
+the label just never changes to say so. The only cue an armed click gives
+is the amber button pulse; the wording never swaps again.
+
 ## v3.9.11 — 2026-08-21
 
 **"New coin — waiting for first quote…" is gone forever.** A coin in its

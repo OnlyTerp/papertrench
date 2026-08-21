@@ -5426,20 +5426,17 @@
     doBuy(amount, armedUsd);
   }
 
-  /** The buy button states its own readiness instead of failing on click. */
+  /**
+   * The BUY button always reads plain "BUY" (Terp roll-on: a buy button
+   * never changes its wording to narrate quote state). While a click-
+   * triggered intent stays armed for its first price, the ONLY cue is the
+   * amber pt-buy-armed class — the label never swaps again.
+   */
   function renderBuyButton() {
     if (!els.btnBuy) return;
-    const ready = Boolean(token && token.priceNative);
-    if (armedBuy) {
-      const armedText = Number(armedBuy.usd) > 0
-        ? `$${E.fmt(armedBuy.usd, 0)}`
-        : `${E.fmt(armedBuy.amount, 3)} SOL`;
-      els.btnBuy.textContent = `ARMED — ${armedText} ON FIRST QUOTE`;
-      els.btnBuy.classList.add('pt-buy-armed');
-      return;
-    }
-    els.btnBuy.classList.remove('pt-buy-armed');
-    els.btnBuy.textContent = ready ? 'BUY' : 'BUY WHEN QUOTED';
+    els.btnBuy.textContent = 'BUY';
+    if (armedBuy) els.btnBuy.classList.add('pt-buy-armed');
+    else els.btnBuy.classList.remove('pt-buy-armed');
   }
 
 

@@ -424,6 +424,10 @@ function runFreshLaunch(opts) {
     clickShadow: (id) => shadowRoot.getElementById(id).click(),
     setInput: (id, v) => { shadowRoot.getElementById(id).value = String(v); },
     buyButtonText: () => (nodesById['pt-buy'] || {}).textContent,
+    buyButtonArmed: () => {
+      const el = nodesById['pt-buy'];
+      return !!(el && el.classList.contains('pt-buy-armed'));
+    },
     storage: () => storage,
   };
 }
@@ -510,7 +514,7 @@ test('an armed buy on a pair-URL site executes when the pair resolves', async ()
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText() || '', /ARMED/,
+  assert.ok(ov.buyButtonArmed(),
     'buying before any quote must arm the intent');
 
   indexed = true;                 // Dexscreener indexes the pair
@@ -521,7 +525,7 @@ test('an armed buy on a pair-URL site executes when the pair resolves', async ()
   assert.ok(pos && pos.qty > 0,
     'the armed buy must fill once the pair resolves into its base mint');
   assert.ok(pos.qty * pos.lastPriceNative <= 1 + 1e-9, 'the fill respects the armed SOL amount');
-  assert.doesNotMatch(ov.buyButtonText() || '', /ARMED/,
+  assert.ok(!ov.buyButtonArmed(),
     'the button must leave the armed state after the fill');
 });
 
@@ -536,7 +540,7 @@ test('an armed buy on a mint-URL site also fills from the resolver path', async 
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText() || '', /ARMED/);
+  assert.ok(ov.buyButtonArmed());
 
   indexed = true;
   await ov.advance(4000);
@@ -549,17 +553,17 @@ test('an armed buy on a mint-URL site also fills from the resolver path', async 
 test('an armed buy expires visibly when no quote ever arrives', async () => {
   const ov = runFreshLaunch({ resolved: () => false });
 
-  await ov.advance(1500);
+  await ov.advance(2000);
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText() || '', /ARMED/, 'the intent arms while unindexed');
+  assert.ok(ov.buyButtonArmed(), 'the intent arms while unindexed');
 
   // ARMED_BUY_TTL_MS is 60s. The heartbeat watchdog — not a flushing path
   // that may never run — must expire it and restore the button.
   await ov.advance(61_000);
 
-  assert.doesNotMatch(ov.buyButtonText() || '', /ARMED/,
+  assert.ok(!ov.buyButtonArmed(),
     'an armed buy must not sit armed forever when no quote lands');
   const st = ov.storage().pt_state;
   assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
@@ -824,7 +828,7 @@ test('F-54: a single uncorroborated first quote never fills an armed buy', async
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
   await ov.settle();
-  assert.match(ov.buyButtonText() || '', /ARMED/, 'the intent arms while unindexed');
+  assert.ok(ov.buyButtonArmed(), 'the intent arms while unindexed');
 
   // Exactly ONE resolver adoption: a 100ms window is shorter than the
   // requote cadence (single-flight, >=300ms), so one fetch round sees it.
@@ -834,7 +838,7 @@ test('F-54: a single uncorroborated first quote never fills an armed buy', async
 
   // The price is on screen now (first accepted quote) — but it is
   // self-witnessing. The armed buy must NOT fill on it.
-  assert.match(ov.buyButtonText() || '', /ARMED/,
+  assert.ok(ov.buyButtonArmed(),
     'F-54: one lone first quote must not price the snipe');
   let st = ov.storage().pt_state;
   assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
@@ -843,7 +847,7 @@ test('F-54: a single uncorroborated first quote never fills an armed buy', async
   // Silence after: no second source ever corroborates. The TTL must expire
   // the intent visibly instead of filling on a guess.
   await ov.advance(61_000);
-  assert.doesNotMatch(ov.buyButtonText() || '', /ARMED/,
+  assert.ok(!ov.buyButtonArmed(),
     'the lone-quote intent must expire, not linger');
   st = ov.storage().pt_state;
   assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
