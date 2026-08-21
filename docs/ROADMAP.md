@@ -59,6 +59,10 @@ building. Ranked by leverage:
    must not spoil (no final PnL), must be legible in 2 seconds, must
    provoke "what happened?" The round card is close; season cards (item 1)
    get this treatment from day one.
+   **v3.9.2: SHIPPED** — season/survival share cards with zero PnL fields
+   in the source (painter cannot draw what it never receives; tests
+   enforce the contract at both layers), gate dots ●/○, mid-season share
+   from the session panel.
 7. **Streaks with status.** Duolingo: 60% of DAU have a 7-day+ streak.
    The overlay bar already has the streak chip; give it a visual ladder
    (ember → flame → blaze → torch) and a freeze mechanic (one rest day/week)
