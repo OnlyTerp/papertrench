@@ -1508,17 +1508,19 @@ forever.
 **D-37 · S4 · Which settings apply live is undocumented and inconsistent** — live:
 **backlog (v2.1):** live-apply coverage of panelFocusMode/sellPcts/listQuickBuy needs a content-side settings-listener extension; the Save flow now reports coercions but not reload-needed keys.
 overlay/presets/lines/visibility/size/bar; needs-reload (silently): panelFocusMode,
-sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js:1126-1137` · confirmed
-· open
+sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js` (watchStorage) · confirmed
+· **fixed v3.9.7** (listener now applies focus mode live, diffs sellPcts and forces one
+position-card rebuild, and listQuickBuy was already live via publishPageState; locked by
+test/d37_liveapply.test.js)
 **D-38 · S4 · Reset uses the saved starting balance, ignoring the value typed in the form**
 `dashboard.js:2009` · confirmed · **fixed v2.0.0** (reset adopts a valid form balance and persists it in the same write)
 **D-39 · S4 · loadRecordings reopens IndexedDB + holds all video blobs in memory on every 4 s poll; races revoke URLs bound to a mounted video**
 **largely fixed v2.0.0** (lazy blob pull + URL release landed in wave 2); remaining: skip list() when the recordings count is unchanged.
-`dashboard.js:150-154,882,885`, `recordings.js:119,132` · confirmed · open
+`dashboard.js`, `recordings.js` · confirmed · **fully fixed** (lazy blob pull + URL release v2.0.0; the remaining skip-list()-when-unchanged landed v2.7.1 — the replay fingerprint guard skips RC.list() unless the replay list itself changed; commit e10245b)
 **D-40 · S4 · Replay scrub rebuilds the entire replay model at 60 fps — twice per frame**
 **fixed v2.1.0** — buildReplayView memoized per (replay, session, cursor); invalidated on load/adopt/reset; degraded view never cached.
 **backlog (v2.1):** scrub rebuild is now guarded (D-26) but still rebuilds per frame; memoize the view per cursor index.
-`dashboard.js:1004-1009,1020,1036` · confirmed · **fixed v2.1.0**; backlog (per-cursor memoization) remains open
+`dashboard.js:1004-1009,1020,1036` · confirmed · **fixed v2.1.0 and backlog closed** (replayViewCache memoizes per replay identity + sessionId + cursor, invalidated on loadAll/loadRecordings/mutateState/reset — the per-cursor memoization the backlog asked for is the shipped design)
 **D-41 · S4 · Backup omits IndexedDB recordings — restored wallets show unplayable recording refs**
 **disposition (v2.1):** the exclusion stays (a chunked IndexedDB export remains future work) but the UI now says so honestly — the post-backup status line states that screen recordings stay on this machine and are not in the file (**honesty note shipped v2.1.0**, locked in statepersist.test.js). The restore path already survives missing videos (refs render as unplayable).
 `popup.js:150` · confirmed · open (export half)
@@ -1526,7 +1528,7 @@ sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js:1126-1137` · con
 `dashboard.js:2042,2045,2051` · confirmed · **fixed v2.0.0** (validated with visible coercion notes; caps at 8 entries)
 **D-43 · S4 · 4 s refresh interval never cleared; deserializes up to 80 base64 frames every tick for the tab's lifetime**
 **mitigated v2.0.0:** the fingerprint no longer includes live marks, so the 4 s poll early-outs cheaply; frames deserialize only when the fingerprint actually changed.
-`dashboard.js:64` · confirmed · open (was HANDOFF should-fix #1)
+`dashboard.js` · confirmed · **fully mitigated** (storage.onChanged is the primary refresh path; the interval is a 30 s hidden-tab-skipping safety net, not a 4 s poll — see the D-43 comment block in init())
 
 ### S5 — polish
 

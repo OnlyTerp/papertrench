@@ -3,7 +3,12 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.9.6 — 2026-08-21
+## v3.9.7 — 2026-08-21
+
+**Settings apply the moment you save** — changing focus mode or the sell
+ladder in the dashboard used to silently need a reload; the open position's
+sell buttons now rebuild immediately and focus mode re-rides live (D-37).
+Test suite: 1,656.
 
 **True-size equity curve** — after a wallet reset the equity canvas was
 secretly drawn at a fallback size while the Overview tab was still hidden,

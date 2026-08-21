@@ -28,6 +28,12 @@
 
   const RELEASES = [
     {
+      v: '3.9.7', date: 'Aug 21, 2026', iso: '2026-08-21',
+      tags: ['fix', 'settings'],
+      title: 'Settings apply the moment you save — no reload needed',
+      body: 'Changing focus mode or the sell ladder from the dashboard now takes effect on the trading page immediately. The open position\'s sell buttons rebuild the instant the preset list changes, and focus mode re-applies without a reload. Locked by three new contract tests.'
+    },
+    {
       v: '3.9.6', date: 'Aug 21, 2026', iso: '2026-08-21',
       tags: ['fix', 'charts'],
       title: 'True-size equity curve — no more fallback-sized chart after reset',

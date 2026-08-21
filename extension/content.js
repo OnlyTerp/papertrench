@@ -1972,6 +1972,18 @@
         updateOverlayVisibility();
         applyOverlaySize();
         renderPositionsBar();
+        // D-37: focus mode and the sell ladder must apply live, not at the
+        // next card rebuild. applyFocusMode re-rides the .pt-focus class
+        // cheaply; the sell buttons are built once per position card, so a
+        // changed sellPcts list forces exactly one rebuild — renderPosition()
+        // rebuilds via buildPositionCard when posEls is nulled.
+        applyFocusMode();
+        const prevSell = (settingsChange.oldValue && settingsChange.oldValue.sellPcts) || null;
+        const nextSell = settings.sellPcts || null;
+        if (JSON.stringify(prevSell) !== JSON.stringify(nextSell)) {
+          posEls = null;
+          renderPosition();
+        }
         // A settings flip can change whether this page has tick consumers
         // (e.g. list quick-buy chips toggled) — republish the feed demand.
         publishPageState();
