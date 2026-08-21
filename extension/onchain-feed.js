@@ -715,7 +715,7 @@
       // have not verified — LaunchLab, DBC, whatever ships next week) used
       // to be a dead end: no price, and no MINT either, so a pair-address
       // page (Axiom /meme/) could not even take the supply-facts bootstrap
-      // path — "waiting for first quote for 1+ minute" on exactly the
+      // path — a wait-state lasting over a minute on exactly the
       // fresh low-liq launches scalpers care about (Coja, Discord). The
       // WSOL-anchored vault scan needs no pool layout at all: the vaults
       // are plain SPL token accounts embedded in the pool bytes. So an

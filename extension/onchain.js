@@ -129,7 +129,7 @@
    * indexes it — and its bonding-curve account address is fully DERIVABLE:
    * findProgramAddress(["bonding-curve", mint], pumpProgram). Deriving it is
    * what lets the feed stream a real chain price for a coin whose page shows
-   * "waiting for first quote" (the sniping case, reported by the maintainer
+   * the pantsless wait-state (the sniping case, reported by the maintainer
    * on a 39-second-old Axiom launch).
    *
    * PDA rules (verified against five live mainnet curve accounts before this

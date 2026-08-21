@@ -581,7 +581,7 @@
         // mcap-scale close price the coin; without one the general path
         // below must refuse ("no implied supply"). An Axiom chart parked in
         // MCap mode was exactly the screen that could never bootstrap a
-        // fresh launch: the armed buy sat on "waiting for first quote"
+        // fresh launch: the armed buy sat on "fresh-launch wait-line"
         // forever while the site's own chart ticked away (maintainer video,
         // 39-second-old coin; the Padre re-report was the same screen on a
         // non-pump launchpad coin, which is why the constant alone was not

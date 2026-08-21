@@ -762,7 +762,7 @@
    * measured supply facts, which is what lets bootstrapTick price the
    * page's own mcap feed for launchpads with no derivable pool (the Padre
    * re-report: a non-pump launch on an MCap-mode chart could never
-   * bootstrap, so the armed buy sat on "waiting for first quote" forever).
+   * bootstrap, so the armed buy sat on a nondescript wait state forever).
    */
   function prewatchPending(candidate) {
     if (!candidate || prewatchedAddress === candidate.address) return;
@@ -782,7 +782,7 @@
       // pair-address page (Axiom /meme/ on a launchpad we cannot decode)
       // the discovered mint replaces the stand-in so mint-tagged ticks
       // match and the resolver's Jupiter-by-mint fallback can engage —
-      // this was the "waiting for first quote for 1+ minute" residue on
+      // this was the minute-plus wait-state residue on
       // fresh low-liq launches (Coja, Discord).
       if (!found.pool || found.poolKind == null) {
         if (found.mint !== token.mint) {
