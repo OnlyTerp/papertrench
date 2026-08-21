@@ -773,11 +773,164 @@
     ctx.closePath();
   }
 
+  /* ================= Trench Season share card (ROADMAP item 6) =================
+   *
+   * Wordle's grid beat its gameplay: the card must NOT spoil (no final PnL),
+   * must be legible in 2 seconds, must provoke "what happened?". The season
+   * card is spoiler-free BY CONSTRUCTION: its source has no PnL fields at
+   * all — gates, rounds, journal coverage, grades, streak, rank. What the
+   * trader did with money is their story to tell in the reply. */
+
+  /** Season source: plain numbers, zero PnL. Derived by the caller from
+   * PTGamify (gameSession + streakLadder + rank) — this function only
+   * shapes and validates; it computes nothing. */
+  function seasonCardSource(session, trench) {
+    if (!session || typeof session !== 'object') return null;
+    if (session.id !== 'season' && session.id !== 'survival') return null;
+    const s = session;
+    const t = trench && typeof trench === 'object' ? trench : {};
+    return {
+      id: s.id === 'survival' ? 'survival' : 'season',
+      status: ['live', 'won', 'missed', 'busted'].includes(s.status) ? s.status : 'live',
+      rounds: num(s.rounds) || 0,
+      daysLeft: Math.max(0, Math.ceil(((s.startedAt + 7 * 86400000) - (num(s.endedAt) || Date.now())) / 86400000)),
+      startedAt: num(s.startedAt) || 0,
+      coverage: num(t.coverage) !== null ? num(t.coverage) : null,
+      avgGrade: num(t.avgGrade) !== null ? num(t.avgGrade) : null,
+      streak: num(t.streak) !== null ? num(t.streak) : 0,
+      streakTier: t.streakTier && typeof t.streakTier.name === 'string' ? t.streakTier.name : null,
+      rankName: t.rankName && typeof t.rankName === 'string' ? t.rankName : null,
+      belts: num(t.belts) !== null ? num(t.belts) : 0,
+      elimination: typeof s.elimination === 'string' ? s.elimination : null,
+      gates: s.gates && typeof s.gates === 'object' ? {
+        played: Boolean(s.gates.played),
+        journaled: Boolean(s.gates.journaled),
+        graded: Boolean(s.gates.graded),
+      } : null,
+    };
+  }
+
+  /** Season model: display strings only, spoiler-free. */
+  function seasonCardModel(source, opts) {
+    if (!source || typeof source !== 'object') return null;
+    const options = opts || {};
+    const prefs = options.prefs || {};
+    const on = (flag) => flag !== false;
+    const survival = source.id === 'survival';
+    const statusText = {
+      live: survival ? 'SURVIVAL — LIVE' : 'SEASON — LIVE',
+      won: 'BELT WON',
+      missed: 'WINDOW CLOSED',
+      busted: 'BUSTED',
+    }[source.status] || 'SEASON';
+    const statusColor = {
+      live: COLORS.amber,
+      won: COLORS.green,
+      missed: COLORS.amber,
+      busted: COLORS.red,
+    }[source.status] || COLORS.dim;
+    // Gate glyphs: one line, three gates, done = filled dot. The 2-second
+    // read: count the dots. The card never says which gate is missing by
+    // name — "what's missing?" is the reply bait.
+    const gates = source.gates || {};
+    const gateDots = [
+      gates.played,
+      gates.journaled,
+      gates.graded,
+    ].map((d) => (d ? '●' : '○'));
+    return {
+      kind: 'season',
+      survival,
+      statusText,
+      statusColor,
+      roundsText: `${source.rounds} rounds`,
+      coverageText: source.coverage !== null ? `${Math.round(source.coverage * 100)}% journaled` : '—',
+      avgGradeText: source.avgGrade !== null ? source.avgGrade.toFixed(1) : '—',
+      streakText: source.streak > 0 ? `${source.streak}-round streak${source.streakTier ? ` · ${source.streakTier}` : ''}` : 'no streak',
+      rankText: source.rankName ? String(source.rankName).toUpperCase() : '',
+      beltsText: source.belts > 0 ? `${source.belts} belt${source.belts === 1 ? '' : 's'}` : '',
+      gateDots,
+      dateText: source.startedAt > 0 ? formatStamp(source.startedAt) : '',
+      daysLeftText: source.status === 'live' ? `${source.daysLeft}d left` : '',
+      eliminationText: source.elimination || '',
+      handle: options.handle ? `@${String(options.handle).replace(/^@+/, '')}` : '',
+      trim: ACCENTS[prefs.accent] || COLORS.amber,
+      show: {
+        rank: on(prefs.showTrench),
+        streak: on(prefs.showTrench),
+      },
+    };
+  }
+
+  /** Season painter: big status, gate dots, discipline lines. */
+  function drawSeasonCard(ctx, model) {
+    if (!ctx || !model || model.kind !== 'season') return;
+    ctx.save();
+    paintBackground(ctx, model.background || 'void', WIDTH, HEIGHT);
+    // Brand bar (same geometry as the round card — drawBranding is shared)
+    drawBrandingSafe(ctx, model);
+    const cx = 64;
+    let y = 150;
+    // Headline: status word, huge
+    ctx.font = '800 64px Inter, system-ui, sans-serif';
+    ctx.fillStyle = model.statusColor;
+    ctx.fillText(model.statusText, cx, y);
+    y += 44;
+    // Gate dots row
+    ctx.font = '700 30px ui-monospace, "JetBrains Mono", Menlo, monospace';
+    ctx.fillStyle = COLORS.dim;
+    ctx.fillText(`${model.gateDots.join(' ')}`, cx, y);
+    y += 46;
+    // Discipline lines
+    ctx.font = '600 24px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(`${model.roundsText} · ${model.coverageText} · avg ${model.avgGradeText}`, cx, y);
+    y += 34;
+    ctx.font = '600 20px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.dim;
+    ctx.fillText(model.streakText, cx, y);
+    if (model.rankText && model.show.rank) {
+      y += 30;
+      ctx.fillText(model.rankText, cx, y);
+    }
+    if (model.daysLeftText) {
+      y += 30;
+      ctx.fillText(model.daysLeftText, cx, y);
+    }
+    if (model.eliminationText && model.survival) {
+      y += 30;
+      ctx.fillStyle = COLORS.red;
+      ctx.fillText(model.eliminationText, cx, y);
+    }
+    // Handle top-right in the brand area
+    if (model.handle) {
+      ctx.font = '600 16px Inter, system-ui, sans-serif';
+      ctx.fillStyle = COLORS.dim;
+      ctx.textAlign = 'right';
+      ctx.fillText(model.handle, WIDTH - 200, 40);
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+
+  /** Branding helper reusing drawBranding if present, else minimal. */
+  function drawBrandingSafe(ctx, model) {
+    try {
+      if (typeof drawBranding === 'function') {
+        drawBranding(ctx, model);
+        return;
+      }
+    } catch (_) { /* fall through */ }
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, HEIGHT - BRAND_BAR_HEIGHT, WIDTH, BRAND_BAR_HEIGHT);
+  }
+
   const api = {
     WIDTH, HEIGHT, COLORS, ACCENTS, WATERMARK_TEXT, BRAND_TEXT, BRAND_TAGLINE, SITE_URL,
     BACKGROUNDS, MAX_UPLOAD_BYTES, MAX_UPLOADS,
     cardModel, drawCard, coverRect, paintBackground, admitUpload, usdTotal,
     roundCardSource, positionCardSource,
+    seasonCardSource, seasonCardModel, drawSeasonCard,
     formatPrice, formatMarketCap, formatSol, formatUsd, formatHeld, shortMint,
   };
 

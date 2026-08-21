@@ -3,6 +3,16 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.2 — 2026-08-20
+
+**Season share cards** — the Wordle play. One image, legible in two seconds,
+and it never spoils: no PnL anywhere on the card, by construction. Big status
+word (SEASON — LIVE / BELT WON / WINDOW CLOSED / BUSTED), three gate dots
+(count the filled ones — that's the tease), the discipline lines (rounds ·
+journal coverage · average grade), streak, rank. What you did with the money
+is your story to tell in the replies. Share it mid-season from the session
+panel; survival busted cards wear the elimination line in red.
+
 ## v3.9.1 — 2026-08-20
 
 **Survival Season** — the Trench Season with the safety off. Same three gates,

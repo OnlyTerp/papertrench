@@ -823,6 +823,57 @@ function bindGame(el) {
       } catch (err) { console.warn('end game failed', err); }
     });
   }
+  const share = el.querySelector('#game-share');
+  if (share) {
+    share.addEventListener('click', () => { openSeasonShareCard(); });
+  }
+}
+
+/** Season share card (ROADMAP item 6): spoiler-free by construction — the
+ * source carries gates/rounds/coverage/grades, never PnL. Derives trench
+ * trimmings (rank, streak, belts) from the same PTGamify read every other
+ * surface uses, then paints via the season pipeline in pnlcard.js. */
+function openSeasonShareCard() {
+  const session = typeof G.gameSession === 'function' ? G.gameSession(state) : null;
+  if (!session || (session.id !== 'season' && session.id !== 'survival')) return;
+  const ladder = typeof G.streakLadder === 'function' ? G.streakLadder(state) : null;
+  const rankInfo = typeof G.rank === 'function' ? G.rank(state) : null;
+  const gamesInfo = typeof G.games === 'function' ? G.games(state) : null;
+  const seasonCard = Array.isArray(gamesInfo)
+    ? gamesInfo.find((g) => g && g.id === 'season')
+    : null;
+  // Journal coverage: the session's journaled gate is boolean, so recompute
+  // the honest ratio from the same source the panel's detail line uses —
+  // the session itself only carries gates; coverage lives in its detail.
+  // Simplest honest path: count thesis-bearing rounds in the window.
+  let coverage = null;
+  if (session.rounds > 0) {
+    const windowEnd = session.startedAt + 7 * 86400000;
+    const inWindow = (state.rounds || []).filter((r) => Number(r.closedAt) > session.startedAt && Number(r.closedAt) < windowEnd);
+    const journaled = inWindow.filter((r) => r.thesis && String(r.thesis).trim().length > 0).length;
+    coverage = inWindow.length ? journaled / inWindow.length : null;
+  }
+  const source = PC.seasonCardSource(session, {
+    coverage,
+    avgGrade: session.score,
+    streak: ladder ? ladder.current : 0,
+    streakTier: ladder && ladder.tier ? { name: ladder.label } : null,
+    rankName: rankInfo ? rankInfo.name : null,
+    belts: seasonCard ? seasonCard.wins : 0,
+  });
+  if (!source) return;
+  // Journal coverage is on the session gates; recompute honestly from the
+  // same derived read the panel shows (the model rounds for display).
+  const model = PC.seasonCardModel(source, {
+    handle: (settings.leaderboardIdentity || {}).handle || '',
+    prefs: settings.cardPrefs || {},
+  });
+  if (!model) return;
+  const canvas = document.getElementById('card-canvas');
+  if (!canvas) return;
+  PC.drawSeasonCard(canvas.getContext('2d'), model);
+  document.getElementById('card-modal').classList.add('open');
+  showCardMessage('');
 }
 
 /* ---------- sidebar ---------- */
@@ -1225,7 +1276,10 @@ function renderGame(el) {
     return `
     <div class="card game-session">
       <h3>GAME ON — ${esc(label)}
-        <button class="btn-sec" id="game-end" style="margin-left:auto">${session.status === 'live' ? 'End game' : 'Dismiss result'}</button>
+        ${session.id === 'season' || session.id === 'survival'
+          ? `<button class="btn-sec" id="game-share" style="margin-left:auto;margin-right:6px">Share card</button>`
+          : ''}
+        <button class="btn-sec" id="game-end" style="${session.id === 'season' || session.id === 'survival' ? '' : 'margin-left:auto'}">${session.status === 'live' ? 'End game' : 'Dismiss result'}</button>
       </h3>
       <div class="${tone}" style="font-size:21px;font-weight:850;letter-spacing:-0.4px">${esc(headline)}</div>
       <div class="dim" style="font-size:11.5px;margin-top:3px">${esc(session.detail)} · ${session.rounds} round${session.rounds === 1 ? '' : 's'} this session — go trade it on the chart, the HUD is riding along.</div>

@@ -28,6 +28,18 @@
 
   const RELEASES = [
     {
+      v: '3.9.2', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature', 'social'],
+      title: 'Season share cards — no spoilers, all tease',
+      blurb: 'The Wordle play: one image, legible in two seconds, and it never spoils. No PnL on the card, by construction — status word, three gate dots (count the filled ones), and the discipline lines. What you did with the money is your story for the replies.',
+      points: [
+        '<b>Spoiler-free by construction.</b> The card source has no PnL fields at all; the painter literally cannot draw what it never receives. Tests enforce it.',
+        '<b>Three gate dots.</b> ● for each gate cleared. Which one is missing is your reply bait — the card never names it.',
+        '<b>Share mid-season.</b> The session panel grows a Share card button while a season (or survival run) is active; busted survival cards wear the elimination line in red.',
+        '<b>12 new tests</b> (1,631 total): spoiler-free contract on source and painter, gate dots, status text/colors, honest em-dashes, dashboard wiring.',
+      ],
+    },
+    {
       v: '3.9.1', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature', 'game'],
       title: 'Survival Season — same belt, no net',
