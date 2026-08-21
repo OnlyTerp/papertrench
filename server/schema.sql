@@ -159,6 +159,40 @@ CREATE TABLE IF NOT EXISTS clan_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_clan_entries_window ON clan_entries(window_id, clan_id, score DESC);
 
+-- ---------------------------------------------------------------------------
+-- Read-path indexes.
+--
+-- D1 bills on rows_read, so a table scan is charged as well as slow, and the
+-- boards are the whole traffic story. Each index below exists because
+-- EXPLAIN QUERY PLAN showed a specific query scanning or building a temp
+-- B-tree; server/test/queryplan.test.js asserts they stay used.
+
+-- Leaderboard (WHERE status = 'verified' ORDER BY submitted_at DESC) and the
+-- pricing cron (WHERE status = 'pending' ORDER BY submitted_at ASC) are the
+-- same two columns in opposite directions, so one index serves both — SQLite
+-- walks it backwards for the ascending case. The cron runs every 60 seconds
+-- forever, which is what makes its plan worth an index on its own.
+CREATE INDEX IF NOT EXISTS idx_records_status_submitted
+  ON records(status, submitted_at DESC);
+
+-- The activity feed's verification half. Partial, because the query only ever
+-- asks for rows where verified_at IS NOT NULL and a pending record has no
+-- business taking up space in this index.
+CREATE INDEX IF NOT EXISTS idx_records_verified
+  ON records(verified_at DESC) WHERE verified_at IS NOT NULL;
+
+-- Every profile view and the clan kick lookup resolve a handle, both with
+-- COLLATE NOCASE — which the index has to declare too, or it is not eligible.
+CREATE INDEX IF NOT EXISTS idx_users_handle
+  ON users(handle COLLATE NOCASE);
+
+-- The activity feed's submission half: newest 40 across all users. The
+-- existing idx_submissions_user leads with user_id, so it cannot serve a
+-- global ordering.
+CREATE INDEX IF NOT EXISTS idx_submissions_created
+  ON submissions(created_at DESC);
+-- ---------------------------------------------------------------------------
+
 -- Fixed-window rate limiting (per user and per IP).
 CREATE TABLE IF NOT EXISTS rate_limits (
   key TEXT PRIMARY KEY,
