@@ -171,16 +171,22 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   assert.match(bridge, /ev\.preventDefault\(\);\s*\n\s*ev\.stopPropagation\(\);\s*\n\s*ev\.stopImmediatePropagation\(\);/);
   // The fill goes through the engine and the attestation chain, like any buy.
   // (Window widened when the D-38 CHAIN leg — rowChainQuote — joined the
-  // cascade: a new-coin row is priced straight from the pool/curve on-chain.)
-  assert.match(content, /doRowBuy[\s\S]{0,3400}E\.buy\(state, settings/);
-  assert.match(content, /doRowBuy[\s\S]{0,3400}commitFill\(filled\.trade\)/);
+  // cascade: a new-coin row is priced straight from the pool/curve on-chain.
+  // D-40 moved the commit core into fillRowBuy so the direct fill and the
+  // armed flush commit identically — the locks follow the extractor.)
+  assert.match(content, /async function fillRowBuy\(address, data, amount\)/,
+    'the shared commit extractor exists (one commit path for click + armed flush)');
+  assert.match(content, /fillRowBuy[\s\S]{0,2600}E\.buy\(state, settings/,
+    'the extractor runs the engine buy');
+  assert.match(content, /fillRowBuy[\s\S]{0,2600}commitFill\(filled\.trade\)/,
+    'the extractor appends the attestation chain');
+  assert.match(content, /await fillRowBuy\(address, data, amount\);/,
+    'the click path commits through the shared extractor');
   // The screener's own realtime price is preferred when fresh.
   assert.match(content, /recentRowPrices/);
-  // The new position surfaces immediately in the rail. (Window widened when
-  // the F-04 freshness fix added its rationale comment to doRowBuy, and again
-  // when the D-38 cascade — fresh resolve → display cache → row-feed price —
-  // grew the body so a just-launched coin fills the instant its row prints.)
-  assert.match(content, /doRowBuy[\s\S]{0,4700}renderPositionsBar\(\)/);
+  // The new position surfaces immediately in the rail. (D-40: the rail
+  // refresh lives in the extractor now — both paths surface it instantly.)
+  assert.match(content, /fillRowBuy[\s\S]{0,3000}renderPositionsBar\(\)/);
   // The scanner runs on the positions-bar cadence, which works on pages with
   // no detected token — exactly the screener situation.
   assert.match(content, /renderPositionsBar\(\);\s*\n\s*\/\/ Screener rows render continuously; catch new ones on this cadence\.\s*\n\s*scanRowBuys\(\);/);
@@ -311,6 +317,53 @@ test('a row tap prices from its own live feed when every resolver source is sile
     'a chain-filled row is attributed to the chain, never laundered');
   assert.match(content, /Bought .*E\.fmt\(amount, 3\).*SOL of/,
     'the confirmation still reads like a fill, not a placeholder');
+});
+
+test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-40)', () => {
+  // Terp's standing rule (D-39, ported to the board 8/21): if the chart is
+  // up, the site already has the price — a tap must NEVER be answered with
+  // "Could not price that token yet". The click already happened; the intent
+  // arms and fires the instant any source lands a fillable price.
+  assert.doesNotMatch(content, /Could not price that token yet/,
+    'the refusal string is scrubbed from the row path forever (D-40)');
+  assert.match(content, /rowArmed = \{ address, amount, at: Date\.now\(\) \};/,
+    'a cascade miss arms the click instead of refusing');
+  assert.match(content, /async function flushRowArmed\(\)/,
+    'the armed-row flush exists');
+  // Wakes: the board's own mint-tagged tick is the fastest possible one.
+  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);/,
+    'a board tick wakes the armed snipe immediately');
+  assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 1200\);/,
+    'a near-delayed re-probe follows the arm');
+  assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 4000\);/,
+    'a second delayed re-probe bridges a quiet feed');
+  // The bar heartbeat is the watchdog: keep probing, expire visibly.
+  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);\s*\n\s*\}, 1000\);/,
+    'the 1s board heartbeat watchdog keeps the armed snipe honest');
+  // TTL honesty — the same doctrine as the panel's armed buys.
+  assert.match(content, /ARMED_ROW_TTL_MS = 60_000/,
+    'the armed row intent is bounded by the same 60s TTL');
+  assert.match(content, /Armed row buy expired — no fillable price arrived in time/,
+    'expiry is stated, never a silent drop or a guessed fill');
+  // The intent dies with the page context — no zombie fills from a
+  // detached board.
+  assert.match(content, /onTeardown\(\(\) => \{ rowArmed = null; \}\);/,
+    'the armed intent is torn down with the content script');
+  // The commit core is ONE extractor shared by the click and the flush, so
+  // an armed fill commits identically to a direct one.
+  assert.match(content, /await fillRowBuy\(armed\.address, data, armed\.amount\);/,
+    'the flush commits through the shared extractor');
+});
+
+test('the row chain probe tries BOTH shapes — pool then mint (D-40)', () => {
+  // A fresh Trenches row can print either identity; the chain classifies
+  // the account, not the page's kind label. The probe asks both.
+  assert.match(content, /let ids = kind === 'pair' \? \{ pool: addr \} : \{ mint: addr \};/,
+    'the first probe follows the kind guess');
+  assert.match(content, /ids = kind === 'pair' \? \{ mint: addr \} : \{ pool: addr \};/,
+    'the second probe asks the OPPOSITE shape');
+  assert.match(content, /if \(!found \|\| !\(Number\(found\.priceNative\) > 0\)\) \{\s*\n\s*ids =/,
+    'the second probe runs exactly when the first returned no price');
 });
 
 test('a panel buy on a fresh coin acquires the quote on the click before arming (D-38)', () => {

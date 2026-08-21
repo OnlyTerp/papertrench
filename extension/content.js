@@ -5537,6 +5537,9 @@
       name: typeof payload.name === 'string' ? payload.name : null,
     });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
+    // D-40: a board tick while a row snipe is armed is the fastest possible
+    // wake — the row the trader tapped just printed a price of its own.
+    if (rowArmed) flushRowArmed();
   }
 
   /** The row's own live price when the resolver cannot answer — GMGN's
@@ -5564,8 +5567,17 @@
    * stays honest: no price, no fill. */
   async function rowChainQuote(addr, kind) {
     if (!addr || !ROW_ADDR_RE.test(addr)) return null;
-    const ids = kind === 'pair' ? { pool: addr } : { mint: addr };
-    const found = await R.onchainPrewatch(ids).catch(() => null);
+    // D-39/D-40: probe BOTH shapes. The kind label guesses (pair -> pool,
+    // mint -> mint), but a fresh Trenches row can be either: the chain
+    // classifies the account, not the page's kind. Pool first (a live
+    // pool carries the price), then the mint (the pump-curve derivation
+    // path — a curve account signals itself).
+    let ids = kind === 'pair' ? { pool: addr } : { mint: addr };
+    let found = await R.onchainPrewatch(ids).catch(() => null);
+    if (!found || !(Number(found.priceNative) > 0)) {
+      ids = kind === 'pair' ? { mint: addr } : { pool: addr };
+      found = await R.onchainPrewatch(ids).catch(() => null);
+    }
     if (!found || !found.mint || !(Number(found.priceNative) > 0)) return null;
     return {
       mint: found.mint,
@@ -5634,6 +5646,122 @@
     if (rowBuyDebounce) { clearTimeout(rowBuyDebounce); rowBuyDebounce = null; }
   }
 
+  const ARMED_ROW_TTL_MS = 60_000;
+
+  /**
+   * D-40: an armed ROW snipe. The panel's D-39 doctrine, ported to the board:
+   * the click already happened, so the intent is never refused — it arms and
+   * fires the instant a fillable price arrives by ANY source (resolver, the
+   * row's own feed tick, or the chain probe), with the same TTL honesty that
+   * bounds the panel's armed buys.
+   * Shape: { address, amount, at } — address is the row identity (mint or
+   * pool) as the page printed it; the flush re-derives the canonical mint.
+   */
+  let rowArmed = null;
+  let rowArmedFlushing = false;
+  // The armed intent is bounded by its TTL and by the content-script
+  // lifetime: when this page context dies, the intent dies with it — never
+  // a zombie fill from a detached page.
+  onTeardown(() => { rowArmed = null; });
+
+  /** The row buy's commit core — shared by the direct fill and the armed
+   * flush so both paths commit identically (same guard, same engine call,
+   * same attestation chain, same rail refresh). Returns the result object or
+   * null (guard refusal toasts its own message). */
+  async function fillRowBuy(address, data, amount) {
+    // Guardrails apply to chip buys exactly like panel buys.
+    const guard = E.guardCheck(state, settings, { solAmount: amount });
+    if (!guard.ok) { toast(guard.message); return null; }
+    const result = await withState(async () => {
+      // Re-runnable mutation — see doBuy: a lost CAS race re-applies this
+      // row buy on the adopted base; only the landing attempt is chained.
+      let filled = null;
+      const mutate = () => {
+        const opened = !state.positions[data.mint];
+        filled = E.buy(state, settings, {
+          ts: Date.now(), mint: data.mint, pairAddress: data.pairAddress,
+          symbol: data.symbol, name: data.name, site: site.id,
+          solAmount: amount,
+          priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
+        });
+        filled.opened = opened;
+      };
+      mutate();
+      await persistStateNow(mutate);
+      // Chain append after the wallet commit — see doBuy for the ordering.
+      await commitFill(filled.trade);
+      return { trade: filled.trade, position: filled.position, opened: filled.opened };
+    });
+    if (!result) return null;
+    // #29: mark the fill's origin on the SUMMARY COPY only — the engine
+    // trade was already hashed into the attestation chain inside
+    // withState, so the committed object must not gain fields after the
+    // fact. Background reads source to open the chart tab.
+    sendMessage({
+      type: 'pt_trade_event',
+      kind: 'buy',
+      opened: result.opened,
+      session: summarizeSession(result.position),
+      trade: summarizeTrade({ ...result.trade, source: 'list-chip' }),
+    }).catch(() => {});
+    runTradeEffect('buy');
+    playTradeSound('buy');
+    const atMcap = result.trade.mcap ? ` at ${fmtMoney(result.trade.mcap)} MC` : '';
+    toast(`Bought ${E.fmt(amount, 3)} SOL of ${result.trade.symbol}${atMcap} (paper)`);
+    if (result.opened) profitAlertLevels.set(data.mint, 0);
+    // The positions bar is the screener's answer to a row buy: the new
+    // position shows up in the rail instantly, chart one click away.
+    pollPositionPrices();
+    renderPositionsBar();
+    // If this token's chart happens to be on screen, refresh the card too.
+    if (token && token.mint === data.mint) renderAll();
+    return result;
+  }
+
+  /** The D-40 armed-row flush: attempt a fill by every source in order; a
+   * miss keeps the intent armed (the board feed, the resolver, and the chain
+   * probe each get more chances until the TTL). */
+  async function flushRowArmed() {
+    if (!rowArmed || rowArmedFlushing) return;
+    if (Date.now() - rowArmed.at > ARMED_ROW_TTL_MS) {
+      rowArmed = null;
+      sendPadreMarker('row-buy-done', null);
+      toast('Armed row buy expired — no fillable price arrived in time');
+      return;
+    }
+    rowArmedFlushing = true;
+    const armed = rowArmed;
+    try {
+      // Same source order the click itself runs: freshest resolver read,
+      // then the row's own feed, then the chain. The flush may only fire
+      // once per wake; a miss leaves the intent armed.
+      let data = await R.resolve(armed.address, { maxAgeMs: 3000 });
+      if (!data || !(data.priceNative > 0)) data = await R.resolve(armed.address);
+      if (!data || !(data.priceNative > 0)) data = await rowLivePrice(armed.address);
+      if (!data || !(data.priceNative > 0)) {
+        data = await rowChainQuote(armed.address, site && site.rowBuy && site.rowBuy.kind);
+      }
+      if (data && data.priceNative > 0) {
+        // The screener's own realtime price wins when it is fresh: that is
+        // the number the trader just looked at before tapping.
+        const live = data.mint && recentRowPrices.get(data.mint);
+        if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
+          const rate = data.priceUsd / data.priceNative;
+          data.priceUsd = live.usd;
+          data.priceNative = live.usd / rate;
+          data.priceSource = 'row-feed';
+        }
+        const result = await fillRowBuy(armed.address, data, armed.amount);
+        if (result) {
+          rowArmed = null;
+          sendPadreMarker('row-buy-done', null);
+        }
+      }
+    } catch (_) {
+      // A transient failure keeps the intent armed — the next wake retries.
+    } finally { rowArmedFlushing = false; }
+  }
+
   /** Paper-buy the first preset amount of a screener row's token. */
   async function doRowBuy(address, button) {
     if (rowBuyInFlight) return toast('Row buy already in progress…');
@@ -5654,7 +5782,8 @@
       // read, then the 60 s display cache, then the row feed (GMGN
       // token_activity — mint-tagged USD), then the CHAIN — a new-coin row
       // is on-chain the second the card exists, and the prewatch probe
-      // prices the pool/curve directly — then the honest refusal.
+      // prices the pool/curve directly. D-40: a miss at the bottom no longer
+      // refuses — it ARMS the click and fires on the first fillable price.
       let data = await R.resolve(address, { maxAgeMs: 3000 });
       if (!data || !(data.priceNative > 0)) data = await R.resolve(address);
       if (!data || !(data.priceNative > 0)) {
@@ -5672,7 +5801,15 @@
         data = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
       }
       if (!data || !(data.priceNative > 0)) {
-        toast('Could not price that token yet — open its chart to buy');
+        // D-40 (Terp roll-on, board path): the click already happened — the
+        // intent is NEVER refused. It arms exactly like the panel's D-39
+        // doctrine and fires the instant a fillable price arrives by any
+        // source: the row's own mint-tagged board tick (fastest wake), the
+        // resolver's next pass, or a delayed chain re-probe. The same 60 s
+        // TTL honesty bounds the wait; expiry says so instead of guessing.
+        rowArmed = { address, amount, at: Date.now() };
+        setTimeout(() => flushRowArmed(), 1200);
+        setTimeout(() => flushRowArmed(), 4000);
         return;
       }
       // The screener's own realtime price wins when it is fresh: that is the
@@ -5685,51 +5822,9 @@
         data.priceSource = 'row-feed';
       }
 
-      const result = await withState(async () => {
-        // Re-runnable mutation — see doBuy: a lost CAS race re-applies this
-        // row buy on the adopted base; only the landing attempt is chained.
-        let filled = null;
-        const mutate = () => {
-          const opened = !state.positions[data.mint];
-          filled = E.buy(state, settings, {
-            ts: Date.now(), mint: data.mint, pairAddress: data.pairAddress,
-            symbol: data.symbol, name: data.name, site: site.id,
-            solAmount: amount,
-            priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
-          });
-          filled.opened = opened;
-        };
-        mutate();
-        await persistStateNow(mutate);
-        // Chain append after the wallet commit — see doBuy for the ordering.
-        await commitFill(filled.trade);
-        return { trade: filled.trade, position: filled.position, opened: filled.opened };
-      });
-      if (!result) return;
-      if (result) {
-        // #29: mark the fill's origin on the SUMMARY COPY only — the engine
-        // trade was already hashed into the attestation chain inside
-        // withState, so the committed object must not gain fields after
-        // the fact. Background reads source to open the chart tab.
-        sendMessage({
-          type: 'pt_trade_event',
-          kind: 'buy',
-          opened: result.opened,
-          session: summarizeSession(result.position),
-          trade: summarizeTrade({ ...result.trade, source: 'list-chip' }),
-        }).catch(() => {});
-      }
-      runTradeEffect('buy');
-      playTradeSound('buy');
-      const atMcap = result.trade.mcap ? ` at ${fmtMoney(result.trade.mcap)} MC` : '';
-      toast(`Bought ${E.fmt(amount, 3)} SOL of ${result.trade.symbol}${atMcap} (paper)`);
-      if (result.opened) profitAlertLevels.set(data.mint, 0);
-      // The positions bar is the screener's answer to a row buy: the new
-      // position shows up in the rail instantly, chart one click away.
-      pollPositionPrices();
-      renderPositionsBar();
-      // If this token's chart happens to be on screen, refresh the card too.
-      if (token && token.mint === data.mint) renderAll();
+      // D-40: the commit core is shared with the armed flush — one extractor,
+      // identical guard/engine/attestation/rail behaviour on both paths.
+      await fillRowBuy(address, data, amount);
     } catch (err) {
       toast(err.message || 'Row buy failed');
     } finally {
@@ -7438,6 +7533,10 @@
       renderPositionsBar();
       // Screener rows render continuously; catch new ones on this cadence.
       scanRowBuys();
+      // D-40 armed-row watchdog: the board's 1 s heartbeat keeps the armed
+      // snipe honest — re-probing the sources while it waits and expiring it
+      // visibly when the TTL passes (the panel's armed-buy watchdog, ported).
+      if (rowArmed) flushRowArmed();
     }, 1000);
     pollPositionPrices();
     startRowBuyObserver();
