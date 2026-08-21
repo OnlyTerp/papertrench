@@ -20,6 +20,25 @@ preview_urls = false
 
 # Pricing cron: drains one pending record per minute under the candle-API
 # budget (25 external lookups/run keeps GeckoTerminal's free tier happy).
+# Keep the logs this Worker writes.
+#
+# Without this block Workers Logs are not retained at all: a console.error is
+# visible only to whoever happens to be running `wrangler tail` at the instant
+# it fires, and is gone otherwise. That makes error logging worth roughly
+# nothing for the failures that matter here — a pricing cron that has quietly
+# stalled, or a route throwing 500s at visitors — because both are discovered
+# hours later, by which time there is nothing left to read.
+#
+# head_sampling_rate stays at 1: this Worker's traffic is boards behind a 60s
+# edge cache, so the request volume that reaches it is small and every error
+# is worth keeping.
+[observability]
+enabled = true
+
+  [observability.logs]
+  invocation_logs = true
+  head_sampling_rate = 1
+
 [triggers]
 crons = ["* * * * *"]
 

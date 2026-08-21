@@ -87,26 +87,48 @@ function json(data, status, extra) {
   });
 }
 
-/** Fixed-window rate limit in D1. Returns true when the call is allowed.
+/**
+ * Fixed-window rate limit in D1. Returns true when the call is allowed.
  *
- * One atomic upsert, not a read followed by a write (DEFECT L-08): the old
- * SELECT-then-UPDATE pair let every request in flight at once read the same
- * count and all conclude they were under the limit — so the one limiter
- * guarding the expensive path (submissions cost chain verification and
- * candle lookups) was exactly as strong as the attacker was slow. The CASE
- * folds the window rollover into the same statement, and RETURNING reads the
- * count the write actually produced rather than a count somebody else may
- * have bumped in between. */
+ * One statement, deliberately. The read-then-write version this replaces was a
+ * check-then-act race: N requests fired together all read the same count,
+ * all saw it under the cap, and all proceeded — which turns a 6/hour
+ * submission limit into "6 per hour, or as many as you can open sockets for",
+ * and the limit matters most exactly when someone is trying hard. The upsert
+ * increments and reports the new count atomically, so the Nth caller sees N.
+ */
 async function allowRate(env, key, perHour) {
   const windowStart = Math.floor(Date.now() / 3600000) * 3600000;
   const row = await env.DB.prepare(`
-    INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
+    INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
     ON CONFLICT(key) DO UPDATE SET
-      count = CASE WHEN window_start = ?2 THEN count + 1 ELSE 1 END,
-      window_start = ?2
+      count = CASE WHEN rate_limits.window_start = excluded.window_start
+                   THEN rate_limits.count + 1 ELSE 1 END,
+      window_start = excluded.window_start
     RETURNING count`)
     .bind(key, windowStart).first();
-  return !!row && Number(row.count) <= perHour;
+  if (!row) {
+    // RETURNING is the whole mechanism; without a row there is no count to
+    // judge. Fail open rather than locking everyone out of a working API, but
+    // say so — a rate limit that has quietly stopped limiting must not be
+    // indistinguishable from one nobody is hitting.
+    console.error('allowRate got no row back for', key, '— limit not enforced this call');
+    return true;
+  }
+  return Number(row.count) <= perHour;
+}
+
+/**
+ * A canonical cache key for a parameterised read.
+ *
+ * The Cache API keys on the request URL verbatim, so any route whose handler
+ * normalizes its parameter must hand the cache the NORMALIZED spelling or it
+ * stores one entry per spelling of the same answer.
+ */
+function cacheKey(url, params) {
+  const canonical = new URL(url.pathname, url.origin);
+  for (const [key, value] of Object.entries(params)) canonical.searchParams.set(key, value);
+  return new Request(canonical.toString(), { method: 'GET' });
 }
 
 /** Serve a GET from the edge cache, computing + caching on miss. */
@@ -164,7 +186,17 @@ async function handleSubmit(request, env) {
   if (!(await allowRate(env, 'submit:' + user.id, SUBMITS_PER_HOUR))) {
     return json({ ok: false, reason: 'rate-limited' }, 429);
   }
+  // Refuse on the DECLARED size before buffering. Checking after
+  // `request.text()` meant a 32 MB body was read into the isolate in full in
+  // order to be told it was too big: the rejection was correct, it was just
+  // paid for first. Six of those an hour per account is the rate limit's
+  // allowance, so the cost was bounded but never necessary.
+  const declared = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return json({ ok: false, reason: 'too-large' }, 413);
+  }
   const raw = await request.text();
+  // Backstop for a chunked body that declared no length.
   if (raw.length > MAX_BODY_BYTES) return json({ ok: false, reason: 'too-large' }, 413);
   let payload;
   try { payload = JSON.parse(raw); } catch { return json({ ok: false, reason: 'bad-json' }, 400); }
@@ -763,6 +795,13 @@ async function handleDuelCreate(request, env) {
 async function handleDuelJoin(request, env) {
   const user = await sessionUser(request, env);
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  // Joining was the one duel route with no limit, and it is the one that can
+  // be driven by guesswork: a bare loop over the code alphabet is a valid
+  // series of join attempts. Same bucket as create — a person doing this by
+  // hand never reaches ten an hour.
+  if (!(await allowRate(env, 'duel:' + user.id, DUELS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
   let body = {};
   try { body = await request.json(); } catch {}
   const loaded = await loadDuel(env, body.code);
@@ -1213,6 +1252,12 @@ async function removeMember(env, clanId, userId, founderId) {
 async function handleClanLeave(request, env) {
   const user = await sessionUser(request, env);
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  // Leave/join cycling is the cheapest way to churn clan_entries and to walk
+  // a founder succession around a roster, so it shares the clan bucket rather
+  // than being the one clan action that is free.
+  if (!(await allowRate(env, 'clan:' + user.id, CLAN_ACTIONS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
   const membership = await membershipOf(env, user.id);
   if (!membership) return json({ ok: false, reason: 'not-in-a-clan' }, 409);
   await removeMember(env, membership.clan_id, user.id, membership.founder_id);
@@ -1222,6 +1267,9 @@ async function handleClanLeave(request, env) {
 async function handleClanKick(request, env) {
   const user = await sessionUser(request, env);
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  if (!(await allowRate(env, 'clan:' + user.id, CLAN_ACTIONS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
   let body = {};
   try { body = await request.json(); } catch {}
   const membership = await membershipOf(env, user.id);
@@ -1251,6 +1299,9 @@ async function handleClanKick(request, env) {
 async function handleClanUpdate(request, env) {
   const user = await sessionUser(request, env);
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  if (!(await allowRate(env, 'clan:' + user.id, CLAN_ACTIONS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
   let body = {};
   try { body = await request.json(); } catch {}
   const membership = await membershipOf(env, user.id);
@@ -1311,6 +1362,10 @@ async function drainPricing(env) {
         lastError: String(err && err.message || err).slice(0, 200),
       }), row.user_id)
       .run();
+    // Log it too — a cron that silently returns is indistinguishable from a
+    // cron that is not firing, and the difference decides whether anyone
+    // goes looking.
+    console.error('drainPricing failed for user', row.user_id, err);
     return;
   }
 
@@ -1372,7 +1427,7 @@ export default {
       else if (path === '/api/version') response = json(await attestSupport());
       else if (path === '/api/auth/x/start') response = await startLogin(request, env);
       else if (path === '/api/auth/x/callback') response = await finishLogin(request, env, ctx);
-      else if (path === '/api/auth/logout' && request.method === 'POST') response = logout(env);
+      else if (path === '/api/auth/logout' && request.method === 'POST') response = logout(request, env);
       else if (path === '/api/me') {
         const user = await sessionUser(request, env);
         response = user
@@ -1403,15 +1458,24 @@ export default {
             env.DB.prepare('DELETE FROM records WHERE user_id = ?').bind(user.id),
             env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
           ]);
-          response = logout(env);
+          // The user row is already gone, so sessionUser finds nobody to bump
+          // an epoch for — and does not need to: a token whose uid no longer
+          // resolves stops verifying on its own. This only clears the cookie.
+          response = await logout(request, env);
         }
       }
       else if (path === '/api/submit' && request.method === 'POST') response = await handleSubmit(request, env);
       else if (path === '/api/leaderboard') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleLeaderboard(env));
       else if (path === '/api/sprint/current') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleSprint(env));
       else if (path === '/api/profile') {
-        const handle = url.searchParams.get('handle') || '';
-        response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleProfile(env, handle));
+        // Normalize into the CACHE KEY, not just into the query. The lookup is
+        // `COLLATE NOCASE`, so /api/profile?handle=bob and ?handle=BOB are one
+        // profile behind an unbounded number of distinct cache entries — every
+        // casing is a guaranteed miss straight through to D1 for a row the
+        // edge is already holding.
+        const handle = (url.searchParams.get('handle') || '').toLowerCase();
+        response = await edgeCached(cacheKey(url, { handle }), ctx, BOARD_CACHE_SEC,
+          () => handleProfile(env, handle));
       }
       else if (path === '/api/activity') response = await edgeCached(request, ctx, 20, () => handleActivity(env));
       // Keyed by full URL, so each handle caches separately at the edge; the
@@ -1432,11 +1496,18 @@ export default {
       else if (path === '/api/clan/kick' && request.method === 'POST') response = await handleClanKick(request, env);
       else if (path === '/api/clan/update' && request.method === 'POST') response = await handleClanUpdate(request, env);
       else if (path === '/api/clan') {
-        const tag = url.searchParams.get('tag') || '';
-        response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleClanGet(env, tag));
+        // Same reason as /api/profile: the handler normalizes the tag, so the
+        // cache key has to normalize it too or it caches per spelling.
+        const tag = clan.normalizeTag(url.searchParams.get('tag') || '');
+        response = await edgeCached(cacheKey(url, { tag }), ctx, BOARD_CACHE_SEC,
+          () => handleClanGet(env, tag));
       }
       else response = json({ ok: false, reason: 'not-found' }, 404);
     } catch (err) {
+      // The visitor gets nothing useful (deliberately); `wrangler tail` gets
+      // the route and the stack, without which a 500 is only ever reported as
+      // "the site is broken" with nothing to go on.
+      console.error('unhandled error on', request.method, path, err);
       response = json({ ok: false, reason: 'server-error' }, 500);
     }
 

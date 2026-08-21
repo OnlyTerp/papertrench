@@ -237,7 +237,25 @@ async function finishLogin(request, env, ctx) {
   return new Response(null, { status: 302, headers });
 }
 
-function logout(env) {
+/**
+ * Sign out, and mean it.
+ *
+ * Clearing the cookie only removes the browser's copy. The token itself is a
+ * self-contained HMAC assertion valid for its full 30 days, so a copy taken
+ * before signing out — off a shared machine, out of a proxy log, from anyone
+ * who had the browser for a minute — kept working right through "log out"
+ * and for a month afterwards. There was no way to revoke it: the epoch this
+ * file has checked since it was written was never once incremented.
+ *
+ * Bumping it is the revocation. Every outstanding token for this user carries
+ * the old epoch and stops verifying on the next request.
+ */
+async function logout(request, env) {
+  const user = await sessionUser(request, env);
+  if (user) {
+    await env.DB.prepare('UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?')
+      .bind(user.id).run();
+  }
   return new Response(JSON.stringify({ ok: true }), {
     headers: {
       'Content-Type': 'application/json',
