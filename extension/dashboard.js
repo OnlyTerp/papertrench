@@ -242,6 +242,10 @@ async function init() {
   await loadAll();
   bindNav();
   bindShareCard();
+  // N1: an update notice (written by the SW's release check) leads the page.
+  // Unpacked installs never auto-update; this is the only channel that tells
+  // a user a fix shipped. Renders once per load, before any section.
+  try { renderUpdateBanner(); } catch (_) {}
   renderSidebar();
   renderSection(currentSection);
   // Seed the baseline so the first poll does not re-render an unchanged page.
@@ -612,6 +616,40 @@ function renderStorageErrorBanner() {
     'background:rgba(255,95,86,.14);border-bottom:1px solid rgba(255,95,86,.45);'
     + 'color:#FFB3AE;padding:9px 26px;font-size:12.5px;font-weight:600';
   document.body.insertBefore(banner, document.body.firstChild);
+}
+
+/**
+ * N1: the update banner. The SW's release check (background.js) writes
+ * pt_update_notice when a newer tag is live on GitHub; this renders it at
+ * the top of the dashboard with a direct download link. Dismissal is per
+ * page-load only — the notice returns on the next dashboard open until the
+ * user actually updates (clearing it for good happens when the running
+ * version no longer compares older, i.e. after a real update).
+ */
+async function renderUpdateBanner() {
+  const stored = await chrome.storage.local.get('pt_update_notice');
+  const notice = stored && stored.pt_update_notice;
+  if (!notice || !notice.latest) return;
+  let banner = document.getElementById('pt-update-banner');
+  if (banner) banner.remove();
+  banner = document.createElement('div');
+  banner.id = 'pt-update-banner';
+  const link = notice.url || 'https://github.com/OnlyTerp/papertrench/releases/latest';
+  banner.innerHTML =
+    '<span style="flex:1">Update available — <b>v' + esc(notice.latest) + '</b> is out '
+    + '(you are running v' + esc(String(chrome.runtime.getManifest().version)) + '). '
+    + 'Unpacked extensions never auto-update.</span>'
+    + '<a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" '
+    + 'style="color:#7DE3B4;font-weight:700;text-decoration:none">Get the new version →</a>'
+    + '<button id="pt-update-dismiss" title="Hide for now" '
+    + 'style="background:none;border:none;color:inherit;cursor:pointer;font-size:15px;padding:0 4px">×</button>';
+  banner.style.cssText =
+    'position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:12px;'
+    + 'background:rgba(52,211,153,.12);border-bottom:1px solid rgba(52,211,153,.4);'
+    + 'color:#A7F3D0;padding:9px 26px;font-size:12.5px;font-weight:600';
+  document.body.insertBefore(banner, document.body.firstChild);
+  const dismiss = banner.querySelector('#pt-update-dismiss');
+  if (dismiss) dismiss.addEventListener('click', () => banner.remove());
 }
 
 async function saveSettings() {
@@ -3557,7 +3595,8 @@ function renderStandingsPlaceholder(identity, stats) {
       <a class="btn-sec" href="https://papertrench.com/sprint.html" target="_blank" rel="noopener" style="text-decoration:none">Weekly Sprint ↗</a>
       <a class="btn-sec" href="https://papertrench.com/duels.html" target="_blank" rel="noopener" style="text-decoration:none">Duels ↗</a>
     </div>
-    <div class="field field-check" style="margin-top:14px"><label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label><small>Lets papertrench.com read your verified record when you click Sync there — nothing is sent anywhere on its own, and no other site can ask. Off means the site tells you to use the exported file instead.</small></div>`;
+    <div class="field field-check" style="margin-top:14px"><label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label><small>Lets papertrench.com read your verified record when you click Sync there — nothing is sent anywhere on its own, and no other site can ask. Off means the site tells you to use the exported file instead.</small></div>
+    <div class="field field-check" style="margin-top:10px"><label><input type="checkbox" id="update-check" ${settings.updateCheckEnabled === false ? '' : 'checked'}> Check for new versions</label><small>Asks GitHub (api.github.com) if a newer release is out, twice a day, and shows a banner with the download link. Sends nothing but that one request. Unpacked extensions never update themselves, so this is the only way you hear about fixes. Turn it off for full no-phone-home mode.</small></div>`;
 }
 
 /** Verify the chain and show the user exactly what a server would compute. */
@@ -3610,6 +3649,25 @@ async function bindLeaderboard(el) {
     bridge.addEventListener('change', async () => {
       settings.leaderboardBridge = bridge.checked === true;
       try { await saveSettings(); } catch (err) { console.error('PaperTrench: bridge save failed', err); }
+    });
+  }
+
+  const updateCheck = el.querySelector('#update-check');
+  if (updateCheck) {
+    updateCheck.addEventListener('change', async () => {
+      // N1: stored as an explicit boolean either way — the SW treats
+      // `undefined` as on (default), so writing `false` is what disables it.
+      settings.updateCheckEnabled = updateCheck.checked === true;
+      try {
+        await saveSettings();
+        // The SW's next run honors the new value; an opt-out clears any
+        // standing notice immediately so the banner dies with the toggle.
+        if (!updateCheck.checked) {
+          chrome.storage.local.remove('pt_update_notice').catch(() => {});
+          const banner = document.getElementById('pt-update-banner');
+          if (banner) banner.remove();
+        }
+      } catch (err) { console.error('PaperTrench: update-check save failed', err); }
     });
   }
 

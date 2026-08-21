@@ -270,10 +270,15 @@ test('dashboard loads its modules before dashboard.js', () => {
 test('the manifest requests only the permissions the extension actually uses', () => {
   // Least privilege matters for a public release: every extra permission is a
   // reason for someone to distrust the extension.
+  // N1 (8/21): `alarms` joined for exactly two named wakes — the update
+  // check (users had no way to learn a release shipped) and the limit-buy
+  // TTL sweep. Any OTHER alarm use must extend this allowlist consciously.
   assert.deepEqual([...manifest.permissions].sort(),
-    ['activeTab', 'offscreen', 'scripting', 'storage', 'tabs', 'unlimitedStorage'].sort());
-  assert.ok(!manifest.permissions.includes('alarms'),
-    'the alarm was only used for external polling, which this build does not do');
+    ['activeTab', 'alarms', 'offscreen', 'scripting', 'storage', 'tabs', 'unlimitedStorage'].sort());
+  const bg = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  const alarmNames = [...bg.matchAll(/chrome\.alarms\.create\('([^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(alarmNames)].sort(), ['pt_pending_buy_sweep', 'pt_update_check'],
+    'alarms exist for the update check and the limit-buy TTL sweep only');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(manifest.version, pkg.version,
     'manifest.json and package.json must agree on the version');

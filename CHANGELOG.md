@@ -3,6 +3,30 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.10.0 — 2026-08-21
+
+**Honest fills everywhere, limit buys, and the extension now tells you when
+it's out of date.** Straight from the Discord feedback:
+
+- **Quick-buys and sells priced at fantasy levels** (the 14x-ATH sell, the
+  "not accurate at all of my real PNL" instant-buys). Board chip fills used
+  the row's own price blind — no witness, no second opinion. A chip fill now
+  runs the exact same honesty gates as a panel fill: a quote that diverges
+  too far from your position's last honest mark needs an independent source
+  to vouch for it, or the fill is refused — visibly, with the reason, and
+  nothing booked.
+- **Limit buys.** Arm a bid below the market on any chart page: pick your
+  SOL amount, type the price, hit ARM. The SOL locks (you'll see "locked" in
+  the positions bar) and the buy fires the moment price drops to your level
+  — filled at the real observed price, honest-fill rules, slip reported.
+  Cancel anytime with the ×. Unfilled bids expire after 24h and the SOL
+  unlocks automatically.
+- **Update notices.** Unpacked extensions never auto-update, and people were
+  trading for days on stale builds. PaperTrench now asks GitHub twice a day
+  whether a newer release exists and shows a banner (dashboard + panel
+  toast) with the download link. One GET request, sends nothing, and you can
+  turn it off in Settings if you want full no-phone-home mode.
+
 ## v3.9.17 — 2026-08-21
 
 **Quick-buys mark the chart again.** Live report:

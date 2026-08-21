@@ -3137,8 +3137,132 @@ chrome.runtime.onInstalled.addListener((details) => {
   // next fill — deterministic for the install, free for every later wake.
   attestSerial(ensureAttestMigratedLocked).catch(() => {});
   reinjectOpenTabs((details && details.reason) || 'installed').catch(() => {});
+  // N1 (Discord 8/21, ark_trades13/amogus_0471): three users asked publicly
+  // how to update — the extension is unpacked, so Chrome never updates it
+  // and users kept trading on stale builds with known-fixed bugs. Check the
+  // GitHub releases feed on every install/update so the notice is immediate.
+  scheduleUpdateCheck(0);
 });
 refreshFrameInterval().catch(() => {});
+
+/* ------------------------- update notice (N1) ---------------------------
+ * The extension ships unpacked (no update_url), so Chrome will never update
+ * it — the ONLY way users learn a fix shipped is if the extension itself
+ * says so. This polls the public GitHub releases feed, compares the newest
+ * tag against the running manifest version, and stores the result; the
+ * dashboard + a toast on trading pages read it. It contacts exactly one
+ * host (api.github.com, the same host the download link points at), sends
+ * no user data (a bare GET), runs at most every 6 h (plus on install), and
+ * is fully opt-out via settings.updateCheckEnabled = false. This is the one
+ * deliberate exception to the no-phone-home doctrine, made because users
+ * staying on broken builds is worse than one version header leaving the
+ * machine — the same reasoning as the leaderboard's answer-only bridge.
+ */
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_FEED_URL = 'https://api.github.com/repos/OnlyTerp/papertrench/releases/latest';
+
+async function fetchLatestRelease() {
+  const res = await fetch(UPDATE_FEED_URL, {
+    headers: { Accept: 'application/vnd.github+json' },
+    // No caching: a stale 304/max-age would suppress the notice for hours
+    // after a release lands.
+    cache: 'no-store',
+  });
+  if (!res.ok) return null;
+  const rel = await res.json().catch(() => null);
+  if (!rel || typeof rel.tag_name !== 'string') return null;
+  return {
+    tag: rel.tag_name.replace(/^v/i, ''),
+    url: typeof rel.html_url === 'string' ? rel.html_url : null,
+    notes: typeof rel.body === 'string' ? rel.body.slice(0, 500) : null,
+  };
+}
+
+function isNewerVersion(latest, current) {
+  const a = String(latest).split('.').map((n) => parseInt(n, 10) || 0);
+  const b = String(current).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i += 1) {
+    const d = (a[i] || 0) - (b[i] || 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+async function runUpdateCheck() {
+  let stored = null;
+  try { stored = await chrome.storage.local.get(['pt_settings', 'pt_update_notice']); } catch (_) { return; }
+  const settings = stored && stored.pt_settings;
+  // Opt-out is honored instantly, and an existing notice is cleared with it.
+  if (settings && settings.updateCheckEnabled === false) {
+    if (stored.pt_update_notice) chrome.storage.local.remove('pt_update_notice').catch(() => {});
+    return;
+  }
+  const rel = await fetchLatestRelease().catch(() => null);
+  if (!rel) return; // network/refusal/down — silent; never nag on failure
+  const running = chrome.runtime.getManifest().version;
+  const notice = isNewerVersion(rel.tag, running)
+    ? { latest: rel.tag, running, url: rel.url, notes: rel.notes, at: Date.now() }
+    : null;
+  const prev = stored.pt_update_notice || null;
+  // Write only on change — a steady "no update" state costs zero writes.
+  if (!notice && prev) chrome.storage.local.remove('pt_update_notice').catch(() => {});
+  else if (notice && (!prev || prev.latest !== notice.latest)) {
+    chrome.storage.local.set({ pt_update_notice: notice }).catch(() => {});
+  }
+}
+
+function scheduleUpdateCheck(delayMs) {
+  setTimeout(() => {
+    runUpdateCheck().catch(() => {});
+    scheduleUpdateCheck(UPDATE_CHECK_INTERVAL_MS);
+  }, Math.max(0, delayMs || 0));
+}
+// The SW dies on idle; an alarm survives. The timer above covers a live SW;
+// this alarm wakes a sleeping one twice a day. Guarded: unit harnesses load
+// this file with a partial chrome stub and no alarms API.
+if (chrome.alarms && typeof chrome.alarms.create === 'function') {
+  chrome.alarms.create('pt_update_check', { periodInMinutes: 360 });
+  // N2: armed limit buys carry a 24h TTL. A chart page sweeps its OWN mints
+  // on every boot, but a bid on a coin whose tab never reopens would hold
+  // its SOL forever — this daily sweep releases expired locks for everyone.
+  chrome.alarms.create('pt_pending_buy_sweep', { periodInMinutes: 720 });
+}
+if (chrome.alarms && typeof chrome.alarms.onAlarm === 'object' && chrome.alarms.onAlarm) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm && alarm.name === 'pt_update_check') runUpdateCheck().catch(() => {});
+    if (alarm && alarm.name === 'pt_pending_buy_sweep') sweepPendingBuys().catch(() => {});
+  });
+}
+
+async function sweepPendingBuys() {
+  try {
+    const got = await new Promise((resolve) => {
+      if (chrome.runtime.lastError) { resolve(null); return; }
+      chrome.storage.local.get(['pt_state'], (v) => resolve(v || {}));
+    });
+    const state = got && got.pt_state;
+    if (!state || typeof state !== 'object' || !state.pendingBuys) return;
+    // engine.js is not loaded in the SW (it is a classic script with a
+    // window global); the TTL sweep is 10 lines and inlined here on
+    // purpose. The 24h TTL mirrors engine.js PENDING_BUY_TTL_MS.
+    const TTL_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let expired = 0;
+    for (const mint of Object.keys(state.pendingBuys)) {
+      const list = state.pendingBuys[mint];
+      if (!Array.isArray(list)) continue;
+      const keep = list.filter((o) => now - o.ts <= TTL_MS);
+      expired += list.length - keep.length;
+      if (keep.length) state.pendingBuys[mint] = keep;
+      else delete state.pendingBuys[mint];
+    }
+    if (expired > 0) {
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ pt_state: state }, () => resolve());
+      });
+    }
+  } catch (_) { /* a failed sweep must never wake the SW with an error */ }
+}
 
 /* -------------------- site bridge (leaderboard sync) --------------------
  * The extension's ONLY external surface, and it is answer-only: the site

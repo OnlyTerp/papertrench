@@ -173,12 +173,15 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // (Window widened when the D-38 CHAIN leg — rowChainQuote — joined the
   // cascade: a new-coin row is priced straight from the pool/curve on-chain.
   // D-40 moved the commit core into fillRowBuy so the direct fill and the
-  // armed flush commit identically — the locks follow the extractor.)
+  // armed flush commit identically — the locks follow the extractor.
+  // F-56 widened it again: chip fills now run the same witness gate as
+  // panel fills — an existing position anchors the check, a >2x divergent
+  // candidate needs a vouching second source or the fill refuses.)
   assert.match(content, /async function fillRowBuy\(address, data, amount\)/,
     'the shared commit extractor exists (one commit path for click + armed flush)');
-  assert.match(content, /fillRowBuy[\s\S]{0,2600}E\.buy\(state, settings/,
+  assert.match(content, /fillRowBuy[\s\S]{0,4200}E\.buy\(state, settings/,
     'the extractor runs the engine buy');
-  assert.match(content, /fillRowBuy[\s\S]{0,2600}commitFill\(filled\.trade\)/,
+  assert.match(content, /fillRowBuy[\s\S]{0,4200}commitFill\(filled\.trade\)/,
     'the extractor appends the attestation chain');
   assert.match(content, /await fillRowBuy\(address, data, amount\);/,
     'the click path commits through the shared extractor');
@@ -366,6 +369,22 @@ test('the row chain probe tries BOTH shapes — pool then mint (D-40)', () => {
     'the second probe asks the OPPOSITE shape');
   assert.match(content, /if \(!found \|\| !\(Number\(found\.priceNative\) > 0\)\) \{\s*\n\s*ids =/,
     'the second probe runs exactly when the first returned no price');
+});
+
+test('chip fills run the same honesty gate as panel fills (F-56)', () => {
+  // soramonk 8/21 (AMERICOIN): paper-sell booked at 1.6M MC on a coin whose
+  // ATH was 113k — a 14x phantom print priced a chip fill because the row
+  // path had NO witness at all, and the panel gate keyed only on
+  // lastAcceptedMarket (a fresh page has none → gate skipped). Two locks:
+  assert.match(content, /posEvidence = token && state && state\.positions\[token\.mint\]/,
+    'the panel witness falls back to the position\'s own last honest mark');
+  assert.match(content, /const posAnchor = data\.mint && state\.positions\[data\.mint\]/,
+    'the chip witness anchors on an existing position\'s last honest mark');
+  assert.match(content, /Price sources disagree — paper fill refused\. Try again in a moment\./,
+    'a divergent candidate with no vouching second source refuses visibly');
+  // The witness must be INDEPENDENT of the candidate's source.
+  assert.match(content, /if \(data\.priceSource === 'row-feed' \|\| !data\.priceSource\) \{\s*\n\s*const obs = await R\.resolve\(address/,
+    'a row-feed candidate is witnessed by the resolver, not by itself');
 });
 
 test('a panel buy on a fresh coin acquires the quote on the click before arming (D-38)', () => {

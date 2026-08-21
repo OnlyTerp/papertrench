@@ -46,9 +46,12 @@ test('the perps stack loads in dependency order', () => {
 test('the perps feature adds ZERO new permissions', () => {
   // The permission list is the trust story; perps must not grow it. The
   // exact list is asserted by load.test.js — here we pin the deltas perps
-  // could have been tempted to add.
-  assert.ok(!manifest.permissions.includes('alarms'),
-    'no background polling: reconciliation is on-wake only');
+  // could have been tempted to add. `alarms` exists since N1 (update check
+  // + limit-buy TTL sweep); PERPS itself must never touch them.
+  if (manifest.permissions.includes('alarms')) {
+    assert.doesNotMatch(contentSrc, /chrome\.alarms/,
+      'perps never reads alarms — reconciliation is on-wake only');
+  }
   const war = JSON.stringify(manifest.web_accessible_resources || []);
   assert.ok(!war.includes('perps'), 'no perps module is web-accessible');
 });

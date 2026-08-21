@@ -423,8 +423,9 @@ test('alert mints ride the batch request the positions bar already sends', () =>
 test('the chart on screen is judged too, not only the ones in the batch', () => {
   // The on-screen token is deliberately excluded from the batch poller, so
   // without this the one chart you are actually watching is the one that
-  // never pings.
-  assert.match(CONTENT, /evaluateChartOrders\(\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*evaluateMcAlerts\(token\.mint, token\);/,
+  // never pings. (N2's evaluatePendingBuys sits between them — both are
+  // tick-path judges; the order among them is not the property.)
+  assert.match(CONTENT, /evaluateChartOrders\(\);\s*\n\s*\/\/[^\n]*\n\s*evaluatePendingBuys\(\);\s*\n\s*\/\/[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*evaluateMcAlerts\(token\.mint, token\);/,
     'the tick path must judge the on-screen token');
   assert.match(CONTENT, /evaluateMcAlerts\(token\.mint, token\);\s*\n\s*\/\/ C-01/,
     'an adopted resolver quote must judge it too');
@@ -461,8 +462,12 @@ test('the feature asks for no new extension permission', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   assert.ok(!manifest.permissions.includes('notifications'),
     'market-cap alerts must not add the notifications permission');
-  assert.ok(!manifest.permissions.includes('alarms'),
-    'alerts ride the existing poller — no alarm permission');
+  // N1 (8/21) added `alarms` for the update check + limit-buy TTL sweep.
+  // Alerts themselves still ride the existing tick/poller path — this lock
+  // pins THAT: an alarm handler that fires alerts would be the regression.
+  const bg = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  assert.doesNotMatch(bg, /pt_.*alarm[\s\S]{0,400}evaluateMcAlerts/,
+    'no alarm handler may drive market-cap alerts — they ride the poller');
   assert.doesNotMatch(CONTENT, /chrome\.notifications/,
     'the content script must deliver through the page, not the extension API');
 });

@@ -779,6 +779,8 @@
     // rule depends on it being the tick that first crossed the level, so this
     // sits in the tick path and nowhere else.
     evaluateChartOrders();
+    // N2: armed limit buys fire on the SAME tick path, same honest-fill rule.
+    evaluatePendingBuys();
     // The token ON SCREEN is excluded from the batch poller (its price comes
     // from the page's own feed), so its alerts are judged here — otherwise
     // the one chart you are actually watching is the one that never pings.
@@ -1794,7 +1796,26 @@
   async function corroborateForFill(chosen) {
     lastQuoteRefusal = null;
     if (!chosen) return null;
-    const evidence = lastAcceptedMarket;
+    // F-56 (soramonk 8/21, AMERICOIN): the witness gate keyed ONLY on
+    // lastAcceptedMarket — a page that never accepted a tick (fresh chart,
+    // quiet feed) had NO evidence, so needsFillWitness() returned false and
+    // a poisoned print priced a fill unchallenged (paper-sell at 1.6M MC on
+    // a coin whose ATH was 113k — a 14x phantom). The position's own last
+    // honest mark is evidence the wallet already stands behind: when the
+    // chart page has none, use it as the anchor. Same window, same ratio —
+    // a real 4x move still corroborates from any fresh second source; a
+    // 14x dust-pool print with no vouch REFUSES like it always should have.
+    // (state may be absent in isolated ladder tests — the anchor is then
+    // simply not available and the pre-F-56 behavior stands there.)
+    let posEvidence = null;
+    try {
+      posEvidence = token && state && state.positions[token.mint]
+        ? state.positions[token.mint].lastPriceNative || null
+        : null;
+    } catch (_) { posEvidence = null; }
+    const evidence = lastAcceptedMarket || (posEvidence > 0
+      ? { priceNative: posEvidence, at: Date.now() }
+      : null);
     const evidenceAge = evidence ? Date.now() - evidence.at : Infinity;
     if (!Q.needsFillWitness(chosen.priceNative, evidence && evidence.priceNative, evidenceAge)) {
       return chosen;
@@ -2394,6 +2415,159 @@
       toast(`${order.kind === 'tp' ? 'Take profit' : 'Stop loss'} could not fill: ${err.message || 'unknown error'}`);
     }
     renderAll();
+  }
+
+  /* ----------------- armed limit buys (N2) -----------------
+   * Ideas channel (.dgreatest). Same doctrine as TP/SL fires: judged on the
+   * tick that first crossed the level, filled at the observed price, locked
+   * SOL released only by fill/cancel/expiry. The lock is checked at ARM
+   * time against free cash so two bids cannot spend the same SOL. */
+
+  let pendingBuyFireInFlight = false;
+
+  async function evaluatePendingBuys() {
+    if (pendingBuyFireInFlight || !token || !token.mint) return;
+    const observed = Number(token.priceNative);
+    if (!(observed > 0)) return;
+    const due = E.triggeredPendingBuys(state, token.mint, observed);
+    if (!due.length) return;
+    pendingBuyFireInFlight = true;
+    try {
+      for (const buy of due) {
+        if (!E.pendingBuysFor(state, token.mint).some((o) => o.id === buy.id)) continue;
+        await firePendingBuy(buy, observed);
+      }
+    } finally {
+      pendingBuyFireInFlight = false;
+    }
+  }
+
+  async function firePendingBuy(buy, observedPrice) {
+    const mint = token.mint;
+    const priceUsd = Number(token.priceUsd) > 0 ? Number(token.priceUsd) : null;
+    const mcap = mcapAtPrice(observedPrice);
+    try {
+      const result = await withState(async () => {
+        let filled = null;
+        const mutate = () => {
+          filled = null;
+          // The armed entry is spent whether or not the wallet still wants
+          // it — the guard inside E.buy is the FINAL word on cash.
+          const armed = E.pendingBuysFor(state, mint).find((o) => o.id === buy.id);
+          if (!armed) return;
+          E.removePendingBuy(state, mint, buy.id);
+          try {
+            filled = E.buy(state, settings, {
+              ts: Date.now(), mint, pairAddress: token.pairAddress,
+              symbol: token.symbol, name: token.name, site: site && site.id,
+              solAmount: armed.solAmount,
+              priceNative: observedPrice, priceUsd, mcap,
+            });
+          } catch (err) {
+            // Cash could not cover it (something else spent first): the
+            // entry is dropped with a visible reason, never silently.
+            toast(`Limit buy could not fill: ${err.message || 'wallet refused'}`);
+            filled = { error: err.message || 'wallet refused' };
+            return;
+          }
+          drawnFillIds.add(filled.trade.id);
+        };
+        mutate();
+        if (!filled) return null;
+        if (filled.error) return null;
+        await persistStateNow(mutate);
+        const { trade, position } = filled;
+        await commitFill(trade);
+        const markerTs = Date.now();
+        marks.push({ t: markerTs, p: trade.priceNative, side: 'buy' });
+        drawFillOnChart({
+          ts: markerTs, fillId: trade.id, side: 'buy',
+          priceNative: trade.priceNative, priceUsd: trade.priceUsd,
+          mcap: trade.mcap, solAmount: trade.solGross,
+        });
+        syncAveragePriceLines();
+        if (filled.opened) profitAlertLevels.set(mint, 0);
+        return filled;
+      });
+      if (result) {
+        sendMessage({
+          type: 'pt_trade_event', kind: 'buy', opened: result.opened,
+          session: summarizeSession(result.position),
+          trade: summarizeTrade({ ...result.trade, source: 'limit-buy' }),
+        }).catch(() => {});
+        runTradeEffect('buy');
+        playTradeSound('buy');
+        const askedMcap = mcapAtPrice(buy.triggerPrice);
+        const asked = askedMcap ? `${fmtMoney(askedMcap)} MC` : `${E.fmt(buy.triggerPrice, 8)} SOL`;
+        const slipPct = buy.triggerPrice > 0
+          ? ((observedPrice - buy.triggerPrice) / buy.triggerPrice) * 100 : 0;
+        toast(`Limit buy ${asked} fired — bought ${E.fmt(buy.solAmount, 3)} SOL${slipPct <= -0.1 ? ` (${slipPct.toFixed(1)}% vs asked)` : ''}`);
+      }
+    } catch (err) {
+      toast(`Limit buy could not fill: ${err.message || 'unknown error'}`);
+    }
+    renderAll();
+  }
+
+  function armLimitBuy() {
+    if (!token || !token.mint) return toast('Waiting for the token…');
+    const price = Number(els.limitPrice && els.limitPrice.value);
+    // Same amount read the BUY button uses: custom box wins, else the
+    // selected preset chip.
+    const custom = Number(els.custom && els.custom.value);
+    const sel = els.buyPresets && els.buyPresets.querySelector('.pt-preset.sel');
+    const amount = custom > 0 ? custom : sel ? Number(sel.dataset.amt) : 0;
+    if (!(price > 0)) return toast('Type a limit price first (SOL)');
+    if (!(amount > 0)) return toast('Pick a SOL amount first (presets or custom)');
+    if (token.priceNative && price >= Number(token.priceNative)) {
+      // A bid ABOVE the market is a market buy in disguise — refuse the
+      // confusion and say why. Buy it now instead.
+      return toast('That limit is at or above the live price — just press BUY');
+    }
+    try {
+      const order = E.addPendingBuy(state, settings, token.mint, {
+        ts: Date.now(), triggerPrice: price, solAmount: amount,
+        symbol: token.symbol, name: token.name, site: site && site.id,
+      });
+      persistSoon();
+      if (els.limitPrice) els.limitPrice.value = '';
+      const askedMcap = mcapAtPrice(price);
+      toast(`Limit buy armed${askedMcap ? ` at ${fmtMoney(askedMcap)} MC` : ''} — ${E.fmt(amount, 3)} SOL locked`);
+      renderLimitBuys();
+    } catch (err) {
+      toast(err.message || 'Could not arm the limit buy');
+    }
+  }
+
+  function cancelLimitBuy(id) {
+    if (!token || !token.mint) return;
+    withState(async () => {
+      E.removePendingBuy(state, token.mint, id);
+      return null;
+    }).then(() => {
+      persistSoon();
+      renderLimitBuys();
+      toast('Limit buy cancelled — SOL unlocked');
+    }).catch(() => {});
+  }
+
+  function renderLimitBuys() {
+    if (!els.limitList) return;
+    const buys = token && token.mint ? E.pendingBuysFor(state, token.mint) : [];
+    if (!buys.length) { els.limitList.innerHTML = ''; return; }
+    els.limitList.innerHTML = buys.map((o) => {
+      const mcap = mcapAtPrice(o.triggerPrice);
+      const dist = token && Number(token.priceNative) > 0
+        ? (((Number(token.priceNative) - o.triggerPrice) / o.triggerPrice) * 100).toFixed(1) : null;
+      return `<div class="pt-limit-item" data-id="${o.id}">
+        <span class="pt-limit-lv">${mcap ? fmtMoney(mcap) + ' MC' : E.fmt(o.triggerPrice, 8) + ' SOL'}</span>
+        <span class="pt-limit-amt">${E.fmt(o.solAmount, 3)} SOL${dist !== null ? ` <small>(${dist}% above)</small>` : ''}</span>
+        <button class="pt-limit-x" data-id="${o.id}" title="Cancel and unlock the SOL">×</button>
+      </div>`;
+    }).join('');
+    for (const btn of els.limitList.querySelectorAll('.pt-limit-x')) {
+      btn.addEventListener('click', () => cancelLimitBuy(btn.getAttribute('data-id')));
+    }
   }
 
   /**
@@ -3764,6 +3938,43 @@
       50% { filter: brightness(1.12); }
     }
 
+    /* ---------------- limit buys (N2) ---------------- */
+
+    .pt-limit-row {
+      display: flex; gap: 5px; margin-top: 6px;
+    }
+    .pt-limit-row input {
+      flex: 1; min-width: 0;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--pt-line); border-radius: var(--pt-r-sm);
+      color: var(--pt-fg); font: 500 11.5px/1.2 var(--pt-sans);
+      padding: 7px 9px; outline: none;
+    }
+    .pt-limit-row input::placeholder { color: var(--pt-faint); font-family: var(--pt-sans); }
+    .pt-limit-row input:focus { border-color: var(--pt-amber); }
+    .pt-limit-row button {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--pt-line); border-radius: var(--pt-r-sm);
+      color: var(--pt-fg); font: 700 10.5px/1 var(--pt-sans);
+      letter-spacing: 0.4px; padding: 0 10px; cursor: pointer;
+    }
+    .pt-limit-row button:hover { background: rgba(255, 192, 129, 0.16); border-color: var(--pt-amber); }
+    .pt-limit-item {
+      display: flex; align-items: center; gap: 7px;
+      margin-top: 5px; padding: 5px 9px;
+      background: rgba(255, 192, 129, 0.07);
+      border: 1px dashed rgba(255, 192, 129, 0.35); border-radius: var(--pt-r-sm);
+      font: 600 11px/1.3 var(--pt-sans); color: var(--pt-fg);
+    }
+    .pt-limit-item small { color: var(--pt-faint); font-weight: 500; }
+    .pt-limit-lv { color: var(--pt-amber); }
+    .pt-limit-amt { flex: 1; }
+    .pt-limit-x {
+      background: none; border: none; color: var(--pt-faint);
+      font: 700 13px/1 var(--pt-sans); cursor: pointer; padding: 0 2px;
+    }
+    .pt-limit-x:hover { color: #FF6B5E; }
+
     /* ---------------- position card ---------------- */
 
     .pt-pos {
@@ -4578,6 +4789,13 @@
             </div>
             <input class="pt-custom" id="pt-custom" type="number" min="0" step="0.01" placeholder="Or type a custom SOL amount…" />
             <button class="pt-buy" id="pt-buy">BUY</button>
+            <!-- N2 (limit buys): one compact arm-row directly under BUY.
+                 Reads as "same money, but only at my price". -->
+            <div class="pt-limit-row" id="pt-limit-row">
+              <input id="pt-limit-price" type="number" min="0" step="any" placeholder="Limit price (SOL)…" title="Arm a limit buy at this SOL price — fills if the price drops to it" />
+              <button id="pt-limit-arm" title="Arm the limit buy with the SOL amount above">ARM ↓</button>
+            </div>
+            <div id="pt-limit-list"></div>
             <!-- Position sits BELOW the buy cluster on purpose (maintainer):
                  inserting it above shifted the panel so sell buttons landed
                  where BUY had been — a double-click away from an accidental
@@ -4636,6 +4854,9 @@
     els.editTip = shadow.getElementById('pt-edit-tip');
     els.editSlip = shadow.getElementById('pt-edit-slip');
     els.btnBuy = shadow.getElementById('pt-buy');
+    els.limitPrice = shadow.getElementById('pt-limit-price');
+    els.limitArm = shadow.getElementById('pt-limit-arm');
+    els.limitList = shadow.getElementById('pt-limit-list');
     els.position = shadow.getElementById('pt-position');
     els.alerts = shadow.getElementById('pt-alerts');
     els.thesis = shadow.getElementById('pt-thesis');
@@ -4750,6 +4971,14 @@
       if (!(amt > 0)) return toast(panelUsd() ? 'Pick a dollar amount first' : 'Pick a SOL amount first');
       requestBuy(amt);
     });
+    // N2: limit buys — ARM uses the same amount read as BUY; Enter in the
+    // price box arms too (saves the mouse trip mid-dip).
+    if (els.limitArm) els.limitArm.addEventListener('click', armLimitBuy);
+    if (els.limitPrice) {
+      els.limitPrice.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') { event.preventDefault(); armLimitBuy(); }
+      });
+    }
     // Enter in the amount box IS the buy — in compact focus mode the big
     // button is gone (the chips are the buttons), and in normal mode this
     // just saves a mouse trip.
@@ -5190,6 +5419,7 @@
     renderPosition();
     renderAlerts();
     renderBuyButton();
+    renderLimitBuys();
     renderThesis();
     renderClosedPnl();
     renderSiteStatus();
@@ -5816,6 +6046,46 @@
    * same attestation chain, same rail refresh). Returns the result object or
    * null (guard refusal toasts its own message). */
   async function fillRowBuy(address, data, amount) {
+    // F-56: a chip fill runs through the SAME honesty gates as a panel fill.
+    // The row's own price used to price the trade blind — no witness, no
+    // contradiction check — so a stale/wrong row print booked entries far
+    // from the real market (pulse-page fills, "not accurate at all of my
+    // real PNL", 8/16; the AMERICOIN 14x sell the same family). Two rules:
+    // 1) an EXISTING position's last honest mark anchors the witness (the
+    //    wallet already stands behind it), and
+    // 2) a candidate that diverges >2x from that anchor needs a second,
+    //    independent source to agree — resolver when the row came from the
+    //    feed, row-feed when it came from the resolver. No vouch → refuse,
+    //    visibly, exactly like a panel fill. A fresh coin with no anchor
+    //    (no position yet, first buy) keeps the row price: the board feed
+    //    is the primary source there and nothing better exists at t=0.
+    const posAnchor = data.mint && state.positions[data.mint]
+      ? state.positions[data.mint].lastPriceNative || null
+      : null;
+    if (posAnchor > 0 && Number(data.priceNative) > 0) {
+      const ratio = Math.max(Number(data.priceNative) / posAnchor, posAnchor / Number(data.priceNative));
+      if (ratio > 2) {
+        let witnessNative = null;
+        try {
+          if (data.priceSource === 'row-feed' || !data.priceSource) {
+            const obs = await R.resolve(address, { maxAgeMs: 3000 }).catch(() => null);
+            if (obs && Number(obs.priceNative) > 0) witnessNative = Number(obs.priceNative);
+          } else {
+            const live = data.mint && recentRowPrices.get(data.mint);
+            if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceNative) > 0) {
+              const rate = data.priceUsd / data.priceNative;
+              witnessNative = live.usd / rate;
+            }
+          }
+        } catch (_) { /* witness lookup failed — treated as no witness */ }
+        const vouched = witnessNative > 0
+          && Math.max(witnessNative / Number(data.priceNative), Number(data.priceNative) / witnessNative) <= 1.6;
+        if (!vouched) {
+          toast('Price sources disagree — paper fill refused. Try again in a moment.');
+          return null;
+        }
+      }
+    }
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
@@ -6101,7 +6371,10 @@
         barTotalEls = { count, sol, pct };
       }
       const sign = summary.up ? '+' : '';
-      barTotalEls.count.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}`;
+      // N2: armed limit buys lock SOL — show it in the bar total so the
+      // "missing" cash is explained where the trader looks for it.
+      const locked = E.lockedBuySol(state);
+      barTotalEls.count.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${locked > 0 ? ` · ${E.fmt(locked, 3)} locked` : ''}`;
       barTotalEls.sol.textContent = `${sign}${E.fmt(summary.pnlSol, 3)} SOL`;
       barTotalEls.pct.textContent = `${sign}${summary.pnlPct.toFixed(1)}%`;
       for (const node of [barTotalEls.sol, barTotalEls.pct]) {
@@ -7606,6 +7879,21 @@
     }, TOAST_LIFE_MS);
   }
 
+  /* N1: one update notice per page session. The SW's release check wrote
+   * pt_update_notice (or not) long before this tab mounted; this only reads
+   * it and says so — one toast when the panel mounts, never again on this
+   * page even across token navigations. */
+  let updateNoticeShown = false;
+  async function notifyUpdateOnce() {
+    if (updateNoticeShown) return;
+    const stored = await store.get(['pt_update_notice']);
+    const notice = stored && stored.pt_update_notice;
+    if (!notice || !notice.latest) return;
+    updateNoticeShown = true;
+    const running = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '';
+    toast(`PaperTrench v${notice.latest} is out (you run v${running}) — grab it on GitHub`);
+  }
+
   // Prices and market caps share one readable convention across the whole
   // overlay. Scientific notation ("3.97e-8") was reported as unreadable, so
   // sub-cent values use subscript-zero notation instead.
@@ -7974,6 +8262,10 @@
     // price-bridge.js is declared by the manifest in MAIN world at
     // document_start, before Padre creates its WebSocket and TradingView feed.
     await reloadState();
+    // N1: surface a shipped-but-not-installed release once per page session.
+    // Users trade for days without opening the dashboard; the notice chip is
+    // the only thing that reaches them on the chart. Fire-and-forget.
+    notifyUpdateOnce().catch(() => {});
     // "Hide it once" must stick: the collapsed bar state is a saved setting,
     // not a per-page variable.
     positionsBarHidden = settings.positionsBarHidden === true;

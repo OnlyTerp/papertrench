@@ -314,6 +314,9 @@
       // rather than inside them so the background poller can enumerate the
       // whole work list without walking every position.
       orders: {},
+      // N2: mint -> armed limit buys (entries, not exits). Cash locked by
+      // these is part of cashSol but spendable nowhere until released.
+      pendingBuys: {},
       // mint -> armed market-cap alerts. Watch-only, so unlike `orders` these
       // routinely name mints with no position at all — this map IS the
       // watchlist.
@@ -1285,6 +1288,99 @@
       .sort((a, b) => (a.kind === 'sl' ? a.triggerPrice - b.triggerPrice : b.triggerPrice - a.triggerPrice));
   }
 
+  /* -------------------- pending limit buys (N2) --------------------
+   * Ideas channel (.dgreatest 8/18: "Bring limit order"). A limit BUY is an
+   * entry, not an exit: no position required, cash is LOCKED at arm time so
+   * two armed buys cannot both spend the same SOL, and the trigger fills
+   * the buy at the observed price (the honest-fill rule that governs
+   * TP/SL fires — a gap through the level fills where the gap landed).
+   * Shape: state.pendingBuys = { [mint]: [{ id, ts, mint, triggerPrice,
+   * solAmount, lockedSol }] }. Locked cash is tracked separately from
+   * cashSol so the wallet screen can show it and the fire path cannot
+   * overspend; unlocked on cancel, expiry, or successful fill. */
+
+  const PENDING_BUY_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function pendingBuysFor(state, mint) {
+    const all = (state && state.pendingBuys) || {};
+    return Array.isArray(all[mint]) ? all[mint] : [];
+  }
+
+  function addPendingBuy(state, settings, mint, o) {
+    const trigger = Number(o.triggerPrice);
+    const amount = Number(o.solAmount);
+    if (!(trigger > 0)) throw new Error('A limit buy needs a trigger price above zero');
+    if (!(amount > 0)) throw new Error('A limit buy needs a SOL amount above zero');
+    const cash = Number(state.cashSol);
+    const locked = lockedBuySol(state);
+    if (cash - locked < amount) {
+      throw new Error(`Not enough free SOL — ${fmt(cash - locked, 3)} available, `
+        + `${fmt(amount, 3)} asked (locked: ${fmt(locked, 3)})`);
+    }
+    if (!state.pendingBuys || typeof state.pendingBuys !== 'object') state.pendingBuys = {};
+    const list = pendingBuysFor(state, mint);
+    if (list.length >= MAX_ORDERS_PER_MINT) {
+      throw new Error(`At most ${MAX_ORDERS_PER_MINT} armed entries per token`);
+    }
+    const order = {
+      id: 'pb' + o.ts.toString(36) + Math.random().toString(36).slice(2, 6),
+      ts: o.ts, mint, kind: 'lb',
+      triggerPrice: trigger, solAmount: amount, lockedSol: amount,
+      symbol: o.symbol || null, name: o.name || null, site: o.site || null,
+    };
+    state.pendingBuys[mint] = [...list, order];
+    return order;
+  }
+
+  function removePendingBuy(state, mint, id) {
+    const list = pendingBuysFor(state, mint);
+    const next = list.filter((o) => o.id !== id);
+    if (next.length !== list.length) {
+      if (!state.pendingBuys) state.pendingBuys = {};
+      if (next.length) state.pendingBuys[mint] = next;
+      else delete state.pendingBuys[mint];
+      return true;
+    }
+    return false;
+  }
+
+  /** Total SOL locked by armed limit buys (spendable nowhere until released). */
+  function lockedBuySol(state) {
+    const all = (state && state.pendingBuys) || {};
+    let total = 0;
+    for (const mint of Object.keys(all)) {
+      for (const o of all[mint]) total += Number(o.lockedSol) || 0;
+    }
+    return total;
+  }
+
+  /**
+   * Which armed limit buys does this observed price fire?
+   * A limit buy triggers when the price DROPS TO or below its level.
+   * Highest level first: on a knife through several bids, the bid placed
+   * closest to the top of the fall is the most urgent truth.
+   */
+  function triggeredPendingBuys(state, mint, observedPrice) {
+    const price = Number(observedPrice);
+    if (!Number.isFinite(price) || price <= 0) return [];
+    return pendingBuysFor(state, mint)
+      .filter((o) => price <= o.triggerPrice)
+      .sort((a, b) => b.triggerPrice - a.triggerPrice);
+  }
+
+  /** Expire stale armed entries (returns expired count; caller persists). */
+  function expirePendingBuys(state, now) {
+    const all = (state && state.pendingBuys) || {};
+    let expired = 0;
+    for (const mint of Object.keys(all)) {
+      const keep = all[mint].filter((o) => now - o.ts <= PENDING_BUY_TTL_MS);
+      expired += all[mint].length - keep.length;
+      if (keep.length) all[mint] = keep;
+      else delete all[mint];
+    }
+    return expired;
+  }
+
   /**
    * How much worse (or better) the fill was than the level asked for.
    *
@@ -2049,6 +2145,12 @@
     removeOrder,
     clearOrders,
     triggeredOrders,
+    pendingBuysFor,
+    addPendingBuy,
+    removePendingBuy,
+    lockedBuySol,
+    triggeredPendingBuys,
+    expirePendingBuys,
     orderSlipPct,
     mintsWithOrders,
     // Market-cap alerts (watchlist; no position required)
