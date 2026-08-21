@@ -32,7 +32,21 @@ It reports what it SAW. A venue that blocks automation or demands a login is
 **not** a failed mount — there is no page behind the wall to mount on — and it
 says so rather than inventing a defect or a pass.
 
-### Last automated run — 2026-08-08
+### Last automated run — 2026-08-21
+
+| Verdict | Sites |
+|---|---|
+| **LOGIN REQUIRED** (no seeded login — harness Chrome has zero logged-in accounts; refuse route held, no fabricated pass) | axiom |
+| **NOT RUN** — pass blocked pending a login seed. 2026-08-08 results below remain the last full sweep. | remaining 14 |
+
+A 2026-08-21 attempt against the seeded profile failed on a held
+`Singleton` lock (zombie chrome tree); the runner works login-free with
+`--profile ""` (throwaway mkdtemp per run) — axiom was verified through
+it: the mount never engaged, the verdict was honest. The remaining venues
+need one `login.js` seed by the operator; until then this row says NOT RUN
+rather than claiming a pass.
+
+### Prior automated run — 2026-08-08
 
 | Verdict | Sites |
 |---|---|
