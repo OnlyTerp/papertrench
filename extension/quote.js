@@ -1347,10 +1347,10 @@
           ? mcapText
           : (hasTrustedPrice
             ? formatPrice(Number(token.priceNative)) + ' SOL'
-            // D-38: the "New coin — waiting for first quote…" line is GONE for
-            // good. It read like the coin was broken while the terminal already
-            // printed it, and the BUY clicks straight to the chain anyway. The
-            // unpriced header is now the neutral live-fetch line only.
+            // D-38: the old fresh-launch wait-line is gone for good. It read
+            // like the coin was broken while the terminal already printed it,
+            // and the BUY clicks straight to the chain anyway. The unpriced
+            // header is now the neutral live-fetch line only.
             : 'Fetching live price…');
 
     // A price we hold but can no longer refresh must be visibly marked, so a
