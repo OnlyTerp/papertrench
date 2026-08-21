@@ -480,9 +480,25 @@ test('header with no token at all is a clean empty state', () => {
 });
 
 test('header never substitutes the address when identity is unknown', () => {
+  // D-41: the short mint (DezX…B263) IS shown now — it reads as identity,
+  // not as the CA; the full address still never becomes the title.
   const h = Q.headerFields({ mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: null, name: null, priceNative: 1 });
-  assert.equal(h.title, 'Unknown token');
+  assert.equal(h.title, 'DezX…B263');
   assert.equal(h.titleIsAddress, false);
+});
+
+// D-41: a just-launched coin has no symbol yet — the SHORTENED mint is the
+// identity (full CA never, dead-end "Unknown token" never). The title heals
+// the moment a tick carries the symbol (content.js backfills token.symbol).
+test('header shows the short mint for a symbol-less new launch', () => {
+  const h = Q.headerFields({ mint: 'HMzvsEEmtzHhvZNw9uwbaG85HCTmFnkbhzUx16cy7ca3', symbol: null, name: null, priceNative: 0.000001 });
+  assert.equal(h.title, 'HMzv…7ca3');
+  assert.equal(h.titleIsAddress, false);
+});
+
+test('a resolved symbol always wins over the mint fallback', () => {
+  const h = Q.headerFields({ mint: 'HMzvsEEmtzHhvZNw9uwbaG85HCTmFnkbhzUx16cy7ca3', symbol: 'CATE', name: null, priceNative: 1 });
+  assert.equal(h.title, 'CATE');
 });
 
 /* ---------------- F-33 guard: chain fill vs on-screen price ---------------- */

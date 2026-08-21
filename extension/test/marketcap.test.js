@@ -114,7 +114,10 @@ test('a fill confirmation states the market cap it filled at', () => {
   // The buy toast reports the amount in the currency the trader ordered in
   // (dollars on a foreign-chain panel, SOL otherwise) AND the cap it
   // filled at.
-  assert.match(src, /Bought \$\{boughtText\} of \$\{token\.symbol\}\$\{atMcap/,
+  // D-41: the toast falls back to the short mint for a symbol-less new
+  // launch (the sym line above the template), so the lock matches the
+  // template itself, which still leads with the amount + cap.
+  assert.match(src, /Bought \$\{boughtText\} of \$\{sym\}\$\{atMcap/,
     'a buy toast must report the market cap it filled at');
   assert.match(src, /: `\$\{E\.fmt\(solAmount, 3\)\} SOL`/,
     'SOL panels keep the SOL amount in the confirmation');

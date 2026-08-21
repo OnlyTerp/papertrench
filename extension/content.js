@@ -642,6 +642,21 @@
     }
 
     const oldNative = Number(token.priceNative);
+    // Identity heals the same way: a brand-new coin's first ticks already
+    // carry its symbol, but the panel record was created with symbol:null
+    // (pending stand-in). Backfill once, then ticks stop touching identity.
+    // The position's own label and the positions-bar chip heal with it —
+    // "Bought 0.1 SOL of null" and "Unknown token" both die here.
+    if (!token.symbol && typeof payload.symbol === 'string' && payload.symbol.trim()) {
+      token.symbol = payload.symbol.trim().slice(0, 24);
+      const pos = state.positions[token.mint];
+      if (pos && !pos.symbol) pos.symbol = token.symbol;
+      if (!token.name && typeof payload.name === 'string' && payload.name.trim()) {
+        token.name = payload.name.trim().slice(0, 48);
+        if (pos && !pos.name) pos.name = token.name;
+      }
+      renderHeader();
+    }
     token.priceNative = verdict.priceNative;
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
@@ -2497,6 +2512,9 @@
   // Re-entrancy guard: an instant preset tap (or a double-click) while a buy
   // is still pricing must not stack a second fill on top of the first.
   let buyInFlight = false;
+  // D-41: set alongside the latch for the 1 s heartbeat's stuck-latch
+  // hygiene (see enableOverlay). A live buy never ages 20 s.
+  let buyInFlightAt = 0;
 
   /** One click-time acquisition beat (D-38). A click with no quote is a BUY,
    * not a registration: the chart on screen proves the terminal's own data
@@ -2635,6 +2653,7 @@
       if (!token) return toast('No token detected on this page');
       if (token.mint || token.srcAddress) {
         buyInFlight = true;
+        buyInFlightAt = Date.now();
         try {
           await acquireClickQuote(token.mint || token.srcAddress, token.chain);
         } catch (_) { /* a failed acquisition beat is not a teardown */ }
@@ -2650,6 +2669,7 @@
           const guardNow = E.guardCheck(state, settings, { solAmount });
           if (!guardNow.ok) return toast(guardNow.message);
           buyInFlight = true;
+          buyInFlightAt = Date.now();
           doBuy(solAmount, quotedUsd).finally(() => { buyInFlight = false; });
           return;
         }
@@ -2663,6 +2683,7 @@
       return;
     }
     buyInFlight = true;
+    buyInFlightAt = Date.now();
     doBuy(solAmount, quotedUsd).finally(() => { buyInFlight = false; });
   }
 
@@ -2754,7 +2775,12 @@
         const boughtText = quotedUsd
           ? `$${E.fmt(quotedUsd, quotedUsd < 10 ? 2 : 0)}`
           : `${E.fmt(solAmount, 3)} SOL`;
-        toast(`Bought ${boughtText} of ${token.symbol}${atMcap ? ` at ${fmtMoney(atMcap)} MC` : ''} (paper)`);
+        // A just-launched coin may still be symbol-less at fill time; the
+        // mint shortened reads as identity, "null" reads as broken (live
+        // report). Same fallback order the engine stamps on positions.
+        const sym = token.symbol || (token.mint && token.mint.length > 10
+          ? token.mint.slice(0, 4) + '…' + token.mint.slice(-4) : '') || '?';
+        toast(`Bought ${boughtText} of ${sym}${atMcap ? ` at ${fmtMoney(atMcap)} MC` : ''} (paper)`);
         noteFillTiming('buy', tClick, tQuoted, tCommitted);
       }
     } catch (err) { toast(err.message || 'Buy failed'); }
@@ -2765,6 +2791,8 @@
   // on "SELL 50%" fills twice — the second tap sells 50% of the REMAINDER, so
   // 75% total leaves the position, silently, with two success toasts.
   let sellInFlight = false;
+  // D-41: set alongside the latch for the heartbeat's stuck-latch hygiene.
+  let sellInFlightAt = 0;
 
   /* ------------- Trench: close-time derived display (GAMIFY.md) -------------
    * Streaks and grades are O(rounds)-per-call scans over up to 500 stored
@@ -2898,6 +2926,7 @@
     if (!token) return toast('No token detected on this page');
     if (sellInFlight) return toast('Sell already in progress…');
     sellInFlight = true;
+    sellInFlightAt = Date.now();
     try {
       await doSellInner(fraction);
     } finally {
@@ -5524,6 +5553,11 @@
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
+  // D-41: when the in-flight latch was SET, so the 1 s heartbeat can free a
+  // latch whose await never settled (a hung resolver/SW RPC on a weird pair
+  // once left "Row buy already in progress…" on every coin until reload —
+  // live report). A settled finally clears the latch long before this ages.
+  let rowBuyInFlightAt = 0;
 
   function noteRowPrice(payload) {
     if (!payload || typeof payload.mint !== 'string' || !ROW_ADDR_RE.test(payload.mint)) return;
@@ -5766,6 +5800,7 @@
   async function doRowBuy(address, button) {
     if (rowBuyInFlight) return toast('Row buy already in progress…');
     rowBuyInFlight = true;
+    rowBuyInFlightAt = Date.now();
     if (button) button.classList.add('busy');
     primeAudio();
     try {
@@ -5784,22 +5819,36 @@
       // is on-chain the second the card exists, and the prewatch probe
       // prices the pool/curve directly. D-40: a miss at the bottom no longer
       // refuses — it ARMS the click and fires on the first fillable price.
-      let data = await R.resolve(address, { maxAgeMs: 3000 });
-      if (!data || !(data.priceNative > 0)) data = await R.resolve(address);
-      if (!data || !(data.priceNative > 0)) {
-        const row = await rowLivePrice(address);
-        if (row) {
-          data = {
-            mint: address, pairAddress: null,
-            symbol: row.symbol, name: row.name,
-            priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
-            priceSource: 'row-feed',
-          };
-        }
-      }
-      if (!data || !(data.priceNative > 0)) {
-        data = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
-      }
+      // D-41: the whole cascade is raced against a hard bound — one hung
+      // resolver/RPC on a weird pair once left the in-flight latch set on
+      // every following buy ("Row buy already in progress…", live report);
+      // nothing below may block this function's finally forever.
+      const ROW_CASCADE_TIMEOUT_MS = 10_000;
+      let data = null;
+      try {
+        data = await Promise.race([
+          (async () => {
+            let d = await R.resolve(address, { maxAgeMs: 3000 });
+            if (!d || !(d.priceNative > 0)) d = await R.resolve(address);
+            if (!d || !(d.priceNative > 0)) {
+              const row = await rowLivePrice(address);
+              if (row) {
+                d = {
+                  mint: address, pairAddress: null,
+                  symbol: row.symbol, name: row.name,
+                  priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
+                  priceSource: 'row-feed',
+                };
+              }
+            }
+            if (!d || !(d.priceNative > 0)) {
+              d = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
+            }
+            return d;
+          })(),
+          new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
+        ]);
+      } catch (_) { data = null; }
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the
         // intent is NEVER refused. It arms exactly like the panel's D-39
@@ -7537,6 +7586,27 @@
       // snipe honest — re-probing the sources while it waits and expiring it
       // visibly when the TTL passes (the panel's armed-buy watchdog, ported).
       if (rowArmed) flushRowArmed();
+      // D-41 latch hygiene: an in-flight buy/sell whose await never settled
+      // (hung resolver, dying SW) must not wedge every later trade behind
+      // "already in progress". A live cascade never takes 20 s; if the
+      // latch is that old the operation is dead, so free it. The eventual
+      // finally is idempotent — it only clears, never re-arms.
+      const LATCH_MAX_AGE_MS = 20_000;
+      if (rowBuyInFlight && rowBuyInFlightAt && Date.now() - rowBuyInFlightAt > LATCH_MAX_AGE_MS) {
+        rowBuyInFlight = false;
+        rowBuyInFlightAt = 0;
+        toast('A stuck row buy was released — try again');
+      }
+      if (buyInFlight && buyInFlightAt && Date.now() - buyInFlightAt > LATCH_MAX_AGE_MS) {
+        buyInFlight = false;
+        buyInFlightAt = 0;
+        toast('A stuck buy was released — try again');
+      }
+      if (sellInFlight && sellInFlightAt && Date.now() - sellInFlightAt > LATCH_MAX_AGE_MS) {
+        sellInFlight = false;
+        sellInFlightAt = 0;
+        toast('A stuck sell was released — try again');
+      }
     }, 1000);
     pollPositionPrices();
     startRowBuyObserver();

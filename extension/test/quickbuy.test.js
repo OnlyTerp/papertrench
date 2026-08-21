@@ -28,7 +28,7 @@ test('preset taps route through the shared buy path when instant is on', () => {
     'the BUY button must use the same shared path (currency-aware refusal)');
   assert.match(content, /let buyInFlight = false;/,
     'rapid taps must be guarded against stacking fills');
-  assert.match(content, /buyInFlight = true;\s*\n\s*doBuy\(solAmount, quotedUsd\)\.finally\(\(\) => \{ buyInFlight = false; \}\);/,
+  assert.match(content, /buyInFlight = true;\s*\n\s*buyInFlightAt = Date\.now\(\);\s*\n\s*doBuy\(solAmount, quotedUsd\)\.finally\(\(\) => \{ buyInFlight = false; \}\);/,
     'the guard must release when the buy settles');
 });
 
@@ -297,9 +297,9 @@ test('a row tap prices from its own live feed when every resolver source is sile
   // read, then the 60 s display cache, then the row feed itself, then the
   // CHAIN — a new-coin row is on-chain the second the card exists — then
   // the honest refusal. Never a guessed price.
-  assert.match(content, /let data = await R\.resolve\(address, \{ maxAgeMs: 3000 \}\)/,
+  assert.match(content, /let d = await R\.resolve\(address, \{ maxAgeMs: 3000 \}\)/,
     'the fill path still demands feed-fresh prices first');
-  assert.match(content, /if \(!data \|\| !\(data\.priceNative > 0\)\) data = await R\.resolve\(address\);/,
+  assert.match(content, /if \(!d \|\| !\(d\.priceNative > 0\)\) d = await R\.resolve\(address\);/,
     'a refetch miss may still use the display TTL cache');
   assert.match(content, /function rowLivePrice\(addr\)/,
     'the row-feed fallback exists as its own function');
@@ -311,6 +311,8 @@ test('a row tap prices from its own live feed when every resolver source is sile
     'the chain leg of the cascade exists');
   assert.match(content, /rowChainQuote\(address, site && site\.rowBuy && site\.rowBuy\.kind\)/,
     'the row buy asks the chain with the row kind that keys its probe');
+  assert.match(content, /ROW_CASCADE_TIMEOUT_MS = 10_000/,
+    'the cascade is bounded — a hung source can never wedge the latch (D-41)');
   assert.match(content, /onchainPrewatch\(ids\)/,
     'the probe runs through the same prewatch the panel uses');
   assert.match(content, /priceSource: 'row-onchain'/,
@@ -338,7 +340,7 @@ test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-4
   assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 4000\);/,
     'a second delayed re-probe bridges a quiet feed');
   // The bar heartbeat is the watchdog: keep probing, expire visibly.
-  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);\s*\n\s*\}, 1000\);/,
+  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);\s*\n\s*\/\/ D-41 latch hygiene/,
     'the 1s board heartbeat watchdog keeps the armed snipe honest');
   // TTL honesty — the same doctrine as the panel's armed buys.
   assert.match(content, /ARMED_ROW_TTL_MS = 60_000/,
@@ -383,4 +385,32 @@ test('a panel buy on a fresh coin acquires the quote on the click before arming 
     'arming must never narrate — no "Buy armed" wording of any kind (D-39)');
   assert.match(content, /fromClick === true|fromClick !== true|fromClick: true/,
     'the click-origin flag is wired through arming and flush');
+});
+
+test('a stuck in-flight latch heals within 20 s — "already in progress" can never wedge (D-41)', () => {
+  // Live report: a snipe on a weird pair hung the resolver await forever, so
+  // rowBuyInFlight stayed true and EVERY later chip buy answered "Row buy
+  // already in progress…" until page reload. Two locks now bound it.
+  assert.match(content, /ROW_CASCADE_TIMEOUT_MS = 10_000/,
+    'the row cascade is raced against a hard 10 s bound — a hung RPC fails the click instead of wedging the latch');
+  assert.match(content, /LATCH_MAX_AGE_MS = 20_000/,
+    'the 1 s heartbeat frees any latch older than 20 s (row, panel buy, sell)');
+  assert.match(content, /rowBuyInFlightAt = Date\.now\(\)/,
+    'the row latch stamps when it was set');
+  assert.match(content, /sellInFlightAt = Date\.now\(\)/,
+    'the sell latch stamps when it was set');
+});
+
+test('a symbol-less new launch never shows "null" or "Unknown token" (D-41)', () => {
+  // Live report: "Bought 0.1 SOL of (null)" + "Unknown token" header on a
+  // fresh snipe. Identity now heals from the page's own ticks.
+  assert.match(content, /if \(!token\.symbol && typeof payload\.symbol === 'string'/,
+    'the first symbol-carrying tick backfills the panel token record');
+  assert.match(content, /if \(pos && !pos\.symbol\) pos\.symbol = token\.symbol/,
+    'the position label heals with it');
+  assert.match(content, /const sym = token\.symbol \|\| \(token\.mint && token\.mint\.length > 10/,
+    'the panel buy toast falls back to the short mint, never null');
+  const quote = fs.readFileSync(path.join(__dirname, '..', 'quote.js'), 'utf8');
+  assert.match(quote, /const title = symbol \|\| name \|\| shortMint \|\| 'Unknown token'/,
+    'the header title falls back to the short mint before the dead-end string');
 });

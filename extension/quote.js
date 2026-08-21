@@ -1327,8 +1327,16 @@
 
     const symbol = typeof token.symbol === 'string' ? token.symbol.trim() : '';
     const name = typeof token.name === 'string' ? token.name.trim() : '';
-    // Only a real, resolved name may be shown. Never substitute the CA.
-    const title = symbol || name || 'Unknown token';
+    // A brand-new launch carries no symbol yet on the page feed — but the
+    // mint IS the identity. Show it shortened (DezX…B263) rather than the
+    // dead-end "Unknown token", which read as a failure to detect the coin
+    // at all (live report: sniping a new pair). The full CA stays on its
+    // own line below; titleIsAddress stays false so layout treats it as a
+    // name, and the title heals itself the moment a tick carries a symbol.
+    const shortMint = typeof token.mint === 'string' && token.mint.length > 10
+      ? token.mint.slice(0, 4) + '…' + token.mint.slice(-4)
+      : (token.mint || '');
+    const title = symbol || name || shortMint || 'Unknown token';
 
     const hasTrustedPrice = Number(token.priceNative) > 0;
     // A brand-new launch is not an error state — it is a token no price source
@@ -1377,7 +1385,10 @@
       // A token resolved only through Jupiter has no observed pool quote yet.
       freshLaunch: Boolean(token.priceSource === 'jupiter'),
       // Guard for the exact prior regression: name and address must differ.
-      titleIsAddress: title === shortAddress(token.mint) || title === token.mint,
+      // D-41: the SHORT mint (DezX…B263) as a fallback title is identity
+      // display, not the CA dump this guard exists for — only the full
+      // address as title trips it.
+      titleIsAddress: title === token.mint,
     };
   }
 
