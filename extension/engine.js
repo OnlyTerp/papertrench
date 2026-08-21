@@ -328,7 +328,7 @@
    * by the overlay HUD. The engine owns the pointer so every surface reads
    * one truth through the same seq-protocol state writes as everything else.
    */
-  const GAME_IDS = ['gauntlet', 'one-shot', 'score-attack'];
+  const GAME_IDS = ['gauntlet', 'one-shot', 'score-attack', 'season'];
 
   function startGame(state, id, ts) {
     if (!state || GAME_IDS.indexOf(id) < 0) return null;

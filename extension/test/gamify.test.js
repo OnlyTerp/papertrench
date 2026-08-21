@@ -383,3 +383,83 @@ test('STREAK_TIERS is exported and monotonic', () => {
     prev = t.at;
   }
 });
+
+/* ---------------- Trench Season (ROADMAP.md item 1) ---------------- */
+
+const DAY = 86_400_000;
+
+/** A journaled, disciplined round at day-offset d (grade-friendly: thesis,
+ *  normal size, clean exit path, +40% capture). */
+function seasonRound(d, i) {
+  return mkRound({
+    closedAt: 1_800_000_000_000 + d * DAY + i * 3_600_000,
+    openedAt: 1_800_000_000_000 + d * DAY + i * 3_600_000 - 600_000,
+    peakPnlSol: 0.5, troughPnlSol: 0, pnlSol: 0.4,   // 80% capture
+  });
+}
+
+test('season: three gates met within 7 days = won', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i)); // 14 rounds, all journaled
+  const st = { ...state(rounds), activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
+  assert.equal(s.id, 'season');
+  assert.equal(s.status, 'won', '14 rounds, 100% journaled, grades S/A');
+  assert.equal(s.rounds, 14);
+  assert.equal(s.gates.played, true);
+  assert.equal(s.gates.journaled, true);
+  assert.equal(s.gates.graded, true);
+});
+
+test('season: journal coverage under 80% holds the gate open, stays live', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  // 4 thesisless of 16 total = 12/16 = 75% < 80% gate
+  for (let i = 0; i < 4; i++) rounds.push(mkRound({ thesis: null, closedAt: 1_800_000_000_000 + 6.5 * DAY + i * 3_600_000 }));
+  const st = { ...state(rounds), activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 6.9 * DAY);
+  assert.equal(s.gates.played, true, '16 rounds clears the volume gate');
+  assert.equal(s.gates.journaled, false, '12/16 = 75% coverage');
+  assert.equal(s.status, 'live');
+});
+
+test('season: window closes as missed when gates unmet', () => {
+  const rounds = [seasonRound(0, 0), seasonRound(1, 0)]; // only 2 rounds
+  const st = { ...state(rounds), activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 8 * DAY);
+  assert.equal(s.status, 'missed');
+  assert.ok(s.detail.includes('window closed'));
+});
+
+test('season: rounds after the window do not count', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  rounds.push(seasonRound(9, 0)); // outside window
+  const st = { ...state(rounds), activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 9.5 * DAY);
+  assert.equal(s.rounds, 14, 'the post-window round is excluded');
+  assert.equal(s.status, 'won');
+});
+
+test('games(): season card present with wins stat', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  const games = G.games(state(rounds), 1_800_000_000_000 + 8 * DAY);
+  const season = games.find((g) => g.id === 'season');
+  assert.ok(season, 'season card exists');
+  assert.equal(season.wins, 1, 'one belt banked');
+});
+
+test('games(): short journal banks no belts', () => {
+  const games = G.games(state([seasonRound(0, 0)]), 1_800_000_000_000 + DAY);
+  const season = games.find((g) => g.id === 'season');
+  assert.equal(season.wins, 0);
+});
+
+test('season headline in HUD body: won shows belt', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  const st = { ...state(rounds), activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
+  assert.equal(s.status, 'won');
+});

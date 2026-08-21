@@ -2693,7 +2693,7 @@
     updateGameHud(typeof G.gameSession === 'function' ? G.gameSession(state) : null);
   }
 
-  const GAME_HUD_LABEL = { gauntlet: 'GAUNTLET', 'one-shot': 'ONE-SHOT', 'score-attack': 'SCORE ATTACK' };
+  const GAME_HUD_LABEL = { gauntlet: 'GAUNTLET', 'one-shot': 'ONE-SHOT', 'score-attack': 'SCORE ATTACK', season: 'SEASON' };
 
   /** The on-chart game HUD: one pill, built into the shadow, text-only
    *  updates, visible ONLY while Gaming Mode is on and a session exists.
@@ -2712,7 +2712,9 @@
       ? `${session.progress}/${session.target}`
       : session.id === 'score-attack'
         ? (session.score === null ? `${session.rounds} rounds` : `${session.score.toFixed(0)}%`)
-        : (session.status === 'live' ? 'take the shot' : session.detail);
+        : session.id === 'season'
+          ? (session.status === 'won' ? 'belt won' : `${session.progress}/${session.target}`)
+          : (session.status === 'live' ? 'take the shot' : session.detail);
     const statusText = session.status === 'live' ? '' : ` · ${session.status.toUpperCase()}`;
     els.gameHud.textContent = `⚔ ${label} ${body}${statusText}`;
     els.gameHud.classList.remove('pt-hidden');

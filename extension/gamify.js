@@ -560,6 +560,29 @@
     }
     const todayCaps = todayRounds.map((r) => captureOf(E, r)).filter((c) => c !== null);
 
+    // Trench Seasons won (card stat). Past seasons aren't stored (doctrine
+    // §4: derive, don't store) — a won season is visible in the journal as
+    // any 7 consecutive days meeting all three gates. This counts every
+    // qualifying window, so a dominant fortnight can bank two belts.
+    const hasThesis = (r) => Boolean(r.thesis
+      && (typeof r.thesis === 'object' || String(r.thesis).trim().length));
+    let seasonWins = 0;
+    const days = [...byDay.keys()];
+    for (let i = 0; i < days.length; i++) {
+      const windowDays = days.slice(i, i + 7);
+      if (windowDays.length < 7) continue;
+      const windowRounds = windowDays.flatMap((k) => byDay.get(k));
+      if (windowRounds.length < 10) continue;
+      const journaled = windowRounds.filter(hasThesis).length / windowRounds.length;
+      if (journaled < 0.8) continue;
+      const pts = windowRounds.map((r) => {
+        const g = roundGrade(state, r);
+        return g ? ({ S: 4, A: 3, B: 2, C: 1, D: 0, F: 0 }[g.letter] ?? null) : null;
+      }).filter((p) => p !== null);
+      if (!pts.length || pts.reduce((s, p) => s + p, 0) / pts.length < 2) continue;
+      seasonWins += 1;
+    }
+
     return [
       {
         id: 'gauntlet',
@@ -586,6 +609,13 @@
           rounds: todayCaps.length,
           avg: todayCaps.length ? todayCaps.reduce((s, c) => s + c, 0) / todayCaps.length : null,
         },
+      },
+      {
+        id: 'season',
+        label: 'Trench Season',
+        detail: 'A 7-day league over discipline, never profit: 10+ rounds, 80%+ journaled, avg grade B or better. Qualify and the belt is yours — the window stays open to raise the score.',
+        wins: seasonWins,
+        best: null,
       },
     ];
   }
@@ -652,6 +682,55 @@
         detail: caps.length >= 3
           ? `${avg.toFixed(0)}% avg over ${caps.length}`
           : `${caps.length}/3 rounds banked${avg === null ? '' : ` · ${avg.toFixed(0)}% avg`}`,
+      };
+    }
+
+    /* Trench Season (ROADMAP.md item 1): a 7-day opted-in league over
+     * discipline, never PnL. Three gates — played (10+ rounds), journaled
+     * (80%+ theses), graded (avg grade ≥ B). Broad-win design (Moomoo's
+     * 150k→350k lesson): qualifying EARLY shows 'won' immediately — the
+     * window stays open to raise the score, but the belt is already yours.
+     * Timebox check uses the explicit `now` arg; the HUD cache may lag a
+     * pure-time flip until the next storage event — the dashboard is the
+     * surface that never lags. */
+    if (active.id === 'season') {
+      const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      const windowEnd = startedAt + WINDOW_MS;
+      const inWindow = rounds.filter((r) => num(r.closedAt) < windowEnd);
+      const total = inWindow.length;
+      const journaled = inWindow.filter(hasThesis).length;
+      const coverage = total ? journaled / total : 0;
+      const GRADE_POINTS = { S: 4, A: 3, B: 2, C: 1, D: 0, F: 0 };
+      const grades = inWindow.map((r) => {
+        const g = roundGrade(state, r);
+        return g && GRADE_POINTS[g.letter] !== undefined ? GRADE_POINTS[g.letter] : null;
+      }).filter((p) => p !== null);
+      const avgGrade = grades.length ? grades.reduce((s, p) => s + p, 0) / grades.length : null;
+      const gates = {
+        played: total >= 10,
+        journaled: coverage >= 0.8,
+        graded: avgGrade !== null && avgGrade >= 2,
+      };
+      const nowTs = num(now) !== null ? num(now) : null;
+      const windowClosed = nowTs !== null && nowTs >= windowEnd;
+      let status = 'live';
+      if (gates.played && gates.journaled && gates.graded) status = 'won';
+      else if (windowClosed) status = 'missed';
+      const gateBits = [
+        `${total}/10 rounds`,
+        `${Math.round(coverage * 100)}% journaled`,
+        avgGrade === null ? 'no grades yet' : `avg ${avgGrade.toFixed(1)}`,
+      ];
+      return {
+        id: 'season', startedAt, rounds: total, status,
+        progress: Math.min(total, 10), target: 10,
+        score: avgGrade,
+        gates,
+        detail: status === 'won'
+          ? `season won — ${gateBits.join(' · ')}`
+          : status === 'missed'
+            ? `window closed — ${gateBits.join(' · ')}`
+            : `${gateBits.join(' · ')} · ${Math.max(0, Math.ceil((windowEnd - (nowTs || startedAt)) / 86400000))}d left`,
       };
     }
 

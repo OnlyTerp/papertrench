@@ -3,6 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.0 — 2026-08-20
+
+**Trench Season** — a 7-day league, and the biggest game yet. Opt in from the
+Game tab; the season watches your whole week through three gates: **10+ rounds
+played, 80%+ journaled, average grade B or better.** Meet all three and the
+belt is yours immediately — the window stays open to raise the score. Miss
+them when the window closes and the season files as missed: no extensions,
+no mercy, same rules as the market. Discipline is the only ranking surface —
+profit never enters the score. Past belts are derived from your journal, so
+a dominant fortnight can bank two.
+
 ## v3.8.2 — 2026-08-20
 
 The streak learns to burn. Discipline streaks on the bar now climb a ladder —

@@ -28,6 +28,18 @@
 
   const RELEASES = [
     {
+      v: '3.9.0', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature', 'game'],
+      title: 'Trench Season — the week-long league',
+      blurb: 'A 7-day league over discipline, never profit. Opt in from the Game tab; the season watches your whole week through three gates: 10+ rounds played, 80%+ journaled, average grade B or better. Meet all three and the belt is yours immediately — the window stays open to raise the score. Miss them when it closes and the season files as missed: no extensions, same rules as the market.',
+      points: [
+        '<b>Three gates, one belt.</b> Volume (played), habit (journaled), quality (graded). All three in 7 days = won. The belt banks the moment you qualify — everything after is score polish.',
+        '<b>Past belts derive from your journal.</b> Nothing extra is stored; any qualifying 7-day window in your history counts. A dominant fortnight banks two belts.',
+        '<b>The HUD rides along.</b> ⚔ SEASON 6/10 on the chart while you trade; terminal states announce once, stay until dismissed.',
+        '<b>7 new tests</b> (1,614 total): gate logic, window exclusion, miss-on-close, belt derivation, short-journal safety.',
+      ],
+    },
+    {
       v: '3.8.2', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature'],
       title: 'The streak learns to burn — Ember, Flame, Blaze, Torch',
