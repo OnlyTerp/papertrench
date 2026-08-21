@@ -1108,6 +1108,14 @@
   // pipeline never runs, fills are drawn as native execution shapes instead.
   let marksPipelineSeenAt = 0;
   let shapeFallbackActive = false;
+  // D-43 (Bug 7): a refreshMarks() WE triggered makes the host call our
+  // patched getMarks exactly once — a synthetic pull that proves the pipe is
+  // connected, not that it renders. Counting it as pipeline evidence
+  // suppressed the shape watchdog forever ("mark accepted, never drawn" —
+  // live report: board quick-buy, bubble never on the chart). Only
+  // host-initiated pulls (the widget re-fetching marks on pan/zoom/data
+  // change, which happen repeatedly) count.
+  let syntheticMarksPull = false;
 
   /** F-31's clamp exists for millisecond feed skew between a fill stamp and
    * the newest candle. When live bars are STALE — the chart subscribed
@@ -1143,7 +1151,11 @@
 
     const original = datafeed.getMarks;
     function getMarks(symbolInfo, from, to, onDataCallback, ...rest) {
-      marksPipelineSeenAt = Date.now();
+      // D-43: a pull caused by our own refreshMarks() is synthetic — it does
+      // not prove the widget renders marks. The flag is armed immediately
+      // before the refresh call and disarmed on the next macrotask, so only
+      // pulls landing inside that call's stack are discounted.
+      if (!syntheticMarksPull) marksPipelineSeenAt = Date.now();
       // DEFECT F-29: everything PaperTrench does before handing control back
       // runs inside the HOST's own getMarks call — contained, so a throw in
       // our preamble can never break the site's chart.
@@ -2474,10 +2486,25 @@
       drawShapeFallback();
       return;
     }
+    // D-43 (Bug 7): PADRE is the mirrored case, verified live 2026-08-21
+    // (pixel-diff on trade.padre.gg): the widget DOES pull our patched
+    // getMarks — repeatedly, on its own — so marksHooked stays true and the
+    // watchdog below sees a "live pipeline" forever. But it never renders a
+    // single one of our marks (zero marker-pixel delta over 4.5 s while the
+    // candles visibly ticked). Its chart exposes createShape (the average
+    // lines draw), so shapes/bubbles own fills here exactly like perps.
+    if (/(^|\.)padre\.gg$/.test(location.hostname)) {
+      shapeFallbackActive = true;
+      drawShapeFallback();
+      return;
+    }
     if (fallbackCheckTimer) clearTimeout(fallbackCheckTimer);
     fallbackCheckTimer = setTimeout(() => {
       fallbackCheckTimer = null;
       if (!paperMarks.length) return;
+      // D-43: synthetic pulls (our own refreshMarks) are already excluded
+      // from marksPipelineSeenAt — a fresh host-initiated pull inside the
+      // window still proves a live pipeline. If none came, shapes own it.
       if (marksPipelineSeenAt && Date.now() - marksPipelineSeenAt < 10_000) return;
       shapeFallbackActive = true;
       drawShapeFallback();
@@ -2722,6 +2749,11 @@
       try {
         if (typeof chart.clearMarks === 'function') chart.clearMarks();
         if (typeof chart.refreshMarks === 'function') {
+          // D-43: this call makes the host pull marks through OUR getMarks
+          // once — synthetic, not evidence the pipeline renders. Armed here,
+          // disarmed on the next macrotask so the discount window is tight.
+          syntheticMarksPull = true;
+          setTimeout(() => { syntheticMarksPull = false; }, 0);
           chart.refreshMarks();
           refreshed = true;
         }
