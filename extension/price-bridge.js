@@ -1256,7 +1256,7 @@
    * race: a slot generation counter makes a stale resolution remove itself.
    */
 
-  function makeLineSlot() { return { adapter: null, pending: false, pendingAt: 0, gen: 0, chart: null }; }
+  function makeLineSlot() { return { adapter: null, pending: false, pendingAt: 0, gen: 0, chart: null, lastLevel: 0 }; }
 
   function clearLineSlot(slot) {
     slot.gen += 1;
@@ -1416,16 +1416,33 @@
    * The Y-axis level the LIVE price currently sits at — the anchor both
    * directions of the conversion hang off. Null means the axis unit is not
    * yet knowable, which must stop the feature rather than guess.
+   *
+   * D-42: on mcap and USD bases the anchor is the unit snapshot the content
+   * side posted TOGETHER with refPrice (spec.refMcap / spec.refPriceUsd) —
+   * never the live bar close or the live rate. A ratio mixing a stale
+   * refPrice with the live unit slides the drawn level as the market moves
+   * (supply is constant, so refUnit/refPrice is too: level = refUnit ×
+   * trigger/refPrice is the SAME number on every redraw — the line stays
+   * where it was armed). The native basis needs no conversion at all.
    */
   function currentAxisLevel(spec) {
     const basis = spec && spec.axisBasis;
-    if (basis === 'mcap') return lastBarClose > 0 ? lastBarClose : null;
+    if (basis === 'mcap') {
+      const ref = Number(spec && spec.refMcap);
+      if (ref > 0) return ref;
+      // Legacy posts (pre-D-42) carried no unit snapshot; the live close is
+      // the old behavior — kept only so an old spec still draws SOMETHING
+      // until the next post refreshes it (≤1 s sweep).
+      return lastBarClose > 0 ? lastBarClose : null;
+    }
     if (basis === 'usd' || basis === 'usd-abs') {
-      const usd = Number(spec.currentPriceUsd);
+      const ref = Number(spec && spec.refPriceUsd);
+      if (ref > 0) return ref;
+      const usd = Number(spec && spec.currentPriceUsd);
       return usd > 0 ? usd : null;
     }
     if (basis === 'native') {
-      const native = Number(spec.currentPriceNative);
+      const native = Number(spec && spec.currentPriceNative);
       return native > 0 ? native : null;
     }
     return null;
@@ -1493,6 +1510,10 @@
           return;
         }
         order.triggerPrice = price;
+        // D-42: the drag redefined the level — the next sweep must setPrice
+        // (not skip as "unchanged"), so the slot's cached level dies here.
+        const draggedSlot = orderSlots.get(order.id);
+        if (draggedSlot) draggedSlot.lastLevel = 0;
         emit('paper-order-moved', { id: order.id, ok: true, triggerPrice: price, level });
       });
     }
@@ -1545,9 +1566,18 @@
       slot.want = { price: level, order };
 
       // Already drawn: move it rather than rebuild, so a drag in progress on
-      // another line is never interrupted by a repost.
+      // another line is never interrupted by a repost. D-42: skip the
+      // setPrice when the level is unchanged — a same-value setPrice still
+      // pokes TradingView, which re-anchors the line to its own price scale
+      // and shows as the line "moving with the market" on a live chart.
       if (slot.adapter) {
-        try { slot.adapter.setPrice(level).setQuantity(order.sizePct >= 100 ? 'ALL' : `${order.sizePct}%`); }
+        try {
+          if (!(slot.lastLevel > 0) || slot.lastLevel !== level) {
+            slot.adapter.setPrice(level);
+            slot.lastLevel = level;
+          }
+          slot.adapter.setQuantity(order.sizePct >= 100 ? 'ALL' : `${order.sizePct}%`);
+        }
         catch (_) { clearLineSlot(slot); }
         continue;
       }

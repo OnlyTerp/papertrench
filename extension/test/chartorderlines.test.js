@@ -336,3 +336,44 @@ test('a repost at a new level MOVES the line instead of rebuilding it', () => {
   assert.equal(env.orderLines[0].values.setPrice, 0.003, 'moved to the new level');
   assert.equal(env.orderLines[0].removed, false);
 });
+
+test('an untouched order line NEVER moves between mcap-axis reposts (D-42 Bug 6)', () => {
+  // Live report: "the TP and SL set by papertrench move dynamically with MC
+  // movement — it should be a fixed MC". The stored trigger is absolute, but
+  // the draw math anchored one side on the live bar close and the other on
+  // the stale post-time price, so every redraw re-derived a different level.
+  // Now: the per-post axis-unit snapshot (refPrice + its unit level) defines
+  // the conversion, and an unchanged order's line is not even re-set.
+  const env = runBridge();
+  // The chart must have a bar before the bridge can hold a widget (see the
+  // mcap drag test above).
+  env.tickBar(50_000);
+  const trigger = 0.002;
+  const post = (currentPriceNative) => env.send('paper-orders', {
+    enabled: true, axisBasis: 'mcap', refPrice: 0.001,
+    // D-42: the per-post unit snapshot — the mcap the axis showed when
+    // refPrice was captured. Supply is constant, so this pair is a fixed
+    // conversion: level = refMcap × trigger/refPrice, identical on every
+    // redraw no matter where the market has run.
+    refMcap: 50_000,
+    currentPriceNative,
+    orders: [{ id: 'o1', kind: 'tp', triggerPrice: trigger, sizePct: 100 }],
+  });
+  post(0.001);
+  const level1 = env.orderLines[0].values.setPrice;
+  assert.ok(level1 > 0, 'the line drew at a positive axis level');
+  // The market runs 4x between sweeps; the SAME order must sit at the SAME
+  // axis level — a fixed MC, not one that drifts with the live price.
+  post(0.004);
+  const level2 = env.orderLines[0].values.setPrice;
+  assert.equal(level2, level1, 'the TP line did not move when MC moved');
+  // A THIRD sweep at the same live price must not even call setPrice again
+  // (the old code re-set every line every 1 s sweep — TradingView treats
+  // that as a move and the line visibly "walks").
+  const before = env.orderLines[0].values.setPrice;
+  delete env.orderLines[0].values.setPrice;
+  post(0.004);
+  assert.equal(env.orderLines[0].values.setPrice, undefined,
+    'an unchanged level is not re-set on the sweep');
+  assert.equal(before, level1);
+});

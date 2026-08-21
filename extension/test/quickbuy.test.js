@@ -403,14 +403,46 @@ test('a stuck in-flight latch heals within 20 s — "already in progress" can ne
 
 test('a symbol-less new launch never shows "null" or "Unknown token" (D-41)', () => {
   // Live report: "Bought 0.1 SOL of (null)" + "Unknown token" header on a
-  // fresh snipe. Identity now heals from the page's own ticks.
-  assert.match(content, /if \(!token\.symbol && typeof payload\.symbol === 'string'/,
+  // fresh snipe. Identity now heals from the page's own ticks — and, when
+  // the feed carries no identity at all (D-42/Bug 5), from the page's own
+  // headline DOM, once, as the last resort before the short mint.
+  assert.match(content, /if \(!token\.symbol\) \{\s*\n\s*let healed = false;/,
+    'the identity-heal block opens on any unresolved symbol');
+  assert.match(content, /token\.symbol = payload\.symbol\.trim\(\)\.slice\(0, 24\);/,
     'the first symbol-carrying tick backfills the panel token record');
-  assert.match(content, /if \(pos && !pos\.symbol\) pos\.symbol = token\.symbol/,
+  assert.match(content, /const scraped = scrapePageTokenName\(\);/,
+    'a feed without identity falls back to scraping the page headline');
+  assert.match(content, /if \(pos && !pos\.symbol && token\.symbol\) pos\.symbol = token\.symbol;/,
     'the position label heals with it');
   assert.match(content, /const sym = token\.symbol \|\| \(token\.mint && token\.mint\.length > 10/,
     'the panel buy toast falls back to the short mint, never null');
   const quote = fs.readFileSync(path.join(__dirname, '..', 'quote.js'), 'utf8');
   assert.match(quote, /const title = symbol \|\| name \|\| shortMint \|\| 'Unknown token'/,
     'the header title falls back to the short mint before the dead-end string');
+});
+
+test('a row-snipe intent survives the navigation to the coin chart (D-42 Bug 3)', () => {
+  // Live report: chip buy on the board → open the chart → no position, no
+  // line. The armed intent lived only in the board tab's context and died
+  // with it. It must mirror into the SW and be adopted by the coin's page.
+  assert.match(content, /type: 'pt_armed_row_arm'/,
+    'arming a row snipe mirrors the intent to the service worker');
+  assert.match(content, /const intent = await sendMessage\(\{ type: 'pt_armed_row_get' \}\)/,
+    'the coin page asks the SW for a mirrored intent at detection');
+  assert.match(content, /adoptedFromRow: true/,
+    'an adopted intent is marked and runs the panel D-39 flush');
+  assert.match(content, /type: 'pt_armed_row_clear'/,
+    'fill/expiry clears the mirror — no double fill');
+  const bg = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+  assert.match(bg, /case 'pt_armed_row_arm'|case 'pt_armed_row_get'/,
+    'the service worker holds the intent in session storage');
+});
+
+test('an armed row snipe keeps probing until filled or expired (D-42 Bug 4)', () => {
+  // Live report: "some coins still not instant". Two one-shot timers left
+  // gaps; the repeating probe closes them inside the TTL.
+  assert.match(content, /rowArmedFlushTimer = managedInterval\(\(\) => \{/,
+    'the armed intent runs a repeating 1.5 s flush probe');
+  assert.match(content, /if \(!rowArmed\) \{\s*\n\s*clearInterval\(rowArmedFlushTimer\)/,
+    'the probe self-clears when the intent fills or expires');
 });

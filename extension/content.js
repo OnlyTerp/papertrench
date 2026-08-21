@@ -90,6 +90,9 @@
   // twice. Cleared exactly where the bridge is told to clear its marks.
   const drawnFillIds = new Set();
   const ARMED_BUY_TTL_MS = 60_000;
+  // D-42: shared with the row-snipe adoption below (declared here so the
+  // detectLoop's early use is inside the temporal-dead-zone-safe region).
+  const ARMED_ROW_TTL_MS = 60_000;
   let lastRenderedPrice = null; // drives the tick flash
   let lastPriceAt = 0;
   let pageQuoteSeq = 0;
@@ -560,6 +563,52 @@
   /* -------------------- price handling -------------------- */
 
   /**
+   * D-42 (Bug 5): last-resort identity from the page's own DOM. Every trade
+   * venue headlines the coin it is showing — an h1-ish element near the top,
+   * or the document title. Runs at most once per token (nameScraped), only
+   * while identity is still unresolved, and returns null on any doubt: a
+   * wrong name is worse than the short-CA fallback. The regex accepts ticker
+   * symbols and human names but rejects sentences, prices, percentages and
+   * addresses — the things venue headers also print.
+   */
+  function scrapePageTokenName() {
+    try {
+      const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 48);
+      const looksLikeIdentity = (s) => {
+        if (!s || s.length < 2 || s.length > 48) return false;
+        if (/[1-9A-HJ-NP-Za-km-z]{32,44}/.test(s)) return false; // an address
+        if (s.includes('http') || /^[\d.,$%/:-]+$/.test(s)) return false; // url / number
+        if (s.split(' ').length > 6) return false; // a sentence, not a name
+        return true;
+      };
+      // 1) the page's own headline: the first short text in a header-ish
+      //    element near the top of the page.
+      const heads = document.querySelectorAll('h1, h2, [class*="token-name"], [class*="TokenName"], [class*="pair-name"], [data-testid*="token-name"]');
+      for (const el of heads) {
+        if (!el.textContent) continue;
+        const r = el.getBoundingClientRect();
+        if (r.top > 420) continue; // deep in the page = not the headline
+        const t = clean(el.textContent);
+        // Common venue headline shape "NAME ticker" — split it.
+        const m = t.match(/^(.{2,40}?)\s+([A-Z0-9$]{2,12})$/);
+        if (m && looksLikeIdentity(m[1]) && /^[A-Z0-9$]{2,12}$/.test(m[2])) {
+          return { name: m[1], symbol: m[2] };
+        }
+        if (looksLikeIdentity(t)) return { name: t, symbol: null };
+      }
+      // 2) document.title as the final fallback — venue titles are
+      //    "NAME price | ..." or "NAME ticker price ...".
+      const ttl = clean(document.title).split(/\s[|·—-]\s/)[0];
+      const m2 = ttl.match(/^(.{2,40}?)\s+([A-Z0-9$]{2,12})\s+(?:price|live)/i);
+      if (m2 && looksLikeIdentity(m2[1])) return { name: m2[1], symbol: m2[2] };
+      if (looksLikeIdentity(ttl) && !/price|chart|trade/i.test(ttl)) {
+        return { name: ttl, symbol: null };
+      }
+      return null;
+    } catch (_) { return null; }
+  }
+
+  /**
    * A tick from the page's own feed may only refine a price we already trust.
    *
    * For a brand-new coin with no anchor, the FIRST trustworthy on-screen price
@@ -647,15 +696,33 @@
     // (pending stand-in). Backfill once, then ticks stop touching identity.
     // The position's own label and the positions-bar chip heal with it —
     // "Bought 0.1 SOL of null" and "Unknown token" both die here.
-    if (!token.symbol && typeof payload.symbol === 'string' && payload.symbol.trim()) {
-      token.symbol = payload.symbol.trim().slice(0, 24);
-      const pos = state.positions[token.mint];
-      if (pos && !pos.symbol) pos.symbol = token.symbol;
-      if (!token.name && typeof payload.name === 'string' && payload.name.trim()) {
-        token.name = payload.name.trim().slice(0, 48);
-        if (pos && !pos.name) pos.name = token.name;
+    // D-42 (Bug 5): when the feed itself carries no identity (Padre ticks
+    // are price-only), the page's own DOM still prints the coin's name —
+    // every trade venue headlines it. Scrape it ONCE per unknown window as
+    // the last resort so the header shows a name, not the short CA.
+    if (!token.symbol) {
+      let healed = false;
+      if (typeof payload.symbol === 'string' && payload.symbol.trim()) {
+        token.symbol = payload.symbol.trim().slice(0, 24);
+        healed = true;
+        if (!token.name && typeof payload.name === 'string' && payload.name.trim()) {
+          token.name = payload.name.trim().slice(0, 48);
+        }
+      } else if (!token.nameScraped) {
+        token.nameScraped = true; // one attempt per unknown window, ever
+        const scraped = scrapePageTokenName();
+        if (scraped) {
+          token.name = scraped.name;
+          if (scraped.symbol) token.symbol = scraped.symbol;
+          healed = true;
+        }
       }
-      renderHeader();
+      if (healed) {
+        const pos = state.positions[token.mint];
+        if (pos && !pos.symbol && token.symbol) pos.symbol = token.symbol;
+        if (pos && !pos.name && token.name) pos.name = token.name;
+        renderHeader();
+      }
     }
     token.priceNative = verdict.priceNative;
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
@@ -988,6 +1055,35 @@
       // Tell the bridge which address this page is about, so ticks, exports
       // and drawing only come from the chart instance showing THIS token.
       sendPadreMarker('paper-axis', { pairAddress: data.pairAddress, mint: data.mint, symbol: data.symbol });
+      // D-42 (Bug 3): adopt a row-snipe intent mirrored by the board tab
+      // into the SW before this navigation killed it. The chip tap armed on
+      // the board; the trader's next click opened THIS chart. Bind it to
+      // this mint and run it through the panel's own D-39 armedBuy flush —
+      // fromClick, so the first accepted quote fills with no corroboration
+      // wait (the click already happened; nothing here narrates). TTL from
+      // the ORIGINAL tap bounds it; a mismatched mint is not this intent.
+      try {
+        const intent = await sendMessage({ type: 'pt_armed_row_get' });
+        if (intent && intent.address && intent.amount > 0) {
+          const matches = intent.address === data.mint
+            || intent.address === data.pairAddress
+            || intent.address === data.srcAddress;
+          if (matches && Date.now() - intent.at <= ARMED_ROW_TTL_MS) {
+            if (!armedBuy) {
+              armedBuy = {
+                amount: intent.amount, usd: null, at: intent.at,
+                mint: data.mint, fromClick: true,
+                adoptedFromRow: true,
+              };
+              renderBuyButton();
+              flushArmedBuy();
+            }
+            // Consumed either way: an intent the chart adopts is never
+            // re-fillable by the (likely dead) board context.
+            sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
+          }
+        }
+      } catch (_) { /* adoption is an enhancement, never a landing risk */ }
       // The site publishes its live market cap in document.title, which changes
       // the instant the page re-renders — cheaper and earlier than any network
       // read. It refreshes the DISPLAYED cap between chain updates; it never
@@ -2139,8 +2235,17 @@
       }
       return;
     }
+    // D-42: the live price is needed to interpret the CURRENT axis (mcap
+    // basis needs the bar close, USD basis needs the live rate), but it
+    // must never move a level. The conversion anchor is frozen per post:
+    // refPrice + the axis unit captured at the same instant. A ratio built
+    // from two prices sampled at different times (stale ref vs live close)
+    // drifts the line with the market — TP/SL are ABSOLUTE levels (D-42
+    // report: "levels move with MC — should be fixed").
     const refPrice = Number(token.priceNative) || 0;
     if (!(refPrice > 0)) return;
+    const refMcap = Number(token.mcap) || 0;
+    const refPriceUsd = Number(token.priceUsd) || 0;
 
     // The signature covers everything the bridge draws from. The live price
     // is deliberately EXCLUDED: levels are absolute, so a moving price does
@@ -2158,6 +2263,13 @@
       enabled: true,
       axisBasis: chartAxisBasis,
       refPrice,
+      // D-42: the axis-unit snapshot taken with refPrice at post time. The
+      // bridge draws level = unit × (trigger / refPrice) with BOTH factors
+      // from the same instant, so the ratio (venue-units per price unit —
+      // the supply, constant for a coin) is what converts, and the line
+      // holds its level while the market moves.
+      refMcap,
+      refPriceUsd,
       // settings.chartOrderLineThickness (1..4): TP/SL line width on the
       // native TradingView chart. The bridge clamps; here it just rides.
       lineWidth: orderLineWidth,
@@ -5680,8 +5792,6 @@
     if (rowBuyDebounce) { clearTimeout(rowBuyDebounce); rowBuyDebounce = null; }
   }
 
-  const ARMED_ROW_TTL_MS = 60_000;
-
   /**
    * D-40: an armed ROW snipe. The panel's D-39 doctrine, ported to the board:
    * the click already happened, so the intent is never refused — it arms and
@@ -5693,9 +5803,12 @@
    */
   let rowArmed = null;
   let rowArmedFlushing = false;
+  // D-42 (Bug 4): repeating armed-row probe — see doRowBuy's arm block.
+  let rowArmedFlushTimer = null;
   // The armed intent is bounded by its TTL and by the content-script
   // lifetime: when this page context dies, the intent dies with it — never
-  // a zombie fill from a detached page.
+  // a zombie fill from a detached page. (D-42: the SW mirror carries a copy
+  // across navigations; ARMED_ROW_TTL_MS lives with the armed state above.)
   onTeardown(() => { rowArmed = null; });
 
   /** The row buy's commit core — shared by the direct fill and the armed
@@ -5761,6 +5874,9 @@
       rowArmed = null;
       sendPadreMarker('row-buy-done', null);
       toast('Armed row buy expired — no fillable price arrived in time');
+      // D-42: expiry clears the SW mirror too, or the chart page would
+      // adopt an intent the board already expired.
+      sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
       return;
     }
     rowArmedFlushing = true;
@@ -5789,6 +5905,9 @@
         if (result) {
           rowArmed = null;
           sendPadreMarker('row-buy-done', null);
+          // D-42: the SW mirror dies with the local intent — a filled snipe
+          // must never be adopted by the chart page and filled twice.
+          sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
         }
       }
     } catch (_) {
@@ -5857,8 +5976,35 @@
         // resolver's next pass, or a delayed chain re-probe. The same 60 s
         // TTL honesty bounds the wait; expiry says so instead of guessing.
         rowArmed = { address, amount, at: Date.now() };
+        // D-42 (Bug 3): the trader's next move is to click the coin and open
+        // its chart — which destroys THIS context and, before this line, the
+        // armed intent with it (no fill, no position, no line: the live
+        // report). Mirror the intent into the SW's session storage; the
+        // coin's own page adopts it at detection and runs the SAME D-39
+        // armedBuy flush. Both sides clear the SW copy on fill/expiry.
+        sendMessage({
+          type: 'pt_armed_row_arm',
+          intent: { address, amount, at: rowArmed.at },
+        }).catch(() => {});
         setTimeout(() => flushRowArmed(), 1200);
         setTimeout(() => flushRowArmed(), 4000);
+        // D-42 (Bug 4): two one-shot timers left gaps where nothing probed —
+        // a coin whose sources all miss at 1.2 s and 4 s then waited for the
+        // next board tick to wake the flush ("some buys are still not
+        // instant"). A repeating probe inside the TTL closes the gaps: every
+        // 1.5 s, the full cascade (resolver, row feed, chain) gets another
+        // chance until the intent fills or its TTL expires. The null-guard
+        // self-clears; managedInterval already dies with the context.
+        if (!rowArmedFlushTimer) {
+          rowArmedFlushTimer = managedInterval(() => {
+            if (!rowArmed) {
+              clearInterval(rowArmedFlushTimer);
+              rowArmedFlushTimer = null;
+              return;
+            }
+            flushRowArmed();
+          }, 1500);
+        }
         return;
       }
       // The screener's own realtime price wins when it is fresh: that is the

@@ -1138,6 +1138,28 @@ function clearWarmTabState() {
   return new Promise((resolve) => chrome.storage.session.remove(WARM_STORAGE_KEY, () => resolve()));
 }
 
+/* D-42 (Bug 3): an armed row snipe must survive the navigation to the coin's
+ * chart. The armed intent used to live ONLY in the board tab's content
+ * script — "when this page context dies, the intent dies with it" — so the
+ * tap-that-armed-then-navigated pattern (exactly what a sniping trader does:
+ * chip, then click the coin) silently cancelled the buy: no fill, no
+ * position, no chart line. The SW holds the intent in storage.session (dies
+ * with the browser, like the intent always should) and the coin's own chart
+ * page adopts it into its own D-39 armedBuy machinery, TTL and all. */
+const ARMED_ROW_KEY = 'pt_armed_row_intent';
+function writeArmedRowIntent(intent) {
+  return new Promise((resolve) => chrome.storage.session.set({ [ARMED_ROW_KEY]: intent }, () => resolve()));
+}
+function readArmedRowIntent() {
+  return new Promise((resolve) => chrome.storage.session.get([ARMED_ROW_KEY], (value) => {
+    if (chrome.runtime && chrome.runtime.lastError) { resolve(null); return; }
+    resolve(value[ARMED_ROW_KEY] || null);
+  }));
+}
+function clearArmedRowIntent() {
+  return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+}
+
 /** The registered viewer tab, revalidated against reality: it must still exist
  * and still be on X. Anything else clears the registration — a tab the user
  * closed or navigated elsewhere is their tab, not our viewer. */
@@ -2490,6 +2512,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         openDashboard();
         sendResponse({ ok: true });
         break;
+
+      // D-42: armed row snipe persistence (see writeArmedRowIntent above).
+      case 'pt_armed_row_arm': {
+        const intent = message.intent || null;
+        if (intent) await writeArmedRowIntent(intent);
+        sendResponse({ ok: true });
+        break;
+      }
+      case 'pt_armed_row_get': {
+        sendResponse(await readArmedRowIntent());
+        break;
+      }
+      case 'pt_armed_row_clear': {
+        await clearArmedRowIntent();
+        sendResponse({ ok: true });
+        break;
+      }
 
       case 'pt_trade_event': {
         const session = RP.normalizeSession(message.session || message.round || {});
