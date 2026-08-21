@@ -3361,6 +3361,11 @@
         hasPill: Boolean(e.pill),
         display: e.el.style.display,
         align: e.applied ? e.applied.transform : null,
+        // The chip's OWN rect (not the row's) so E2E tooling can click the
+        // exact chip pinned to an address — rect math against a moving
+        // virtualized list kept matching the wrong neighbor (D-40 harness).
+        rect: e.el.isConnected ? (({ x, y, width, height }) => ({
+          x: Math.round(x), y: Math.round(y), w: Math.round(width), h: Math.round(height) }))(e.el.getBoundingClientRect()) : null,
         rowRect: e.row.isConnected ? (({ x, y, width, height }) => ({
           x: Math.round(x), y: Math.round(y), w: Math.round(width), h: Math.round(height) }))(e.row.getBoundingClientRect()) : null,
       })),
