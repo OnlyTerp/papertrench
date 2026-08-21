@@ -3,6 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.17 — 2026-08-21
+
+**Quick-buys mark the chart again.** Live report:
+
+- **Bought on the board, opened the chart — no bubble, no line where you
+  bought.** The chart's mark pipeline was accepting our fills but silently
+  never drawing them — it kept reporting "native marks ready" the whole
+  time. Fills now render as chart shapes that stay glued to their candle,
+  and the chart can no longer claim a pipeline it doesn't actually draw
+  from.
+
 ## v3.9.16 — 2026-08-21
 
 **The snipe survives the click-through; TP/SL hold their line.** Four live
