@@ -99,12 +99,15 @@ tail -8 /tmp/pt-preflight-bot.log | grep -E "pass|fail"
 # because nothing checked — the same failure mode as the nav and the download
 # link above. Gate on the parsed FAIL COUNT, never on a pipeline exit code:
 # `node --test | grep` exits 0 even at 1105/1108.
-EXT_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-tests.log | awk '{print $3}')
-EXT_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-tests.log | awk '{print $3}')
-SRV_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-server.log | awk '{print $3}')
-SRV_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-server.log | awk '{print $3}')
-BOT_PASS=$(grep -E '^ℹ pass ' /tmp/pt-preflight-bot.log | awk '{print $3}')
-BOT_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-bot.log | awk '{print $3}')
+# Node ≤22's spec reporter prints "ℹ pass N"; Node 24 prints "# pass N".
+# awk on $2 == "pass" matches both without depending on how the shell's
+# locale decodes the multi-byte ℹ inside a grep bracket expression.
+EXT_PASS=$(awk '$2=="pass"{print $3; exit}' /tmp/pt-preflight-tests.log)
+EXT_FAIL=$(awk '$2=="fail"{print $3; exit}' /tmp/pt-preflight-tests.log)
+SRV_PASS=$(awk '$2=="pass"{print $3; exit}' /tmp/pt-preflight-server.log)
+SRV_FAIL=$(awk '$2=="fail"{print $3; exit}' /tmp/pt-preflight-server.log)
+BOT_PASS=$(awk '$2=="pass"{print $3; exit}' /tmp/pt-preflight-bot.log)
+BOT_FAIL=$(awk '$2=="fail"{print $3; exit}' /tmp/pt-preflight-bot.log)
 [ -n "$EXT_PASS" ] && [ -n "$SRV_PASS" ] && [ -n "$BOT_PASS" ] || fail "could not parse suite totals"
 [ "$EXT_FAIL" = "0" ] && [ "$SRV_FAIL" = "0" ] && [ "$BOT_FAIL" = "0" ] \
   || fail "suite fail count non-zero (extension $EXT_FAIL, server $SRV_FAIL, bot $BOT_FAIL)"
@@ -115,8 +118,12 @@ BOT_FAIL=$(grep -E '^ℹ fail ' /tmp/pt-preflight-bot.log | awk '{print $3}')
 # within the hour because a concurrent session added sixteen tests, which is
 # ordinary development rather than a release blocker.
 TESTS_REAL=$((EXT_PASS + SRV_PASS + BOT_PASS))
+# POSIX sed, not grep -oP: -P is a GNU extension that a non-UTF-8 locale
+# refuses outright ("supports only unibyte and UTF-8 locales") — the same
+# portability rule as version_of() above. CI runners and fresh shells do not
+# guarantee a UTF-8 locale, and this gate must not depend on one.
 for page in site/news.html site/index.html; do
-  shown=$(grep -oP 'data-check="tests">\K[0-9]+' "$page")
+  shown=$(sed -n 's/.*data-check="tests">\([0-9]*\).*/\1/p' "$page" | head -1)
   [ -n "$shown" ] || fail "$page has no data-check=\"tests\" figure to verify"
   [ "$shown" -le "$TESTS_REAL" ] \
     || fail "$page claims $shown tests passing; the suites report only $TESTS_REAL ($EXT_PASS + $SRV_PASS + $BOT_PASS)"
@@ -143,14 +150,14 @@ for cs in m.get('content_scripts', []):
 print(len(hosts - {'x.com', 'twitter.com', 'papertrench.com', 'www.papertrench.com'}))
 PY
 )
-SITES_SHOWN=$(grep -oP 'data-check="sites">\K[0-9]+' site/index.html)
+SITES_SHOWN=$(sed -n 's/.*data-check="sites">\([0-9]*\).*/\1/p' site/index.html | head -1)
 [ "$SITES_SHOWN" -le "$SITES_REAL" ] \
   || fail "site/index.html claims $SITES_SHOWN trading sites; the manifest supports $SITES_REAL"
 [ "$SITES_SHOWN" = "$SITES_REAL" ] \
   || echo "  note: index.html says $SITES_SHOWN trading sites, manifest now has $SITES_REAL — bump it when this ships"
 
 DEFECTS_REAL=$(grep -cE 'fixed v[0-9]' DEFECTS.md)
-DEFECTS_SHOWN=$(grep -oP 'data-check="defects">\K[0-9]+' site/news.html)
+DEFECTS_SHOWN=$(sed -n 's/.*data-check="defects">\([0-9]*\).*/\1/p' site/news.html | head -1)
 [ "$DEFECTS_SHOWN" = "$DEFECTS_REAL" ] \
   || fail "site/news.html says $DEFECTS_SHOWN defects closed; DEFECTS.md marks $DEFECTS_REAL"
 echo "news stats OK (tests $TESTS_REAL = $EXT_PASS + $SRV_PASS + $BOT_PASS, defects closed $DEFECTS_REAL)"
