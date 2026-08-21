@@ -191,7 +191,8 @@ function computeStats(state, settings) {
     openPositions: positions.length,
     realizedPnlSol: realized,
     rounds: rounds.length,
-    equityVsStart: equity - settings.balanceStartSol,
+    // D-06: birth anchor first; the setting is only a legacy fallback.
+    equityVsStart: equity - ((Number(state.startSol) > 0 ? Number(state.startSol) : Number(settings.balanceStartSol)) || 0),
     boughtSol: flow.boughtSol,
     heldSol: flow.heldSol,
     soldSol: flow.soldSol,
@@ -237,7 +238,12 @@ async function load() {
     $('equity').className = 'equity ' + (up ? 'green' : 'red');
 
     const deltaEl = $('delta');
-    const pct = settings.balanceStartSol ? (stats.equityVsStart / settings.balanceStartSol) * 100 : 0;
+    // D-06: % change is judged against the wallet's birth balance (the
+    // state's startSol anchor), not the live setting.
+    const anchor = (state && Number(state.startSol)) > 0
+      ? Number(state.startSol)
+      : (Number(settings.balanceStartSol) > 0 ? Number(settings.balanceStartSol) : 0);
+    const pct = anchor ? (stats.equityVsStart / anchor) * 100 : 0;
     deltaEl.textContent = `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(stats.equityVsStart, 3)} SOL (${up ? '+' : ''}${pct.toFixed(1)}%)`;
     deltaEl.className = 'delta ' + (up ? 'green' : 'red');
 
@@ -352,7 +358,7 @@ async function applyQuickSettings() {
   } else if (Number.isFinite(balanceNum) && balanceNum >= 0.1) {
     if (balanceNum !== Number(settings.balanceStartSol)) {
       patch.balanceStartSol = balanceNum;
-      notes.push('starting balance saved — the % baseline moves now, cash changes on the next reset');
+      notes.push('starting balance saved — applies to the NEXT wallet reset; this wallet\u2019s % return stays anchored to the balance it was born with');
     }
   } else {
     notes.push(`starting balance "${balanceRaw}" rejected (must be ≥ 0.1 SOL) — kept ${settings.balanceStartSol}`);

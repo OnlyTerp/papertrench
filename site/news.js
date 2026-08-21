@@ -28,6 +28,13 @@
 
   const RELEASES = [
     {
+      v: '3.9.5', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['fix', 'honesty'],
+      title: 'Honest start — your return is anchored to the wallet’s birth',
+      blurb: 'Editing “Starting paper balance” mid-wallet used to retroactively rewrite your % return. Now the birth balance is snapshotted when the wallet is created, and every % — dashboard, cards, curve, overlay, leaderboard claim — is judged against that snapshot. The setting only names what the NEXT wallet starts with.',
+      link: '',
+    },
+    {
       v: '3.9.4', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['fix', 'honesty'],
       title: 'Honest cards — no more made-up market caps',

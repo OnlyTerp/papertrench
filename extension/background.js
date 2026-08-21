@@ -3159,7 +3159,15 @@ async function bridgeRecord() {
   if (!settings.leaderboardBridge) return { ok: false, reason: 'bridge-disabled' };
   const { chain } = await AT.readChainStore(attestGet);
   if (!chain.length) return { ok: false, reason: 'chain-empty' };
-  const start = Number(settings.balanceStartSol) || 0;
+  // D-06: the chain replay denominates on the wallet's birth balance — the
+  // same anchor every local % return reads, so the site-side replay can
+  // never disagree with the number the trader sees. (engine.js isn't loaded
+  // in the service worker, so the anchor rule is inlined: birth snapshot
+  // first, live setting only as a legacy fallback.)
+  const state = (await getState()) || {};
+  const start = (Number(state.startSol) || 0) > 0
+    ? Number(state.startSol)
+    : (Number(settings.balanceStartSol) || 0);
   // The claim mirrors the chain-derived replay on purpose: the server ranks
   // on its own replay anyway, and a bridge claim that disagreed with the
   // chain would only flag honest users whose local display drifted.

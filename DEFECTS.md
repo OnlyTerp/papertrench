@@ -1362,7 +1362,7 @@ becomes permanently disabled "Analyzing…"; the review button never changes sta
 term of `dataFingerprint`.
 
 **D-06 · S1 · Editing "Starting paper balance" retroactively fabricates P&L**
-`dashboard.js:2042,262,340-341`, `engine.js:419` · confirmed · open
+`dashboard.js` (hero %, evidence card, standings, verify cache, submission, curve, sparkline), `engine.js` (defaultState/resetState/startGame snapshot, anchorStartSol, sessionStats, riskProfile), `popup.js`, `overlay.js`, `background.js` (bridge replay) · confirmed · **fixed v3.9.5** (birth anchor: `state.startSol` snapshotted at wallet creation; `anchorStartSol(state, settings)` reads the snapshot with the setting only as legacy fallback; all 13 denominator sites across 5 files anchored; negative start rejected at save; locked by `test/d06_anchor.test.js` + rewritten leaderboard contract in `load.test.js`)
 Baseline changes without touching cashSol → fresh wallet + set 1 → "Total return
 +9 SOL (+900 %)". Negative values accepted (`Number(v) || 10` ignores min attr).
 

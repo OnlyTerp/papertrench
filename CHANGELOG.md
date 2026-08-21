@@ -3,7 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.9.4 — 2026-08-20
+## v3.9.5 — 2026-08-20
+
+**Honest start** — editing "Starting paper balance" no longer rewrites your
+return. The wallet's birth balance is snapshotted the moment it's created;
+every % you see — hero strip, leaderboard evidence card, standings row,
+equity curve, sparkline, stream overlay, and the site-facing claim — is
+judged against that snapshot. The setting now means exactly what it says:
+what the NEXT wallet starts with. Editing it mid-wallet changes nothing
+about the wallet you're running. Negative starting balances are also
+rejected at save time. Nine new tests lock it; one old leaderboard test
+that asserted the old behavior was rewritten to assert the honest one.
 
 **Honest cards** — no more made-up market caps. If even one fill on a side of
 the round happened before the market-cap feed woke up, the card now shows the

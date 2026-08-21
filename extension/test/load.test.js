@@ -534,11 +534,15 @@ test('post-close notes let the lesson be written after the outcome', () => {
 test('the leaderboard compares by return on bankroll, not absolute SOL', () => {
   const dashboardSrc = fs.readFileSync(path.join(ROOT, 'dashboard.js'), 'utf8');
 
-  // ROI is derived from the DECLARED starting balance in both places a
-  // result is shown (the evidence card and the standings placeholder).
-  const roiHits = dashboardSrc.match(/\(stats\.realizedPnlSol \/ settings\.balanceStartSol\) \* 100/g) || [];
+  // ROI is derived from the wallet's BIRTH balance (D-06 anchor) in both
+  // places a result is shown (the evidence card and the standings
+  // placeholder) — editing the starting-balance setting mid-wallet must
+  // never rewrite a live wallet's return.
+  const roiHits = dashboardSrc.match(/\(stats\.realizedPnlSol \/ E\.anchorStartSol\(state, settings\)\) \* 100/g) || [];
   assert.ok(roiHits.length >= 2,
-    'both the evidence card and the standings row must compute ROI on the bankroll');
+    'both the evidence card and the standings row must compute ROI on the birth-anchored bankroll');
+  assert.ok(!/realizedPnlSol \/ settings\.balanceStartSol/.test(dashboardSrc),
+    'no ROI site may divide by the live setting');
   assert.match(dashboardSrc, /% ROI/, 'the ROI figure must be shown next to absolute P&L');
   assert.match(dashboardSrc, /Declared starting bankroll/,
     'the bankroll itself must be displayed so the percentage is checkable');

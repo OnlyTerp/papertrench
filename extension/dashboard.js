@@ -889,7 +889,9 @@ function renderSidebar() {
   if (!sb) return;
   const stats = E.sessionStats(state, settings);
   const up = stats.equityVsStart >= 0;
-  const pct = settings.balanceStartSol ? (stats.equityVsStart / settings.balanceStartSol) * 100 : 0;
+  // D-06: % judged against the wallet's birth balance, not the live setting.
+  const anchor = E.anchorStartSol(state, settings);
+  const pct = anchor > 0 ? (stats.equityVsStart / anchor) * 100 : 0;
   const winRate = stats.winRate === null ? null : stats.winRate;
 
   const markup = `
@@ -957,7 +959,8 @@ function winRateBar(stats) {
 function equitySparkline() {
   const rounds = [...(state.rounds || [])].reverse();
   if (rounds.length < 2) return '';
-  let eq = settings.balanceStartSol;
+  // D-06: spark from the birth balance, not the live setting.
+  let eq = E.anchorStartSol(state, settings);
   const pts = [eq];
   for (const r of rounds) { eq += Number(r.pnlSol) || 0; pts.push(eq); }
 
@@ -1419,7 +1422,10 @@ function drawEquityCurve() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const start = Number(settings.balanceStartSol) || 0;
+  // D-06: the curve is drawn from the wallet's birth balance — the same
+  // anchor the % returns use — so editing the setting mid-wallet cannot
+  // lift or sink the whole equity curve.
+  const start = E.anchorStartSol(state, settings);
   const pts = E.equityCurvePoints(state, start);
 
   if ((state.journal || []).length === 0) {
@@ -3365,7 +3371,9 @@ function lbVerifyKey(chain, stats) {
     chain.length,
     head,
     Number(stats.realizedPnlSol) || 0,
-    Number(settings.balanceStartSol) || 0,
+    // D-06: key the cache on the birth anchor so a mid-wallet settings edit
+    // cannot leave a stale verify verdict keyed to the old denominator.
+    E.anchorStartSol(state, settings),
   ].join('|');
 }
 
@@ -3417,10 +3425,11 @@ function renderLeaderboard(el) {
   const chain = attestChain; // F-14: loaded from the segmented store
   const stats = E.sessionStats(state, settings);
   const identity = settings.leaderboardIdentity || null;
-  // Absolute P&L flatters big bankrolls, so every figure is shown alongside
-  // the return ON the declared starting balance — the comparable number.
-  const roiPct = settings.balanceStartSol > 0
-    ? (stats.realizedPnlSol / settings.balanceStartSol) * 100
+  // D-06: the ROI denominator is the wallet's birth balance (anchor), not
+  // the live setting — editing "Starting paper balance" must never
+  // retroactively rewrite a live wallet's return.
+  const roiPct = E.anchorStartSol(state, settings) > 0
+    ? (stats.realizedPnlSol / E.anchorStartSol(state, settings)) * 100
     : 0;
   const verify = lbVerifyView(chain, stats);
 
@@ -3506,8 +3515,10 @@ function renderStandingsPlaceholder(identity, stats) {
   // the two hand-off paths to the board at papertrench.com. The extension
   // still never phones home — export is a local file, and Site sync only
   // ANSWERS a request the site makes when you click over there.
-  const roiPct = settings.balanceStartSol > 0
-    ? (stats.realizedPnlSol / settings.balanceStartSol) * 100
+  // D-06: ROI denominates on the wallet's birth balance, never the live
+  // setting — the bridge claim and the local display must agree.
+  const roiPct = E.anchorStartSol(state, settings) > 0
+    ? (stats.realizedPnlSol / E.anchorStartSol(state, settings)) * 100
     : 0;
   const chain = attestChain;
   return `
@@ -3573,7 +3584,9 @@ async function bindLeaderboard(el) {
       const payload = AT.buildSubmission({
         chain,
         identity: settings.leaderboardIdentity || null,
-        startingBalanceSol: settings.balanceStartSol,
+        // D-06: the record carries the wallet's birth balance — the
+        // denominator the chain replay actually happened against.
+        startingBalanceSol: E.anchorStartSol(state, settings),
         stats: E.sessionStats(state, settings),
       });
       downloadJson(`papertrench-record-${csvStamp()}.json`, JSON.stringify(payload, null, 2));
@@ -3601,8 +3614,10 @@ async function bindLeaderboard(el) {
   lbVerifyInFlightKey = key;
   try {
     const result = await AT.verifyChain(chain);
+    // D-06: the claim is judged against the wallet's birth balance — the
+    // same anchor every local % return reads.
     const match = AT.claimMatchesChain(
-      { realizedPnlSol: stats.realizedPnlSol }, chain, settings.balanceStartSol, 1e-6
+      { realizedPnlSol: stats.realizedPnlSol }, chain, E.anchorStartSol(state, settings), 1e-6
     );
     lbVerifyCache = {
       key,

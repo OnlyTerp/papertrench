@@ -302,6 +302,12 @@
       // tell it has been overtaken and adopt instead of clobber.
       seq: 0,
       cashSol: settings.balanceStartSol,
+      // D-06: the birth balance is SNAPSHOT here. settings.balanceStartSol
+      // names what the NEXT wallet starts with; startSol is what THIS wallet
+      // actually started with. Every "% return" denominator reads the
+      // anchor (anchorStartSol) so editing the setting mid-wallet changes
+      // the next wallet, never this wallet's history.
+      startSol: settings.balanceStartSol,
       startedAt: Date.now(),
       positions: {},   // mint -> position
       // mint -> armed take-profit / stop-loss orders. Kept beside positions
@@ -1004,6 +1010,24 @@
     return null; // caller may override with live rate
   }
 
+  /**
+   * D-06: the honest denominator for every "% since start" figure.
+   *
+   * The wallet's birth balance (state.startSol) when the state recorded one;
+   * the setting only as a legacy fallback for states that predate the field
+   * (or hand-built test states). Reading the LIVE setting fabricated P&L:
+   * raise the setting mid-wallet and a +1 SOL session on a 10 SOL birth
+   * became "+90%" against 1 — retroactively rewriting history with a
+   * settings form. The anchor is frozen at birth; only a wallet reset moves
+   * it.
+   */
+  function anchorStartSol(state, settings) {
+    const birth = Number(state && state.startSol);
+    if (Number.isFinite(birth) && birth > 0) return birth;
+    const setting = Number(settings && settings.balanceStartSol);
+    return Number.isFinite(setting) && setting > 0 ? setting : 0;
+  }
+
   function sessionStats(state, settings) {
     // D-52: a break-even round (pnlSol === 0) is neither a win nor a loss —
     // the old `<= 0` filter branded scratched trades as losses and dragged
@@ -1038,7 +1062,7 @@
       openPositions: Object.keys(state.positions).length,
       unrealizedSol: Object.values(state.positions).reduce((s, p) => s + unrealizedPnl(p), 0),
       equitySol: eq,
-      equityVsStart: eq - settings.balanceStartSol,
+      equityVsStart: eq - anchorStartSol(state, settings),
       feesPaidSol: Number(st.feesPaidSol) || 0,
       trades: state.journal.length,
       // jb (#ideas): "able to see how much u've bought/held/sold whilst
@@ -1629,7 +1653,9 @@
     const rounds = (state && state.rounds) || [];
     if (!rounds.length) return { count: 0, avgSizePct: null, maxSizePct: null, oversized: 0 };
 
-    const start = Number(settings && settings.balanceStartSol) || 0;
+    // D-06: size is judged against the wallet's BIRTH balance, not the live
+    // setting — editing the setting mid-wallet must not re-grade old trades.
+    const start = anchorStartSol(state, settings);
     if (!(start > 0)) return { count: 0, avgSizePct: null, maxSizePct: null, oversized: 0 };
 
     const sizes = rounds.map((r) => (Number(r.investedSol) || 0) / start * 100);
@@ -2043,6 +2069,7 @@
     POST_WATCH_WINDOW_MS,
     solUsdRate,
     sessionStats,
+    anchorStartSol,
     pnlCalendar,
     pnlCalendarRange,
     averageFillPrices,

@@ -79,7 +79,8 @@ function computeStats(state, settings) {
   const wins = rounds.filter((r) => r.pnlSol > 0).length;
   return {
     equitySol: equity,
-    equityVsStart: equity - settings.balanceStartSol,
+    // D-06: birth anchor first; the live setting is only a legacy fallback.
+    equityVsStart: equity - ((Number(state.startSol) > 0 ? Number(state.startSol) : Number(settings.balanceStartSol)) || 0),
     realizedPnlSol: rounds.reduce((s, r) => s + (r.pnlSol || 0), 0),
     rounds: rounds.length,
     winRate: rounds.length ? (wins / rounds.length) * 100 : null,
@@ -176,7 +177,11 @@ async function render() {
   $('equity').style.color = up ? 'var(--green)' : 'var(--red)';
 
   const deltaEl = $('delta');
-  const pct = settings.balanceStartSol ? (stats.equityVsStart / settings.balanceStartSol) * 100 : 0;
+  // D-06: % vs start uses the wallet's birth balance, not the live setting.
+  const anchor = (state && Number(state.startSol)) > 0
+    ? Number(state.startSol)
+    : (Number(settings.balanceStartSol) > 0 ? Number(settings.balanceStartSol) : 0);
+  const pct = anchor > 0 ? (stats.equityVsStart / anchor) * 100 : 0;
   deltaEl.textContent = `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(stats.equityVsStart, 3)} SOL (${up ? '+' : ''}${pct.toFixed(1)}%) vs start`;
   deltaEl.style.color = up ? 'var(--green)' : 'var(--red)';
 
