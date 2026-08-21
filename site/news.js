@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.9.10', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'The chart BUY probes the chain too — no more waiting on indexers',
+        body: 'The BUY button on a coin whose board row just appeared now asks the chain the same way the board chips do: the instant you tap, the pool or bonding curve is read directly from Solana state, and the fill lands even while the panel header still reads "waiting for first quote". Aggregator indexes no longer gate the click.'
+      },
+      {
         v: '3.9.9', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'buy'],
         title: 'New-pairs sniping is chain-native — the tap prices straight from the pool',

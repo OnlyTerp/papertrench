@@ -3,6 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.10 — 2026-08-21
+
+**The chart-panel BUY asks the chain too now.** 3.9.9 made the board chips
+price straight from the pool / bonding curve; the BUY button on the coin
+panel still leaned on aggregator indexes first, so a coin that was one
+second old on screen could still read "waiting for first quote" when you
+clicked. Now the click itself probes the chain (the same prewatch the
+sniping path uses): if the pool or curve exists on-chain, the buy fills
+from RPC state regardless of what any indexer has indexed. Verified on the
+live logged-in terminal boards end to end (pt-verification harness, 8/8).
+
 ## v3.9.9 — 2026-08-21
 
 **New-pairs sniping is chain-native now** — the board buys you're doing the

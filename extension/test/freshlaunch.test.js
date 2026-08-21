@@ -400,11 +400,12 @@ function runFreshLaunch(opts) {
     }
   }
 
-  // D-38: requestBuy's click-time acquisition beat is async, so a click on an
-  // unpriced token arms one microtask flush later. Flush before asserting.
-  async function settle() {
-    for (let k = 0; k < 32; k++) await Promise.resolve();
-  }
+  // D-38: requestBuy's click-time acquisition beat is async — and now carries
+    // the chain-probe leg — so a click on an unpriced token arms several
+    // microtask hops later. Flush deeply before asserting.
+    async function settle() {
+      for (let k = 0; k < 400; k++) await Promise.resolve();
+    }
 
   return {
     advance,

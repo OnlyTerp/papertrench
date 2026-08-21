@@ -231,11 +231,12 @@ function runMigration(opts) {
     }
   }
 
-  // D-38: requestBuy's click-time acquisition beat is async, so a click on an
-  // unpriced token arms one microtask flush later. Flush before asserting.
-  async function settle() {
-    for (let k = 0; k < 32; k++) await Promise.resolve();
-  }
+  // D-38: requestBuy's click-time acquisition beat is async (chain leg
+    // included), so a click on an unpriced token arms after several microtask
+    // hops. Flush deeply before asserting.
+    async function settle() {
+      for (let k = 0; k < 400; k++) await Promise.resolve();
+    }
 
   return {
     advance,

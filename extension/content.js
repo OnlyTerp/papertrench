@@ -2506,7 +2506,30 @@
    * upgrades are allowed only while the token is still pending (a pair
    * stand-in resolving to its real mint); a settled token is never renamed. */
   async function acquireClickQuote(addr, chain) {
-    const data = await R.resolve(addr, { maxAgeMs: 0, chain });
+    let data = await R.resolve(addr, { maxAgeMs: 0, chain });
+    if ((!data || !(Number(data.priceNative) > 0)) && token && token.pending) {
+      // D-38: the aggregators and venue APIs still do not know a one-second-
+      // old coin, but its pool / bonding curve is ALREADY on chain. Probe it
+      // directly (prewatch does exactly this for the panel at detection) so
+      // the buy never waits on an indexer. Price is chain state.
+      let found = await R.onchainPrewatch({ pool: addr }).catch(() => null);
+      if (!found || !(Number(found.priceNative) > 0)) {
+        found = await R.onchainPrewatch({ mint: addr }).catch(() => null);
+      }
+      if (found && found.mint && Number(found.priceNative) > 0) {
+        data = {
+          mint: found.mint,
+          pairAddress: found.pool || null,
+          symbol: null,
+          name: null,
+          priceNative: Number(found.priceNative),
+          priceUsd: null,
+          mcap: null,
+          priceSource: 'chain',
+          resolvedAt: Date.now(),
+        };
+      }
+    }
     if (!data || !(Number(data.priceNative) > 0)) return null;
     if (!token) return null;
     if (token.mint !== addr && token.srcAddress !== addr) return null;
