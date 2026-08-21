@@ -905,6 +905,22 @@ function renderSidebar() {
       <div class="sub">${stats.trades} fills · ${fmt(stats.feesPaidSol, 3)} SOL fees</div>
     </div>
     <div class="kpi">
+      <div class="lab">Discipline (co-crown)</div>
+      <div class="num" data-discipline-grade>${G && typeof G.roundGrade === 'function' ? (() => {
+        const pts = { S: 4, A: 3, B: 2, C: 1, D: 0, F: 0 };
+        let sum = 0, n = 0;
+        for (const r of state.rounds || []) {
+          const g = G.roundGrade(state, r);
+          if (g && pts[g.letter] !== undefined) { sum += pts[g.letter]; n += 1; }
+        }
+        if (!n) return '—';
+        const avg = sum / n;
+        const letter = avg >= 3.5 ? 'S' : avg >= 2.5 ? 'A' : avg >= 1.5 ? 'B' : avg >= 0.5 ? 'C' : 'D';
+        return `<span style="color:${{ S: '#B786FF', A: '#34D399', B: '#6AA9FF', C: '#FF9D45', D: '#FF5F56' }[letter]}">${letter}</span> <span style="font-size:13px;font-weight:700;opacity:.6">${avg.toFixed(1)}/4</span>`;
+      })() : '—'}</div>
+      <div class="sub">Process grade, lifetime — the co-crown next to PnL</div>
+    </div>
+    <div class="kpi">
       <div class="lab">Win rate</div>
       <div class="num">${winRate === null ? '—' : winRate.toFixed(0) + '%'}</div>
       ${winRateBar(stats)}

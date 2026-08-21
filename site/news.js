@@ -28,6 +28,18 @@
 
   const RELEASES = [
     {
+      v: '3.9.3', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature'],
+      title: 'The discipline co-crown — P&L’s quiet rival',
+      blurb: 'The KPI row now grades your process, not just your money. Lifetime discipline letter (S–D) with the honest /4 average sits right next to Realized P&L, same visual weight. Green letters mean the process holds when the tape goes against you.',
+      points: [
+        '<b>Co-crown, not replacement.</b> PnL KPIs stay exactly where they were; discipline joins them at equal weight. One is outcome, one is process — the product refuses to crown only one.',
+        '<b>Lifetime average.</b> Every closed round graded through the same roundGrade engine the journal uses, letter-banded S/A/B/C/D with thresholds at 3.5/2.5/1.5/0.5.',
+        '<b>Honest empty state.</b> No graded rounds yet → em-dash, never a fake B.',
+        '<b>5 new tests</b> (1,636 total): KPI placement, derivation contract, em-dash branch, PnL-not-replaced guard, stable letter colors.',
+      ],
+    },
+    {
       v: '3.9.2', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature', 'social'],
       title: 'Season share cards — no spoilers, all tease',

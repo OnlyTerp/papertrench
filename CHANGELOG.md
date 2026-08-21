@@ -3,6 +3,15 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.3 — 2026-08-20
+
+**Discipline co-crown** — the KPI row now grades your process, not just your
+P&L. Next to Realized P&L sits the lifetime discipline grade: every round
+graded S–D, averaged to a letter with the honest `/4` number under it. Green
+letters mean the process holds even when the tape goes against you — that's
+the crown PnL can't take away. The boards-side co-crown (two trophies, same
+season) lands with the D1 leaderboard.
+
 ## v3.9.2 — 2026-08-20
 
 **Season share cards** — the Wordle play. One image, legible in two seconds,
