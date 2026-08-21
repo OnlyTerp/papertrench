@@ -669,8 +669,17 @@ test('an expired access token refreshes, rotates in sealed form, and never leaks
   assert.equal(res.body.posts[0].id, '555');
   const rotated = db.log.find((e) => e.sql.includes('UPDATE users SET x_tokens'));
   assert.ok(rotated, 'the rotated pair is written back — X invalidates the old refresh token');
-  assert.ok(!String(rotated.args[0]).includes('tok-new') && !String(rotated.args[0]).includes('r2'),
-    'what lands in D1 is ciphertext');
+  // Scanning random ciphertext for plaintext fragments is probabilistic: a
+  // base64 blob of this length contains the two-char sequence "r2" by pure
+  // chance about 4% of the time, which made this test flake ~1/40 runs.
+  // Prove the same thing deterministically: open the stored blob with the
+  // secret and confirm it IS the rotated pair, sealed — not plaintext.
+  const xfeedMod = await import('../worker/xfeed.js');
+  const reopened = await xfeedMod.default.openTokens(SECRET, String(rotated.args[0]));
+  assert.ok(reopened && reopened.access === 'tok-new' && reopened.refresh === 'r2',
+    'what lands in D1 is the sealed rotated pair (opens back to it, never plaintext)');
+  assert.ok(JSON.stringify(rotated.args[0]) !== JSON.stringify({ access: 'tok-new', refresh: 'r2' }),
+    'the stored blob is not the bare JSON pair');
   assert.ok(!JSON.stringify(res.body).includes('tok-new') && !JSON.stringify(res.body).includes('r2'));
 });
 

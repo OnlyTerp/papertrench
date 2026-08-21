@@ -75,14 +75,16 @@ fi
 
 echo "Running test suite..."
 (cd extension && node --test > /tmp/pt-preflight-tests.log 2>&1) \
-  || { tail -30 /tmp/pt-preflight-tests.log; fail "test suite not green"; }
+  || { grep -E '^not ok|✖' /tmp/pt-preflight-tests.log | head -10; \
+       tail -40 /tmp/pt-preflight-tests.log; fail "test suite not green"; }
 tail -8 /tmp/pt-preflight-tests.log | grep -E "pass|fail"
 
 # The server suite is NOT in CI (.github/workflows/test.yml runs the extension
 # suite only), so this is the only gate on it before a release.
 echo "Running server suite..."
 (cd server && node --test > /tmp/pt-preflight-server.log 2>&1) \
-  || { tail -30 /tmp/pt-preflight-server.log; fail "server suite not green"; }
+  || { grep -E '^not ok|✖' /tmp/pt-preflight-server.log | head -10; \
+       tail -40 /tmp/pt-preflight-server.log; fail "server suite not green"; }
 tail -8 /tmp/pt-preflight-server.log | grep -E "pass|fail"
 
 # The bot suite guards the X onboarding funnel's copy locks (template length
@@ -90,7 +92,8 @@ tail -8 /tmp/pt-preflight-server.log | grep -E "pass|fail"
 # only gate on public-facing reply text, so it rides preflight like the others.
 echo "Running bot suite..."
 (cd bot && node --test > /tmp/pt-preflight-bot.log 2>&1) \
-  || { tail -30 /tmp/pt-preflight-bot.log; fail "bot suite not green"; }
+  || { grep -E '^not ok|✖' /tmp/pt-preflight-bot.log | head -10; \
+       tail -40 /tmp/pt-preflight-bot.log; fail "bot suite not green"; }
 tail -8 /tmp/pt-preflight-bot.log | grep -E "pass|fail"
 
 # The news hero prints "TESTS PASSING" and "AUDITED DEFECTS CLOSED" as
