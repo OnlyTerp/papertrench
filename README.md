@@ -134,21 +134,30 @@ passable as a real one.
 - **No account. No signup. No telemetry.** Nothing is sent anywhere about you.
 - **A real off switch.** The ⏻ button in the popup turns PaperTrench fully dormant — nothing injected or rendered on any site, live in every open tab — until you turn it back on. Wallet and settings are kept.
 - **Everything is local.** Trades, settings, replays, and recordings live in your browser's own storage.
-- **Network calls are only:** the public Dexscreener and Jupiter price APIs, X's public oEmbed endpoint if you opt into hover tweet previews (no login, `dnt=1`, posts you hover only), and — only if *you* configure it — your own AI endpoint.
+- **Network calls are only:** the public Dexscreener and Jupiter price APIs; public Solana RPC endpoints (`solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `solana-mainnet.gateway.tatum.io`) for on-chain pricing; `api.hyperliquid.xyz` for perps quotes, from the Hyperliquid page itself; X's public oEmbed endpoint if you opt into hover tweet previews (no login, `dnt=1`, posts you hover only); and — only if *you* configure it — your own AI endpoint and your own private RPC.
 - **Recordings never leave your machine.** They're stored in IndexedDB and saved to your downloads folder.
+- **The leaderboard is opt-in and not automatic.** The extension never uploads your record. `papertrench.com` can *ask* the extension for your verified chain when you click Sync there, and only if you turn on **Site sync** in settings (off by default). No other origin can ask. Off, you export a file and carry it yourself.
 
-The permissions in `manifest.json` are the minimum needed: storage for your wallet, `tabs`/`activeTab` for chart frames, and `offscreen` for the optional recorder. Content scripts run **only** on the supported trading sites — never anywhere else. The full permission-by-permission audit lives in [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md).
+### What the manifest asks for, and why
+
+`storage` + `unlimitedStorage` for the wallet, journal and replays · `tabs` / `activeTab` for chart frames · `offscreen` for the optional recorder · `scripting` to register the opt-in Instant-Links bundle at runtime (all those toggles are off by default).
+
+`host_permissions` is **`<all_urls>`**, and it is worth being plain about why: the service worker has to `fetch()` endpoints *you* choose — an OpenAI-compatible AI endpoint on any host, and an optional private Solana RPC — and those hosts cannot be known in advance. Those requests are SSRF-guarded (private ranges need an explicit opt-in; cloud metadata IPs are always blocked).
+
+Broad host permissions are **not** broad content scripts. The overlay is injected only into the supported trading sites, never anywhere else — a property enforced by `scripts/preflight.sh` and a manifest test, because an earlier alpha did inject everywhere (`DEFECTS.md` O-09). The full permission-by-permission audit lives in [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md).
 
 ---
 
 ## Tests
 
 ```bash
-cd extension
-node --test
+cd extension && node --test    # 1656
+cd server   && node --test     #  157
 ```
 
-1,656 tests covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
+**1,656 extension tests** covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
+
+**157 server tests** covering chain verification, re-pricing against market history, ranking, sprint and duel windows, and achievements — the leaderboard verifier in [`server/`](server/), which recomputes standings from submitted chains rather than trusting a submitted number.
 
 The suite is mutation-tested: fixes were verified by reverting them and confirming the tests fail. The one test that hits a live API skips — rather than fails — when offline.
 
