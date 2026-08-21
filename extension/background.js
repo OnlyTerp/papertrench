@@ -3141,7 +3141,9 @@ chrome.runtime.onInstalled.addListener((details) => {
   // how to update — the extension is unpacked, so Chrome never updates it
   // and users kept trading on stale builds with known-fixed bugs. Check the
   // GitHub releases feed on every install/update so the notice is immediate.
-  scheduleUpdateCheck(0);
+  // (Rechecks are alarm-driven — a self-rescheduling setTimeout chain would
+  // hold every unit-harness process open forever; that timer is why CI hung.)
+  runUpdateCheck().catch(() => {});
 });
 refreshFrameInterval().catch(() => {});
 
@@ -3157,8 +3159,8 @@ refreshFrameInterval().catch(() => {});
  * deliberate exception to the no-phone-home doctrine, made because users
  * staying on broken builds is worse than one version header leaving the
  * machine — the same reasoning as the leaderboard's answer-only bridge.
+ * (The 6h period lives on the pt_update_check alarm, not a timer.)
  */
-const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const UPDATE_FEED_URL = 'https://api.github.com/repos/OnlyTerp/papertrench/releases/latest';
 
 async function fetchLatestRelease() {
@@ -3211,15 +3213,9 @@ async function runUpdateCheck() {
   }
 }
 
-function scheduleUpdateCheck(delayMs) {
-  setTimeout(() => {
-    runUpdateCheck().catch(() => {});
-    scheduleUpdateCheck(UPDATE_CHECK_INTERVAL_MS);
-  }, Math.max(0, delayMs || 0));
-}
-// The SW dies on idle; an alarm survives. The timer above covers a live SW;
-// this alarm wakes a sleeping one twice a day. Guarded: unit harnesses load
-// this file with a partial chrome stub and no alarms API.
+// The SW dies on idle; an alarm survives. The pt_update_check alarm wakes a
+// sleeping SW twice a day — no timer chain (a self-rescheduling setTimeout
+// holds unit-harness processes open forever; that is what hung CI).
 if (chrome.alarms && typeof chrome.alarms.create === 'function') {
   chrome.alarms.create('pt_update_check', { periodInMinutes: 360 });
   // N2: armed limit buys carry a 24h TTL. A chart page sweeps its OWN mints

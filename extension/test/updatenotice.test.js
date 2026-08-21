@@ -14,7 +14,9 @@ const content = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
 const manifest = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
 
 test('the SW polls the releases feed on install and twice daily', () => {
-  assert.match(bg, /scheduleUpdateCheck\(0\)/, 'the check runs on install/update');
+  assert.match(bg, /runUpdateCheck\(\)\.catch\(\(\) => \{\}\);/,
+    'the check runs on install/update (directly — a self-rescheduling timer would hold unit-harness processes open forever; that hung CI)');
+  assert.ok(!/scheduleUpdateCheck/.test(bg), 'no timer chain re-scheduling the check');
   assert.match(bg, /chrome\.alarms\.create\('pt_update_check', \{ periodInMinutes: 360 \}\)/,
     'an alarm wakes a sleeping SW twice a day');
   assert.match(bg, /api\.github\.com\/repos\/OnlyTerp\/papertrench\/releases\/latest/,
