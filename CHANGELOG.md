@@ -3,6 +3,16 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.1 — 2026-08-20
+
+**Survival Season** — the Trench Season with the safety off. Same three gates,
+same 7-day window, one difference: your equity is on the line. Drop to 20% of
+where the season started and you're eliminated — the season ends **busted**
+on the spot, no gates, no belt. The line is reconstructed from your journal
+(nothing extra tracked), and the standard season is untouched: blow the whole
+account there and the gates just keep watching. Scarcity makes paper money
+feel real; elimination is the honest lesson.
+
 ## v3.9.0 — 2026-08-20
 
 **Trench Season** — a 7-day league, and the biggest game yet. Opt in from the

@@ -6,7 +6,7 @@
 Real prices. Fake money. A record you can actually learn from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF9D45.svg?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1614%20passing-34D399?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1619%20passing-34D399?style=flat-square)](#tests)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6AA9FF?style=flat-square)](#install)
 [![No tracking](https://img.shields.io/badge/telemetry-none-8D97A9?style=flat-square)](#privacy)
 
@@ -148,7 +148,7 @@ cd extension
 node --test
 ```
 
-1,614 tests covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
+1,619 tests covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
 
 The suite is mutation-tested: fixes were verified by reverting them and confirming the tests fail. The one test that hits a live API skips — rather than fails — when offline.
 

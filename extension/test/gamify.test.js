@@ -463,3 +463,75 @@ test('season headline in HUD body: won shows belt', () => {
   const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
   assert.equal(s.status, 'won');
 });
+
+/* ---------------- Survival Season (ROADMAP item 5) ---------------- */
+
+test('survival: normal winning week is unaffected by the elimination check', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  const st = { ...state(rounds), activeGame: { id: 'survival', startedAt: 1_800_000_000_000 - 1000 } };
+  const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
+  assert.equal(s.id, 'survival');
+  assert.equal(s.status, 'won');
+  assert.equal(s.elimination, null);
+});
+
+test('survival: equity blown to 20% busts the season immediately', () => {
+  // Start with 10 SOL; lose 8.5 net across the season's rounds.
+  const rounds = [
+    mkRound({ investedSol: 5, pnlSol: -4.25, returnedSol: 0.75, closedAt: 1_800_000_000_000 + DAY }),
+    mkRound({ investedSol: 5, pnlSol: -4.25, returnedSol: 0.75, closedAt: 1_800_000_000_000 + 2 * DAY }),
+  ];
+  const st = {
+    rounds: rounds.slice().reverse(),
+    journal: [], positions: {},
+    cashSol: 10 - 8.5, // what's left after both losses
+    activeGame: { id: 'survival', startedAt: 1_800_000_000_000 - 1000 },
+  };
+  const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
+  assert.equal(s.status, 'busted');
+  assert.ok(s.elimination.includes('stake blown'));
+  assert.ok(s.detail.includes('stake blown'));
+});
+
+test('survival: equity above the line stays live even on a red week', () => {
+  const rounds = [
+    mkRound({ investedSol: 5, pnlSol: -1, returnedSol: 4, closedAt: 1_800_000_000_000 + DAY }),
+  ];
+  const st = {
+    rounds: rounds.slice().reverse(),
+    journal: [], positions: {},
+    cashSol: 10 - 1,
+    activeGame: { id: 'survival', startedAt: 1_800_000_000_000 - 1000 },
+  };
+  const s = G.gameSession(st, 1_800_000_000_000 + 2 * DAY);
+  assert.equal(s.status, 'live');
+  assert.equal(s.elimination, null);
+});
+
+test('survival: gates can still be won while riding the line', () => {
+  const rounds = [];
+  for (let d = 0; d < 7; d++) for (let i = 0; i < 2; i++) rounds.push(seasonRound(d, i));
+  const st = {
+    ...state(rounds),
+    cashSol: 9.5, // small net loss, nowhere near the line
+    activeGame: { id: 'survival', startedAt: 1_800_000_000_000 - 1000 },
+  };
+  const s = G.gameSession(st, 1_800_000_000_000 + 3 * DAY);
+  assert.equal(s.status, 'won');
+});
+
+test('regular season ignores equity entirely (no elimination field leak)', () => {
+  const rounds = [
+    mkRound({ investedSol: 5, pnlSol: -4.25, returnedSol: 0.75, closedAt: 1_800_000_000_000 + DAY }),
+  ];
+  const st = {
+    rounds: rounds.slice().reverse(),
+    journal: [], positions: {},
+    cashSol: 1.5,
+    activeGame: { id: 'season', startedAt: 1_800_000_000_000 - 1000 },
+  };
+  const s = G.gameSession(st, 1_800_000_000_000 + 2 * DAY);
+  assert.equal(s.status, 'live', 'equity never enters the standard season');
+  assert.equal(s.elimination, null);
+});

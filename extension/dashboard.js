@@ -1217,7 +1217,7 @@ function renderGame(el) {
   // the rounds closed since. Terminal results stay until dismissed here.
   const session = typeof G.gameSession === 'function' ? G.gameSession(state) : null;
   const sessionPanel = session ? (() => {
-    const label = { gauntlet: 'The Gauntlet', 'one-shot': 'One-Shot', 'score-attack': 'Score Attack', season: 'Trench Season' }[session.id] || session.id;
+    const label = { gauntlet: 'The Gauntlet', 'one-shot': 'One-Shot', 'score-attack': 'Score Attack', season: 'Trench Season', survival: 'Survival Season' }[session.id] || session.id;
     const tone = session.status === 'won' ? 'green' : session.status === 'live' ? 'amber' : 'red';
     const headline = session.status === 'live'
       ? (session.id === 'score-attack' && session.score !== null ? `${session.score.toFixed(0)}% avg` : `${session.progress}/${session.target}`)
@@ -1256,6 +1256,10 @@ function renderGame(el) {
       status = `
         <div class="stat"><span class="dim">Seasons won</span><span class="mono">${g.wins}×</span></div>
         <div class="stat"><span class="dim">Gates</span><span class="mono">10+ rounds · 80% journaled · avg B</span></div>`;
+    } else if (g.id === 'survival') {
+      status = `
+        <div class="stat"><span class="dim">Elimination line</span><span class="mono">20% of season equity</span></div>
+        <div class="stat"><span class="dim">Gates</span><span class="mono">same three gates, real stakes</span></div>`;
     }
     const isRunning = session && session.id === g.id;
     return `

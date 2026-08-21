@@ -28,6 +28,17 @@
 
   const RELEASES = [
     {
+      v: '3.9.1', date: 'Aug 20, 2026', iso: '2026-08-20',
+      tags: ['feature', 'game'],
+      title: 'Survival Season — same belt, no net',
+      blurb: 'The Trench Season with the safety off. Same three gates, same 7-day window — but drop to 20% of your season-start equity and you are eliminated on the spot: busted, no belt, season over. The line is reconstructed from your journal; nothing extra is tracked.',
+      points: [
+        '<b>20% is the line.</b> Equity at season start is reconstructed (cash then + entry cost of then-open positions); fall to a fifth of it and the season ends immediately.',
+        '<b>The standard season is untouched.</b> Blow the whole account in a regular season and the gates just keep watching — survival is strictly opt-in.',
+        '<b>5 new tests</b> (1,619 total): win-riding-the-line, bust-at-20%, red-but-alive, gates-won-near-line, standard-season isolation.',
+      ],
+    },
+    {
       v: '3.9.0', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['feature', 'game'],
       title: 'Trench Season — the week-long league',

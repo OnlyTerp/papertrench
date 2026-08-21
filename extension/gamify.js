@@ -617,6 +617,13 @@
         wins: seasonWins,
         best: null,
       },
+      {
+        id: 'survival',
+        label: 'Survival Season',
+        detail: 'The Trench Season at real stakes: blow your equity down to 20% of where the season started and you are eliminated — the season ends, busted, on the spot. Same three gates, no second chances.',
+        wins: 0,
+        best: null,
+      },
     ];
   }
 
@@ -692,8 +699,16 @@
      * window stays open to raise the score, but the belt is already yours.
      * Timebox check uses the explicit `now` arg; the HUD cache may lag a
      * pure-time flip until the next storage event — the dashboard is the
-     * surface that never lags. */
-    if (active.id === 'season') {
+     * surface that never lags.
+     *
+     * Survival variant (item 5): startedAt doubles as the equity snapshot
+     * anchor — equity is reconstructed at the moment the season began
+     * (cash then + cost basis of then-open positions at entry price, since
+     * marks are unreliable retroactively). Eliminated when reconstructed
+     * equity drops to <= 20% of the season start. Same belt, higher stakes:
+     * survival failure ends the season immediately (status 'busted'). */
+    if (active.id === 'season' || active.id === 'survival') {
+      const survival = active.id === 'survival';
       const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
       const windowEnd = startedAt + WINDOW_MS;
       const inWindow = rounds.filter((r) => num(r.closedAt) < windowEnd);
@@ -714,23 +729,58 @@
       const nowTs = num(now) !== null ? num(now) : null;
       const windowClosed = nowTs !== null && nowTs >= windowEnd;
       let status = 'live';
-      if (gates.played && gates.journaled && gates.graded) status = 'won';
-      else if (windowClosed) status = 'missed';
+      let elimination = null;
+      if (survival) {
+        // Reconstruct equity at season start: cash at start + entry cost of
+        // positions open at start. Rounds' netSol flows after startedAt are
+        // subtracted back from current cash to get cash-at-start.
+        const { E } = deps();
+        const cashNow = num(state && state.cashSol) !== null ? num(state.cashSol) : null;
+        let cashAtStart = cashNow;
+        if (cashAtStart !== null) {
+          for (const r of rounds) {
+            const net = E && typeof E.roundNet === 'function' ? E.roundNet(r) : (num(r.returnedSol) - num(r.investedSol));
+            cashAtStart -= (net || 0);
+          }
+        }
+        // Position value at start uses entry cost — reconstructable, unlike marks.
+        let posCostAtStart = 0;
+        const pos = state && state.positions ? state.positions : {};
+        for (const mint of Object.keys(pos)) {
+          const p = pos[mint];
+          const openedAt = num(p.openedAt);
+          if (openedAt !== null && openedAt < startedAt) posCostAtStart += (num(p.costSol) || 0);
+        }
+        const startEq = (cashAtStart === null ? null : cashAtStart + posCostAtStart);
+        const curEq = cashNow === null ? null : cashNow + Object.keys(pos).reduce((s, m) => s + (num(pos[m].costSol) || 0), 0);
+        if (survival && startEq !== null && startEq > 0 && curEq !== null && curEq <= startEq * 0.2) {
+          status = 'busted';
+          elimination = `stake blown — ${(curEq / startEq * 100).toFixed(0)}% of season equity left`;
+        }
+      }
+      if (status === 'live') {
+        if (gates.played && gates.journaled && gates.graded) status = 'won';
+        else if (windowClosed) status = 'missed';
+      }
       const gateBits = [
         `${total}/10 rounds`,
         `${Math.round(coverage * 100)}% journaled`,
         avgGrade === null ? 'no grades yet' : `avg ${avgGrade.toFixed(1)}`,
       ];
+      const idLabel = survival ? 'survival' : 'season';
       return {
-        id: 'season', startedAt, rounds: total, status,
-        progress: Math.min(total, 10), target: 10,
+        id: idLabel, startedAt, rounds: total, status,
+        progress: Math.min(total, 20), target: 20,
         score: avgGrade,
         gates,
-        detail: status === 'won'
-          ? `season won — ${gateBits.join(' · ')}`
-          : status === 'missed'
-            ? `window closed — ${gateBits.join(' · ')}`
-            : `${gateBits.join(' · ')} · ${Math.max(0, Math.ceil((windowEnd - (nowTs || startedAt)) / 86400000))}d left`,
+        elimination,
+        detail: status === 'busted'
+          ? elimination
+          : status === 'won'
+            ? `season won — ${gateBits.join(' · ')}`
+            : status === 'missed'
+              ? `window closed — ${gateBits.join(' · ')}`
+              : `${gateBits.join(' · ')} · ${Math.max(0, Math.ceil((windowEnd - (nowTs || startedAt)) / 86400000))}d left`,
       };
     }
 
