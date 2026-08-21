@@ -713,6 +713,13 @@ function bindNav() {
       }
       document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x === b));
       SECTIONS.forEach((id) => document.getElementById(id).classList.toggle('hidden', id !== currentSection));
+      // D-31: the equity canvas must be drawn while VISIBLE. The post-reset
+      // renderSection('overview') fires from the Settings tab, into a hidden
+      // element, sizing the backing store to the 760×260 fallback; when the
+      // trader then navigates here, the identical-markup guard skips the
+      // rebind and the wrong bitmap would live forever. Redraw at reveal —
+      // cheap, and refreshLiveDerived already redraws per tick here anyway.
+      if (currentSection === 'overview') drawEquityCurve();
       renderSection(currentSection);
     });
   });
@@ -1415,8 +1422,13 @@ function drawEquityCurve() {
 
   // Match the backing store to the CSS box so lines land on real pixels.
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = cvs.clientWidth || 760;
-  const cssH = cvs.clientHeight || 260;
+  // D-31: a zero-width canvas means the section is hidden (the post-reset
+  // render fires from Settings). Drawing now would bake the 760×260
+  // fallback into the bitmap; skip instead — the reveal-time redraw paints
+  // at true size. Nothing visible is lost by not drawing the invisible.
+  if (!cvs.clientWidth || !cvs.clientHeight) return;
+  const cssW = cvs.clientWidth;
+  const cssH = cvs.clientHeight;
   cvs.width = Math.round(cssW * dpr);
   cvs.height = Math.round(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

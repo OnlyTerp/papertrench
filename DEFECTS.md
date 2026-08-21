@@ -1053,7 +1053,7 @@ matches `/lp/<pair>` → panel hides on the page the extension itself sent the u
 Up to 800 ms of previous token's live panel + native chart lines on the wrong page.
 
 **O-15 · S3/S4 · applyBarOffset is a documented no-op; positions bar overlays host UI with 2-sample collision avoidance**
-`content.js:3283,3061,3232,3545-3546` · confirmed · open
+`content.js` (positions bar) · confirmed · **fixed v2.10.0** (settle loop samples until the bar's edge is stable, replacing the 2-sample 400/1500 ms probe; applyBarOffset remains a documented no-op by design — the bar insets left instead of shifting host UI)
 `measureBarLeft` samples `elementFromPoint` at 400 ms and 1500 ms only; late-painting
 headers get the hardcoded 210 px fallback over their nav.
 
@@ -1478,7 +1478,15 @@ complaint, unfixed (header comment blames the old timer).
 **D-30 · S3 · Popup toggle label goes stale on the fallback path** — `popup.js:108-116` · confirmed · **fixed v2.0.0** (fallback path re-runs load())
 
 **D-31 · S3 · Post-reset equity canvas drawn at fallback 760×260 while hidden, then never redrawn**
-`dashboard.js:2018,379-380,212` · confirmed · open
+`dashboard.js` (drawEquityCurve + nav reveal) · confirmed · **fixed v3.9.6**
+(zero-box guard replaces the 760/260 fallbacks — the invisible is never
+painted; nav to Overview redraws at true layout before the identical-markup
+guard can skip it; locked in `extension/test/d31_canvas.test.js`). The
+post-reset `renderSection('overview')` fires from the Settings tab into a
+`display:none` container, so `clientWidth` reads 0 and the canvas baked the
+fallback-sized bitmap; when the trader later navigated to Overview the
+identical-markup guard skipped `rebindSection` and the wrong bitmap lived
+forever.
 
 **D-32 · S3 · Journal "Market cap" column mixes units — `$240.0K MC` and `0.0₅123 SOL` under one header; `— SOL` on non-positive**
 `dashboard.js:2094-2099` · confirmed · **fixed v2.0.0** (mcap column renders mcap or an em-dash, never a mislabeled SOL price)
@@ -1493,10 +1501,10 @@ complaint, unfixed (header comment blames the old timer).
 
 **D-35 · S4 · rpcUrl has no UI anywhere** — defined, consumed, documented; no input.
 **fixed v2.0.0** — rpcUrl input in the AI/network settings card, saved with the form.
-`engine.js:94`, `background.js:619` · confirmed · open
+`engine.js:94`, `background.js:619` · confirmed · **fixed v2.0.0** (rpcUrl input in the AI/network settings card)
 **D-36 · S4 · Reset claims to clear recordings but doesn't — RC.clear() exists and is called by nobody; orphaned videos accumulate forever**
 **fixed v2.0.0** — dashboard reset calls RC.clear(); popup reset routes through a new pt_clear_recordings background message.
-`dashboard.js:2005,2015`, `popup.js:128-132`, `recordings.js:151` · confirmed · open
+`dashboard.js:2005,2015`, `popup.js:128-132`, `recordings.js:151` · confirmed · **fixed v2.0.0** (reset calls RC.clear(); popup routes through pt_clear_recordings)
 **D-37 · S4 · Which settings apply live is undocumented and inconsistent** — live:
 **backlog (v2.1):** live-apply coverage of panelFocusMode/sellPcts/listQuickBuy needs a content-side settings-listener extension; the Save flow now reports coercions but not reload-needed keys.
 overlay/presets/lines/visibility/size/bar; needs-reload (silently): panelFocusMode,
@@ -1510,7 +1518,7 @@ sellPcts, listQuickBuy*. Only feedback is "Saved." `content.js:1126-1137` · con
 **D-40 · S4 · Replay scrub rebuilds the entire replay model at 60 fps — twice per frame**
 **fixed v2.1.0** — buildReplayView memoized per (replay, session, cursor); invalidated on load/adopt/reset; degraded view never cached.
 **backlog (v2.1):** scrub rebuild is now guarded (D-26) but still rebuilds per frame; memoize the view per cursor index.
-`dashboard.js:1004-1009,1020,1036` · confirmed · open
+`dashboard.js:1004-1009,1020,1036` · confirmed · **fixed v2.1.0**; backlog (per-cursor memoization) remains open
 **D-41 · S4 · Backup omits IndexedDB recordings — restored wallets show unplayable recording refs**
 **disposition (v2.1):** the exclusion stays (a chunked IndexedDB export remains future work) but the UI now says so honestly — the post-backup status line states that screen recordings stay on this machine and are not in the file (**honesty note shipped v2.1.0**, locked in statepersist.test.js). The restore path already survives missing videos (refs render as unplayable).
 `popup.js:150` · confirmed · open (export half)

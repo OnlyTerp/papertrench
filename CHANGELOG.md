@@ -3,7 +3,12 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.9.5 — 2026-08-20
+## v3.9.6 — 2026-08-21
+
+**True-size equity curve** — after a wallet reset the equity canvas was
+secretly drawn at a fallback size while the Overview tab was still hidden,
+and never repainted at real size. The curve now refuses to paint the
+invisible and repaints at true layout the moment Overview comes up (D-31).
 
 **Honest start** — editing "Starting paper balance" no longer rewrites your
 return. The wallet's birth balance is snapshotted the moment it's created;

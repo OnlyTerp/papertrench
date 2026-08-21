@@ -28,6 +28,15 @@
 
   const RELEASES = [
     {
+      v: '3.9.6', date: 'Aug 21, 2026', iso: '2026-08-21',
+      tags: ['fix', 'charts'],
+      title: 'True-size equity curve — no more fallback-sized chart after reset',
+      body: [
+        'After a wallet reset, the equity curve was secretly drawn at a fallback size while the Overview tab was still hidden — and never repainted at real size.',
+        'The canvas now refuses to paint while invisible and repaints at true layout the moment Overview appears.'
+      ]
+    },
+    {
       v: '3.9.5', date: 'Aug 20, 2026', iso: '2026-08-20',
       tags: ['fix', 'honesty'],
       title: 'Honest start — your return is anchored to the wallet’s birth',
