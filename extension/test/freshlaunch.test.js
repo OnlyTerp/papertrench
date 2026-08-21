@@ -184,18 +184,20 @@ test('an absurd tick is still rejected on a fresh launch', () => {
 
 /* ---------------- honest header while waiting ---------------- */
 
-test('the header explains a new coin is waiting instead of looking broken', () => {
+test('the header never shows the old waiting line (D-38)', () => {
   const pendingToken = { mint: NEW_MINT, symbol: null, name: null, priceNative: null, pending: true };
   const now = 1_000_000;
 
   const early = Q.headerFields(pendingToken, { now, pendingSince: now - 300 });
   assert.equal(early.pending, true);
-  assert.equal(early.searching, false, 'a brief resolve must not shout "new coin"');
+  assert.equal(early.searching, false, 'a brief resolve must not shout anything');
 
   const waiting = Q.headerFields(pendingToken, { now, pendingSince: now - 4000 });
   assert.equal(waiting.searching, true);
-  assert.match(waiting.priceText, /new coin/i,
-    'after a beat the panel must say plainly that it is waiting on a first quote');
+  assert.doesNotMatch(waiting.priceText, /waiting for first quote/i,
+    'the doomed "waiting for first quote" line must never render again (Terp, D-38)');
+  assert.match(waiting.priceText, /f/i,
+    'the unpriced header is the neutral live-fetch line only');
   assert.doesNotMatch(waiting.priceText, /\d/, 'a pending header must never show a number');
 });
 

@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.9.11', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'The "waiting for first quote" line is gone — fresh coins just buy',
+        body: 'A coin in its first second never reads as broken again. The doomed header line is removed: until the price lands (the chain probe and the click own chain bridge price a just-listed coin in milliseconds) the panel shows only the neutral "Fetching live price…". The millisecond a page loads you can buy, and the millisecond a board row appears you can quick-buy — both fill straight from the pool / bonding curve.'
+      },
+      {
         v: '3.9.10', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'buy'],
         title: 'The chart BUY probes the chain too — no more waiting on indexers',

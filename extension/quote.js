@@ -1344,10 +1344,14 @@
     const hasMcap = Number(token.mcap) > 0;
     const mcapText = hasMcap ? formatMarketCap(Number(token.mcap)) : '';
     const priceText = hasMcap
-      ? mcapText
-      : (hasTrustedPrice
-        ? formatPrice(Number(token.priceNative)) + ' SOL'
-        : (searching ? 'New coin — waiting for first quote…' : 'Fetching live price…'));
+          ? mcapText
+          : (hasTrustedPrice
+            ? formatPrice(Number(token.priceNative)) + ' SOL'
+            // D-38: the "New coin — waiting for first quote…" line is GONE for
+            // good. It read like the coin was broken while the terminal already
+            // printed it, and the BUY clicks straight to the chain anyway. The
+            // unpriced header is now the neutral live-fetch line only.
+            : 'Fetching live price…');
 
     // A price we hold but can no longer refresh must be visibly marked, so a
     // frozen quote is never mistaken for a live one.

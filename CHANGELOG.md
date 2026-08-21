@@ -3,6 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.9.11 — 2026-08-21
+
+**"New coin — waiting for first quote…" is gone forever.** A coin in its
+first second on screen used to read like the extension was broken while
+the terminal already printed it. It never will again: until the first
+price lands — the chain probe and the click's own chain bridge price a
+just-listed coin in milliseconds — the panel header shows only the neutral
+"Fetching live price…". The BUY is unfazed either way: the millisecond a
+page loads you can buy, and the millisecond a board row appears you can
+quick-buy; both fill straight from the pool / bonding curve.
+
 ## v3.9.10 — 2026-08-21
 
 **The chart-panel BUY asks the chain too now.** 3.9.9 made the board chips
