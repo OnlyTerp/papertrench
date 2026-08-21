@@ -122,7 +122,7 @@ correlated.
 
 **F-12 · S2 · Padre binary frames and dedicated-Worker sockets are invisible**
 **disposition (v2.0):** layered-fallback by design. Parsing Padre's undocumented binary protobuf would be guessing at a wire format — against doctrine. Padre now has: hardened subscribeBars (repatch + capability acks), export poll with flat-market re-assert, resolver refresh, and honest refusal. Dedicated Worker instrumentation stays on the backlog.
-`price-bridge.js:295-308,314-334` · Padre primarily · confirmed · open
+`price-bridge.js:295-308,314-334` · Padre primarily · confirmed · **closed by disposition (v2.0)** (binary-protobuf parsing deliberately skipped per doctrine; layered fallback shipped as the mitigation)
 Only string WS frames are parsed; Padre's multiplex is binary protobuf (per the file's
 own header comment). Padre has exactly one live path (`subscribeBars`) and no WS
 fallback; a missed TradingView patch window → Dexscreener polling only. Dedicated
@@ -175,7 +175,7 @@ structurally dead on the two mcap-charting sites.
 
 **F-17 · S2 · Background tabs lose every price path simultaneously**
 **disposition (v2.0):** the dangerous half is closed by policy — the staleness ladder refuses fills beyond 3 s for every source, so a returning tab can never fill at an ancient price; it re-quotes within ~400 ms. Chrome throttles hidden tabs by design; the profit-alert watcher remains the opt-in exception.
-`price-bridge.js:1792`, `quote.js:499`, `content.js:589` · all sites · confirmed · open
+`price-bridge.js:1792`, `quote.js:499`, `content.js:589` · all sites · confirmed · **closed by disposition (v2.0)** (staleness ladder refuses fills >3 s for every source; hidden-tab paths gate on document.hidden)
 Chart poll, requote, and heartbeat all gate on `document.hidden` (plus Chrome interval
 throttling). Return to a backgrounded tab → price of arbitrary age, stale-flagged at
 3 s but fillable to 10 s (F-01). Only exception: profit-alert watcher at 2 s.
