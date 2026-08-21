@@ -207,3 +207,78 @@ test('a fill-path resolve can demand freshness the display cache cannot satisfy'
   assert.ok(fresh && fresh.priceNative > first.priceNative,
     'a fill-path resolve with maxAgeMs must refetch instead of filling at the stale price');
 });
+/* ---------------- D-38 resolver venue layer ---------------- */
+
+const GMGN_D38 = {
+  code: 0,
+  data: {
+    mint: '5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH',
+    symbol: 'D38',
+    name: 'D38 Test',
+    price: '0.00001234',
+    marketCap: '1234000',
+    liquidity: '30000',
+  },
+};
+
+const JUP_RATE_ONLY = { tokens: [{ id: 'So11111111111111111111111111111111111111112', usdPrice: '200' }] };
+
+test('a fresh-launch mint fills from the quote layer when aggregators are silent', async () => {
+  // Dexscreener and Jupiter do not know a coin minutes old; the terminal
+  // quotation APIs that draw the chart on screen already do. The resolver
+  // must hand over the venue record so a panel or row buy fills instantly.
+  const calls = [];
+  const R = loadResolver((url) => {
+    calls.push(url);
+    if (url.includes('api.dexscreener.com')) return notFound();
+    if (url.includes('lite-api.jup.ag')) return jsonResponse(JUP_RATE_ONLY); // SOL/USD rate only
+    if (url.includes('gmgn.ai')) return jsonResponse(GMGN_D38);
+    return notFound();
+  });
+
+  const token = await R.resolve('5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH');
+  assert.ok(token, 'a coin neither aggregator knows must still resolve');
+  assert.ok(token.priceNative > 0, 'and carry a fillable SOL price');
+  assert.equal(token.priceSource, 'gmgn', 'the quote must be attributed to its venue');
+  assert.ok(calls.some((u) => u.includes('gmgn.ai/defi/quotation/v1/token/sol/')),
+    'the GMGN quotation endpoint must be consulted on the failure path');
+});
+
+const D38_ADDR2 = '5a5aDcR48bfFD3v8XTorkYksSQWkUva4ELS4CxkVMP1';
+
+test('pump.fun coin API is the second venue net on the same failure path', async () => {
+  const calls = [];
+  const R = loadResolver((url) => {
+    calls.push(url);
+    if (url.includes('api.dexscreener.com')) return notFound();
+    if (url.includes('lite-api.jup.ag')) return jsonResponse(JUP_RATE_ONLY);
+    if (url.includes('gmgn.ai')) return notFound();
+    if (url.includes('pump.fun/api/0/coins/')) {
+      return jsonResponse({
+        mint: D38_ADDR2, symbol: 'PT38',
+        name: 'PT D38', price: 0.00002, marketCap: 20000000, totalSupply: '999999999',
+      });
+    }
+    return notFound();
+  });
+
+  const token = await R.resolve(D38_ADDR2);
+  assert.ok(token, 'pump.fun must answer when GMGN does not');
+  assert.equal(token.priceSource, 'pumpfun');
+  assert.ok(calls.some((u) => u.includes('pump.fun/api/0/coins/')),
+    'the pump.fun coin endpoint must be hit on the failure path');
+});
+
+test('the venue layer must NOT run when an aggregator already priced the coin', async () => {
+  const calls = [];
+  const R = loadResolver((url) => {
+    calls.push(url);
+    if (url.includes('/tokens/')) return jsonResponse(tokensPayload); // bonk known
+    return notFound();
+  });
+
+  const token = await R.resolve(BONK_MINT);
+  assert.ok(token && token.symbol === 'Bonk', 'resolver answer unchanged');
+  assert.ok(!calls.some((u) => u.includes('gmgn.ai') || u.includes('pump.fun')),
+    'venue endpoints are failure-path only — the common path pays nothing');
+});

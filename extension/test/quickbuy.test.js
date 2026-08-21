@@ -175,8 +175,10 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // The screener's own realtime price is preferred when fresh.
   assert.match(content, /recentRowPrices/);
   // The new position surfaces immediately in the rail. (Window widened when
-  // the F-04 freshness fix added its rationale comment to doRowBuy.)
-  assert.match(content, /doRowBuy[\s\S]{0,3800}renderPositionsBar\(\)/);
+  // the F-04 freshness fix added its rationale comment to doRowBuy, and again
+  // when the D-38 cascade — fresh resolve → display cache → row-feed price —
+  // grew the body so a just-launched coin fills the instant its row prints.)
+  assert.match(content, /doRowBuy[\s\S]{0,4700}renderPositionsBar\(\)/);
   // The scanner runs on the positions-bar cadence, which works on pages with
   // no detected token — exactly the screener situation.
   assert.match(content, /renderPositionsBar\(\);\s*\n\s*\/\/ Screener rows render continuously; catch new ones on this cadence\.\s*\n\s*scanRowBuys\(\);/);
@@ -280,4 +282,39 @@ test('the settings page exposes both removal toggles', () => {
     'the buy-section toggle must be persisted with the rest of the settings');
   assert.match(dashJs, /panelPresetsEnabled: document\.getElementById\('set-panel-presets'\)\.checked/,
     'the preset-row toggle must be persisted with the rest of the settings');
+});
+test('a row tap prices from its own live feed when every resolver source is silent (D-38)', () => {
+  // A coin minutes old is unindexed by every aggregator while the row's own
+  // realtime feed already prints it. The row buy cascades: freshest network
+  // read, then the 60 s display cache, then the row feed itself, then the
+  // honest refusal — never a guessed price.
+  assert.match(content, /let data = await R\.resolve\(address, \{ maxAgeMs: 3000 \}\)/,
+    'the fill path still demands feed-fresh prices first');
+  assert.match(content, /if \(!data \|\| !\(data\.priceNative > 0\)\) data = await R\.resolve\(address\);/,
+    'a refetch miss may still use the display TTL cache');
+  assert.match(content, /function rowLivePrice\(addr\)/,
+    'the row-feed fallback exists as its own function');
+  assert.match(content, /recentRowPrices\.get\(addr\)/,
+    'it reads the mint-tagged USD price the row itself displays');
+  assert.match(content, /priceSource: 'row-feed'/,
+    'a row-feed fill is attributed to its source, never laundered');
+  assert.match(content, /Bought .*E\.fmt\(amount, 3\).*SOL of/,
+    'the confirmation still reads like a fill, not a placeholder');
+});
+
+test('a panel buy on a fresh coin acquires the quote on the click before arming (D-38)', () => {
+  // "Buy armed" used to be the immediate answer for a coin the chart already
+  // priced. Now the click itself drives one acquisition beat through every
+  // resolver source (venue APIs included), and only a truly unpriced coin
+  // still arms.
+  assert.match(content, /async function requestBuy\(amt\)/,
+    'the shared buy entry performs an awaited acquisition beat');
+  assert.match(content, /async function acquireClickQuote\(/,
+    'the click-time acquisition helper exists');
+  assert.match(content, /await acquireClickQuote\(token\.mint \|\| token\.srcAddress, token\.chain\)/,
+    'the beat resolves the token actually on the page');
+  assert.match(content, /maxAgeMs: 0, chain/,
+    'the beat forces a fresh resolver pass — no display-cache land');
+  assert.match(content, /Buy armed — fires the instant the first quote lands/,
+    'arming survives only as the last resort, unchanged in intent');
 });

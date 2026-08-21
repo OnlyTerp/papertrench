@@ -6,7 +6,7 @@
 Real prices. Fake money. A record you can actually learn from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF9D45.svg?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1656%20passing-34D399?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-1665%20passing-34D399?style=flat-square)](#tests)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6AA9FF?style=flat-square)](#install)
 [![No tracking](https://img.shields.io/badge/telemetry-none-8D97A9?style=flat-square)](#privacy)
 
@@ -151,11 +151,11 @@ Broad host permissions are **not** broad content scripts. The overlay is injecte
 ## Tests
 
 ```bash
-cd extension && node --test    # 1656
+cd extension && node --test    # 1665
 cd server   && node --test     #  157
 ```
 
-**1,656 extension tests** covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
+**1,665 extension tests** covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
 
 **157 server tests** covering chain verification, re-pricing against market history, ranking, sprint and duel windows, and achievements — the leaderboard verifier in [`server/`](server/), which recomputes standings from submitted chains rather than trusting a submitted number.
 

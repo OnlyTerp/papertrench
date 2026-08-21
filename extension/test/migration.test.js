@@ -231,8 +231,15 @@ function runMigration(opts) {
     }
   }
 
+  // D-38: requestBuy's click-time acquisition beat is async, so a click on an
+  // unpriced token arms one microtask flush later. Flush before asserting.
+  async function settle() {
+    for (let k = 0; k < 32; k++) await Promise.resolve();
+  }
+
   return {
     advance,
+    settle,
     navigate(url) {
       const p = new URL(url);
       location.href = url; location.pathname = p.pathname;
@@ -263,6 +270,7 @@ test('P0-3 positive: graduation rekeys the bag and revives the armed buy', async
     'the panel must be live on the curve page');
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
+  await ov.settle();
   assert.match(ov.buyButtonText(), /ARMED/,
     'a buy on a pending curve page must arm, not fail');
 
@@ -300,7 +308,9 @@ test('P0-3 negative: a different coin never inherits the armed buy or the bag', 
   await ov.advance(3000);
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
-  assert.match(ov.buyButtonText(), /ARMED/, 'armed before the navigation');
+  await ov.settle();
+  assert.match(ov.buyButtonText(), /ARMED/,
+    'armed before the navigation');
 
   // The new page is a DIFFERENT coin: the old address resolves to a
   // different mint than the new page's record.

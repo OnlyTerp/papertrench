@@ -303,6 +303,106 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * 1c. Venue first-price — GMGN quotation / pump.fun coin API
+   *
+   * The first minutes of a launch exist on the terminal's own servers
+   * before any aggregator indexes them, and the chart on screen is drawn
+   * from exactly that server. When Dexscreener and Jupiter are both
+   * silent, the site's own quotation endpoint is the same source the
+   * visible chart trusts, so it may price the coin (D-38 — "the chart is
+   * up, the website sees it, the extension must too").
+   *
+   * Both families document their `price` field as USD; the unit is still
+   * gated by gross market sanity (implied supply = mcap / price must land
+   * in the whole-token band below), which refuses the unit-mixture
+   * nonsense that used to leak into fills. Raw supply amounts with mint
+   * decimals (pump.fun's 1e12-scaled totals) pass through the relative
+   * check against the declared supply. No token is ever guessed.
+   * ------------------------------------------------------------------ */
+
+  var VENUE_SUPPLY_MIN = 1e2;
+  var VENUE_SUPPLY_MAX = 1e13;
+  var VENUE_PRICE_MIN = 1e-9;
+  var VENUE_PRICE_MAX = 1e6;
+
+  /** Extract the usable fields from either venue payload family:
+   *  GMGN { code, data: { price, marketCap, ... } } and
+   *  pump.fun { ... price, marketCap, totalSupply } (flat or nested). */
+  function venueRoot(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    var d = (payload.data && typeof payload.data === 'object') ? payload.data : payload;
+    var usd = Number(d.priceUsd != null ? d.priceUsd : d.price);
+    var mcap = Number(d.marketCap != null ? d.marketCap
+      : (d.market_cap != null ? d.market_cap : NaN));
+    var supply = Number(d.totalSupply != null ? d.totalSupply
+      : (d.supply != null ? d.supply : NaN));
+    return {
+      symbol: typeof d.symbol === 'string' ? d.symbol : null,
+      name: typeof d.name === 'string' ? d.name : null,
+      mint: typeof d.mint === 'string' ? d.mint : null,
+      usd: usd,
+      mcap: mcap,
+      supply: isFinite(supply) ? supply : 0,
+    };
+  }
+
+  /**
+   * Normalize a venue quotation into our token record.
+   *
+   * @param {object} payload  raw venue response (either family)
+   * @param {string} address  the mint the query was issued for
+   * @param {number} solUsd   SOL/USD rate (0 = no rate => refusal; a wrong
+   *                          rate silently corrupts every SOL fill)
+   * @param {string} source   'gmgn' | 'pumpfun'
+   */
+  function tokenFromVenueQuote(payload, address, solUsd, source) {
+    var v = venueRoot(payload);
+    if (!v) return null;
+    var rate = Number(solUsd);
+    if (!(rate > 0)) return null;
+    if (!(v.usd > 0)) return null;
+    if (v.usd < VENUE_PRICE_MIN || v.usd > VENUE_PRICE_MAX) return null;
+
+    if (v.mcap > 0) {
+      var impliedSupply = v.mcap / v.usd;
+      var supplyOk = impliedSupply >= VENUE_SUPPLY_MIN && impliedSupply <= VENUE_SUPPLY_MAX;
+      if (!supplyOk && v.supply > 0) {
+        // pump.fun's totalSupply carries the mint's decimals (1e9 tokens /
+        // 6 decimals = 1e15 raw); GMGN reports whole tokens. Accept either
+        // scale within a generous relative band around the declaration.
+        supplyOk = impliedSupply >= v.supply / 1e12 && impliedSupply <= v.supply * 1e6;
+      }
+      if (!supplyOk) return null;
+    }
+
+    var priceNative = v.usd / rate;
+    if (!(priceNative > 0) || !isFinite(priceNative)) return null;
+
+    return {
+      mint: v.mint || address || null,
+      pairAddress: null,
+      symbol: v.symbol,
+      name: v.name || v.symbol,
+      priceNative: priceNative,
+      priceUsd: v.usd,
+      mcap: v.mcap > 0 ? v.mcap : null,
+      dex: null,
+      priceSource: source,
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /** The GMGN quotation family ({ code, data: { price, marketCap, ... } }). */
+  function tokenFromGmgn(payload, address, solUsd) {
+    return tokenFromVenueQuote(payload, address, solUsd, 'gmgn');
+  }
+
+  /** The pump.fun coin API family ({ price, marketCap, totalSupply }). */
+  function tokenFromPumpfun(payload, address, solUsd) {
+    return tokenFromVenueQuote(payload, address, solUsd, 'pumpfun');
+  }
+
+  /* ------------------------------------------------------------------ *
    * 2. Fresh-launch bootstrap from the on-screen price
    * ------------------------------------------------------------------ */
 
@@ -1308,6 +1408,9 @@
     solUsdFromJupiter,
     jupiterEntry,
     preferResolved,
+    tokenFromVenueQuote,
+    tokenFromGmgn,
+    tokenFromPumpfun,
     WSOL_MINT,
     CHAIN_MAP,
     sameAddress,

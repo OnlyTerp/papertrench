@@ -53,6 +53,28 @@
 
   var JUP = 'https://lite-api.jup.ag/tokens/v2/search';
 
+  // D-38: the venue first-price layer. A launch's first minutes live on the
+  // terminal's OWN servers before any aggregator indexes them, and the chart
+  // on screen is drawn from exactly those. GMGN's quotation API (their public
+  // docs endpoint) and pump.fun's coin API are the same sources the rendered
+  // pages read; both are fetched only AFTER the aggregators stay silent, so
+  // the common path pays nothing. They are mint-keyed Solana quotes — a pair
+  // address simply gets null back, which is the honest non-answer.
+  var GMGN_QUOTE_URL = 'https://gmgn.ai/defi/quotation/v1/token/sol/';
+  var PUMP_COIN_URL = 'https://pump.fun/api/0/coins/';
+
+  /** Race the two venue quotation APIs for a mint neither aggregator knows. */
+  async function resolveViaVenues(address) {
+    var rate = await solUsd().catch(function () { return 0; });
+    if (!(rate > 0)) return null;
+    var payloads = await Promise.all([
+      getJson(GMGN_QUOTE_URL + address, 4000).catch(function () { return null; }),
+      getJson(PUMP_COIN_URL + address, 4000).catch(function () { return null; }),
+    ]);
+    return Q.tokenFromGmgn(payloads[0], address, rate)
+      || Q.tokenFromPumpfun(payloads[1], address, rate);
+  }
+
   // SOL/USD is needed to convert Jupiter's USD-only quotes into the SOL prices
   // the engine trades in. It moves slowly relative to a memecoin, so a short
   // cache keeps fresh-launch resolution to a single round trip.
@@ -127,6 +149,13 @@
     // A pair lookup is unambiguous, so prefer it when it returned something.
     var dexData = Q.tokenFromPayload(byPair, address) || Q.tokenFromPayload(byToken, address);
     var data = Q.preferResolved(dexData, viaJup.record);
+    if (!data) {
+      // Aggregators silent: the terminal's own quotation API may already
+      // price this launch (the chart on screen draws from it). Solana-only,
+      // and only on the failure path — the common path pays nothing.
+      var siteData = await resolveViaVenues(address).catch(function () { return null; });
+      data = siteData || null;
+    }
     if (data) {
       if (!data.mint) data.mint = address;
       cachePut(data);
@@ -170,6 +199,10 @@
     // Last resort for a token neither source indexed under its pair address.
     var retry = await resolveViaJupiter(token.mint).catch(function () { return { record: null }; });
     if (retry && retry.record) { cachePut(retry.record); return retry.record; }
+    // The venue quotation layer rounds out the ladder: a coin the aggregators
+    // still do not list may already be priced by the terminal that charts it.
+    var venueRetry = await resolveViaVenues(token.mint).catch(function () { return null; });
+    if (venueRetry) { cachePut(venueRetry); return venueRetry; }
     return null;
   }
 

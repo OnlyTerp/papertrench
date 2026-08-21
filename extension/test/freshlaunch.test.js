@@ -400,8 +400,15 @@ function runFreshLaunch(opts) {
     }
   }
 
+  // D-38: requestBuy's click-time acquisition beat is async, so a click on an
+  // unpriced token arms one microtask flush later. Flush before asserting.
+  async function settle() {
+    for (let k = 0; k < 32; k++) await Promise.resolve();
+  }
+
   return {
     advance,
+    settle,
     // Each teardown clears the chart — this is the flashing signal.
     teardowns: () => messages.filter((m) => m === 'paper-marker-clear').length,
     resolveCalls: () => resolveCalls,
@@ -499,6 +506,7 @@ test('an armed buy on a pair-URL site executes when the pair resolves', async ()
 
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
+  await ov.settle();
   assert.match(ov.buyButtonText() || '', /ARMED/,
     'buying before any quote must arm the intent');
 
@@ -524,6 +532,7 @@ test('an armed buy on a mint-URL site also fills from the resolver path', async 
   await ov.advance(2000);
   ov.setInput('pt-custom', '0.5');
   ov.clickShadow('pt-buy');
+  await ov.settle();
   assert.match(ov.buyButtonText() || '', /ARMED/);
 
   indexed = true;
@@ -540,6 +549,7 @@ test('an armed buy expires visibly when no quote ever arrives', async () => {
   await ov.advance(1500);
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
+  await ov.settle();
   assert.match(ov.buyButtonText() || '', /ARMED/, 'the intent arms while unindexed');
 
   // ARMED_BUY_TTL_MS is 60s. The heartbeat watchdog — not a flushing path
@@ -810,6 +820,7 @@ test('F-54: a single uncorroborated first quote never fills an armed buy', async
 
   ov.setInput('pt-custom', '1');
   ov.clickShadow('pt-buy');
+  await ov.settle();
   assert.match(ov.buyButtonText() || '', /ARMED/, 'the intent arms while unindexed');
 
   // Exactly ONE resolver adoption: a 100ms window is shorter than the

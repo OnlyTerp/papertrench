@@ -3,7 +3,21 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.9.7 — 2026-08-21
+## v3.9.8 — 2026-08-21
+
+**Buying a coin that just came out now fills INSTANTLY — no more "waiting for
+the first quote".** If the chart is up, the price exists, and the fill follows
+the click:
+- Screener quick-buys no longer say "Could not price that token yet — open its
+  chart to buy" while the terminal's own live feed is printing that exact
+  price on the row. The row buy now cascades: freshest network read → display
+  cache → the row's own realtime price → refusal.
+- The BUY button no longer parks on "ARMED — fires the instant the first quote
+  lands" when the site's own data already prices the coin. The click itself
+  drives one acquisition beat through every source — including the terminal's
+  quotation API (GMGN / pump.fun), the same source the visible chart draws
+  from — and the fill happens in that beat. Arming is now the last resort it
+  was meant to be, and only a coin literally no source knows stays armed.
 
 **Settings apply the moment you save** — changing focus mode or the sell
 ladder in the dashboard used to silently need a reload; the open position's

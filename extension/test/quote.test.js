@@ -505,3 +505,73 @@ test('fillSourcesAgree: sub-second drift passes, double-digit divergence fails',
   assert.ok(Q.ONSCREEN_AGREE_RATIO > 1 && Q.ONSCREEN_AGREE_RATIO < 1.2,
     'the agreement band must stay tight — wide enough for real drift, far under a broken read');
 });
+/* ---------------- D-38 resolver venue layer ---------------- */
+
+/* A fresh launch, minutes old: neither aggregator knows it, but the two
+ * terminal quotation APIs (GMGN docs endpoint, pump.fun coin API) that
+ * draw the very chart on screen already price it. */
+
+const GMGN_PAYLOAD = {
+  code: 0,
+  data: {
+    mint: '5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH',
+    symbol: 'TEST',
+    name: 'Test Coin',
+    price: '0.00001234',
+    marketCap: '1234000',
+    liquidity: '30000',
+  },
+};
+
+const PUMP_PAYLOAD = {
+  mint: '5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH',
+  symbol: 'PTEST',
+  name: 'Pump Test',
+  price: 0.00002,
+  marketCap: 20000000,
+  totalSupply: '999999999',
+};
+
+const ADDR_D38 = '5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH';
+
+test('tokenFromGmgn turns a venue quotation into a SOL-priced record', () => {
+  const rec = Q.tokenFromGmgn(GMGN_PAYLOAD, ADDR_D38, 200);
+  assert.ok(rec, 'a sane GMGN quotation must normalize');
+  assert.equal(rec.priceSource, 'gmgn');
+  assert.equal(rec.symbol, 'TEST');
+  assert.ok(Math.abs(rec.priceNative - 0.00001234 / 200) < 1e-15, 'priceNative = USD / SOL rate');
+  assert.equal(rec.priceUsd, 0.00001234);
+  assert.equal(rec.mcap, 1234000);
+  assert.equal(rec.mint, ADDR_D38);
+});
+
+test('tokenFromGmgn prefers the { code, data } family but tolerates the flat one', () => {
+  const flat = Q.tokenFromGmgn({ ...GMGN_PAYLOAD.data, market_cap: '1234000' }, ADDR_D38, 200);
+  assert.ok(flat, 'flat (no wrapper) quotation normalizes too');
+  assert.equal(flat.priceUsd, 0.00001234);
+  const viaCap = Q.tokenFromGmgn({ data: { ...GMGN_PAYLOAD.data, marketCap: undefined, market_cap: '1234000' } }, ADDR_D38, 200);
+  assert.equal(viaCap.mcap, 1234000, 'market_cap spelling accepted');
+});
+
+test('tokenFromPumpfun accepts the flat family with raw or whole supply', () => {
+  const rec = Q.tokenFromPumpfun(PUMP_PAYLOAD, ADDR_D38, 200);
+  assert.ok(rec, 'a sane pump.fun payload must normalize');
+  assert.equal(rec.priceSource, 'pumpfun');
+  assert.ok(Math.abs(rec.priceNative - 0.00002 / 200) < 1e-11, 'USD price / rate');
+  // Raw supply with mint decimals (1e9 tokens x 1e6) still passes the
+  // relative band check when the mcap says raw scale.
+  const raw = Q.tokenFromPumpfun({ ...PUMP_PAYLOAD, totalSupply: '999999999000000', marketCap: 2e10 }, 'x', 200);
+  assert.ok(raw, 'raw decimal-scaled supply must reference consistently');
+});
+
+test('venue quotes refuse what a venue cannot honestly claim', () => {
+  assert.equal(Q.tokenFromGmgn(GMGN_PAYLOAD, ADDR_D38, 0), null, 'no SOL/USD rate refutes the fill');
+  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '0' } }, ADDR_D38, 200), null, 'a zero price is not a price');
+  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '1e9' } }, ADDR_D38, 200), null, 'an absurd price refutes');
+  // Market cap that cannot match ANY sane supply: unit mixture, refused.
+  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '250', marketCap: '0.5' } }, ADDR_D38, 200), null,
+    'a $0.50 cap at $250/coin implies 0.002 supply — a unit mixture, not a quote');
+  assert.equal(Q.tokenFromVenueQuote(null, ADDR_D38, 200, 'gmgn'), null, 'null payload refused');
+  const noMcap = Q.tokenFromPumpfun({ ...PUMP_PAYLOAD, marketCap: 'bad' }, ADDR_D38, 200);
+  assert.equal(noMcap && noMcap.mcap, null, 'unparsable mcap is surfaced absent, never fatal');
+});

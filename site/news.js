@@ -27,12 +27,18 @@
   'use strict';
 
   const RELEASES = [
-    {
-      v: '3.9.7', date: 'Aug 21, 2026', iso: '2026-08-21',
-      tags: ['fix', 'settings'],
-      title: 'Settings apply the moment you save — no reload needed',
-      body: 'Changing focus mode or the sell ladder from the dashboard now takes effect on the trading page immediately. The open position\'s sell buttons rebuild the instant the preset list changes, and focus mode re-applies without a reload. Locked by three new contract tests.'
-    },
+      {
+        v: '3.9.8', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'Fresh-launch buys fill instantly — "waiting for the first quote" is gone',
+        body: 'If the chart is up, the price exists, and the fill now follows the click. Screener quick-buys no longer say "Could not price that token yet" while the live feed of the terminal itself is printing that exact price on the row, and the BUY button drives one acquisition beat through every source — including the quotation API of the site itself (GMGN / pump.fun), the same source the visible chart draws from — before it ever arms. Arming remains only as the last resort, for a coin literally no source knows.'
+      },
+      {
+        v: '3.9.7', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'settings'],
+        title: 'Settings apply the moment you save — no reload needed',
+        body: 'Changing focus mode or the sell ladder from the dashboard now takes effect on the trading page immediately. The open position sell buttons rebuild the instant the preset list changes, and focus mode re-applies without a reload. Locked by three new contract tests.'
+      },
     {
       v: '3.9.6', date: 'Aug 21, 2026', iso: '2026-08-21',
       tags: ['fix', 'charts'],

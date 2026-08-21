@@ -2498,12 +2498,51 @@
   // is still pricing must not stack a second fill on top of the first.
   let buyInFlight = false;
 
+  /** One click-time acquisition beat (D-38). A click with no quote is a BUY,
+   * not a registration: the chart on screen proves the terminal's own data
+   * already prices this coin, so ask every resolver source fresh — the venue
+   * quotation APIs (GMGN / pump.fun) index launches the aggregators still
+   * miss — and adopt the first price for THIS token right now. Identity
+   * upgrades are allowed only while the token is still pending (a pair
+   * stand-in resolving to its real mint); a settled token is never renamed. */
+  async function acquireClickQuote(addr, chain) {
+    const data = await R.resolve(addr, { maxAgeMs: 0, chain });
+    if (!data || !(Number(data.priceNative) > 0)) return null;
+    if (!token) return null;
+    if (token.mint !== addr && token.srcAddress !== addr) return null;
+    const freshMint = data.mint || addr;
+    if (token.mint && freshMint !== token.mint) {
+      if (!token.pending) return null;
+      if (token.srcAddress !== token.mint && token.pairAddress && token.pairAddress !== freshMint) return null;
+      token.mint = freshMint;
+    }
+    token.priceNative = Number(data.priceNative);
+    if (data.priceUsd) token.priceUsd = Number(data.priceUsd);
+    if (data.mcap) token.mcap = Number(data.mcap);
+    if (data.pairAddress) token.pairAddress = data.pairAddress;
+    if (data.solUsdAtResolve) token.solUsdAtResolve = data.solUsdAtResolve;
+    token.priceSource = data.priceSource || 'resolver';
+    token.pending = false;
+    lastPriceAt = Date.now();
+    if (!token.anchor) {
+      token.anchor = {
+        mint: token.mint, priceNative: Number(token.priceNative),
+        priceUsd: Number(token.priceUsd) || null, mcap: Number(token.mcap) || null,
+      };
+    }
+    if (token.mint) E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
+    renderBuyButton();
+    renderHeader();
+    renderPosition();
+    return data;
+  }
+
   /**
    * Every buy — the big BUY button or a one-click preset tap — comes through
    * here so the pending-token arming and the in-flight guard apply equally.
    * `amt` is in PANEL units: SOL normally, dollars on a foreign-chain panel.
    */
-  function requestBuy(amt) {
+  async function requestBuy(amt) {
     if (!(amt > 0)) return toast(panelUsd() ? 'Pick a dollar amount first' : 'Pick a SOL amount first');
     if (buyInFlight) return toast('Buy already in progress…');
     // Dollar panels convert to SOL book units at the recorded rate before
@@ -2540,10 +2579,34 @@
 
     // A brand-new coin may still be resolving. Rather than refusing the
     // click — which reads as broken — arm the buy and fire it the moment a
-    // trusted price lands. This is the difference between "buggy" and
-    // "waiting", and it is what makes sniping a fresh launch feel possible.
+    // trusted price lands. But first, one acquisition beat: the chart on
+    // screen proves the terminal's own data already prices this coin, so a
+    // fresh resolver pass (venue APIs included) may land a quote RIGHT NOW —
+    // and a quoted click fills on the spot instead of arming (D-38).
+    // Only where literally no source knows the price does the buy arm.
     if (!token || !token.priceNative) {
       if (!token) return toast('No token detected on this page');
+      if (token.mint || token.srcAddress) {
+        buyInFlight = true;
+        try {
+          await acquireClickQuote(token.mint || token.srcAddress, token.chain);
+        } catch (_) { /* a failed acquisition beat is not a teardown */ }
+        buyInFlight = false;
+        if (!contextAlive()) return shutdown('invalidated');
+        if (solAmount == null && quotedUsd != null) {
+          const rateNow = panelUsdRate();
+          if (rateNow) solAmount = quotedUsd / rateNow;
+        }
+        if (token && Number(token.priceNative) > 0 && solAmount != null) {
+          // The guard deferred because no SOL amount existed at click time
+          // now has one — enforce it before the fill, like at fire time.
+          const guardNow = E.guardCheck(state, settings, { solAmount });
+          if (!guardNow.ok) return toast(guardNow.message);
+          buyInFlight = true;
+          doBuy(solAmount, quotedUsd).finally(() => { buyInFlight = false; });
+          return;
+        }
+      }
       armedBuy = { amount: solAmount, usd: quotedUsd, at: Date.now(), mint: token.mint };
       renderBuyButton();
       toast('Buy armed — fires the instant the first quote lands');
@@ -5415,8 +5478,29 @@
       ? payload.candidates.find((c) => c && c.unit === 'usd' && Number(c.value) > 0)
       : null;
     if (!cand) return;
-    recentRowPrices.set(payload.mint, { usd: Number(cand.value), at: Date.now() });
+    recentRowPrices.set(payload.mint, {
+      usd: Number(cand.value), at: Date.now(),
+      symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
+      name: typeof payload.name === 'string' ? payload.name : null,
+    });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
+  }
+
+  /** The row's own live price when the resolver cannot answer — GMGN's
+   * token_activity ticks are mint-tagged USD, the very number printed on
+   * the row the trader just tapped. SOL/USD converts it to book units;
+   * no rate means the honest refusal, never a guessed conversion. */
+  async function rowLivePrice(addr) {
+    const live = recentRowPrices.get(addr);
+    if (!live || !(live.usd > 0) || Date.now() - live.at >= ROW_PRICE_TTL_MS) return null;
+    const rate = await R.solUsd().catch(() => 0);
+    if (!(rate > 0)) return null;
+    return {
+      priceNative: live.usd / rate,
+      priceUsd: live.usd,
+      symbol: live.symbol || null,
+      name: live.name || null,
+    };
   }
 
   /**
@@ -5489,7 +5573,23 @@
       // (the resolver keeps entries 60 s for display use). Demand a quote no
       // older than the live-feed staleness bound; the resolver refetches when
       // its entry is older — one short round trip instead of a stale fill.
-      const data = await R.resolve(address, { maxAgeMs: 3000 });
+      // D-38: a coin minutes old is unindexed by every aggregator while the
+      // row's own realtime feed already prints it. Cascade: freshest network
+      // read, then the 60 s display cache, then the row feed (GMGN
+      // token_activity — mint-tagged USD), then the honest refusal.
+      let data = await R.resolve(address, { maxAgeMs: 3000 });
+      if (!data || !(data.priceNative > 0)) data = await R.resolve(address);
+      if (!data || !(data.priceNative > 0)) {
+        const row = await rowLivePrice(address);
+        if (row) {
+          data = {
+            mint: address, pairAddress: null,
+            symbol: row.symbol, name: row.name,
+            priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
+            priceSource: 'row-feed',
+          };
+        }
+      }
       if (!data || !(data.priceNative > 0)) {
         toast('Could not price that token yet — open its chart to buy');
         return;
