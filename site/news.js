@@ -28,6 +28,60 @@
 
   const RELEASES = [
       {
+        v: '3.12.1', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['fix', 'settings'],
+        title: 'Lute named in Instant-links — and the dashboard sidebar lives again',
+        body: 'Lute has had the full Instant-links treatment since early August — token links anywhere route to a kept-warm lute.gg viewer, and links on lute.gg to other terminals route the same way — but the Settings description listed every other terminal and left Lute out, so the feature read as forgotten. The list now names Lute, and a regression test re-derives it from the terminal registry so no terminal can be silently dropped again. The bigger catch: a never-defined variable had been crashing the dashboard first paint since Aug 20 — the sidebar equity, PnL and discipline KPIs never appeared until you clicked into a section, and the season share card never opened. Both fixed; the live gate now asserts a clean init with zero console errors.'
+      },
+      {
+        v: '3.12.0', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['feature', 'social'],
+        title: 'One tap from the header — and five panel skins',
+        body: 'Two new header buttons: ⚑ jumps straight to the TP/SL presets (+25 / +50 / +100 / +200% and the stops) and 🔔 to the market-cap alert, each scrolling the section into view with a one-time pulse. No position or no token? The button says so plainly instead of scrolling you nowhere. And ◍ now cycles five full panel skins — Trench (default), Axiom (dark slate, cyan), Padre (warm near-black, amber), Lute, Solana — repainting the whole panel including shell and rim, not just the buttons. Rug honesty pinned forever: a −98% exit must close deeply red, full or partial exit alike, while real winners still print green.'
+      },
+      {
+        v: '3.11.1', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['feature', 'charts'],
+        title: 'Rounds gains a Levels column: entry → exit market cap',
+        body: 'Every closed round now shows its true shape: "40k → 240k" — entry and exit market cap, VWAP\'d per side from the round\'s own fills so a scaled-out exit quotes its true average, not the last print. Rounds whose journal has been pruned show an honest em-dash, never an invented number. The CSV export carries entryMcapUsd / exitMcapUsd as well.'
+      },
+      {
+        v: '3.11.0', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['feature', 'buy'],
+        title: 'Micro mode — the Axiom-shaped strip — and your SOL always on screen',
+        body: 'The ◧ density button now cycles standard → focus → micro. Micro drops the panel metaphor entirely: one strip with token, price, your wallet SOL always visible, buy chips and sell controls — nothing else, 229px tall on a live chart versus ~600px for the full panel. Your SOL is always on screen too: the micro strip shows idle SOL + armed limit-buy SOL inline, and the positions bar no longer vanishes when your last position closes — it reads "wallet · N ◎ idle" so your balance survives the book emptying.'
+      },
+      {
+        v: '3.10.0', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'feature', 'honesty'],
+        title: 'Honest fills everywhere, limit buys, and update notices',
+        body: 'Board chip fills used the row\'s own price blind — the 14x-ATH sell and the "not accurate at all of my real PNL" instant-buys. A chip fill now runs the exact same honesty gates as a panel fill: a quote that diverges too far from your position\'s last honest mark needs an independent source to vouch, or the fill is refused visibly and nothing is booked. Limit buys: arm a bid below market on any chart, the SOL locks ("locked" in the positions bar) and the buy fires at the real observed price the moment price drops to your level — cancel anytime; unfilled bids expire after 24h and the SOL unlocks. And unpacked extensions never auto-update, so PaperTrench now asks GitHub twice a day whether a newer release exists and shows a banner with the download link — one GET, sends nothing, turn-offable in Settings.'
+      },
+      {
+        v: '3.9.17', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'charts'],
+        title: 'Quick-buys mark the chart again',
+        body: 'Bought on the board, opened the chart — no bubble, no line where you bought. The chart\'s mark pipeline was accepting our fills but silently never drawing them, reporting "native marks ready" the whole time. Fills now render as chart shapes that stay glued to their candle, and the chart can no longer claim a pipeline it doesn\'t actually draw from.'
+      },
+      {
+        v: '3.9.16', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'charts'],
+        title: 'The snipe survives the click-through; TP/SL hold their line',
+        body: 'The armed chip buy used to live only in the board tab — clicking the coin killed it. The intent now mirrors into the extension itself and the coin\'s own page adopts it: the fill lands where you\'re looking, position and line included. TP/SL lines used to re-derive their level from the live price every sweep; a level set at an MC is now pinned to that MC — the market can 4x under it and the line stays put. Armed buys re-probe every 1.5s until fill or the minute runs out, and the quickbuy box headlines the coin\'s own name instead of the CA.'
+      },
+      {
+        v: '3.9.15', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'buy'],
+        title: 'Identity heals; the buy latch can never wedge',
+        body: 'Sniping a brand-new pair showed "Unknown token" as the panel title and "Bought 0.1 SOL of (null)" as the fill toast. The panel backfills the coin\'s symbol/name from the page\'s own first symbol-carrying tick — header, toast and positions bar heal live — and before any symbol arrives the title shows the shortened mint instead of the dead-end string. null can never print again. The pricing cascade is now raced against a hard 10s bound and a 1-second heartbeat frees any buy/sell/row latch older than 20s with a visible "released — try again" toast.'
+      },
+      {
+        v: '3.9.14', date: 'Aug 21, 2026', iso: '2026-08-21',
+        tags: ['fix', 'speed'],
+        title: 'The board chip never refuses a fresh coin',
+        body: 'Tapping a quick-buy chip on a coin seconds old used to answer "Could not price that token yet" — the banned refusal. Now the row path arms exactly like the panel: the pricing cascade (freshest network read → 60s display cache → the row\'s own realtime print → a direct pool/bonding-curve probe) never ends in a refusal; a miss arms the trade, and the armed intent fires the instant any leg lands a price, within a 60s TTL, after which it expires honestly with a toast instead of trading stale. Measured live: a brand-new pair\'s chip filled in 1.85s with zero refusals.'
+      },
+      {
         v: '3.9.13', date: 'Aug 21, 2026', iso: '2026-08-21',
         tags: ['fix', 'speed', 'buy'],
         title: 'No waiting, no narration — the click fills on the first price',
@@ -685,6 +739,12 @@
   ];
 
   const TAG_LABEL = { feature: 'Feature', fix: 'Fix', security: 'Security', speed: 'Speed' };
+  // Body-style entries (single-prose releases) carry their text in `body`.
+  // They have no `points` array — and `.map` on undefined crashed the whole
+  // timeline to blank on load. Render body entries as one lead paragraph
+  // instead of a bullet list, and never print "undefined" for a tag that
+  // simply has no formal label yet.
+  const tagLabel = t => TAG_LABEL[t] || t.charAt(0).toUpperCase() + t.slice(1);
 
   const timeline = document.getElementById('timeline');
   const filterRow = document.getElementById('filterRow');
@@ -701,8 +761,9 @@
     // silently broken deep links for every entry sharing it.
     el.id = r.site ? 'site-' + r.iso : 'v' + r.v.replace(/\./g, '-');
 
-    const tags = r.tags.map(t => `<span class="tag ${t}">${TAG_LABEL[t]}</span>`).join('');
-    const points = r.points.map(p => `<div class="rel-point"><span class="bullet"></span><span>${p}</span></div>`).join('');
+    const tags = r.tags.map(t => `<span class="tag ${t}">${tagLabel(t)}</span>`).join('');
+    const points = (r.points || []).map(p => `<div class="rel-point"><span class="bullet"></span><span>${p}</span></div>`).join('');
+    const body = r.body ? `<p class="rel-blurb rel-lead">${r.body}</p>` : '';
 
     // A release can earn more than one deep-dive once it carries more than one
     // story — `articles` for those, `article` for the single-story common case.
