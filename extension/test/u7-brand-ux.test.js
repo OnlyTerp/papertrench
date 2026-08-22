@@ -230,3 +230,42 @@ test('every icon in the repo still matches brand/logo.png', () => {
     { cwd: REPO, encoding: 'utf8' });
   assert.match(out, /all icons match the master/);
 });
+
+/* ---------------- the tab once onboarding is done ---------------- */
+
+test('the board comes before the vocabulary that explains it', () => {
+  const render = fnBlock(dashJs, 'function renderLeaderboard(');
+  const board = render.indexOf('id="lb-live"');
+  const evidence = render.indexOf('The evidence behind your row');
+  assert.ok(board !== -1 && evidence !== -1, 'both sections must exist');
+  assert.ok(board < evidence, 'standings must render above the chain evidence');
+});
+
+test('the chain vocabulary is folded away, not deleted', () => {
+  const render = fnBlock(dashJs, 'function renderLeaderboard(');
+  // Density was the complaint; losing the evidence would be a different bug.
+  for (const kept of ['Committed fills', 'Derived from chain', 'Chain head', 'lb-head', 'lb-derived']) {
+    assert.ok(render.includes(kept), kept + ' must survive the redesign');
+  }
+  const foldAt = render.indexOf('<details class="lb-fold"');
+  assert.ok(foldAt !== -1 && foldAt < render.indexOf('Chain head'),
+    'and it must sit inside a collapsed disclosure');
+});
+
+test('the post-gate view no longer carries the never-linked branch', () => {
+  const render = fnBlock(dashJs, 'function renderLeaderboard(');
+  // Unreachable by construction: the gate cannot be passed without an
+  // identity, so a 'link your account' form here is dead markup that still
+  // has to be read past.
+  assert.ok(!render.includes('id="lb-handle"'),
+    'the link form belongs to onboarding, not to the finished tab');
+});
+
+test('the hero states the return without making the reader derive it', () => {
+  const render = fnBlock(dashJs, 'function renderLeaderboard(');
+  assert.match(render, /lb-hero-roi/, 'the headline number is the return on bankroll');
+  assert.match(render, /roiPct\.toFixed\(1\)/);
+  // D-06: that percentage denominates on the wallet's birth anchor.
+  assert.match(render, /E\.anchorStartSol\(state, settings\)/,
+    'and it must keep using the birth anchor, never the live setting');
+});
