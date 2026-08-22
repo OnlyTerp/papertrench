@@ -3,7 +3,7 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## Unreleased
+## 3.13.0 — 2026-08-22
 
 **New look: the paper plane.** PaperTrench has a real mark now, and it replaces
 the placeholder "P" everywhere it appeared — browser toolbar, popup, dashboard

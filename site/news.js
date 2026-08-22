@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.0', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['feature'],
+        title: 'The paper plane lands — grouped settings, live standings, shortcuts',
+        body: 'PaperTrench gets a real mark: a paper plane replacing the placeholder "P" in the toolbar, popup, dashboard, trade panel and stream overlay, tinted to whichever skin you run. The seventy-odd settings now live in six groups — Trading, Interface, Safety, Speed, Intel, AI — behind a search box that reaches across all of them; a filtered setting still holds its value. Settings save themselves on change, quick-buy and quick-sell presets are one box per button, and the Leaderboard tab opens as a three-step wizard (link X, first trade, Site sync) before it ever shows chain heads. Past the steps, the real board renders in the dashboard — top ten plus your row — read-only and unauthenticated; before them, the extension makes no request to our servers at all. Plus keyboard shortcuts (P/B/A, off by default, page-local), an a11y pass across the site (skip link, landmarks, named nav), a fix for the update banner that showed permanently with a dead ×, and a perps test that no longer fails on every Windows clone.'
+      },
+      {
         v: '3.12.1', date: 'Aug 22, 2026', iso: '2026-08-22',
         tags: ['fix', 'settings'],
         title: 'Lute named in Instant-links — and the dashboard sidebar lives again',
