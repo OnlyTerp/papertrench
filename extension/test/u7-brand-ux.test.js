@@ -230,3 +230,28 @@ test('every icon in the repo still matches brand/logo.png', () => {
     { cwd: REPO, encoding: 'utf8' });
   assert.match(out, /all icons match the master/);
 });
+
+test('onboarding shows one step at a time, and it is the current one', () => {
+  // The list form rendered all three, two of which could not be acted on.
+  const wizard = fnBlock(dashJs, 'function renderLbWizard(');
+  assert.match(wizard, /const step = steps\[current\];/,
+    'exactly one step is selected for rendering');
+  assert.ok(!/steps\.map\(\(s, i\) =>/.test(wizard),
+    'the every-step list must be gone, or two of them are unreachable furniture');
+  // The finished ones survive as a summary, so progress is still visible.
+  assert.match(wizard, /steps\.filter\(\(x\) => x\.done\)/,
+    'completed steps are still shown, as a recap rather than as steps');
+});
+
+test('the step count and the pips agree with the step being shown', () => {
+  const wizard = fnBlock(dashJs, 'function renderLbWizard(');
+  assert.match(wizard, /Step \$\{current \+ 1\} of \$\{steps\.length\}/,
+    'the counter is derived from the same index that picked the step');
+  assert.match(wizard, /i === current \? 'now'/,
+    'and the pips mark that same index as current');
+});
+
+test('the onboarding card is centred', () => {
+  assert.match(dashHtml, /\.lb-onboard \{[^}]*margin: 40px auto 0;[^}]*text-align: center;/,
+    'the request was specifically that the questions be centred');
+});
