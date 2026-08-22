@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Page not found</title>
+<meta name="robots" content="noindex">
+<!--
+  GitHub Pages serves this file for ANY missing path, at whatever depth was
+  requested: /nope, /a/b/c, /deep/nested/thing. Every URL below is therefore
+  root-absolute, and must stay that way.
+
+  A relative "assets/icon128.png" resolves against the requested path, not the
+  site root — so it would load on /nope and 404 on /a/b/c, leaving a broken
+  error page for exactly the visitors already having a bad time. Same for
+  style.css: relative, the page renders unstyled at depth.
+-->
+<link rel="icon" type="image/png" href="/assets/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .lost { padding: 150px 0 90px; text-align: center; }
+  .lost .code {
+    font-family: var(--mono); font-size: clamp(72px, 15vw, 150px);
+    font-weight: 800; line-height: 1; letter-spacing: -2px;
+    background: linear-gradient(100deg, var(--orange2) 10%, var(--orange-deep) 75%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lost h1 { font-size: clamp(24px, 3.6vw, 34px); margin: 18px 0 12px; }
+  .lost p { font-size: 15px; color: var(--muted); max-width: 520px; margin: 0 auto; line-height: 1.7; }
+  .lost .path {
+    font-family: var(--mono); font-size: 13px; color: var(--orange2);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line2); border-radius: 8px;
+    padding: 4px 9px; display: inline-block; margin-top: 4px;
+    max-width: 100%; overflow-wrap: break-word;
+  }
+
+  .go { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 34px; }
+  .go a {
+    display: inline-flex; align-items: center; gap: 9px;
+    background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius);
+    padding: 15px 20px; text-align: left; min-width: 208px;
+    transition: transform .2s, border-color .2s, background .2s;
+  }
+  .go a:hover { transform: translateY(-3px); border-color: rgba(255,157,69,0.45); background: var(--panel2); }
+  .go .ico { font-size: 20px; flex: none; }
+  .go b { display: block; font-size: 14px; font-weight: 750; }
+  .go span { display: block; font-size: 12.5px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .go a:hover { transform: none; } }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="bg-grid"></div>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="/"><img src="/assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="lost">
+  <div class="wrap">
+    <div class="code">404</div>
+    <h1>This page rugged.</h1>
+    <p>
+      Nothing lives at <span class="path" id="badPath">that address</span> — but
+      unlike a real rug, everything you were looking for is still here.
+    </p>
+    <div class="go">
+      <a href="/"><span class="ico">🏠</span><span><b>Home</b><span>What PaperTrench is</span></span></a>
+      <a href="/leaderboard"><span class="ico">🏆</span><span><b>Leaderboard</b><span>Verified standings</span></span></a>
+      <a href="/streams"><span class="ico">🎥</span><span><b>Watch Live</b><span>Streamers in the trench</span></span></a>
+      <a href="/news"><span class="ico">📰</span><span><b>News</b><span>Patch notes &amp; releases</span></span></a>
+    </div>
+  </div>
+</header>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="/"><img src="/assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="/leaderboard">Leaderboard</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+    <div class="foot-note">Paper trading only · not financial advice · every number on this site is simulated, and proud of it.</div>
+  </div>
+</footer>
+
+<script>
+  // Show the path that missed, so a mistyped or stale link is self-evident.
+  // textContent, never innerHTML: location.pathname is attacker-controlled via
+  // the link someone clicked, and this page is served for every bad URL on the
+  // domain — writing it as markup would make a stored-XSS vector out of the
+  // error page itself.
+  (() => {
+    const path = location.pathname + location.search;
+    if (path && path !== '/') document.getElementById('badPath').textContent = path;
+  })();
+</script>
+</body>
+</html>
