@@ -132,6 +132,23 @@
     }
     .btn-backup:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
 
+    /* Pane tabs. The panes are hidden with the attribute, which works here
+       because of the [hidden] guard at the top of this file — the same rule
+       whose absence kept the update banner permanently on screen. */
+    .ptabs {
+      display: flex; gap: 4px; margin: 12px 16px 0;
+      padding: 3px; border-radius: 10px;
+      background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line);
+    }
+    .ptab {
+      flex: 1; padding: 6px 4px; border: 0; border-radius: 7px;
+      background: transparent; color: var(--faint);
+      font-family: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
+      transition: color 0.14s, background 0.14s;
+    }
+    .ptab:hover { color: var(--text); }
+    .ptab.on { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+    .ppane { padding-top: 4px; }
     .hint {
       margin: 12px 16px 0; padding: 9px 11px;
       background: rgba(255,255,255,0.028); border: 1px solid var(--line); border-radius: 10px;
@@ -224,53 +241,56 @@
 
   <div class="delta dim" id="flow" style="text-align:center"></div>
 
-  <div class="section-label">Recent round trips</div>
-  <div id="recent"></div>
-
-  <div class="btns">
-    <button id="power" class="btn-backup">⏻ Turn PaperTrench off</button>
-  </div>
-  <div class="btns">
+  <div class="btns" style="padding-top:10px">
     <button id="dash" class="btn-pri">Dashboard</button>
-    <button id="toggle">Toggle overlay</button>
-  </div>
-  <div class="btns">
-    <button id="backup" class="btn-backup">⬇ Backup wallet</button>
-    <button id="restore" class="btn-backup">⬆ Restore backup</button>
-  </div>
-  <div class="btns">
-    <button id="overlay-window" class="btn-backup">🎥 Stream overlay</button>
-  </div>
-  <div class="btns">
-    <button id="warmx" class="btn-backup">⚡ Instant X links: Off</button>
-  </div>
-  <div class="btns">
-    <button id="warmdest" class="btn-backup">⚡ Instant terminal links: Off</button>
-  </div>
-  <div id="turbo-receipts" style="display:none;padding:4px 2px 0;font-size:11px;color:#8D97A9"></div>
-  <div class="btns">
-    <button id="xray" class="btn-backup">⌖ X-Ray on x.com: Off</button>
   </div>
 
-  <div class="section-label" style="padding-top:14px">Quick settings</div>
-  <div class="qs">
-    <div class="qs-field"><label for="qs-balance">Starting balance (SOL)</label><input id="qs-balance" type="number" min="0.1" step="0.1"></div>
-    <div class="qs-field"><label for="qs-presets">Quick-buy presets (SOL)</label><input id="qs-presets" type="text" placeholder="0.1, 0.5, 1, 2"></div>
-    <div class="qs-field"><label for="qs-sellpcts">Quick-sell presets (%)</label><input id="qs-sellpcts" type="text" placeholder="25, 50, 75, 100"></div>
-    <div class="qs-field"><label for="qs-fees">Fees &amp; costs</label>
-      <select id="qs-fees">
-        <option value="custom">Keep current</option>
-        <option value="bot">≈ Axiom/Padre bot</option>
-        <option value="fast">≈ Aggressive sniper</option>
-        <option value="zero">No costs</option>
-      </select>
+  <!-- Everything below the wallet lives in one of three panes. The popup was
+       a single ~1100px column in a 316px window: checking a balance and
+       flipping a toggle were at opposite ends of a scroll. The wallet stays
+       pinned above because it is why the popup gets opened; the rest swaps. -->
+  <div class="ptabs" role="tablist">
+    <button class="ptab on" data-pane="pane-recent" role="tab" aria-selected="true">Recent</button>
+    <button class="ptab" data-pane="pane-features" role="tab" aria-selected="false">Features</button>
+    <button class="ptab" data-pane="pane-setup" role="tab" aria-selected="false">Setup</button>
+  </div>
+
+  <div id="pane-recent" class="ppane">
+    <div id="recent"></div>
+  </div>
+
+  <div id="pane-features" class="ppane" hidden>
+    <div class="btns"><button id="toggle">Toggle overlay</button></div>
+    <div class="btns"><button id="warmx" class="btn-backup">⚡ Instant X links: Off</button></div>
+    <div class="btns"><button id="warmdest" class="btn-backup">⚡ Instant terminal links: Off</button></div>
+    <div id="turbo-receipts" style="display:none;padding:4px 2px 0;font-size:11px;color:#8D97A9"></div>
+    <div class="btns"><button id="xray" class="btn-backup">⌖ X-Ray on x.com: Off</button></div>
+    <div class="btns"><button id="overlay-window" class="btn-backup">🎥 Stream overlay</button></div>
+    <div class="btns" style="padding-top:10px"><button id="power" class="btn-backup">⏻ Turn PaperTrench off</button></div>
+  </div>
+
+  <div id="pane-setup" class="ppane" hidden>
+    <div class="qs">
+      <div class="qs-field"><label for="qs-balance">Starting balance (SOL)</label><input id="qs-balance" type="number" min="0.1" step="0.1"></div>
+      <div class="qs-field"><label for="qs-presets">Quick-buy presets (SOL)</label><input id="qs-presets" type="text" placeholder="0.1, 0.5, 1, 2"></div>
+      <div class="qs-field"><label for="qs-sellpcts">Quick-sell presets (%)</label><input id="qs-sellpcts" type="text" placeholder="25, 50, 75, 100"></div>
+      <div class="qs-field"><label for="qs-fees">Fees &amp; costs</label>
+        <select id="qs-fees">
+          <option value="custom">Keep current</option>
+          <option value="bot">≈ Axiom/Padre bot</option>
+          <option value="fast">≈ Aggressive sniper</option>
+          <option value="zero">No costs</option>
+        </select>
+      </div>
+      <div class="btns"><button id="qs-apply" class="btn-backup">Apply quick settings</button></div>
     </div>
-    <div class="btns"><button id="qs-apply" class="btn-backup">Apply quick settings</button></div>
+    <div class="btns" style="padding-top:10px">
+      <button id="backup" class="btn-backup">⬇ Backup wallet</button>
+      <button id="restore" class="btn-backup">⬆ Restore backup</button>
+    </div>
+    <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
+    <button id="reset" class="btn-sec">Reset wallet</button>
   </div>
-
-  <input type="file" id="restoreFile" accept=".json,application/json" style="display:none">
-  <button id="reset" class="btn-sec">Reset wallet</button>
-
   <div class="hint">Open a token page on Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, or Jupiter to start paper trading.</div>
   <div id="status"></div>
   <script src="attest.js"></script>
