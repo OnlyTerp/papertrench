@@ -66,6 +66,10 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
   const documentStub = {
     getElementById: (id) => els[id] || null,
     createElement: (tag) => makeEl('el-' + tag + '-' + Math.random()),
+    // popup.js also wires the pane tabs at load. This suite is about the
+    // update banner and has no tabs to find, but the stub has to answer the
+    // call or the script throws before the banner is ever rendered.
+    querySelectorAll: () => [],
   };
 
   const sandbox = {
@@ -181,7 +185,7 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
     els[id] = makeEl(id);
   }
   const sandbox = {
-    document: { getElementById: (id) => els[id] || null, createElement: (t) => makeEl('x-' + t) },
+    document: { getElementById: (id) => els[id] || null, createElement: (t) => makeEl('x-' + t), querySelectorAll: () => [] },
     console, setTimeout, Date, Number, String, JSON, Math,
     fetch: async () => { throw new Error('offline'); },
     chrome: {
@@ -253,4 +257,62 @@ test('the update banner in particular cannot render while hidden', () => {
     'this test is about the banner being display-styled — if that changed, revisit it');
   assert.match(css, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/,
     'and the guard that makes hiding it actually work');
+});
+
+/* ------------------------------------------------------------------------
+ * Pane tabs.
+ *
+ * The popup was one ~1100px column in a 316px window: checking a balance and
+ * flipping a toggle sat at opposite ends of a scroll. The wallet stays pinned
+ * and the rest swaps between three panes.
+ * ---------------------------------------------------------------------- */
+
+const popupHtmlTabs = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
+const popupJsTabs = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
+
+test('every control still exists — panes hide, they never remove', () => {
+  // popup.js binds all of these at load. A pane built by removing markup
+  // instead of hiding it would take its controls' listeners with it.
+  const ids = ['equity', 'cash', 'pnl', 'open', 'rounds', 'flow', 'recent',
+    'power', 'dash', 'toggle', 'backup', 'restore', 'restoreFile', 'overlay-window',
+    'warmx', 'warmdest', 'turbo-receipts', 'xray', 'qs-balance', 'qs-presets',
+    'qs-sellpcts', 'qs-fees', 'qs-apply', 'reset', 'status'];
+  for (const id of ids) {
+    const count = popupHtmlTabs.split(`id="${id}"`).length - 1;
+    assert.equal(count, 1, `${id} must appear exactly once`);
+  }
+});
+
+test('the wallet is pinned above the tabs, not inside one', () => {
+  // It is why the popup gets opened; putting it in a pane would mean a click
+  // to see your balance.
+  const tabsAt = popupHtmlTabs.indexOf('class="ptabs"');
+  assert.ok(tabsAt !== -1, 'the tab strip must exist');
+  for (const id of ['equity', 'cash', 'rounds', 'dash']) {
+    assert.ok(popupHtmlTabs.indexOf(`id="${id}"`) < tabsAt,
+      `${id} must sit above the tab strip`);
+  }
+});
+
+test('exactly one pane starts open', () => {
+  const panes = [...popupHtmlTabs.matchAll(/<div id="(pane-[a-z]+)" class="ppane"( hidden)?>/g)];
+  assert.equal(panes.length, 3, 'three panes');
+  const open = panes.filter((m) => !m[2]);
+  assert.equal(open.length, 1, 'exactly one pane may be visible on open');
+  assert.equal(open[0][1], 'pane-recent', 'and it is the one showing wallet activity');
+});
+
+test('the tab strip and the panes cannot drift apart', () => {
+  const tabbed = [...popupHtmlTabs.matchAll(/data-pane="(pane-[a-z]+)"/g)].map((m) => m[1]).sort();
+  const panes = [...popupHtmlTabs.matchAll(/<div id="(pane-[a-z]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(tabbed, panes, 'every tab points at a pane, and every pane has a tab');
+});
+
+test('switching panes uses the hidden attribute the CSS guard backs', () => {
+  // Without [hidden] { display: none !important } in this file, setting
+  // .hidden on a styled element does nothing — the exact bug that kept the
+  // update banner on screen. The panes rely on the same rule.
+  assert.match(popupJsTabs, /pane\.hidden = !on/, 'panes toggle via the attribute');
+  assert.match(popupHtmlTabs, /\[hidden\] \{ display: none !important; \}/,
+    'and the guard that makes it take effect must still be here');
 });

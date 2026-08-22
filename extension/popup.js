@@ -129,6 +129,24 @@ const UPDATER = (() => {
 
 UPDATER.render();
 
+/* Pane switching. Every pane stays in the DOM — popup.js binds all of these
+ * ids at load, and a pane that was removed rather than hidden would take its
+ * controls with it. */
+(() => {
+  const tabs = document.querySelectorAll(".ptab");
+  if (!tabs.length) return;
+  tabs.forEach((tab) => tab.addEventListener("click", () => {
+    tabs.forEach((t) => {
+      const on = t === tab;
+      t.classList.toggle("on", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      const pane = document.getElementById(t.dataset.pane);
+      if (pane) pane.hidden = !on;
+    });
+  }));
+})();
+
+
 function fmt(n, dp = 4) {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
   return Number(n).toLocaleString(undefined, { maximumFractionDigits: dp });
