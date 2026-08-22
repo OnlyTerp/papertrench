@@ -3,6 +3,19 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.11.1 — 2026-08-22
+
+**Trade history in the words you actually trade in** (01jb: "bought, held,
+sold"). The Rounds table gains a **Levels** column: entry → exit market cap
+for every closed round — "40k → 240k" — VWAP'd per side from the round's own
+fills, so a scaled-out exit quotes its true average, not the last print.
+Rounds whose journal has been pruned show an honest em-dash, never an
+invented number. The CSV export carries `entryMcapUsd` / `exitMcapUsd` too.
+
+*(Also confirmed already in settings, for anyone who asked: TP/SL line
+thickness on the chart is adjustable — `chartOrderLineThickness`, 1–4 — and
+the list P-buttons have a size slider.)*
+
 ## v3.11.0 — 2026-08-22
 
 **Micro mode — the Axiom-shaped strip** (away32: "very big, looks like AI

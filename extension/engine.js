@@ -624,6 +624,32 @@
   }
 
   /**
+   * Entry / exit market caps for a closed round, derived from its journal
+   * fills (U4 — 01jb, ideas 8/21: "trade history bought/held/sold" in the
+   * words traders actually use: "bought at 40k, sold at 240k"). VWAP per side,
+   * weighted by SOL spent/received so a scaled-out exit quotes its true
+   * average, not the last leg. Old rounds whose journal has been pruned
+   * return nulls — the column renders an em-dash, never a fabricated number.
+   */
+  function roundMcapPair(state, round) {
+    if (!round || !state || !state.journal) return { entryMcap: null, exitMcap: null };
+    const ids = new Set(round.tradeIds || []);
+    let wSum = 0, mSum = 0, wSellSum = 0, mSellSum = 0;
+    for (const t of state.journal) {
+      if (!ids.has(t.id)) continue;
+      const sol = Math.abs(Number(t.solNet)) || 0;
+      const m = Number(t.mcap);
+      if (!(sol > 0) || !(m > 0)) continue;
+      if (t.side === 'buy') { wSum += sol; mSum += sol * m; }
+      else if (t.side === 'sell') { wSellSum += sol; mSellSum += sol * m; }
+    }
+    return {
+      entryMcap: wSum > 0 ? mSum / wSum : null,
+      exitMcap: wSellSum > 0 ? mSellSum / wSellSum : null,
+    };
+  }
+
+  /**
    * F-51 — a fresh-launch fill lands while the page still shows the PAIR
    * stand-in address, so the position is keyed under the stand-in. When the
    * prewatch probe or the resolver upgrades the token to its real mint, the
@@ -2169,6 +2195,7 @@
     removePendingBuy,
     lockedBuySol,
     densityWantsIdleSol,
+    roundMcapPair,
     triggeredPendingBuys,
     expirePendingBuys,
     orderSlipPct,

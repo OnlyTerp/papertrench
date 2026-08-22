@@ -91,7 +91,7 @@ const JOURNAL_CSV_COLUMNS = [
 ];
 const ROUNDS_CSV_COLUMNS = [
   'openedAt', 'closedAt', 'symbol', 'mint', 'site', 'heldMs', 'investedSol',
-  'returnedSol', 'pnlSol', 'pnlPct', 'peakPnlSol', 'troughPnlSol',
+  'returnedSol', 'entryMcapUsd', 'exitMcapUsd', 'pnlSol', 'pnlPct', 'peakPnlSol', 'troughPnlSol',
   'afterExit.maxPct', 'afterExit.minPct', 'afterExit.samples', 'thesis', 'exitGrade',
 ];
 
@@ -112,15 +112,20 @@ function journalCsv(journal) {
  * EMPTY afterExit fields, never zeros. The exit grade is the same verdict
  * the Rounds table shows, or empty when the round cannot be graded.
  */
-function roundsCsv(rounds) {
+function roundsCsv(rounds, state) {
   const rows = [...(rounds || [])]
     .sort((a, b) => (Number(a.closedAt) || 0) - (Number(b.closedAt) || 0))
     .map((r) => {
       const after = r.afterExit || null;
       const quality = E.exitQuality(r);
+      // U4: VWAP entry/exit market caps from the round's journal fills —
+      // the same numbers the Levels column shows, in the export too.
+      const mcaps = E.roundMcapPair(state || { journal: [] }, r);
       return [
         csvIso(r.openedAt), csvIso(r.closedAt), r.symbol, r.mint, r.site,
-        r.heldMs, r.investedSol, r.returnedSol, r.pnlSol, r.pnlPct,
+        r.heldMs, r.investedSol, r.returnedSol,
+        mcaps.entryMcap, mcaps.exitMcap,
+        r.pnlSol, r.pnlPct,
         r.peakPnlSol, r.troughPnlSol,
         after ? after.maxPct : null, after ? after.minPct : null,
         after ? after.samples : null,
@@ -827,7 +832,7 @@ function rebindSection(id, el) {
   if (id === 'rounds') {
     const exportBtn = el.querySelector('#rounds-export');
     if (exportBtn) exportBtn.addEventListener('click', () =>
-      downloadCsv(`papertrench-rounds-${csvStamp()}.csv`, roundsCsv(state.rounds)));
+      downloadCsv(`papertrench-rounds-${csvStamp()}.csv`, roundsCsv(state.rounds, state)));
     el.querySelectorAll('.review-btn').forEach((button) =>
       button.addEventListener('click', () => runReview(button.dataset.reviewId)));
     el.querySelectorAll('.replay-btn').forEach((button) =>
@@ -1973,6 +1978,14 @@ function renderRounds(el) {
   const rows = (state.rounds || []).map((r) => {
     const replay = RP.findReplay(replays, r.sessionId || '');
     const win = r.pnlSol >= 0;
+    // U4 (01jb): entry/exit market caps in the trader's own words —
+    // "bought 40k → sold 240k". VWAP per side from the round's journal fills;
+    // pruned journals render an em-dash, never a made-up level.
+    const mcaps = E.roundMcapPair(state, r);
+    const capStr = (v) => v == null ? '—'
+      : v >= 1e9 ? (v / 1e9).toFixed(2) + 'B'
+      : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + 'M'
+      : v >= 1e3 ? (v / 1e3).toFixed(0) + 'k' : v.toFixed(0);
     // D-04: three buttons in this row share the round id; the AI-review
     // button carries its own data-review-id so runReview can never grab (and
     // disable) the notes button instead.
@@ -1986,6 +1999,7 @@ function renderRounds(el) {
         <td class="num">${(r.heldMs / 60000).toFixed(1)}m</td>
         <td class="num">${fmt(r.investedSol, 4)}</td>
         <td class="num">${fmt(r.returnedSol, 4)}</td>
+        <td class="num mono" title="entry → exit market cap (VWAP of the round's fills)"><span class="dim">${capStr(mcaps.entryMcap)}</span> <span class="${win ? 'green' : 'red'}">→ ${capStr(mcaps.exitMcap)}</span></td>
         <td class="num ${win ? 'green' : 'red'}" style="font-weight:800">${win ? '+' : ''}${fmt(r.pnlSol)}</td>
         <td class="num ${win ? 'green' : 'red'}">${win ? '+' : ''}${r.pnlPct.toFixed(1)}%</td>
         ${G ? `<td>${renderGradeCell(gradeById.get(r.id), r)}</td>` : ''}
@@ -2004,8 +2018,8 @@ function renderRounds(el) {
     <div class="card"><h3>Closed round trips <span class="tag">${(state.rounds || []).length}</span>
       <button class="btn-sec" id="rounds-export" style="margin-left:auto" ${(state.rounds || []).length ? '' : 'disabled'}>Export CSV</button></h3>
       <div class="log"><table>
-        <thead><tr><th>Token</th><th>Site</th><th class="num">Held</th><th class="num">In</th><th class="num">Out</th><th class="num">P&L SOL</th><th class="num">%</th>${G ? '<th>Grade</th>' : ''}<th class="num">Peak/Worst</th><th>After (1h)</th><th>Exit</th><th>Thesis</th><th>Notes</th><th>Review</th><th>Replay</th><th>Share</th><th>Recording</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${G ? 17 : 16}">${emptyState('No closed round trips yet', 'Close a paper position to bank a round trip.')}</td></tr>`}</tbody>
+        <thead><tr><th>Token</th><th>Site</th><th class="num">Held</th><th class="num">In</th><th class="num">Out</th><th class="num">Levels</th><th class="num">P&L SOL</th><th class="num">%</th>${G ? '<th>Grade</th>' : ''}<th class="num">Peak/Worst</th><th>After (1h)</th><th>Exit</th><th>Thesis</th><th>Notes</th><th>Review</th><th>Replay</th><th>Share</th><th>Recording</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="${G ? 18 : 17}">${emptyState('No closed round trips yet', 'Close a paper position to bank a round trip.')}</td></tr>`}</tbody>
       </table></div>
     </div>`;
   // Handlers are attached in rebindSection() after the element is live.

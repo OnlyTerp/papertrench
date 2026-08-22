@@ -1234,7 +1234,7 @@ test('CSV: the rounds export flattens afterExit, thesis, and the exit grade hone
   const api = csvApi();
   // join, not deepEqual: vm-realm array (see the journal columns test).
   assert.equal(api.ROUNDS_CSV_COLUMNS.join(','),
-    'openedAt,closedAt,symbol,mint,site,heldMs,investedSol,returnedSol,pnlSol,pnlPct,'
+    'openedAt,closedAt,symbol,mint,site,heldMs,investedSol,returnedSol,entryMcapUsd,exitMcapUsd,pnlSol,pnlPct,'
     + 'peakPnlSol,troughPnlSol,afterExit.maxPct,afterExit.minPct,afterExit.samples,thesis,exitGrade');
 
   // A REAL closed round from the engine, then annotated the way the app does.
@@ -1248,7 +1248,7 @@ test('CSV: the rounds export flattens afterExit, thesis, and the exit grade hone
 
   const bare = { ...round, id: 'r-bare', afterExit: undefined, thesis: undefined, closedAt: round.closedAt + 1000 };
 
-  const csv = api.roundsCsv([bare, round]); // stored newest-first on purpose
+  const csv = api.roundsCsv([bare, round], state); // stored newest-first on purpose
   const lines = csv.split('\r\n');
   assert.equal(lines[0], api.ROUNDS_CSV_COLUMNS.join(','));
 
@@ -1276,8 +1276,8 @@ test('CSV: both cards render an Export CSV button wired to the revoked-URL downl
   const rebind = fnBlock(dashJs, 'function rebindSection(id, el)');
   assert.match(rebind, /downloadCsv\(`papertrench-journal-\$\{csvStamp\(\)\}\.csv`, journalCsv\(state\.journal\)\)/,
     'the journal button downloads journalCsv');
-  assert.match(rebind, /downloadCsv\(`papertrench-rounds-\$\{csvStamp\(\)\}\.csv`, roundsCsv\(state\.rounds\)\)/,
-    'the rounds button downloads roundsCsv');
+  assert.match(rebind, /downloadCsv\(`papertrench-rounds-\$\{csvStamp\(\)\}\.csv`, roundsCsv\(state\.rounds, state\)\)/,
+    'the rounds button downloads roundsCsv (state rides along for the U4 mcap columns)');
 
   const dl = fnBlock(dashJs, 'function downloadCsv(filename, text)');
   assert.match(dl, /new Blob\(\[text\], \{ type: 'text\/csv' \}\)/, 'generated client-side as a Blob');
