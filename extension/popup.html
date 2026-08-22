@@ -19,6 +19,23 @@
       --mono: ui-monospace, "SF Mono", Menlo, monospace;
     }
     * { box-sizing: border-box; }
+
+    /* The hidden attribute must outrank every component's own display rule.
+     *
+     * The browser's default sheet says [hidden] { display: none }, but that is
+     * a UA rule: any author rule with a class selector beats it. So a component
+     * styled `.thing { display: flex }` renders even while carrying `hidden`,
+     * and `el.hidden = true` from JS silently does nothing.
+     *
+     * That is exactly what happened to the update banner — it shipped with the
+     * hidden attribute set, was visible to everyone anyway (showing its
+     * placeholder text rather than a real version), and its dismiss button
+     * appeared broken because setting .hidden could not take effect. One rule
+     * here fixes that and inoculates every other display-styled component in
+     * this file against the same trap.
+     */
+    [hidden] { display: none !important; }
+
     body {
       width: 316px; margin: 0; padding: 0;
       background: var(--bg);

@@ -37,6 +37,14 @@
 
     * { box-sizing: border-box; }
 
+    /* The hidden attribute must outrank every component's own display rule.
+       [hidden] { display: none } is a UA rule, so any author rule with a class
+       selector beats it: a component styled .thing { display: flex } renders
+       while carrying hidden, and el.hidden = true does nothing. See the fuller
+       note in popup.html, where that trap made the update banner permanent. */
+    [hidden] { display: none !important; }
+
+
     html { scrollbar-color: rgba(255,255,255,0.16) transparent; }
 
     body {
