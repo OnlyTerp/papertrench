@@ -112,6 +112,30 @@ nav {
   box-shadow: 0 0 0 rgba(255,157,69,0);
 }
 .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(255,157,69,0.35); }
+/* Profile control — the one nav item whose content depends on who is looking.
+   Sized like the pills beside it so the bar does not reflow when the answer
+   arrives, and painted from cache first for the same reason. */
+.nav-profile {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin-left: 8px; padding: 6px 13px 6px 7px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; white-space: nowrap;
+  color: var(--text); background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line2);
+  transition: background .2s, border-color .2s;
+}
+.nav-profile:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 157, 69, 0.4); }
+.nav-profile img { width: 22px; height: 22px; border-radius: 50%; flex: none; }
+.nav-profile-dot {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: linear-gradient(140deg, var(--orange2), var(--orange-deep));
+}
+.nav-profile.signin { padding: 8px 15px; color: var(--muted); font-weight: 650; }
+.nav-profile.signin:hover { color: var(--text); }
+/* The handle is the first thing to go when the bar runs out of room — the
+   avatar alone still says "signed in, this is you". */
+@media (max-width: 1010px) { .nav-profile-handle { display: none; } }
+@media (max-width: 470px) { .nav-profile { padding: 5px; margin-left: 4px; } }
+
 
 /* The "Watch Live" pill: a real call-to-action, not a text link — it has to
    read as "click here to watch streams" at a glance, and it survives mobile
