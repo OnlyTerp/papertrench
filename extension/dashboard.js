@@ -884,6 +884,9 @@ function bindGame(el) {
  * trimmings (rank, streak, belts) from the same PTGamify read every other
  * surface uses, then paints via the season pipeline in pnlcard.js. */
 function openSeasonShareCard() {
+  // Same G-binding fix as renderSidebar: this scope referenced a bare G that
+  // was never defined here — the season card silently never opened.
+  const G = window.PTGamify;
   const session = typeof G.gameSession === 'function' ? G.gameSession(state) : null;
   if (!session || (session.id !== 'season' && session.id !== 'survival')) return;
   const ladder = typeof G.streakLadder === 'function' ? G.streakLadder(state) : null;
@@ -937,6 +940,11 @@ function openSeasonShareCard() {
 function renderSidebar() {
   const sb = document.getElementById('sidebar');
   if (!sb) return;
+  // The discipline KPI reads PTGamify; other surfaces bind `const G =
+  // window.PTGamify` inside their own scopes — this one referenced a bare G
+  // that never existed here, throwing at init and killing the whole sidebar
+  // (5818010 shipped it that way; caught 8/22 by the U6 gate's sw.jsonl).
+  const G = window.PTGamify;
   const stats = E.sessionStats(state, settings);
   const up = stats.equityVsStart >= 0;
   // D-06: % judged against the wallet's birth balance, not the live setting.
@@ -4228,7 +4236,7 @@ function renderSettings(el) {
       <div class="card">
         <h3>Instant links</h3>
         <div class="field field-check"><label><input type="checkbox" id="set-warm-x" ${settings.warmXLinksEnabled === true ? 'checked' : ''}> Instant X links</label><small>X posts, profiles, communities, and CA searches clicked on a trading site open in a kept-warm viewer tab (~0.5s instead of ~3.5s), with hover prefetch. Keeps one muted background x.com tab while on. Ctrl/Cmd/middle-click always opens normal tabs.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-everywhere" ${settings.warmEverywhereEnabled === true ? 'checked' : ''}> Instant terminal links</label><small>The same warm-viewer treatment for pump.fun, Solscan and cross-terminal token links — now the whole matrix: Axiom, Padre, GMGN, Fomo, BullX, Photon, Dexscreener, Birdeye and Jupiter. Close a warm tab and it stays closed until you actually click that destination again.</small></div>
+        <div class="field field-check"><label><input type="checkbox" id="set-warm-everywhere" ${settings.warmEverywhereEnabled === true ? 'checked' : ''}> Instant terminal links</label><small>The same warm-viewer treatment for pump.fun, Solscan and cross-terminal token links — now the whole matrix: Axiom, Padre, GMGN, Fomo, BullX, Photon, Dexscreener, Birdeye, Jupiter and Lute. Close a warm tab and it stays closed until you actually click that destination again.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-instant-discord" ${settings.instantDiscordEnabled === true ? 'checked' : ''}> Instant links on Discord</label><small>Registers the link interceptor on discord.com, so token and X links pasted in channels route through the same warm viewers. Uses the two toggles above for what actually routes; only classified links are ever touched — every other click stays native.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-instant-telegram" ${settings.instantTelegramEnabled === true ? 'checked' : ''}> Instant links on Telegram Web</label><small>Same treatment on web.telegram.org.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-instant-everywhere" ${settings.instantAllSitesEnabled === true ? 'checked' : ''}> Instant links on every site</label><small>The maximal version: the interceptor registers on all https sites (terminals and x.com keep their built-ins). The cost is one small script per page while this is on; the contract is unchanged — a link that is not a token/X link is never touched, and nothing is ever injected with this off.</small></div>

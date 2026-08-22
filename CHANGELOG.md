@@ -3,6 +3,24 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.12.1 — 2026-08-22
+
+**Lute is in the Instant-links list** (Terp: "instant link loading needs to
+be setup for lute also, i think we jsu forgot to ad that feature for the
+site"). Lute has actually had the full treatment since early August — token
+links anywhere route to a kept-warm lute.gg viewer, and links on lute.gg to
+other terminals route the same way. What was missing was the telling of it:
+the Settings → "Instant terminal links" description listed every other
+terminal and left Lute out, so the feature read as forgotten. The list now
+names Lute, and a regression test re-derives the list from the actual
+terminal registry so no terminal can be silently dropped from it again.
+
+**The dashboard sidebar is alive again** (pre-existing, since 8/20). A
+referenced-but-never-defined variable crashed the dashboard's first paint —
+the sidebar's equity/PnL/discipline KPIs didn't appear until you clicked
+into a section, and the season share card never opened at all. Both fixed;
+the live gate now asserts a clean init with zero console errors.
+
 ## v3.12.0 — 2026-08-22
 
 **Everything one tap from the header** (away32: "a button to show this [take
