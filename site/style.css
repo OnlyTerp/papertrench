@@ -151,6 +151,27 @@ nav {
    alone still says the wallet is connected. */
 @media (max-width: 1010px) { .nav-wallet-num { display: none; } }
 @media (max-width: 640px) { .nav-wallet { display: none; } }
+/* The chip is a button now: it opens a small breakdown. */
+.nav-wallet { font: inherit; cursor: pointer; }
+.nav-wallet:hover { background: rgba(255, 157, 69, 0.16); border-color: rgba(255, 157, 69, 0.45); }
+/* A number that changes under you should say it changed — otherwise a live
+   balance is indistinguishable from a stale one. */
+.nav-wallet-num.up { animation: nw-up .7s ease-out; }
+.nav-wallet-num.down { animation: nw-down .7s ease-out; }
+@keyframes nw-up { 0% { color: var(--green2); text-shadow: 0 0 12px rgba(52,211,153,.7); } 100% { color: var(--orange2); } }
+@keyframes nw-down { 0% { color: #ff8a80; text-shadow: 0 0 12px rgba(224,67,58,.6); } 100% { color: var(--orange2); } }
+@media (prefers-reduced-motion: reduce) { .nav-wallet-num.up, .nav-wallet-num.down { animation: none; } }
+
+#nav-wallet { position: relative; }
+.nav-wallet-panel {
+  position: absolute; top: calc(100% + 9px); right: 0; z-index: 120;
+  min-width: 232px; padding: 12px 14px;
+  background: var(--panel2); border: 1px solid var(--line2);
+  border-radius: 13px; box-shadow: 0 18px 44px -16px rgba(0,0,0,.8);
+}
+.nwp-row { display: flex; align-items: baseline; gap: 12px; font-size: 12.5px; color: var(--muted); padding: 3px 0; }
+.nwp-row b { margin-left: auto; color: var(--text); font-weight: 750; font-variant-numeric: tabular-nums; }
+.nwp-note { margin-top: 8px; font-size: 11px; line-height: 1.5; color: var(--dim); }
 /* The handle is the first thing to go when the bar runs out of room — the
    avatar alone still says "signed in, this is you". */
 @media (max-width: 1010px) { .nav-profile-handle { display: none; } }
