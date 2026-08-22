@@ -5,49 +5,92 @@ touches lives in the CONFIG block at the top of `streams.js`:
 
 | Constant | What it does |
 | --- | --- |
-| `STREAMERS` | Hand-maintained roster. Always shown; wins over a sheet row with the same login. |
-| `SIGNUP_URL` | Where "Sign up as a streamer" points. Currently a prefilled GitHub issue; swap for the Google Form link. |
-| `ROSTER_CSV_URL` | Published-CSV URL of the approval sheet. Empty = disabled. |
+| `STREAMERS` | Hand-maintained roster. Always shown; wins over an approved application with the same login. |
+| `SIGNUP_URL` | Where "Sign up as a streamer" points — the on-site form, `streamer-signup.html`. |
+| `API` | Worker origin the approved roster is read from. Same value as `arena.js`. |
+| `ROSTER_CSV_URL` | Legacy Google-Sheet CSV roster. Empty = disabled, and it should stay empty on a new deploy. |
 
-## Signup + approval pipeline (Google Form → Sheet → site)
+## Signup + approval pipeline (on-site form → D1 → mod queue → site)
 
-One-time setup, ~5 minutes:
+Signups are a page on this site, not a Google Form. Three moving parts:
 
-1. **Create a Google Form** (forms.google.com) with these questions:
-   - *Twitch channel* — short answer, required. (Any format works: URL, @name, or bare handle — the site normalizes it.)
-   - *Display name* — short answer, required.
-   - *About you (shown on the site, one line)* — short answer.
-   - *When do you stream?* — short answer (for your planning; not shown on the site).
-   - Anything else you want to ask (contact handle, etc.) — extra columns are ignored by the site.
-2. In the form's **Responses** tab → **Link to Sheets**. This creates the response spreadsheet.
-3. In that sheet, **add a column headed `Approved`** to the right of the response columns.
-4. **File → Share → Publish to web** → pick the response tab (not "Entire document") → format **CSV** → Publish. Copy the URL.
-5. Paste into `streams.js`:
-   - the form's share link → `SIGNUP_URL`
-   - the published CSV URL → `ROSTER_CSV_URL`
-   Deploy the site once. Done — from here on, no deploys are needed to manage the roster.
+| Piece | Where |
+| --- | --- |
+| The form a streamer fills in | `site/streamer-signup.html` + `.js` |
+| The moderator queue | `site/admin.html` + `.js` |
+| Storage, validation, and the gate | `server/core/streamer.js`, `server/worker/index.js`, table `streamer_applications` |
+
+Routes on the Worker:
+
+| Route | Who can call it |
+| --- | --- |
+| `POST /api/streamer/apply` | Anyone. Rate-limited to 5/hour per IP. |
+| `GET /api/streamer/applications?status=` | Moderators only (403 otherwise). |
+| `POST /api/streamer/review` | Moderators only (403 otherwise). |
+| `GET /api/streamer/roster` | Anyone. Approved rows, public columns only. |
+
+### One-time setup
+
+1. **Apply the schema** so the new table exists:
+   ```
+   wrangler d1 execute papertrench --file=server/schema.sql --remote
+   ```
+2. **Name your moderators.** `ADMIN_X_IDS` in `wrangler.toml` is a
+   comma-separated list of **X user ids**, not handles. To find yours: sign in
+   on the site, open `/admin`, and the page prints your own id. Paste it in and
+   `wrangler deploy`.
+3. That's it. Nothing to configure on the site side — `streams.js` already
+   points at the form and reads the approved roster.
+
+> An empty `ADMIN_X_IDS` authorises **nobody**. That is deliberate: the queue
+> holds applicants' Discord handles and contact details, so a deploy that
+> forgets the var closes the queue rather than opening it to every signed-in
+> visitor. If `/admin` says you are not a moderator, this is usually why.
 
 ### Day-to-day approval
 
-Open the response sheet. Each signup is a row. Type `yes` in its **Approved**
-cell and the streamer appears on papertrench.com within ~5 minutes (Google's
-republish interval). Clear the cell to unlist them. Accepted approval values:
-`yes`, `y`, `true`, `1`, `x`, `approved`, `✓` (any case). Blank or anything
-else = not shown.
+Open `/admin` and sign in with an allowlisted X account. Pending applications
+are listed newest first, with **Approve** / **Reject** on each. Approving a
+Twitch application publishes its card on the streams page within ~60 s (the
+edge cache window). **Move back to pending** undoes a decision.
 
-Rules the site applies to sheet rows:
+Rules the pipeline applies:
 
-- Twitch handles are normalized (`https://twitch.tv/Name?x=1` → `name`); rows
-  whose handle can't be normalized to a valid Twitch login are skipped.
-- Duplicate logins are deduped; `STREAMERS` entries win over sheet rows.
-- If the sheet is unreachable or malformed, the page silently falls back to
-  `STREAMERS` (a `console.warn` is the only trace). The sheet can never break
-  the page.
+- Twitch logins are normalized (`https://twitch.tv/Name?x=1` → `name`) by the
+  same rule `streams.js` uses; an application whose URL can't be normalized to
+  a valid login is stored but **cannot be approved** — the streams page embeds
+  Twitch, so approving it would set a status that never becomes a card. The
+  Approve button is disabled on those, with a tooltip saying why.
+- Duplicate logins are deduped and `STREAMERS` entries win, same as before.
+- One application per channel URL may sit in the queue at a time (a partial
+  unique index). A rejected applicant can reapply later.
+- If the API is unreachable the page falls back to `STREAMERS` and logs
+  `PaperTrench: roster API unavailable` — it can never break the page.
 
-> After first publishing the sheet, load the streams page once with DevTools
-> open: if you see `PaperTrench: roster sheet unavailable`, the publish step
-> isn't right (usually "Entire document" was selected instead of the tab, or
-> the format isn't CSV).
+### What is published and what is not
+
+The form labels every field **Public** or **Private**, and the split is
+enforced in the SQL rather than in a convention:
+
+| Published on approval | Never leaves the mod queue |
+| --- | --- |
+| Creator name, channel URL, Twitch login, the one-line blurb | Discord username, viewer count, contact method, profile link, best time to reach, and the free-text notes |
+
+The one that matters is **blurb vs. notes**. "One line about your stream" says
+it will be shown publicly and is the roster card's text. "Anything else you'd
+like us to know?" is a message to moderators and is *never* served by a public
+route — `GET /api/streamer/roster` does not select the column. If you ever need
+a public bio, edit the blurb; do not repurpose notes.
+
+Applications also store a salted one-way hash of the applicant's IP for abuse
+triage. The raw address is never written.
+
+### Migrating off the Google Sheet
+
+`ROSTER_CSV_URL` still works and is read alongside the API, so an existing
+deployment keeps its roster on upgrade. To finish the move: re-enter any
+approved streamers via the form (or add them to `STREAMERS`), confirm they
+show, then set `ROSTER_CSV_URL` back to `''` and unpublish the sheet.
 
 ## How the page decides who's "LIVE"
 
