@@ -157,8 +157,17 @@ test('an unmounted page keeps looking — a first failed detect is never permane
     'and it must re-run detection against the CURRENT title, not a cached one');
   // The cheap check gates the expensive one: detect is string matching, but
   // enterPage does storage and network work.
-  assert.ok(poll.indexOf('S.detect(') < poll.indexOf('enterPage();\n      }'),
-    'detection must gate entry, not the other way round');
+  //
+  // Asserted on the nesting rather than on byte offsets. The previous form
+  // compared indexOf('S.detect(') against indexOf('enterPage();\n      }') —
+  // a literal carrying both a newline and an exact indent, so it matched
+  // nothing on a CRLF checkout, indexOf returned -1, and `1670 < -1` failed on
+  // every Windows clone while passing in CI. The repo now pins source to LF
+  // (.gitattributes), and this no longer depends on either.
+  const guarded = /if \(S\.detect\([^)]*\)\) \{\s*[^}]*?enterPage\(\);\s*\}/.test(poll);
+  assert.ok(guarded,
+    'detection must gate entry, not the other way round — enterPage() must sit '
+    + 'INSIDE the if (S.detect(...)) block');
 });
 
 test('a market switch is caught without depending on a title observer', () => {

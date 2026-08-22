@@ -3,3 +3,35 @@
 *.gif binary
 *.png binary
 *.jpg binary
+
+# Source is LF in the working copy on every platform.
+#
+# The blobs are already LF, so this changes nothing in the repository — what it
+# changes is CHECKOUT. Without it, a Windows clone with core.autocrlf=true gets
+# CRLF working files, and this suite reads source as text and asserts on it: a
+# great many tests slice a function body out of a file and match literals
+# against it. Any such literal containing \n silently stops matching, indexOf
+# returns -1, and the assertion fails on a file whose code is perfectly correct.
+#
+# That is not hypothetical. perpswiring.test.js asserted
+#   poll.indexOf('S.detect(') < poll.indexOf('enterPage();\n      }')
+# which is 1670 < -1 on a CRLF checkout. It failed on every Windows clone and
+# passed in CI, so the repo looked green while contributors saw a red suite on
+# a fresh clone and had no way to tell it from a real break.
+#
+# Shell scripts get it worst: scripts/preflight.sh with CRLF fails at the
+# shebang on most shells.
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.md   text eol=lf
+*.sql  text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.svg  text eol=lf
+*.txt  text eol=lf
+*.sh   text eol=lf
