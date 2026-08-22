@@ -4113,6 +4113,35 @@ function renderTurboCard() {
 
 /* ---------- settings ---------- */
 
+/**
+ * A row of one-value boxes for a preset list.
+ *
+ * These were a single text field holding "0.1, 0.5, 1, 2". That asks the user
+ * to know the delimiter, to spot a stray comma, and to edit four numbers
+ * inside one string — and it silently dropped whatever failed to parse, which
+ * looked like the app forgetting a value rather than rejecting it.
+ *
+ * The comma-joined field survives as a HIDDEN mirror, kept in sync on every
+ * edit. saveFromForm's numberList() still reads exactly what it always read,
+ * so the validation, the coercion notes and their tests are untouched by a
+ * change that is only about how the values are typed.
+ */
+function renderPresetBoxes(id, values, { max, step, unit, addLabel }) {
+  const box = (v, i) => `
+    <span class="preset-box">
+      <input type="number" min="0" max="${max}" step="${step}" value="${esc(String(v))}"
+             data-preset-for="${id}" aria-label="${esc(unit)} preset ${i + 1}">
+      <button type="button" class="preset-del" data-preset-del="${id}"
+              title="Remove this preset" aria-label="Remove preset ${i + 1}">×</button>
+    </span>`;
+  return `
+    <div class="preset-row" data-preset-row="${id}">
+      ${values.map(box).join('')}
+      <button type="button" class="preset-add" data-preset-add="${id}">+ ${esc(addLabel)}</button>
+    </div>
+    <input type="hidden" id="${id}" value="${esc(values.join(', '))}">`;
+}
+
 function renderSettings(el) {
   // D-24: a corrupt backup can leave presetsBuy/sellPcts as non-arrays. An
   // unguarded .join() threw mid-render, leaving Settings blank AND unbound —
@@ -4131,7 +4160,10 @@ function renderSettings(el) {
       <div class="card">
         <h3>Wallet &amp; Trading</h3>
         <div class="field"><label for="set-balance">Starting paper balance (SOL)</label><input id="set-balance" type="number" min="0.1" step="0.1" value="${settings.balanceStartSol}"></div>
-        <div class="field"><label for="set-sellpcts">Quick-sell presets (%)</label><input id="set-sellpcts" type="text" value="${esc(sellPctsList.join(', '))}"></div>
+        <div class="field"><label>Quick-sell presets (%)</label>
+          ${renderPresetBoxes('set-sellpcts', sellPctsList, { max: 100, step: 1, unit: 'Percent', addLabel: 'Add %' })}
+          <small>One box per button in the overlay. Up to 8, each 1–100%.</small>
+        </div>
       </div>
       <div class="card">
         <h3>Fees &amp; costs</h3>
@@ -4152,7 +4184,10 @@ function renderSettings(el) {
       </div>
       <div class="card">
         <h3>Buying</h3>
-        <div class="field"><label for="set-presets">Quick-buy presets (SOL)</label><input id="set-presets" type="text" value="${esc(presetsBuyList.join(', '))}"><small>Comma separated, shown as buttons in the overlay.</small></div>
+        <div class="field"><label>Quick-buy presets (SOL)</label>
+          ${renderPresetBoxes('set-presets', presetsBuyList, { max: 1000, step: 0.1, unit: 'SOL', addLabel: 'Add amount' })}
+          <small>One box per button in the overlay. Up to 8.</small>
+        </div>
         <div class="field field-check"><label><input type="checkbox" id="set-instant-buy" ${settings.instantBuyEnabled !== false ? 'checked' : ''}> One-click quick buy</label><small>Tapping a preset amount fires the buy immediately, like Axiom and Padre. Off makes presets only select the amount for the BUY button.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-list-quick-buy" ${settings.listQuickBuyEnabled !== false ? 'checked' : ''}> One-tap buy buttons on token lists</label><small>A "P" button on every token row of Axiom Pulse, Padre Trenches and GMGN Trenches — buys the first preset amount without opening the chart.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-list-quick-open" ${settings.listQuickOpen !== false ? 'checked' : ''}> Open the chart tab after a list buy</label><small>When a one-tap list buy opens a NEW position, its chart opens in a background tab so the position is one click away. Turn off for list-only trading.</small></div>
@@ -4265,7 +4300,74 @@ function renderSettings(el) {
 }
 
 /** Wire the settings form. Called after the section is in the document. */
+/**
+ * Keep each preset row's hidden comma-joined mirror in step with its boxes.
+ *
+ * The mirror is what saveFromForm reads, so it has to be current BEFORE any
+ * save fires. Sync runs synchronously in the same event that changed a box,
+ * and the save path is debounced behind it, so the order holds without the two
+ * knowing about each other.
+ */
+function bindPresetRows(section) {
+  if (!section) return;
+  const MAX_BOXES = 8; // numberList() truncates past this; don't offer a 9th.
+
+  const sync = (id) => {
+    const mirror = document.getElementById(id);
+    const row = section.querySelector(`[data-preset-row="${id}"]`);
+    if (!mirror || !row) return;
+    const values = [...row.querySelectorAll(`input[data-preset-for="${id}"]`)]
+      .map((i) => i.value.trim())
+      .filter((v) => v !== '');
+    mirror.value = values.join(', ');
+    const add = row.querySelector(`[data-preset-add="${id}"]`);
+    if (add) add.hidden = values.length >= MAX_BOXES;
+  };
+
+  // A row edited to empty would be silently refilled with defaults by
+  // saveFromForm. Say so at the point of editing instead.
+  const rows = [...section.querySelectorAll('[data-preset-row]')].map((r) => r.dataset.presetRow);
+  for (const id of rows) sync(id);
+
+  section.addEventListener('input', (e) => {
+    const id = e.target && e.target.dataset && e.target.dataset.presetFor;
+    if (id) sync(id);
+  });
+
+  section.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-preset-del]');
+    if (del) {
+      const id = del.dataset.presetDel;
+      const row = section.querySelector(`[data-preset-row="${id}"]`);
+      // Never remove the last one: an empty list is restored to defaults by
+      // saveFromForm, which reads as the app ignoring the edit.
+      if (row && row.querySelectorAll('.preset-box').length > 1) {
+        del.closest('.preset-box').remove();
+        sync(id);
+        // Removal is a committed edit; text boxes only fire `change` on blur,
+        // so autosave needs telling.
+        document.getElementById(id).dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      return;
+    }
+
+    const add = e.target.closest('[data-preset-add]');
+    if (!add) return;
+    const id = add.dataset.presetAdd;
+    const row = section.querySelector(`[data-preset-row="${id}"]`);
+    if (!row || row.querySelectorAll('.preset-box').length >= MAX_BOXES) return;
+    const template = row.querySelector('.preset-box');
+    const fresh = template.cloneNode(true);
+    const input = fresh.querySelector('input');
+    input.value = '';
+    row.insertBefore(fresh, add);
+    input.focus();
+    sync(id);
+  });
+}
+
 function bindSettings() {
+  bindPresetRows(document.getElementById('settings'));
   document.getElementById('save-settings').addEventListener('click', saveFromForm);
   // Fees & costs quick fill-in: writes the fields, never storage — Save still
   // owns persistence, and the numbers stay the user's to edit.
