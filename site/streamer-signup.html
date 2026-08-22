@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Streamer application</title>
+<meta name="description" content="Apply to become a featured PaperTrench streamer — get the Streamer role in Discord, an announcement to the community, automated live alerts, and a card on the streams page.">
+<meta property="og:title" content="PaperTrench — Streamer application">
+<meta property="og:description" content="Apply to join the PaperTrench Challenge roster. Featured on the streams page, Streamer role in Discord, and automated live alerts.">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
+<link rel="icon" type="image/png" href="assets/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+  :root { --twitch: #9146FF; --twitch2: #bf94ff; }
+  .k-twitch { color: var(--twitch2); background: rgba(145,70,255,0.10); border: 1px solid rgba(145,70,255,0.32); }
+  .hero.compact { padding: 140px 0 24px; }
+  .hero.compact h1 { font-size: clamp(34px, 5vw, 58px); }
+  .grad-twitch {
+    background: linear-gradient(100deg, var(--twitch2) 10%, var(--twitch) 70%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+
+  .apply-wrap { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 28px; align-items: start; padding-bottom: 90px; }
+  @media (max-width: 900px) { .apply-wrap { grid-template-columns: 1fr; } }
+
+  .apply-card {
+    background: var(--panel); border: 1px solid var(--line2);
+    border-radius: var(--radius); padding: 26px 28px 28px;
+  }
+  .apply-card h2 { font-size: 19px; font-weight: 800; margin-bottom: 6px; }
+  .apply-card .lede { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-bottom: 22px; }
+
+  .req { color: var(--orange2); font-weight: 800; }
+  .ar-field { margin-bottom: 17px; }
+  textarea.ar-input { min-height: 96px; resize: vertical; line-height: 1.55; }
+  select.ar-input { appearance: none; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 17px) 51%, calc(100% - 12px) 51%;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 34px; }
+  select.ar-input option { background: var(--panel2); color: var(--text); }
+
+  /* A field whose answer becomes public says so where the answer is typed —
+     not in a policy page nobody opens. */
+  .vis {
+    display: inline-flex; align-items: center; gap: 5px; margin-left: 8px;
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px; vertical-align: middle;
+  }
+  .vis.public { color: var(--twitch2); background: rgba(145,70,255,0.12); border: 1px solid rgba(145,70,255,0.3); }
+  .vis.private { color: var(--green2); background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.28); }
+
+  .apply-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 22px; }
+  .form-msg { font-size: 13px; font-weight: 650; line-height: 1.55; }
+  .form-msg.err { color: #ff8a80; }
+  .form-msg.ok { color: var(--green2); }
+
+  .done { text-align: center; padding: 26px 10px 10px; }
+  .done .big { font-size: 44px; margin-bottom: 12px; }
+  .done h2 { font-size: 21px; margin-bottom: 8px; }
+  .done p { font-size: 14px; color: var(--muted); line-height: 1.65; max-width: 420px; margin: 0 auto 20px; }
+
+  .side { display: grid; gap: 16px; position: sticky; top: 96px; }
+  @media (max-width: 900px) { .side { position: static; } }
+  .side-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; }
+  .side-card h3 { font-size: 12px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: var(--dim); margin-bottom: 13px; }
+  .perk { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 13px; font-size: 13.5px; line-height: 1.5; }
+  .perk:last-child { margin-bottom: 0; }
+  .perk .ico { font-size: 16px; flex: none; line-height: 1.35; }
+  .perk b { font-weight: 750; }
+  .perk span { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="bg-grid"></div>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="index.html#bubbles">Chart bubbles</a>
+      <a href="index.html#replay">Replay</a>
+      <a href="leaderboard.html">Leaderboard</a>
+      <a href="sprint.html">Sprint</a>
+      <a href="duels.html">Duels</a>
+      <a href="clans.html">Clans</a>
+      <a href="news.html">News</a>
+      <a href="index.html#install">Install</a>
+      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero compact">
+  <div class="wrap">
+    <span class="sec-kicker k-twitch reveal">Streamer application</span>
+    <h1 class="reveal d1">Get featured <span class="grad-twitch">in the trench.</span></h1>
+    <p class="hero-sub reveal d2">Any creator running the PaperTrench Challenge can apply. Approved streamers get a card on the <a href="streams.html" style="color:var(--twitch2)">streams page</a>, the Streamer role in Discord, and automated live alerts.</p>
+  </div>
+</header>
+
+<section style="padding-top:14px">
+  <div class="wrap apply-wrap">
+    <div class="apply-card reveal">
+      <!-- The form and the thank-you state swap in place; JS toggles them. -->
+      <div id="formPane">
+        <h2>Tell us about your channel</h2>
+        <p class="lede">Fields marked <span class="req">*</span> are required. We review applications by hand — expect a Discord DM once a moderator has looked at yours.</p>
+
+        <form id="applyForm" novalidate>
+          <label class="ar-field">
+            <span class="lbl">Creator / Channel Name <span class="req">*</span><span class="vis public">Public</span></span>
+            <input class="ar-input" type="text" name="name" maxlength="40" autocomplete="off" required>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Main Channel URL <span class="req">*</span><span class="vis public">Public</span></span>
+            <input class="ar-input" type="text" name="channelUrl" maxlength="200" inputmode="url" placeholder="twitch.tv/yourname" autocomplete="off" required>
+            <span class="hint">Twitch, YouTube, Kick, etc. Twitch channels can be embedded and played directly on the streams page.</span>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Discord Username <span class="req">*</span><span class="vis private">Private</span></span>
+            <input class="ar-input" type="text" name="discord" maxlength="40" autocomplete="off" required>
+            <span class="hint">So we can assign your Streamer role and post your live alerts.</span>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Average Live Viewers <span class="req">*</span><span class="vis private">Private</span></span>
+            <select class="ar-input" name="viewers" required>
+              <option value="" selected disabled>Choose one…</option>
+              <option>1–10</option>
+              <option>10–50</option>
+              <option>50–100</option>
+              <option>100+</option>
+            </select>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">One line about your stream<span class="vis public">Public</span></span>
+            <input class="ar-input" type="text" name="blurb" maxlength="160" autocomplete="off" placeholder="Weekend challenge runs — fresh eyes on the trenches.">
+            <span class="hint">This is the blurb printed on your roster card if you're approved. Leave it blank and your card just shows your name.</span>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Anything else you'd like us to know?<span class="vis private">Private</span></span>
+            <textarea class="ar-input" name="notes" maxlength="1000" rows="4"></textarea>
+            <span class="hint">Only the moderator team reads this — it is never shown on the site.</span>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Preferred Contact Method<span class="vis private">Private</span></span>
+            <select class="ar-input" name="contactMethod">
+              <option value="" selected>No preference</option>
+              <option>Discord DM</option>
+              <option>Email</option>
+              <option>Twitter/X</option>
+              <option>Other</option>
+            </select>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Profile link<span class="vis private">Private</span></span>
+            <input class="ar-input" type="text" name="contactLink" maxlength="200" inputmode="url" autocomplete="off" placeholder="https://…">
+            <span class="hint">If you picked Discord, Twitter/X, or Other above, drop the profile link here.</span>
+          </label>
+
+          <label class="ar-field">
+            <span class="lbl">Best Day/Time to Reach You<span class="vis private">Private</span></span>
+            <input class="ar-input" type="text" name="bestTime" maxlength="100" autocomplete="off" placeholder="Weeknights after 8pm ET">
+          </label>
+
+          <div class="apply-actions">
+            <button class="ar-btn primary" type="submit" id="submitBtn">Send application</button>
+            <span class="form-msg" id="formMsg" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+
+        <p class="ar-note" style="margin-top:20px">
+          What we store: the answers above, and a one-way hash of your IP for
+          abuse triage. Your Discord handle and contact details are visible only
+          to PaperTrench moderators — never published, never sold. Ask a
+          moderator to delete your application and it's gone.
+        </p>
+      </div>
+
+      <div class="done" id="donePane" hidden>
+        <div class="big">🎥</div>
+        <h2>Application received</h2>
+        <p>A moderator will look it over and reach out on Discord. If you're approved, your card goes up on the streams page automatically.</p>
+        <a class="btn btn-primary" href="streams.html">Back to the streams page</a>
+      </div>
+    </div>
+
+    <aside class="side reveal d1">
+      <div class="side-card">
+        <h3>What approved streamers get</h3>
+        <div class="perk"><span class="ico">🌟</span><span><b>Streamer role</b> in the PaperTrench Discord.</span></div>
+        <div class="perk"><span class="ico">📢</span><span><b>Featured announcement</b> introducing you to the community.</span></div>
+        <div class="perk"><span class="ico">🔴</span><span><b>Automated live notifications</b> when you go live.</span></div>
+        <div class="perk"><span class="ico">🎬</span><span><b>A card on the streams page</b> — Twitch channels play inline.</span></div>
+      </div>
+      <div class="side-card">
+        <h3>Before you apply</h3>
+        <div class="perk"><span class="ico">⬇</span><span>Install the extension from the <a href="index.html#install" style="color:var(--orange2)">install guide</a> — free, open source, no signup.</span></div>
+        <div class="perk"><span class="ico">🟩</span><span>Open <code>🎥 Stream overlay</code> from the popup and add it to OBS with a chroma key.</span></div>
+        <div class="perk"><span class="ico">⛓️</span><span>Your record is a <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener" style="color:var(--orange2)">hash-chained</a> paper wallet — same rules as everyone.</span></div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="index.html">Home</a>
+        <a href="streams.html">Watch Live</a>
+        <a href="news.html">News</a>
+        <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
+        <a href="privacy.html">Privacy</a>
+      </div>
+    </div>
+    <div class="foot-note">Paper trading only · not financial advice · every P&amp;L on this site is simulated, and proud of it.</div>
+  </div>
+</footer>
+
+<script src="streamer-signup.js"></script>
+</body>
+</html>

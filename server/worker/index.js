@@ -17,6 +17,7 @@ import { windowEntry } from '../core/window.js';
 import { awarded } from '../core/achievements.js';
 import * as duel from '../core/duel.js';
 import * as clan from '../core/clan.js';
+import * as streamer from '../core/streamer.js';
 // Default-imported, not named: core/chain.js re-exports attest.js by property
 // assignment (`GENESIS: AT.GENESIS`), which Node's CJS named-export lexer
 // cannot see through — unlike the other cores, whose exports are literals.
@@ -30,6 +31,9 @@ const SEG_SIZE = 500;
 const SUBMITS_PER_HOUR = 6;
 const DUELS_PER_HOUR = 10;
 const CLAN_ACTIONS_PER_HOUR = 12;
+// Streamer signups need no account, so the leash is per-IP and deliberately
+// low: a person applies once, and the only reason to send six is abuse.
+const STREAMER_APPLIES_PER_HOUR = 5;
 // The X feed endpoint: only cache MISSES cost an upstream fetch, so the
 // per-IP leash sits on those, not on reads a cache can answer.
 const XFEED_PER_HOUR = 120;
@@ -1403,6 +1407,178 @@ async function drainPricing(env) {
     .run();
 }
 
+/* ---------------- streamer applications ---------------- */
+
+/**
+ * The moderator behind a request, or null.
+ *
+ * Two gates, both required: a valid session, and an x_id on the ADMIN_X_IDS
+ * allowlist. An unset or empty allowlist authorises nobody — a deploy that
+ * forgets the var must close the mod queue, not open it to every signed-in
+ * visitor, and "no admins configured" is the safe reading of an absent list.
+ */
+async function moderator(request, env) {
+  const user = await sessionUser(request, env);
+  if (!user) return null;
+  return streamer.isAdmin(user.x_id, env.ADMIN_X_IDS) ? user : null;
+}
+
+/**
+ * A salted, one-way trace of the applicant's IP.
+ *
+ * The raw address is never stored: applications come from members of the
+ * public, and an IP column would be a standing log of where they live for a
+ * feature whose actual need is only "did these six submissions come from one
+ * person". A SESSION_SECRET-salted digest answers that and nothing else, and
+ * it cannot be reversed or joined against anything outside this table.
+ */
+async function ipTrace(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (!ip || !env.SESSION_SECRET) return null;
+  const bytes = new TextEncoder().encode(env.SESSION_SECRET + ':' + ip);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].slice(0, 8)
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleStreamerApply(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (!(await allowRate(env, 'streamerapply:' + ip, STREAMER_APPLIES_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
+  let body = {};
+  try { body = await request.json(); } catch {}
+
+  const problem = streamer.applyProblem(body);
+  if (problem) return json({ ok: false, reason: problem }, 422);
+
+  const app = streamer.normalizeApplication(body);
+  try {
+    await env.DB.prepare(`
+      INSERT INTO streamer_applications
+        (name, channel_url, platform, twitch_login, discord, viewers, blurb,
+         notes, contact_method, contact_link, best_time, status, created_at, ip_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+      .bind(app.name, app.channelUrl, app.platform, app.twitchLogin, app.discord,
+        app.viewers, app.blurb || null, app.notes || null, app.contactMethod,
+        app.contactLink, app.bestTime || null, Date.now(), await ipTrace(request, env))
+      .run();
+  } catch {
+    // The partial unique index on channel_url is what decides, not a prior
+    // SELECT: two tabs submitted together would both pass a check-then-act.
+    return json({ ok: false, reason: 'already-applied' }, 409);
+  }
+  return json({ ok: true });
+}
+
+/**
+ * The mod queue. Every column, including contact details — which is exactly
+ * why it is behind moderator() and why nothing else selects from this table.
+ */
+async function handleStreamerApplications(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  const url = new URL(request.url);
+  const status = url.searchParams.get('status') || 'pending';
+  if (!streamer.isStatus(status)) return json({ ok: false, reason: 'bad-status' }, 422);
+
+  const { results } = await env.DB.prepare(`
+    SELECT a.id, a.name, a.channel_url, a.platform, a.twitch_login, a.discord,
+           a.viewers, a.blurb, a.notes, a.contact_method, a.contact_link,
+           a.best_time, a.status, a.created_at, a.reviewed_at, u.handle AS reviewed_by
+      FROM streamer_applications a
+      LEFT JOIN users u ON u.id = a.reviewed_by
+     WHERE a.status = ?
+     ORDER BY a.created_at DESC
+     LIMIT 200`)
+    .bind(status).all();
+
+  const counts = await env.DB.prepare(
+    'SELECT status, COUNT(*) AS n FROM streamer_applications GROUP BY status').all();
+
+  return json({
+    ok: true,
+    applications: (results || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      channelUrl: r.channel_url,
+      platform: r.platform,
+      twitchLogin: r.twitch_login,
+      discord: r.discord,
+      viewers: r.viewers,
+      blurb: r.blurb || '',
+      notes: r.notes || '',
+      contactMethod: r.contact_method || '',
+      contactLink: r.contact_link || '',
+      bestTime: r.best_time || '',
+      status: r.status,
+      createdAt: r.created_at,
+      reviewedAt: r.reviewed_at,
+      reviewedBy: r.reviewed_by || null,
+    })),
+    counts: Object.fromEntries((counts.results || []).map((r) => [r.status, Number(r.n)])),
+  });
+}
+
+async function handleStreamerReview(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const id = Number(body.id);
+  if (!Number.isInteger(id) || id <= 0) return json({ ok: false, reason: 'bad-id' }, 422);
+  // 'pending' is a legal target: it is how a decision gets undone.
+  if (!streamer.isStatus(body.status)) return json({ ok: false, reason: 'bad-status' }, 422);
+
+  try {
+    const result = await env.DB.prepare(`
+      UPDATE streamer_applications SET status = ?, reviewed_by = ?, reviewed_at = ?
+       WHERE id = ?`)
+      .bind(body.status, mod.id, Date.now(), id)
+      .run();
+    if (!result.meta || result.meta.changes === 0) {
+      return json({ ok: false, reason: 'not-found' }, 404);
+    }
+  } catch {
+    // Approving a channel that already holds the approved/pending slot trips
+    // the partial unique index — a duplicate application, not a server fault.
+    return json({ ok: false, reason: 'already-listed' }, 409);
+  }
+  return json({ ok: true });
+}
+
+/**
+ * The public roster: approved applications, as streams.js consumes them.
+ *
+ * Deliberately a different column list from the mod queue above. An approved
+ * applicant agreed to appear on the streams page — they did not agree to
+ * publish the Discord handle and availability they gave us to be contacted
+ * with, so those columns are simply not in this SELECT.
+ *
+ * `blurb` is here and `notes` is not, and that is the whole distinction: the
+ * blurb is the field whose label promises it will be shown publicly, while
+ * notes answers "anything else you'd like us to know?" — a message to the
+ * moderators. Serving notes here would publish something written in private.
+ */
+async function handleStreamerRoster(env) {
+  const { results } = await env.DB.prepare(`
+    SELECT name, twitch_login, blurb
+      FROM streamer_applications
+     WHERE status = 'approved' AND twitch_login IS NOT NULL
+     ORDER BY created_at DESC
+     LIMIT 60`).all();
+  return json({
+    ok: true,
+    streamers: (results || []).map((r) => ({
+      login: r.twitch_login,
+      name: r.name,
+      blurb: r.blurb || '',
+    })),
+  });
+}
+
 /* ---------------- entry ---------------- */
 
 export default {
@@ -1430,8 +1606,18 @@ export default {
       else if (path === '/api/auth/logout' && request.method === 'POST') response = logout(request, env);
       else if (path === '/api/me') {
         const user = await sessionUser(request, env);
+        // xId is the caller's OWN X id — public on X, and the value an owner
+        // needs to put in ADMIN_X_IDS. Without it, standing up the first
+        // moderator means digging a numeric id out of a third-party lookup.
         response = user
-          ? json({ signedIn: true, handle: user.handle, displayName: user.display_name, avatarUrl: user.avatar_url })
+          ? json({
+            signedIn: true,
+            handle: user.handle,
+            displayName: user.display_name,
+            avatarUrl: user.avatar_url,
+            xId: user.x_id,
+            isMod: streamer.isAdmin(user.x_id, env.ADMIN_X_IDS),
+          })
           : json({ signedIn: false });
       }
       else if (path === '/api/me/delete' && request.method === 'POST') {
@@ -1501,6 +1687,21 @@ export default {
         const tag = clan.normalizeTag(url.searchParams.get('tag') || '');
         response = await edgeCached(cacheKey(url, { tag }), ctx, BOARD_CACHE_SEC,
           () => handleClanGet(env, tag));
+      }
+      else if (path === '/api/streamer/apply' && request.method === 'POST') {
+        response = await handleStreamerApply(request, env);
+      }
+      // Never edge-cached, unlike the boards: the response is scoped to a
+      // moderator session, and a shared cache would serve the queue to the
+      // next visitor who asked for the same URL.
+      else if (path === '/api/streamer/applications') {
+        response = await handleStreamerApplications(request, env);
+      }
+      else if (path === '/api/streamer/review' && request.method === 'POST') {
+        response = await handleStreamerReview(request, env);
+      }
+      else if (path === '/api/streamer/roster') {
+        response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
       }
       else response = json({ ok: false, reason: 'not-found' }, 404);
     } catch (err) {

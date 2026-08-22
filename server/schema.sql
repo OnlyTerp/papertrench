@@ -208,3 +208,43 @@ CREATE TABLE IF NOT EXISTS x_feed_cache (
   fetched_at INTEGER NOT NULL,
   posts_json TEXT NOT NULL
 );
+
+-- Streamer applications (site/streamer-signup.html), replacing the Google
+-- Form + published-sheet pipeline. Rows land as 'pending'; a moderator moves
+-- them to 'approved' or 'rejected' from site/admin.html.
+--
+-- This is the one table in the schema holding contact details for people who
+-- are not users — a Discord handle, maybe an email in contact_link, and when
+-- they are reachable. Nothing here is served by a public route: the roster
+-- endpoint selects only name/twitch_login/notes from approved rows, and
+-- everything else leaves D1 solely through the moderator-gated read.
+CREATE TABLE IF NOT EXISTS streamer_applications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,               -- creator / channel name, public once approved
+  channel_url TEXT NOT NULL,        -- normalized https URL
+  platform TEXT NOT NULL,           -- twitch | youtube | kick | other
+  twitch_login TEXT,                -- embeddable login, Twitch URLs only
+  discord TEXT NOT NULL,
+  viewers TEXT NOT NULL,            -- one of the form's buckets, verbatim
+  blurb TEXT,                       -- one-liner the applicant agreed to publish
+  notes TEXT,                       -- private message to the mod queue; NEVER served publicly
+  contact_method TEXT,
+  contact_link TEXT,
+  best_time TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  reviewed_by INTEGER,              -- users.id of the moderator who decided
+  reviewed_at INTEGER,
+  created_at INTEGER NOT NULL,
+  ip_hash TEXT                      -- salted hash, for abuse triage only
+);
+
+-- The roster read is "approved rows, newest first"; the mod queue is the same
+-- shape per status. One index serves both.
+CREATE INDEX IF NOT EXISTS idx_streamer_applications_status
+  ON streamer_applications(status, created_at DESC);
+
+-- A channel may only sit in the queue once. Partial index so a rejected
+-- applicant can reapply later, but nobody can flood the queue with one URL.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_streamer_applications_open_channel
+  ON streamer_applications(channel_url)
+  WHERE status IN ('pending', 'approved');

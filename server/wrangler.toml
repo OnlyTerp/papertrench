@@ -57,5 +57,20 @@ SITE_ORIGIN_ALT = "https://www.papertrench.com"
 X_CLIENT_ID = "N1BucEctX2dwVkNhSVRXSGRnWks6MTpjaQ"
 X_REDIRECT_URI = "https://papertrench-api.onerobby.workers.dev/api/auth/x/callback"
 
+# Who can read and decide streamer applications (site/admin.html). A
+# comma-separated list of X USER IDS — not handles: schema.sql calls x_id
+# "immutable X user id; handles can change", and a handle that changes is a
+# handle somebody else can register. Allowlisting @somemod would hand the mod
+# queue to whoever claims that name next.
+#
+# Left EMPTY on purpose. An empty or unset list authorises nobody, which is the
+# safe reading of "no admins configured" — the queue holds applicants' Discord
+# handles and contact details, so a deploy that forgets this var must close it,
+# not open it to every signed-in visitor.
+#
+# To add the first moderator: sign in on the site, open /admin, and the page
+# prints your own X user id for exactly this purpose. Paste it here, redeploy.
+ADMIN_X_IDS = ""
+
 # Secrets (never in this file):
 #   wrangler secret put SESSION_SECRET     # 32+ random bytes

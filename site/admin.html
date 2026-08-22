@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Moderator queue</title>
+<!-- Not a public page: keep it out of search results and out of previews.
+     This is presentation only — the queue itself is gated server-side. -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" type="image/png" href="assets/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+  .admin-head { padding: 130px 0 22px; }
+  .admin-head h1 { font-size: clamp(30px, 4vw, 44px); font-weight: 900; letter-spacing: -0.5px; }
+  .admin-head p { font-size: 14px; color: var(--muted); margin-top: 10px; max-width: 640px; line-height: 1.6; }
+
+  .gate { max-width: 560px; margin: 0 auto 90px; text-align: center;
+    background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); padding: 40px 32px; }
+  .gate .big { font-size: 42px; margin-bottom: 14px; }
+  .gate h2 { font-size: 20px; font-weight: 800; margin-bottom: 10px; }
+  .gate p { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 18px; }
+  .gate code { font-family: var(--mono); font-size: 12.5px; color: var(--orange2);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .tab {
+    font: inherit; font-size: 13px; font-weight: 750; cursor: pointer;
+    color: var(--muted); background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line2); border-radius: 999px; padding: 8px 16px;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+  .tab.on { color: #2a1a05; background: var(--grad-heat); border-color: transparent; font-weight: 800; }
+  .tab .n { opacity: 0.7; margin-left: 5px; font-variant-numeric: tabular-nums; }
+
+  .apps { display: grid; gap: 14px; padding-bottom: 90px; }
+  .app {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+  .app-top { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .app-name { font-size: 16.5px; font-weight: 800; }
+  .app-chan { font-size: 12.5px; margin-top: 2px; }
+  .app-chan a { color: var(--orange2); word-break: break-all; }
+  .app-when { margin-left: auto; font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+
+  .plat {
+    display: inline-block; font-size: 9.5px; font-weight: 800; letter-spacing: 0.9px;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 999px; vertical-align: middle;
+  }
+  .plat.twitch { color: #bf94ff; background: rgba(145,70,255,0.13); border: 1px solid rgba(145,70,255,0.32); }
+  .plat.youtube { color: #ff8a80; background: rgba(224,67,58,0.11); border: 1px solid rgba(224,67,58,0.3); }
+  .plat.kick { color: var(--green2); background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.28); }
+  .plat.other { color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--line2); }
+
+  .rows { display: grid; grid-template-columns: 132px minmax(0,1fr); gap: 7px 16px; font-size: 13.5px; }
+  @media (max-width: 620px) { .rows { grid-template-columns: 1fr; gap: 2px; } .rows dt { margin-top: 9px; } }
+  .rows dt { color: var(--dim); font-size: 11.5px; font-weight: 750; letter-spacing: 0.5px; text-transform: uppercase; padding-top: 2px; }
+  .rows dd { color: var(--text); word-break: break-word; white-space: pre-wrap; }
+  .rows dd a { color: var(--orange2); word-break: break-all; }
+  .rows dd.empty { color: var(--dim); font-style: italic; }
+
+  /* Private answers are visually separated from the ones the applicant knows
+     will be published, so a moderator never pastes the wrong one somewhere. */
+  .private-note { margin-top: 14px; padding: 13px 15px; border-radius: 12px;
+    background: rgba(0,0,0,0.24); border: 1px solid var(--line); }
+  .private-note .cap { font-size: 10px; font-weight: 800; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--green2); margin-bottom: 7px; }
+
+  .app-acts { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-top: 17px;
+    padding-top: 15px; border-top: 1px solid var(--line); }
+  .ar-btn.good { background: rgba(52,211,153,0.13); border-color: rgba(52,211,153,0.35); color: var(--green2); }
+  .ar-btn.bad { background: rgba(224,67,58,0.11); border-color: rgba(224,67,58,0.32); color: #ff8a80; }
+  .act-msg { font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .act-msg.err { color: #ff8a80; }
+
+  .state { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+  .state .big { font-size: 38px; margin-bottom: 12px; opacity: 0.8; }
+
+  .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .who img { width: 26px; height: 26px; border-radius: 50%; }
+  .who b { color: var(--text); font-weight: 750; }
+  .who button { margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="bg-grid"></div>
+
+<nav>
+  <div class="nav-inner">
+    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="leaderboard.html">Leaderboard</a>
+      <a href="sprint.html">Sprint</a>
+      <a href="duels.html">Duels</a>
+      <a href="clans.html">Clans</a>
+      <a href="streamer-signup.html">Streamer signup</a>
+      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="admin-head">
+  <div class="wrap">
+    <h1>Moderator queue</h1>
+    <p>Streamer applications from <a href="streamer-signup.html" style="color:var(--orange2)">the signup form</a>. Approving a Twitch application puts a card on the streams page within a minute; everything on this page is visible to moderators only.</p>
+  </div>
+</header>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <!-- One of these is shown at a time; admin.js decides which. -->
+    <div id="loading" class="state"><div class="big">⏳</div>Checking your access…</div>
+
+    <div id="gateSignedOut" class="gate" hidden>
+      <div class="big">🔒</div>
+      <h2>Moderators only</h2>
+      <p>Sign in with the X account on the moderator list to open the queue.</p>
+      <a class="btn btn-primary" id="signInBtn" href="#">Sign in with X</a>
+      <p style="margin:16px 0 0;font-size:12.5px">Sign-in returns you to the leaderboard — come back here afterwards and the queue will open.</p>
+    </div>
+
+    <div id="gateNotMod" class="gate" hidden>
+      <div class="big">🚧</div>
+      <h2>Not on the moderator list</h2>
+      <p>You're signed in as <b id="notModHandle"></b>, but that account isn't a PaperTrench moderator.</p>
+      <p>To be added, send an owner your X user id:<br><code id="notModId"></code><br>
+         they add it to <code>ADMIN_X_IDS</code> and redeploy the Worker.</p>
+      <a class="btn btn-ghost" href="index.html">Back to the site</a>
+    </div>
+
+    <div id="queue" hidden>
+      <div class="who">
+        <img id="whoAvatar" src="" alt="" hidden>
+        <span>Signed in as <b id="whoHandle"></b> · moderator</span>
+        <button class="ar-btn" type="button" id="refreshBtn">Refresh</button>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab on" type="button" data-status="pending">Pending<span class="n" id="nPending"></span></button>
+        <button class="tab" type="button" data-status="approved">Approved<span class="n" id="nApproved"></span></button>
+        <button class="tab" type="button" data-status="rejected">Rejected<span class="n" id="nRejected"></span></button>
+      </div>
+
+      <div class="apps" id="apps"></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="index.html">Home</a>
+        <a href="streams.html">Watch Live</a>
+        <a href="streamer-signup.html">Streamer signup</a>
+        <a href="privacy.html">Privacy</a>
+      </div>
+    </div>
+    <div class="foot-note">Applicant contact details on this page are private — handle them like the personal data they are.</div>
+  </div>
+</footer>
+
+<script src="admin.js"></script>
+</body>
+</html>

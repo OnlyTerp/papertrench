@@ -1,9 +1,11 @@
 /* PaperTrench — Live on Twitch page.
  *
- * The roster comes from two places: the hand-maintained STREAMERS list below,
- * plus (optionally) the approval Google Sheet behind the signup form — rows
- * whose Approved column says yes appear on the page without a deploy. Full
- * setup walkthrough: docs/STREAMS.md.
+ * The roster is the hand-maintained STREAMERS list below, plus every
+ * application a moderator approved in site/admin.html (read from the Worker's
+ * /api/streamer/roster). A legacy Google-Sheet CSV is still honoured for
+ * deployments that ran on one, but nothing new needs it. Neither remote source
+ * can break the page: on any failure the hand-maintained list stands alone.
+ * Full setup walkthrough: docs/STREAMS.md.
  */
 (() => {
   'use strict';
@@ -37,20 +39,20 @@
     },
   ];
 
-  // Where "Sign up as a streamer" points. Paste the Google Form share link
-  // here once it exists (see docs/STREAMS.md); until then, GitHub issues.
-  const SIGNUP_URL = 'https://github.com/OnlyTerp/papertrench/issues/new'
-    + '?title=' + encodeURIComponent('Streamer signup: <your twitch handle>')
-    + '&body=' + encodeURIComponent(
-      'Twitch channel: https://twitch.tv/\n'
-      + 'When do you stream the challenge?: \n'
-      + 'Anything else we should know?: \n');
+  // Where "Sign up as a streamer" points — the on-site form, which posts to
+  // the leaderboard Worker and lands in the moderator queue (site/admin.html).
+  const SIGNUP_URL = 'streamer-signup.html';
 
-  // Approval-sheet roster (optional). Paste the "Publish to web → CSV" URL of
-  // the Google Sheet behind the signup form and the page pulls every row whose
-  // Approved column says yes — approving a streamer is typing "yes" in a cell,
-  // no deploy needed. Empty string disables it; on any fetch/parse failure the
-  // page just runs on STREAMERS above. Setup walkthrough: docs/STREAMS.md.
+  // The API roster: every application a moderator approved in site/admin.html.
+  // This is the pipeline the signup form feeds, and it needs no configuration —
+  // approving a streamer publishes their card within the 60s edge cache.
+  const API = 'https://papertrench-api.onerobby.workers.dev';
+
+  // Legacy approval-sheet roster (optional, and superseded by the API above).
+  // Paste the "Publish to web → CSV" URL of a Google Sheet and the page pulls
+  // every row whose Approved column says yes. Empty string disables it; on any
+  // fetch/parse failure the page just runs on STREAMERS above. Kept so a
+  // deployment already running on a sheet does not lose its roster on upgrade.
   const ROSTER_CSV_URL = '';
 
   const LIVE_POLL_MS = 60000;
@@ -139,6 +141,39 @@
 
   function findCol(headers, ...needles) {
     return headers.findIndex((h) => needles.some((n) => h.includes(n)));
+  }
+
+  /**
+   * Approved applications from the Worker.
+   *
+   * Same contract as the sheet loader below: enhancement, never load-bearing.
+   * A dead API leaves the hand-maintained STREAMERS list on the page rather
+   * than emptying the roster — an empty grid would state "nobody streams this"
+   * on the strength of a failed fetch.
+   */
+  async function loadApiRoster() {
+    try {
+      const res = await fetch(API + '/api/streamer/roster', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const body = await res.json();
+      if (!body || !body.ok || !Array.isArray(body.streamers)) return;
+
+      const seen = new Set(roster.map((s) => s.login));
+      for (const row of body.streamers) {
+        // The server normalizes these, but the page owns what it renders:
+        // re-run the same login rule rather than trusting the shape.
+        const login = normalizeLogin(row && row.login);
+        if (!login || seen.has(login)) continue;
+        seen.add(login);
+        roster.push({
+          login,
+          name: String((row && row.name) || '').trim() || login,
+          blurb: String((row && row.blurb) || '').trim(),
+        });
+      }
+    } catch (err) {
+      console.warn('PaperTrench: roster API unavailable —', err.message);
+    }
   }
 
   async function loadSheetRoster() {
@@ -266,7 +301,7 @@
   const OPEN_SLOTS = 3;
   function openSlot() {
     return `
-        <a class="s-card" href="${esc(SIGNUP_URL)}" target="_blank" rel="noopener"
+        <a class="s-card" href="${esc(SIGNUP_URL)}"
            style="display:block;border-style:dashed;border-color:rgba(145,70,255,0.35)">
           <div class="s-thumb"><div class="ph">?</div></div>
           <div class="s-body">
@@ -348,7 +383,8 @@
     renderGrid();
 
     const before = `${featured}:${roster.length}`;
-    await loadSheetRoster();
+    // Both are optional and independent; neither can fail the page.
+    await Promise.all([loadApiRoster(), loadSheetRoster()]);
     pickFeatured();
     if (`${featured}:${roster.length}` !== before) {
       renderFeatured();

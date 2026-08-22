@@ -3,6 +3,30 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+**Streamer signup lives on the site now.** "Sign up as a streamer" used to
+hand you off to a Google Form; it now opens **papertrench.com/streamer-signup**
+— the same questions, on the site, in the site's own styling. Applications go
+straight into the leaderboard database instead of a spreadsheet.
+
+**A moderator queue that isn't a shared password.** `/admin` lists every
+application with Approve / Reject, gated on X sign-in against a list of
+moderator accounts the server checks on every request. There is no password in
+the page to leak, and no version of the page you can edit your way past.
+
+**Approving somebody actually publishes them.** An approved Twitch application
+becomes a card on the streams page within a minute — no deploy, no spreadsheet
+cell, no republish interval. Channels that can't be embedded can't be approved
+into a card that would never appear, so the button says so instead.
+
+**Public answers and private ones are kept apart.** Every field on the form is
+labelled Public or Private where you type it. The one-line blurb is the roster
+card's text; your Discord handle, contact details and free-text notes are
+served to moderators only — the public roster query doesn't select those
+columns at all. We store a one-way hash of your IP for abuse triage, never the
+address.
+
 ## v3.12.1 — 2026-08-22
 
 **Lute is in the Instant-links list** (Terp: "instant link loading needs to
