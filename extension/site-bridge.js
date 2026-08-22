@@ -58,6 +58,40 @@
     }
   });
 
+  /* Live wallet, pushed rather than polled.
+   *
+   * The header chip would otherwise be a snapshot from page load: trade in
+   * another tab and the number on papertrench.com quietly goes stale, which
+   * is worse than not showing it — a wrong balance presented as current.
+   *
+   * chrome.storage is the same channel every other surface already watches,
+   * so a fill anywhere reaches here with no polling and no network. The
+   * SUMMARY is not computed here: the relay re-asks the background, so
+   * bridgeWallet stays the one place that decides what a balance is, and the
+   * Site-sync gate is applied in exactly one place too.
+   */
+  function pushWallet() {
+    chrome.runtime.sendMessage({ type: 'pt_bridge_ping', viaSiteRelay: true })
+      .catch(() => null)
+      .then((reply) => {
+        if (!reply || !reply.ok || !reply.bridgeEnabled || !reply.wallet) return;
+        window.postMessage(
+          { type: 'pt_site_wallet', wallet: reply.wallet },
+          location.origin
+        );
+      });
+  }
+
+  if (chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      // The wallet moves with state; the gate moves with settings. Both have
+      // to re-push, or switching Site sync on would show nothing until the
+      // next trade.
+      if (changes.pt_state || changes.pt_settings) pushWallet();
+    });
+  }
+
   // Tell the page a relay exists, so its Sync button can distinguish
   // "extension not installed" from "reply still in flight".
   window.postMessage({ type: 'pt_site_bridge_ready' }, location.origin);

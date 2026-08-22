@@ -1139,13 +1139,19 @@ test('the site says nothing at all when it has not been told', () => {
   const site = fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'nav-wallet.js'), 'utf8');
   assert.match(site, /if \(!wallet\) return;/, 'no answer renders no chip');
   assert.match(site, /reply\.ok && reply\.bridgeEnabled/, 'and a refusal renders no chip');
-  // The render path must have exactly one way to put a chip on the page, and
-  // it must sit after the guards — no placeholder balance on any other route.
-  const render = site.slice(site.indexOf('function render('), site.indexOf('// The relay only'));
-  const appends = render.match(/slot\.appendChild/g) || [];
-  assert.equal(appends.length, 1, 'one and only one way to render a balance');
-  assert.ok(render.indexOf('if (!wallet) return;') < render.indexOf('slot.appendChild'),
-    'the guards must come before anything is appended');
+  // Nothing may reach the page except through render(), and render() must
+  // refuse before it builds anything. build() is the only thing that touches
+  // the slot, and only render() may call it.
+  const render = site.slice(site.indexOf('function render('), site.indexOf('/* ---------- first answer'));
+  assert.ok(render.indexOf('if (!wallet) return;') < render.indexOf('build()'),
+    'a missing wallet must return before the chip is built');
+  assert.ok(render.indexOf('Number.isFinite(equity)') < render.indexOf('build()'),
+    'a non-numeric equity must return before the chip is built');
+  const builders = site.match(/slot\.appendChild/g) || [];
+  assert.ok(builders.length > 0, 'the chip has to get onto the page somehow');
+  const buildFn = site.slice(site.indexOf('function build()'), site.indexOf('function render('));
+  assert.equal((buildFn.match(/slot\.appendChild/g) || []).length, builders.length,
+    'every append must live in build(), so render() is the only entry point');
 });
 
 test('the chip always labels the money as paper', () => {
