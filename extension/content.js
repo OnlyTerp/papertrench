@@ -3682,6 +3682,65 @@
     #pt-quickreset { display: inline-flex; }
     #pt-quickreset.armed { color: #FF5F56; font-weight: 800; }
 
+    /* ---------------- micro mode (away32, 8/21) ----------------
+     * "very big looks like ai slop… axiom or padre looks perfect" — after
+     * FOCUS mode. The third density is not focus-but-tighter; it drops the
+     * panel metaphor entirely: ONE strip, token+price left, buy chips and
+     * sell chips right, wallet SOL always visible. No header chrome except
+     * a single ◧ that cycles density, no banner, no card, no editor, no
+     * ladder, no thesis — the dashboard owns everything that is not an
+     * immediate execution decision. Toggled from the same header button:
+     * standard → focus → micro → standard. */
+    .pt-box.pt-micro { width: max-content; min-width: 0; max-width: 92vw; }
+    .pt-box.pt-micro .pt-banner,
+    .pt-box.pt-micro .pt-header .pt-title,
+    .pt-box.pt-micro .pt-header #pt-edit,
+    .pt-box.pt-micro .pt-header #pt-quickreset,
+    .pt-box.pt-micro .pt-header #pt-visibility,
+    .pt-box.pt-micro .pt-header #pt-dash,
+    .pt-box.pt-micro .pt-header #pt-min,
+    .pt-box.pt-micro #pt-buy-label,
+    .pt-box.pt-micro #pt-costs,
+    .pt-box.pt-micro #pt-custom,
+    .pt-box.pt-micro .pt-buy,
+    .pt-box.pt-micro .pt-limit-row,
+    .pt-box.pt-micro #pt-thesis,
+    .pt-box.pt-micro #pt-closed,
+    .pt-box.pt-micro .pt-editor,
+    .pt-box.pt-micro .pt-footer,
+    .pt-box.pt-micro .pt-pos .pt-detail,
+    .pt-box.pt-micro .pt-xray,
+    .pt-box.pt-micro .pt-flex { display: none; }
+    .pt-box.pt-micro { font-size: 12px; border-radius: 14px; }
+    .pt-box.pt-micro .pt-header { padding: 4px 6px 4px 8px; gap: 0; }
+    .pt-box.pt-micro .pt-icon {
+      width: 14px; height: 14px; font-size: 8px; border-radius: 4px; margin-right: 6px;
+    }
+    .pt-box.pt-micro .pt-header .pt-grow { flex: 1 1 auto; }
+    .pt-box.pt-micro .pt-header #pt-focus-toggle { width: 20px; height: 20px; font-size: 11px; }
+    .pt-box.pt-micro .pt-body { padding: 5px 8px 7px; display: flex; flex-direction: column; gap: 5px; }
+    .pt-box.pt-micro .pt-token-row { margin: 0; display: flex; align-items: baseline; gap: 8px; }
+    .pt-box.pt-micro #pt-token-name { font-size: 12px; font-weight: 700; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pt-box.pt-micro #pt-token-mint { display: none; }
+    .pt-box.pt-micro .pt-price { align-items: baseline; flex-direction: row; gap: 5px; }
+    .pt-box.pt-micro #pt-price { font-size: 12.5px; }
+    .pt-box.pt-micro #pt-price-usd { font-size: 10px; }
+    .pt-box.pt-micro #pt-live-dot { width: 5px; height: 5px; }
+    .pt-box.pt-micro .pt-micro-wallet {
+      margin-left: auto; flex: none;
+      font: 700 10.5px/1 var(--pt-mono); color: var(--pt-dim);
+      white-space: nowrap; cursor: default;
+    }
+    .pt-box.pt-micro .pt-micro-wallet b { color: var(--pt-text); font-weight: 800; }
+    /* Micro strips the presets down to pills and puts sell % in the SAME row:
+     * buy-left, sell-right — the Axiom widget shape. */
+    .pt-box.pt-micro .pt-presets { margin: 0; gap: 4px; }
+    .pt-box.pt-micro .pt-preset { padding: 4px 8px; font-size: 10.5px; border-radius: 7px; }
+    .pt-box.pt-micro .pt-sell-row { margin: 0; }
+    .pt-box.pt-micro .pt-sell-row button { padding: 4px 7px; font-size: 10px; }
+    .pt-box.pt-micro .pt-pos { margin: 0; padding: 3px 6px; }
+
+
     /* ---------------- paper banner ----------------
      * The ONE honesty cue on the panel (UI-OVERHAUL Wave 1): the diagonal
      * watermark, the "(PAPER)" button suffix and the rest of the seven
@@ -4769,6 +4828,7 @@
             <div class="pt-token-row">
               <div class="pt-token"><div id="pt-token-name">—</div><div class="pt-mint" id="pt-token-mint">waiting for token</div></div>
               <div class="pt-price"><span class="pt-dot" id="pt-live-dot"></span><div class="num ${!token || (!token.priceNative && !token.priceUsd) ? 'pt-price-stale' : ''}" id="pt-price">—</div><div class="usd" id="pt-price-usd"></div></div>
+              <div class="pt-micro-wallet" id="pt-micro-wallet" title="Paper wallet SOL — free to deploy"></div>
             </div>
             <div class="pt-label" id="pt-buy-label">Quick buy (SOL)</div>
             <div class="pt-presets" id="pt-buy-presets"></div>
@@ -4840,6 +4900,7 @@
     els.pill = shadow.getElementById('pt-pill');
     els.tokenName = shadow.getElementById('pt-token-name');
     els.tokenMint = shadow.getElementById('pt-token-mint');
+    els.microWallet = shadow.getElementById('pt-micro-wallet');
     els.price = shadow.getElementById('pt-price');
     els.priceUsd = shadow.getElementById('pt-price-usd');
     els.buyPresets = shadow.getElementById('pt-buy-presets');
@@ -4929,13 +4990,23 @@
 
     shadow.getElementById('pt-dash').addEventListener('click', openDashboard);
     shadow.getElementById('pt-settings').addEventListener('click', openDashboard);
-    // In-panel focus toggle (maintainer): the panel morphs between the
-    // decorated terminal and the minimal one in place, with a soft pulse —
-    // no dashboard round-trip. The flip persists so every surface agrees.
+    // In-panel density toggle (maintainer): ◧ cycles standard → focus →
+    // micro in place, with a soft pulse — no dashboard round-trip. The choice
+    // persists so every surface agrees. Micro (away32 8/21: "axiom or padre
+    // looks perfect") is the Axiom-shaped execution strip.
     const focusToggle = shadow.getElementById('pt-focus-toggle');
     if (focusToggle) {
       focusToggle.addEventListener('click', async () => {
-        settings = { ...settings, panelFocusMode: settings.panelFocusMode !== true };
+        const cur = settings.panelDensity === 'micro' ? 'micro'
+          : settings.panelFocusMode === true ? 'focus' : 'standard';
+        const next = cur === 'standard' ? 'focus' : cur === 'focus' ? 'micro' : 'standard';
+        settings = {
+          ...settings,
+          panelDensity: next === 'standard' ? undefined : next,
+          // Keep panelFocusMode true for both compact densities so the
+          // dashboard's focus toggle and any legacy read stays coherent.
+          panelFocusMode: next !== 'standard',
+        };
         if (els.box) {
           els.box.classList.remove('pt-morph');
           void els.box.offsetWidth; // restart the pulse (the one sanctioned reflow)
@@ -5097,6 +5168,28 @@
         if (instant) requestBuy(Number(b.dataset.amt));
       });
     });
+  }
+
+  /** Micro-mode wallet readout (away32 8/21): idle SOL always visible on the
+   *  strip — "overlay sol balance at the top without needing to open the
+   *  ext". Locked limit-buy SOL is shown separately so the number can be
+   *  trusted as deployable, never confused with the total. */
+  function renderMicroWallet() {
+    if (!els.microWallet) return;
+    const micro = settings.panelDensity === 'micro';
+    els.microWallet.style.display = micro ? '' : 'none';
+    if (!micro || !state) return;
+    // textContent only — no amount is ever markup.
+    const locked = E.lockedBuySol(state);
+    els.microWallet.textContent = '';
+    const b = document.createElement('b');
+    b.textContent = `${E.fmt(state.cashSol, 2)} ◎`;
+    els.microWallet.appendChild(b);
+    if (locked > 0) {
+      const l = document.createElement('span');
+      l.textContent = ` +${E.fmt(locked, 2)} armed`;
+      els.microWallet.appendChild(l);
+    }
   }
 
   /* ---------------- panel denomination ----------------
@@ -5416,6 +5509,7 @@
     applyFocusMode();
     renderHeader();
     renderBalance();
+    renderMicroWallet();
     renderPosition();
     renderAlerts();
     renderBuyButton();
@@ -5438,14 +5532,21 @@
    */
   function applyFocusMode() {
     if (!els.box || !els.box.classList) return;
-    const focus = settings.panelFocusMode === true;
-    els.box.classList.toggle('pt-focus', focus);
+    const micro = settings.panelDensity === 'micro';
+    const focus = settings.panelFocusMode === true || micro;
+    els.box.classList.toggle('pt-focus', focus && !micro);
+    els.box.classList.toggle('pt-micro', micro);
     const ft = shadow && shadow.getElementById('pt-focus-toggle');
-    if (ft) ft.classList.toggle('on', focus);
+    if (ft) {
+      ft.classList.toggle('on', focus);
+      ft.title = micro ? 'Density: micro — click for standard'
+        : focus ? 'Density: focus — click for micro' : 'Density: standard — click for focus';
+      ft.setAttribute('aria-label', ft.title);
+    }
     // With one-tap presets the chips ARE the buttons, so compact mode drops
     // the big BUY too; with instant buy off the (slim) button must stay or
-    // select-then-buy has no trigger.
-    els.box.classList.toggle('pt-focus-instant', focus && settings.instantBuyEnabled !== false);
+    // select-then-buy has no trigger. Micro always hides it via CSS.
+    els.box.classList.toggle('pt-focus-instant', focus && !micro && settings.instantBuyEnabled !== false);
   }
 
   /* Quick reset (focus mode): no popup — popups steal stream focus — but
@@ -6324,7 +6425,13 @@
       : null;
     const rows = Q.positionRows(state, livePositionPrices, token && token.mint, activeQuote);
     const enabled = settings.positionsBarEnabled !== false;
-    const show = enabled && rows.length > 0 && !positionsBarHidden;
+    // away32 (8/21): "overlay sol balance at the top without needing to open
+    // the ext" — with zero positions the bar used to vanish entirely, taking
+    // the wallet readout with it. A new wallet (or a fully-closed book) now
+    // keeps a one-chip bar: brand + idle SOL. Traders who close everything
+    // mid-session keep their number; everyone else sees the same bar as
+    // before once a single position exists.
+    const show = enabled && !positionsBarHidden && (rows.length > 0 || E.densityWantsIdleSol(settings, state));
 
     // Release resources for tokens that are no longer held. This runs BEFORE
     // the early return so a closed position cannot leak a cached quote or a
@@ -6374,12 +6481,21 @@
       // N2: armed limit buys lock SOL — show it in the bar total so the
       // "missing" cash is explained where the trader looks for it.
       const locked = E.lockedBuySol(state);
-      barTotalEls.count.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${locked > 0 ? ` · ${E.fmt(locked, 3)} locked` : ''}`;
-      barTotalEls.sol.textContent = `${sign}${E.fmt(summary.pnlSol, 3)} SOL`;
-      barTotalEls.pct.textContent = `${sign}${summary.pnlPct.toFixed(1)}%`;
-      for (const node of [barTotalEls.sol, barTotalEls.pct]) {
-        node.classList.toggle('pt-green', summary.up);
-        node.classList.toggle('pt-red', !summary.up);
+      if (rows.length === 0) {
+        // away32: the empty bar IS the wallet — "N ◎ idle" reads as the
+        // number to deploy, not a position count pretending to be one.
+        barTotalEls.count.textContent = 'wallet';
+        barTotalEls.sol.textContent = `${E.fmt(state.cashSol, 3)} ◎ idle`;
+        barTotalEls.sol.classList.remove('pt-green', 'pt-red');
+        barTotalEls.pct.textContent = locked > 0 ? `${E.fmt(locked, 3)} armed` : '';
+      } else {
+        barTotalEls.count.textContent = `${rows.length} position${rows.length === 1 ? '' : 's'}${locked > 0 ? ` · ${E.fmt(locked, 3)} locked` : ''}`;
+        barTotalEls.sol.textContent = `${sign}${E.fmt(summary.pnlSol, 3)} SOL`;
+        barTotalEls.pct.textContent = `${sign}${summary.pnlPct.toFixed(1)}%`;
+        for (const node of [barTotalEls.sol, barTotalEls.pct]) {
+          node.classList.toggle('pt-green', summary.up);
+          node.classList.toggle('pt-red', !summary.up);
+        }
       }
     }
 

@@ -94,8 +94,8 @@ test('compact focus mode: balance card and big BUY go; Enter still buys', () => 
     'the balance card is decoration in focus — cash rides on the Buy label');
   assert.match(src, /\.pt-box\.pt-focus\.pt-focus-instant \.pt-buy \{ display: none; \}/,
     'the big BUY hides ONLY under one-tap presets (chips are the buttons)');
-  assert.match(src, /pt-focus-instant', focus && settings\.instantBuyEnabled !== false/,
-    'with instant buy off the button must stay — select-then-buy needs a trigger');
+  assert.match(src, /pt-focus-instant', focus && !micro && settings\.instantBuyEnabled !== false/,
+    'with instant buy off the button must stay — select-then-buy needs a trigger (micro hides it via CSS, chips only)');
   assert.match(src, /event\.key === 'Enter'\) els\.btnBuy\.click\(\)/,
     'Enter in the amount box buys — the hidden button still owns the flow');
   const labelFn = src.slice(src.indexOf('function buyLabelText('), src.indexOf('\n  }', src.indexOf('function buyLabelText(')));

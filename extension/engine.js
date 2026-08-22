@@ -1354,6 +1354,25 @@
     return total;
   }
 
+  /** Does this surface WANT the idle-SOL readout even with zero positions?
+   *  (away32 8/21 — "overlay sol balance at the top without needing to open
+   *  the ext"). Micro density: always. Anywhere: the moment the wallet has
+   *  a history (a fill ever happened, cash ever moved off the birth value,
+   *  or an armed order exists), because a trader who just closed everything
+   *  should not watch their balance vanish from the screen with it. A
+   *  factory-fresh wallet in standard density stays invisible as before —
+   *  no chrome until there is something to show. */
+  function densityWantsIdleSol(settings, state) {
+    if (settings && settings.panelDensity === 'micro') return true;
+    if (!state) return false;
+    if (state.seq > 0) return true;
+    if (state.stats && (state.stats.totalBuys > 0 || state.stats.totalSells > 0)) return true;
+    if (Object.keys(state.pendingBuys || {}).length > 0) return true;
+    if (Object.keys(state.orders || {}).length > 0) return true;
+    if (state.cashSol !== state.startSol) return true;
+    return false;
+  }
+
   /**
    * Which armed limit buys does this observed price fire?
    * A limit buy triggers when the price DROPS TO or below its level.
@@ -2149,6 +2168,7 @@
     addPendingBuy,
     removePendingBuy,
     lockedBuySol,
+    densityWantsIdleSol,
     triggeredPendingBuys,
     expirePendingBuys,
     orderSlipPct,

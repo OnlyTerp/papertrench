@@ -3,6 +3,22 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.11.0 — 2026-08-22
+
+**Micro mode — the Axiom-shaped strip** (away32: "very big, looks like AI
+slop… Axiom or Padre looks perfect"). The ◧ button now cycles three
+densities: standard → focus → micro. Micro is not a tighter panel; it drops
+the panel metaphor — one strip with token, price, your wallet SOL always
+visible, buy chips and sell controls. Nothing else. 229px tall on a live
+chart vs ~600px for the full panel.
+
+**Your SOL, always on screen** (away32: "overlay sol balance at the top
+without needing to open the ext"). Two places now: the micro strip shows
+idle SOL + armed limit-buy SOL inline, and the positions bar no longer
+vanishes when you close your last position — it reads "wallet · N ◎ idle"
+so your balance survives the book emptying. Fresh wallets in standard
+density stay chrome-free until there's something to show.
+
 ## v3.10.0 — 2026-08-21
 
 **Honest fills everywhere, limit buys, and the extension now tells you when
