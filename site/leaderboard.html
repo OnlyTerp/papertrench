@@ -22,15 +22,15 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="leaderboard.html" aria-current="page">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/leaderboard" aria-current="page">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -79,9 +79,9 @@
           <span class="glyph">🛡</span><span id="board-h">The podium</span>
           <span class="spacer"></span>
           <div class="ar-tabs">
-            <a class="ar-tab" href="leaderboard.html" aria-current="page">All-time</a>
-            <a class="ar-tab" href="sprint.html">This week</a>
-            <a class="ar-tab" href="duels.html">Duels</a>
+            <a class="ar-tab" href="/leaderboard" aria-current="page">All-time</a>
+            <a class="ar-tab" href="/sprint">This week</a>
+            <a class="ar-tab" href="/duels">Duels</a>
           </div>
         </div>
         <div id="podium"></div>
@@ -184,13 +184,13 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="sprint.html">Weekly Sprint</a>
-        <a href="duels.html">Duels</a>
-        <a href="clans.html">Clans</a>
-        <a href="news.html">News &amp; patch notes</a>
-        <a href="privacy.html">Privacy</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
       </div>
@@ -221,7 +221,7 @@
 
   function podiumCard(entry, rank) {
     const s = entry.stats;
-    return `<a class="ar-pod rank-${rank}" href="profile.html?handle=${encodeURIComponent(entry.handle)}">
+    return `<a class="ar-pod rank-${rank}" href="/profile?handle=${encodeURIComponent(entry.handle)}">
       ${rank === 1 ? '<span class="crown" aria-hidden="true">👑</span>' : ''}
       <span class="place">${rank === 1 ? 'CHAMPION' : 'RANK 0' + rank}</span>
       ${face(entry, 'face')}
@@ -245,7 +245,7 @@
     const isYou = signedInHandle && entry.handle.toLowerCase() === signedInHandle.toLowerCase();
     const discipline = L.scoreTerms(s).discipline;
     return `<a class="ar-row ${isYou ? 'is-you' : ''}" style="animation-delay:${Math.min(index * 26, 320)}ms"
-       href="profile.html?handle=${encodeURIComponent(entry.handle)}">
+       href="/profile?handle=${encodeURIComponent(entry.handle)}">
       <span class="pos">#${rank}</span>
       <span class="c-delta">${L.deltaCell(snapshot, entry.handle, index + 3)}</span>
       <span class="ar-who">
@@ -415,7 +415,7 @@
         ${face(session, 'ar-face')}
         <div style="min-width:0">
           <div style="font-weight:800">@${esc(session.handle)}</div>
-          <a class="ar-note" style="color:var(--orange2)" href="profile.html?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
+          <a class="ar-note" style="color:var(--orange2)" href="/profile?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
         </div>
       </div>
       <p class="ar-note" style="margin-top:12px">Every submission re-verifies from scratch, and a new

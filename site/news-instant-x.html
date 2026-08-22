@@ -42,17 +42,17 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="index.html#bubbles">Chart bubbles</a>
-      <a href="index.html#replay">Replay</a>
-      <a href="leaderboard.html">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html" aria-current="page">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/#bubbles">Chart bubbles</a>
+      <a href="/#replay">Replay</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -61,7 +61,7 @@
 <article>
   <header class="post-hero">
     <div class="wrap-read">
-      <a class="post-back" href="news.html"><span aria-hidden="true">←</span> All updates</a>
+      <a class="post-back" href="/news"><span aria-hidden="true">←</span> All updates</a>
       <div class="post-meta">
         <span class="ver-chip">v2.4.0</span>
         <span class="ver-chip">v2.5.0</span>
@@ -183,7 +183,7 @@
 
     <p>The same release also went after the work PaperTrench was making your terminal do — a feed-demand gate so that switching it off donates zero parsing to the host page, chips that stop thrashing layout at volume peaks, and a dashboard that stopped re-reading everything every four seconds. Plus receipts: the popup now counts your warm versus cold opens and shows your median routing time, measured locally.</p>
 
-    <p><a href="news-turbo.html">The full Terminal Turbo story →</a></p>
+    <p><a href="/news-turbo">The full Terminal Turbo story →</a></p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -206,7 +206,7 @@
           <p>While enabled, PaperTrench keeps ONE muted background x.com tab as the viewer (closed again if you turn the toggle off before using it). Two passive bridge scripts now load on x.com — they act only on PaperTrench's own messages and are pinned by a manifest test to never include the trading engine or overlay. Zero new extension permissions, no telemetry, no remote switches. Ctrl/Cmd/middle-click always bypasses the feature and opens a real background tab.</p>
         </div>
       </div>
-      <div class="pn-foot"><span>Also in v2.4.0:</span> <a href="news.html#v2-4-0">a real off switch for the whole extension</a></div>
+      <div class="pn-foot"><span>Also in v2.4.0:</span> <a href="/news#v2-4-0">a real off switch for the whole extension</a></div>
     </div>
 
     <div class="pn-panel reveal">
@@ -229,7 +229,7 @@
           <p>A dead link used to trigger a pointless "repair": X rendered "this post doesn't exist", the extension mistook that for a failed hop, and full-reloaded the same dead URL — seconds to say the same thing. The error page now counts as arrival (a deleted launch tweet is signal — see it instantly); only an error that was already on screen before the hop still falls through to the repair. Also pinned by test: classification never rewrites a link — path and query pass through byte-for-byte, so PaperTrench can never be the reason a tweet looks dead.</p>
         </div>
       </div>
-      <div class="pn-foot"><span>Also in v2.5.0:</span> <a href="news-flex.html">the Flex Pack share card</a></div>
+      <div class="pn-foot"><span>Also in v2.5.0:</span> <a href="/news-flex">the Flex Pack share card</a></div>
     </div>
 
     <div class="pn-panel reveal">
@@ -248,15 +248,15 @@
           <p>With no registered viewer, a clicked X link — post, profile, or a token's community — used to open a separate tab right next to the x.com tab you already kept. Now PaperTrench adopts your existing X tab as the viewer and routes into it, community links included. It will never claim a tab you are looking at, a pinned tab, or one playing audio — and adopted tabs are yours: toggling the feature off never closes them.</p>
         </div>
       </div>
-      <div class="pn-foot"><span>Also in v2.7.0:</span> <a href="news-fills.html">fills land on the chart you are looking at</a></div>
+      <div class="pn-foot"><span>Also in v2.7.0:</span> <a href="/news-fills">fills land on the chart you are looking at</a></div>
     </div>
 
     <div class="post-nav">
-      <a class="pnav" href="news-flex.html">
+      <a class="pnav" href="/news-flex">
         <span class="dir">← Newer</span>
         <span class="t">The Flex Pack share card</span>
       </a>
-      <a class="pnav next" href="news-fees.html">
+      <a class="pnav next" href="/news-fees">
         <span class="dir">Older →</span>
         <span class="t">Fees &amp; costs emulation</span>
       </a>
@@ -268,11 +268,11 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="index.html">Home</a>
-        <a href="news.html">News</a>
-        <a href="streams.html">Live on Twitch</a>
+        <a href="/">Home</a>
+        <a href="/news">News</a>
+        <a href="/streams">Live on Twitch</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/PERMISSIONS.md" target="_blank" rel="noopener">Permissions audit</a>
       </div>

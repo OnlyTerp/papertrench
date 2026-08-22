@@ -3534,7 +3534,7 @@ function renderLeaderboard(el) {
             ever phoning a server. The board still goes by the site's word, not this
             chip.
           </p>
-          <a class="btn" href="https://papertrench.com/leaderboard.html" target="_blank" rel="noopener"
+          <a class="btn" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
              style="margin-top:10px;display:inline-block">Sign in on papertrench.com →</a>
           `}
           <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 0">
@@ -3545,7 +3545,7 @@ function renderLeaderboard(el) {
         ` : `
           <p class="dim" style="font-size:12.5px;line-height:1.6;margin-top:0">
             Link your X account to appear on the leaderboard. The easy way: sign in with X
-            on <a href="https://papertrench.com/leaderboard.html" target="_blank" rel="noopener"
+            on <a href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
             style="color:var(--orange2)">papertrench.com</a> and this links itself. Or type
             the handle below — stored locally, submitted with your signed chain; a server
             verifies ownership before ranking you either way.
@@ -3604,7 +3604,7 @@ function renderStandingsPlaceholder(identity, stats) {
       </span>
     </div>
     <p class="dim" style="font-size:12px;line-height:1.6;margin:14px 0 0">
-      Global standings live at <a href="https://papertrench.com/leaderboard.html" target="_blank" rel="noopener" style="color:var(--orange2)">papertrench.com/leaderboard</a>,
+      Global standings live at <a href="https://papertrench.com/leaderboard" target="_blank" rel="noopener" style="color:var(--orange2)">papertrench.com/leaderboard</a>,
       recomputed server-side from submitted chains — never from a self-reported
       number. The same chain also feeds the weekly Sprint and head-to-head
       duels; there is no second record to keep. ROI is shown next to absolute
@@ -3613,9 +3613,9 @@ function renderStandingsPlaceholder(identity, stats) {
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
       <button class="btn-sec" id="lb-export" ${chain.length ? '' : 'disabled'}>Export record (JSON)</button>
-      <a class="btn-sec" href="https://papertrench.com/leaderboard.html" target="_blank" rel="noopener" style="text-decoration:none">Leaderboard ↗</a>
-      <a class="btn-sec" href="https://papertrench.com/sprint.html" target="_blank" rel="noopener" style="text-decoration:none">Weekly Sprint ↗</a>
-      <a class="btn-sec" href="https://papertrench.com/duels.html" target="_blank" rel="noopener" style="text-decoration:none">Duels ↗</a>
+      <a class="btn-sec" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener" style="text-decoration:none">Leaderboard ↗</a>
+      <a class="btn-sec" href="https://papertrench.com/sprint" target="_blank" rel="noopener" style="text-decoration:none">Weekly Sprint ↗</a>
+      <a class="btn-sec" href="https://papertrench.com/duels" target="_blank" rel="noopener" style="text-decoration:none">Duels ↗</a>
     </div>
     <div class="field field-check" style="margin-top:14px"><label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label><small>Lets papertrench.com read your verified record when you click Sync there — nothing is sent anywhere on its own, and no other site can ask. Off means the site tells you to use the exported file instead.</small></div>
     <div class="field field-check" style="margin-top:10px"><label><input type="checkbox" id="update-check" ${settings.updateCheckEnabled === false ? '' : 'checked'}> Check for new versions</label><small>Asks GitHub (api.github.com) if a newer release is out, twice a day, and shows a banner with the download link. Sends nothing but that one request. Unpacked extensions never update themselves, so this is the only way you hear about fixes. Turn it off for full no-phone-home mode.</small></div>`;

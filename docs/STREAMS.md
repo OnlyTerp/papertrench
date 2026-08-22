@@ -99,7 +99,7 @@ channel's `live_user_<login>` thumbnail resolves; an offline one redirects to
 the `404_preview` image. Checked every 60 s. If Twitch ever changes this, the
 page degrades to showing no badges — never wrong ones. The featured player
 auto-promotes the first live streamer unless the viewer clicked a specific one
-(or arrived via `streams.html?channel=<login>`).
+(or arrived via `/streams?channel=<login>`).
 
 ## Stream overlay (what streamers use)
 

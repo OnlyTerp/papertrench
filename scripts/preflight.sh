@@ -35,7 +35,10 @@ fi
 # navigate to, and both times it was caught by a person rather than a check.
 # Same failure mode as the version-pinned download link above: a rule that
 # lives only in someone's memory.
-NAV_DESTS="leaderboard.html sprint.html duels.html clans.html"
+# Extensionless: GitHub Pages resolves /leaderboard to leaderboard.html, and
+# the pages link that spelling. The .html form still resolves, so this list is
+# what decides which one the site is actually built out of.
+NAV_DESTS="/leaderboard /sprint /duels /clans"
 NAV_MISSING=""
 for page in site/*.html; do
   # Article pages and the Arena family all carry the same nav block.

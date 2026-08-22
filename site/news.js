@@ -275,7 +275,7 @@
       major: true,
       title: 'Paper perps on Hyperliquid and Jupiter — a second asset class',
       blurb: 'Leverage on the venues you actually use, with the venue’s own fees, funding and liquidation math. A major version because a liquidation can take your whole position — a different lesson from spot, announced as one.',
-      article: 'news-perps.html',
+      article: '/news-perps',
       points: [
         '<b>Four numbers before every entry.</b> Position size, the fee to open, your liquidation price with how far away it is, and what the position costs per hour to hold. On Hyperliquid the liquidation distance is also shown in ATRs — “1.3 ATR away on the 5m” says whether ordinary noise reaches it.',
         '<b>Real venue costs, not a house average.</b> Hyperliquid’s own taker/maker fees and hourly funding at the live rate; Jupiter’s 6 bps base fee, its price-impact fee, and hourly borrow. If the venue’s live rate can’t be read, the ticket won’t open — a perp without funding is a fantasy where leverage is free.',
@@ -320,7 +320,7 @@
       tags: ['feature'],
       title: 'Trench Rank — discipline is now the game',
       blurb: 'Every closed round gets a process grade, S to F. A disciplined red grades S. A lucky win grades F — and gets called lucky.',
-      article: 'news-trench-rank.html',
+      article: '/news-trench-rank',
       points: [
         '<b>Process grades on every closed round.</b> Graded on your plan, your exit, your sizing, and whether the entry was revenge — never on P&amp;L. The grade lands on the close toast, the rounds table, the calendar, and the share card.',
         '<b>The Trench Rank ladder.</b> Six tiers from Fresh Meat to Graduated, staged over the graduation criteria with live progress bars. The summit is the graduation bar itself — the game ends on purpose.',
@@ -344,7 +344,7 @@
       tags: ['feature'],
       title: 'The quick fixes live on the trading tab',
       blurb: 'Lev round two — the quick fixes now live where he meant them.',
-      article: 'news-quickedit.html',
+      article: '/news-quickedit',
       points: [
         '<b>A pencil on the trading panel.</b> The ✎ in the panel header opens a compact inline editor right on the trading tab — buy presets, sell percents, and fee/gas/tip/slippage — with the same validation rulebook the dashboard and popup use. Your costs ride as Fee/Gas/Tip/Slip chips under the buy row, click-to-edit, in both modes.',
         '<b>Focus mode is genuinely Axiom-compact now.</b> No balance card (cash rides inline on the Buy label, refreshed per fill), and while one-tap presets are on the big BUY button gets out of the way — the preset chips ARE the buttons, and Enter in the amount box buys. Instant-buy off keeps the button.',
@@ -355,7 +355,7 @@
       tags: ['fix', 'security'],
       title: 'The attestation chain lands whole',
       blurb: 'Update from v2.8.0 — it matters this time.',
-      article: 'news-chain.html',
+      article: '/news-chain',
       points: [
         '<b>v2.8.0 shipped with attestation-chain recording broken.</b> That release accidentally carried half of an in-flight migration: fills asked for the new segmented chain store, which was not aboard, so every paper fill made on v2.8.0 failed to append to your local attestation chain. The honest "could not be added to the verification chain" toast fired each time — the failure was visible, the chain simply could not record.',
         '<b>Your wallet, balances and P&amp;L were never affected.</b> The chain is the tamper-evidence layer used by leaderboard verification. On v2.8.1 the chain records again; fills made during the v2.8.0 window are simply absent from it, and the verify panel shows that gap honestly rather than pretending it is not there.',
@@ -369,7 +369,7 @@
       tags: ['feature', 'fix'],
       title: 'Fresh launches are snipeable, and the rug guard',
       blurb: 'Two from the maintainer\'s own trench session, same screenshot. Note: this build shipped with attestation-chain recording broken — use v2.8.1 or later.',
-      article: 'news-rugguard.html',
+      article: '/news-rugguard',
       points: [
         '<b>"ARMED … ON FIRST QUOTE" actually fires now (F-34).</b> A 39-second-old pump.fun coin used to strand the armed buy forever: no aggregator had indexed it, and with the chart in MCap mode every close was refused as "no implied supply".',
         '<b>The bonding curve is read directly.</b> The moment a pending coin looks like pump.fun, PaperTrench finds its bonding curve on chain (derived from the mint, verified against five live mainnet curves), identifies the real mint from the curve\'s reserve account, and streams the curve as a live CHAIN ⚡ feed with an immediate first quote. The fill is chain state, not a guess.',
@@ -393,8 +393,8 @@
       title: 'Community batch #2, Terminal Turbo, X-Ray dock, the floating Flex composer',
       blurb: 'The biggest batch so far: the fill-accuracy bug that could book you instant fake profit, then a whole pass on making every terminal feel fast.',
       articles: [
-        { href: 'news-fills.html', label: 'The fill-accuracy story' },
-        { href: 'news-turbo.html', label: 'Terminal Turbo, in full' },
+        { href: '/news-fills', label: 'The fill-accuracy story' },
+        { href: '/news-turbo', label: 'Terminal Turbo, in full' },
       ],
       points: [
         '<b>Fills land on the chart you are looking at — the "instant +14%" is dead.</b> On migrated (AMM) tokens the on-chain feed could lose one side of every trade it watched, filling paper trades up to ~13% away from the live chart. The stale-frame guard is now per-vault, and every fill is reconciled against the price on your screen (F-33).',
@@ -415,7 +415,7 @@
       tags: ['feature'],
       title: 'X-Ray — instant account intel on X',
       blurb: 'Open any X profile or post and the intel is already on screen: bio and handle changes, every contract address the account has posted, and who big follows them.',
-      article: 'news-xray.html',
+      article: '/news-xray',
       points: [
         '<b>Contract addresses posted.</b> Every CA the account has put out, dated by the post itself, newest first, click to copy — with a flag if one is sitting in the bio right now.',
         '<b>Bio, name and @handle changes,</b> counted separately, because a display-name swap and a rename are different tells.',
@@ -429,7 +429,7 @@
       tags: ['fix', 'feature'],
       title: 'Resize un-stick, four corners, Flex on the closed card',
       blurb: 'Three fixes straight from the maintainer taking a live trade.',
-      article: 'news-flex.html',
+      article: '/news-flex',
       points: [
         '<b>The resize grip can never stick again.</b> A cancelled gesture used to leave the drag latched, so the panel kept resizing with every mouse move. Pointer capture now guarantees a terminal event.',
         '<b>Resize from any corner.</b> All four corners are grips, anchored so the panel grows in the direction you drag.',
@@ -442,7 +442,7 @@
       tags: ['feature'],
       title: 'Share an open position — the still-holding flex',
       blurb: 'The real terminals card an OPEN position and ours only carded closed rounds.',
-      article: 'news-flex.html',
+      article: '/news-flex',
       points: [
         '<b>Live open positions on the Overview carry a Share button.</b> The card states OPEN, the middle column reads POSITION at the last recorded mark, and the journey line claims no EXIT that has not happened.',
         'USD figures appear only where fills and marks genuinely recorded them — same gallery, same Customize / Download / Copy, same un-removable branding.',
@@ -453,7 +453,7 @@
       tags: ['feature', 'speed'],
       title: 'The Flex Pack share card',
       blurb: 'Flex your PaperTrench P&L — with the one thing that can never come off the card.',
-      article: 'news-flex.html',
+      article: '/news-flex',
       points: [
         '<b>Terminal-grade share composer:</b> a huge ◎ SOL P&L, Invested / Returned / P&L% columns with honest USD sub-lines, the entry→exit→held journey line, and an observed-only After line no other terminal can print.',
         '<b>Backgrounds, yours.</b> Five built-in looks plus your own uploads — max 2 MB each, ten stored, saved between sessions.',
@@ -467,7 +467,7 @@
       tags: ['feature', 'speed'],
       title: 'Instant X links + a real off switch',
       blurb: 'Traders vet a coin by clicking its X link — and then wait ~3.5 seconds for a cold tab to load.',
-      article: 'news-instant-x.html',
+      article: '/news-instant-x',
       points: [
         '<b>Instant X links (opt-in).</b> X posts and profiles clicked on any supported trading site open in a kept-warm viewer tab via an in-page navigation: about half a second, and every follow-up click lands in the same already-hydrated tab.',
         '<b>Hover prefetch.</b> Rest the cursor on an X link for a tenth of a second and the hidden viewer starts navigating there before you click.',
@@ -491,7 +491,7 @@
       tags: ['feature'],
       title: 'Fees & costs emulation',
       blurb: 'Make paper fills cost what real fills cost.',
-      article: 'news-fees.html',
+      article: '/news-fees',
       points: [
         '<b>A new settings card models the FULL cost of a real fill:</b> the platform percentage, plus a flat priority fee (gas) and a bribe/tip per transaction — the costs that dominate small entries.',
         '<b>The accounting is honest end to end.</b> Flat costs join the cost basis on buys and reduce net proceeds on sells, so per-sell P&L, rounds, the calendar, the equity curve and the verification chain all include them.',
@@ -504,7 +504,7 @@
       tags: ['feature', 'fix'],
       title: 'The After, Guardrails, CSV export, onboarding',
       blurb: 'The practice loop gets its most important missing organ, plus training wheels and data ownership.',
-      article: 'news-the-after.html',
+      article: '/news-the-after',
       points: [
         '<b>The After.</b> Every closed round watches its coin for the following hour and records what ACTUALLY happened after your exit — observed extremes, sample counts, no interpolation.',
         '<b>Guardrails (training wheels).</b> Opt-in and enforced at buy time: a tilt breaker, a max position size, and a daily loss limit.',
@@ -528,7 +528,7 @@
       tags: ['fix', 'feature', 'security', 'speed'],
       title: 'Out of alpha',
       blurb: 'A four-track code audit produced a public, ranked defect register of 139 findings. v2.0.0 closes 116 of them — every one with a regression test that fails on the old code.',
-      article: 'news-v2.html',
+      article: '/news-v2',
       points: [
         '<b>Fills can no longer execute at stale prices.</b> Chain state, then the click-time snapshot, then a fresh page tick, then one resolver refresh — beyond that the trade is refused with a visible reason. The old default path filled at prices up to 10 seconds old.',
         '<b>The average-entry line finally holds your entry</b> instead of riding the candle on market-cap charts.',
