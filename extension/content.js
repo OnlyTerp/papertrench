@@ -4308,6 +4308,24 @@
 
     /* ---------------- sell row ---------------- */
 
+    /* Round ledger — what went in, what came back, what is still held. */
+    .pt-ledger {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+      margin-top: 8px; padding: 7px 8px;
+      background: rgba(0, 0, 0, 0.22); border: 1px solid var(--pt-line);
+      border-radius: 9px;
+    }
+    .pt-led { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .pt-led .k {
+      font-size: 8.5px; font-weight: 700; letter-spacing: 0.7px;
+      text-transform: uppercase; color: var(--pt-faint); white-space: nowrap;
+    }
+    .pt-led .v {
+      font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* The bag has already returned its cost — what is left is house money. */
+    .pt-ledger.pt-house { border-color: rgba(52, 211, 153, 0.35); background: rgba(52, 211, 153, 0.07); }
     .pt-sell-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 6px; }
     .pt-sell {
       padding: 9px 2px; border-radius: var(--pt-r-sm);
@@ -7087,9 +7105,42 @@
       void posEls.pnl.offsetWidth;
       posEls.pnl.classList.add(cls);
     }
+    renderPositionLedger(pos, mark);
     lastRenderedPrice = mark.price;
   }
 
+  /**
+   * Invested / sold / remaining / change, for a round that has been sold into.
+   *
+   * Hidden until the first partial sell: before then it would restate the
+   * Position size and Unrealized P&L rows directly above it in different
+   * words. It earns its space the moment some of the bag has been returned,
+   * which is when "am I ahead overall" stops being the same question as
+   * "is this position up".
+   */
+  function renderPositionLedger(pos, mark) {
+    if (!posEls || !posEls.ledger) return;
+    const led = Q.positionLedger(state.journal, pos, mark.valueSol);
+    if (!led || led.sells === 0) { posEls.ledger.classList.add('pt-hidden'); return; }
+    posEls.ledger.classList.remove('pt-hidden');
+
+    // The panel speaks the venue's currency: dollars off Solana, SOL on it.
+    const rate = panelUsd() ? panelUsdRate() : null;
+    const money = (sol) => (rate ? E.fmtUsd(sol * rate) : `${E.fmt(sol, 3)} SOL`);
+
+    posEls.ledIn.textContent = money(led.investedSol);
+    posEls.ledOut.textContent = money(led.soldSol);
+    posEls.ledLeft.textContent = money(led.remainingSol);
+
+    const up = led.changeSol >= 0;
+    posEls.ledChg.textContent = `${up ? '+' : ''}${money(led.changeSol)}`
+      + ` (${up ? '+' : ''}${led.changePct.toFixed(0)}%)`;
+    posEls.ledChg.classList.toggle('pt-green', up);
+    posEls.ledChg.classList.toggle('pt-red', !up);
+    // Once the sells alone cover what went in, the rest of the bag is
+    // house money — worth saying, because it changes how it should be held.
+    posEls.ledger.classList.toggle('pt-house', led.houseMoney);
+  }
   /**
    * Keep the newest realized result visible after a sell. Full exits show the
    * complete round-trip result; partial exits show the realized slice.
@@ -7604,6 +7655,12 @@
       <div class="row pt-detail"><span class="k">Avg entry</span><span class="v" data-f="entry"></span></div>
       <div class="row pt-detail"><span class="k">Value</span><span class="v" data-f="value"></span></div>
       <div class="row row-pnl"><span class="k">Unrealized P&amp;L</span><span class="v pnl" data-f="pnl"></span></div>
+      <div class="pt-ledger" data-f="ledger">
+        <div class="pt-led"><span class="k">Invested</span><span class="v" data-f="led-in"></span></div>
+        <div class="pt-led"><span class="k">Sold</span><span class="v" data-f="led-out"></span></div>
+        <div class="pt-led"><span class="k">Remaining</span><span class="v" data-f="led-left"></span></div>
+        <div class="pt-led"><span class="k">P&amp;L change</span><span class="v" data-f="led-chg"></span></div>
+      </div>
       <div class="pt-label" style="margin-top:10px">Quick sell</div>
       <div class="pt-sell-row" data-f="sell"></div>
     `;
@@ -7614,6 +7671,11 @@
       entry: card.querySelector('[data-f="entry"]'),
       value: card.querySelector('[data-f="value"]'),
       pnl: card.querySelector('[data-f="pnl"]'),
+      ledger: card.querySelector('[data-f="ledger"]'),
+      ledIn: card.querySelector('[data-f="led-in"]'),
+      ledOut: card.querySelector('[data-f="led-out"]'),
+      ledLeft: card.querySelector('[data-f="led-left"]'),
+      ledChg: card.querySelector('[data-f="led-chg"]'),
     };
 
     const row = card.querySelector('[data-f="sell"]');

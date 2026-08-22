@@ -1087,6 +1087,59 @@
    * current price. Pure, so the P&L shown on screen is exactly what tests
    * assert — this is the number the user watches tick.
    */
+  /**
+   * The money story of one open round: what went in, what has come back, and
+   * what is still on the table.
+   *
+   * positionMark answers "what is this worth now"; this answers "am I ahead",
+   * which is the question a partially-sold bag actually raises. A position
+   * sold down to house money shows a red unrealized P&L on the remainder
+   * while the round as a whole is up — the card said one thing and the trader
+   * meant the other.
+   *
+   * Derived, never stored (doctrine: derive, don't store). Sells are matched
+   * by sessionId, which is stamped per position-open, so a previous round in
+   * the same token cannot leak in. Chains predating sessionIds fall back to
+   * mint, bounded by openedAt for the same reason.
+   */
+  function positionLedger(journal, pos, remainingValueSol) {
+    if (!pos) return null;
+    var list = Array.isArray(journal) ? journal : [];
+    var sid = pos.sessionId || null;
+    var openedAt = Number(pos.openedAt) || 0;
+    var soldSol = 0;
+    var realizedSol = 0;
+    var sells = 0;
+
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (!t || t.side !== 'sell') continue;
+      var mine = sid && t.sessionId ? t.sessionId === sid : t.mint === pos.mint;
+      if (!mine) continue;
+      // A sell older than this position belongs to a previous round.
+      if (openedAt && Number(t.ts) < openedAt) continue;
+      soldSol += Number(t.solNet) || 0;
+      realizedSol += Number(t.pnlSol) || 0;
+      sells += 1;
+    }
+
+    var invested = Number(pos.investedSol) || 0;
+    var remaining = Number(remainingValueSol) || 0;
+    // Gross in, versus everything that has come back plus what is still held.
+    var change = soldSol + remaining - invested;
+    return {
+      investedSol: invested,
+      soldSol: soldSol,
+      remainingSol: remaining,
+      realizedSol: realizedSol,
+      changeSol: change,
+      changePct: invested > 0 ? (change / invested) * 100 : 0,
+      sells: sells,
+      // Has the round already returned more than it cost? The state the
+      // "sell initial" move exists to reach.
+      houseMoney: soldSol >= invested && invested > 0,
+    };
+  }
   function positionMark(pos, priceNative, priceUsd) {
     if (!pos || !(pos.qty > 0)) return null;
     var px = Number(priceNative) > 0 ? Number(priceNative) : Number(pos.lastPriceNative);
@@ -1431,6 +1484,7 @@
     sameAddress,
     pricesFromBatch,
     positionRows,
+    positionLedger,
     portfolioSummary,
     headerFields,
     shortAddress,
