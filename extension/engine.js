@@ -2183,6 +2183,10 @@
     resetState,
     buy,
     sell,
+    // Exported so the panel can plan an exit against the SAME flat cost the
+    // fill will charge. Re-deriving it there would be a second copy of the
+    // clamp, free to drift from this one.
+    txCostSol,
     getPosition,
     rekeyMint,
     markPosition,

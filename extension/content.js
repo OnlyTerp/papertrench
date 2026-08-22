@@ -4339,6 +4339,20 @@
 
     /* ---------------- sell row ---------------- */
 
+    .pt-sell-initial {
+      width: 100%; margin-top: 5px; padding: 7px 8px;
+      font: inherit; font-size: 11px; font-weight: 750; cursor: pointer;
+      color: var(--pt-green); background: rgba(52, 211, 153, 0.10);
+      border: 1px solid rgba(52, 211, 153, 0.32); border-radius: 8px;
+      transition: background 120ms linear, border-color 120ms linear;
+    }
+    .pt-sell-initial:hover { background: rgba(52, 211, 153, 0.18); border-color: rgba(52, 211, 153, 0.5); }
+    .pt-sell-initial:active { transform: scale(0.98); }
+    /* Refusing, not merely unavailable — it still says why. */
+    .pt-sell-initial.pt-short {
+      color: var(--pt-faint); background: rgba(255, 255, 255, 0.04);
+      border-color: var(--pt-line); cursor: not-allowed;
+    }
     /* Round ledger — what went in, what came back, what is still held. */
     .pt-ledger {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
@@ -7144,6 +7158,7 @@
       posEls.pnl.classList.add(cls);
     }
     renderPositionLedger(pos, mark);
+    renderSellInitial();
     lastRenderedPrice = mark.price;
   }
 
@@ -7156,6 +7171,51 @@
    * which is when "am I ahead overall" stops being the same question as
    * "is this position up".
    */
+  /** The live sell-initial plan for the open position, or null. */
+  function currentInitialPlan() {
+    const pos = token && state.positions[token.mint];
+    if (!pos) return null;
+    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
+    if (!mark) return null;
+    const led = Q.positionLedger(state.journal, pos, mark.valueSol);
+    return Q.sellInitialPlan(pos, led, mark.price, {
+      feeBps: settings.feeBps,
+      slippageBps: settings.slippageBps,
+      flatSol: E.txCostSol(settings),
+    });
+  }
+
+  /**
+   * The sell-initial control.
+   *
+   * Absent while there is nothing to recover — a round already returning
+   * more than it cost has no initial left to take off the table. Present but
+   * refusing when the whole bag could not cover it: that is a fact about the
+   * position worth stating, and a button that silently sold 100% while
+   * calling it a recovery would be the exact lie this feature exists to
+   * prevent.
+   */
+  function renderSellInitial() {
+    if (!posEls || !posEls.initial) return;
+    const btn = posEls.initial;
+    const plan = currentInitialPlan();
+    if (!plan) { btn.classList.add('pt-hidden'); return; }
+    btn.classList.remove('pt-hidden');
+
+    if (plan.shortfall) {
+      btn.disabled = true;
+      btn.classList.add('pt-short');
+      btn.textContent = 'Not enough to cover the initial yet';
+      btn.title = 'Selling the whole position would still return less than went in.';
+      return;
+    }
+    btn.disabled = false;
+    btn.classList.remove('pt-short');
+    const pct = plan.fraction * 100;
+    btn.textContent = `Sell initial (${pct < 1 ? pct.toFixed(1) : pct.toFixed(0)}%)`;
+    btn.title = 'Sells just enough to take back what you put in, costs included — '
+      + 'the rest of the bag becomes house money.';
+  }
   function renderPositionLedger(pos, mark) {
     if (!posEls || !posEls.ledger) return;
     const led = Q.positionLedger(state.journal, pos, mark.valueSol);
@@ -7701,6 +7761,7 @@
       </div>
       <div class="pt-label" style="margin-top:10px">Quick sell</div>
       <div class="pt-sell-row" data-f="sell"></div>
+      <button class="pt-sell-initial pt-hidden" data-f="initial" type="button"></button>
     `;
     els.position.appendChild(card);
 
@@ -7714,6 +7775,7 @@
       ledOut: card.querySelector('[data-f="led-out"]'),
       ledLeft: card.querySelector('[data-f="led-left"]'),
       ledChg: card.querySelector('[data-f="led-chg"]'),
+      initial: card.querySelector('[data-f="initial"]'),
     };
 
     const row = card.querySelector('[data-f="sell"]');
@@ -7727,6 +7789,19 @@
       });
       row.appendChild(b);
     });
+
+    // Sell exactly enough to have the money that went in back out.
+    const initialBtn = card.querySelector('[data-f="initial"]');
+    if (initialBtn) {
+      initialBtn.addEventListener('click', () => {
+        const plan = currentInitialPlan();
+        // Refused rather than approximated: a shortfall sold as if it were a
+        // recovery is the one outcome this button must never produce.
+        if (!plan || plan.shortfall) return;
+        primeAudio();
+        doSell(plan.fraction);
+      });
+    }
 
     buildOrdersSection(card);
   }
