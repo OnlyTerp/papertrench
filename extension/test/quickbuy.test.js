@@ -118,11 +118,19 @@ test('the quick-buy controls live in their own labeled card (discoverability)', 
   assert.ok(cardOpen !== -1, 'a "Buying" settings card must exist');
   // Every QB control must come AFTER the card heading (i.e. inside the card,
   // not scattered elsewhere in the page).
-  for (const id of ['set-presets', 'set-instant-buy', 'set-list-quick-buy', 'set-panel-buy', 'set-panel-presets']) {
+  for (const id of ['set-instant-buy', 'set-list-quick-buy', 'set-panel-buy', 'set-panel-presets']) {
     const at = dashJs.indexOf(`id="${id}"`);
     assert.ok(at !== -1, `${id} must exist`);
     assert.ok(at > cardOpen, `${id} must live inside the Buying card`);
   }
+  // set-presets is no longer written as a literal id= in the card: it is a row
+  // of one-value boxes emitted by renderPresetBoxes(), which also carries the
+  // hidden comma-joined mirror that saveFromForm reads. The property under
+  // test is unchanged — the control must sit inside the Buying card — so it is
+  // located by the call that renders it.
+  const presetsAt = dashJs.indexOf("renderPresetBoxes('set-presets'");
+  assert.ok(presetsAt !== -1, 'the quick-buy preset row must be rendered');
+  assert.ok(presetsAt > cardOpen, 'the quick-buy preset row must live inside the Buying card');
 });
 
 /* ---------------- screener row quick buys ---------------- */
@@ -464,4 +472,65 @@ test('an armed row snipe keeps probing until filled or expired (D-42 Bug 4)', ()
     'the armed intent runs a repeating 1.5 s flush probe');
   assert.match(content, /if \(!rowArmed\) \{\s*\n\s*clearInterval\(rowArmedFlushTimer\)/,
     'the probe self-clears when the intent fills or expires');
+});
+/* ------------------------------------------------------------------------
+ * One box per preset.
+ *
+ * The list was a single text field holding "0.1, 0.5, 1, 2" — the user had to
+ * know the delimiter, spot a stray comma, and edit four numbers inside one
+ * string. Whatever failed to parse was dropped, which reads as the app
+ * forgetting a value rather than refusing it.
+ * ---------------------------------------------------------------------- */
+
+test('both preset lists render as boxes, not a comma-separated string', () => {
+  for (const id of ['set-presets', 'set-sellpcts']) {
+    assert.ok(dashJs.includes(`renderPresetBoxes('${id}'`), `${id} must render as boxes`);
+  }
+  // The old shape must be gone, or the change is cosmetic on one of them.
+  assert.ok(!/id="set-presets" type="text"/.test(dashJs), 'the SOL text field must be gone');
+  assert.ok(!/id="set-sellpcts" type="text"/.test(dashJs), 'the % text field must be gone');
+});
+
+test('the hidden mirror keeps the existing save path intact', () => {
+  // saveFromForm reads these through numberList(), which splits a comma
+  // string. Keeping that contract is what makes this a UI change only —
+  // validation, the coercion notes and their tests all stay put.
+  const helper = dashJs.slice(
+    dashJs.indexOf('function renderPresetBoxes('),
+    dashJs.indexOf('\n}', dashJs.indexOf('function renderPresetBoxes(')));
+  assert.match(helper, /type="hidden" id="\$\{id\}"/, 'a hidden mirror must carry the id');
+  assert.match(helper, /values\.join\(', '\)/, 'and hold the comma-joined value numberList expects');
+  assert.match(dashJs, /numberList\('set-presets'/, 'the save path must be unchanged');
+  assert.match(dashJs, /numberList\('set-sellpcts'/, 'for both lists');
+});
+
+test('the mirror is resynced on every edit, before any save can read it', () => {
+  const bind = dashJs.slice(
+    dashJs.indexOf('function bindPresetRows('),
+    dashJs.indexOf('\nfunction bindSettings()'));
+  assert.match(bind, /addEventListener\('input'/, 'typing in a box must resync the mirror');
+  assert.match(bind, /mirror\.value = values\.join\(', '\)/, 'the mirror is rewritten from the boxes');
+  // Removal is a committed edit, but a hidden input fires no change of its
+  // own — without this, deleting a preset would not autosave.
+  assert.match(bind, /dispatchEvent\(new Event\('change'/,
+    'removing a box must announce itself as a change');
+});
+
+test('a preset row can never be emptied to nothing', () => {
+  // saveFromForm restores defaults for an empty list, so an empty row reads
+  // as the app ignoring the edit rather than accepting it.
+  const bind = dashJs.slice(
+    dashJs.indexOf('function bindPresetRows('),
+    dashJs.indexOf('\nfunction bindSettings()'));
+  assert.match(bind, /length > 1/, 'the last remaining box must not be removable');
+});
+
+test('the row stops offering more boxes than the save path will keep', () => {
+  // numberList() truncates past 8; offering a 9th box would accept input that
+  // is silently discarded on save.
+  const bind = dashJs.slice(
+    dashJs.indexOf('function bindPresetRows('),
+    dashJs.indexOf('\nfunction bindSettings()'));
+  assert.match(bind, /MAX_BOXES = 8/, 'the cap must match numberList()');
+  assert.match(bind, />= MAX_BOXES/, 'and be enforced on add');
 });
