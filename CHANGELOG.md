@@ -3,6 +3,35 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.3 — 2026-08-22
+
+**Twelve quality-of-life upgrades from the community wave.** The overlay
+gains a round ledger, the popup gets real tabs, and the site puts your
+paper balance in its header:
+
+- **Round ledger** — the panel now shows what went in, what came back, and
+  what's still held for any position you've partially sold into, with the
+  change both ways and a green treatment once the bag has paid for itself.
+
+- **Sell your initial, costed exactly** — one button computes the sell that
+  returns exactly what you invested (fees included), leaving the rest riding.
+
+- **Compact panel declutter** — the custom-amount box is opt-in via settings,
+  and the market-cap alert is quiet while compact.
+
+- **Popup: three panes** — Positions / Recent / Settings instead of one long
+  scroll.
+
+- **Profile control in the site header**, and the **paper balance** (cash,
+  equity, open positions) rides the site bridge — visible only with Site
+  sync on, priced without any network calls.
+
+- **Leaderboard tab leads with the board**, and onboarding now asks one
+  centred question at a time instead of three steps you can't act on yet.
+
+- **Favicon** Google actually picks up; extensionless URLs finished across
+  the site; what's-new card surfaces release tips once per version.
+
 ## v3.13.2 — 2026-08-22
 
 **Trenches quick-buy: one button per card, and fills that actually stick.**

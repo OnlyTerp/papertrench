@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.3', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['feature'],
+        title: 'Round ledger, sell-your-initial, a tabbed popup, balance in the header',
+        body: 'The community wave. The panel gains a round ledger — what went in, what came back, what is still held, and the change both ways, going green the moment a bag has paid for itself. A new button sells exactly your initial (fees costed), leaving the rest riding. The custom-amount box is opt-in and the MC alert is quiet while compact. The popup is three panes instead of one scroll. The site header shows your profile and — with Site sync on — your paper balance, priced without a single network call. The leaderboard tab now leads with the board, onboarding asks one centred question at a time, and the favicon is one Google actually picks up.',
+      },
+      {
         v: '3.13.2', date: 'Aug 22, 2026', iso: '2026-08-22',
         tags: ['fix'],
         title: 'Trenches quick-buy: one button per card, fills that stick',
