@@ -413,7 +413,7 @@
         const { out } = await post('/api/clan/join', {
           code: document.getElementById('join-code').value,
         });
-        if (out && out.ok) { window.location.href = 'clan.html?tag=' + encodeURIComponent(out.tag); return; }
+        if (out && out.ok) { window.location.href = '/clan?tag=' + encodeURIComponent(out.tag); return; }
         tell(`<p class="ar-note">${esc(problemText((out && out.reason) || 'server-error'))}</p>`);
       });
     }
@@ -446,7 +446,7 @@
           motto: document.getElementById('new-motto').value,
           open: document.getElementById('new-open').checked,
         });
-        if (out && out.ok) { window.location.href = 'clan.html?tag=' + encodeURIComponent(out.tag); return; }
+        if (out && out.ok) { window.location.href = '/clan?tag=' + encodeURIComponent(out.tag); return; }
         tell(`<p class="ar-note">${esc(problemText((out && out.reason) || 'server-error'))}</p>`);
       });
     }

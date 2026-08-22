@@ -1033,7 +1033,7 @@
     const code = String(body.code);
     // The server builds the canonical link from its own SITE_ORIGIN; fall back
     // to this page's origin only if it did not send one.
-    const url = body.url || new URL('duel.html?code=' + encodeURIComponent(code), location.href).href;
+    const url = body.url || new URL('/duel?code=' + encodeURIComponent(code), location.href).href;
     const duration = humanDuration(body.durationMs);
     const gauntlet = code + (duration ? ' · ' + duration : '') +
       ' · paper only, same clock, no money. Accept: ' + url;
@@ -1321,7 +1321,7 @@
   function duelCard(view, index) {
     const code = String(view.code || '');
     const status = String(view.status || '');
-    const href = 'duel.html?code=' + encodeURIComponent(code);
+    const href = '/duel?code=' + encodeURIComponent(code);
     const absolute = new URL(href, location.href).href;
     const w = view.window || {};
     const duration = humanDuration(view.durationMs);

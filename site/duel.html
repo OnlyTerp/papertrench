@@ -1328,7 +1328,7 @@
     document.getElementById('eyebrow-text').textContent = 'No duel code in this link';
     fail(L.empty('🔗', 'This link has no duel code in it.',
       'A duel link carries its code in the address, like ' +
-      '<code style="font-family:var(--mono);color:var(--orange2)">duel.html?code=TRENCH-XXXXXX</code>. ' +
+      '<code style="font-family:var(--mono);color:var(--orange2)">/duel?code=TRENCH-XXXXXX</code>. ' +
       'Without one there is no duel to look up, and nothing is invented to fill the page. ' +
       '<a href="/duels" style="color:var(--orange2)">Your duels are here</a>.'));
     seatEl.innerHTML = '<p class="ar-note">Nothing to join without a code.</p>';

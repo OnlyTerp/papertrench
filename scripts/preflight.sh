@@ -82,6 +82,19 @@ for page in site/*.html; do
 done
 [ -z "$A11Y_MISSING" ] || fail "pages missing accessibility landmarks —$A11Y_MISSING"
 echo "a11y OK (skip link, main landmark and named nav on $(grep -lc 'class="skip-link"' site/*.html | wc -l) pages)"
+# The site links its pages extensionless. A "<page>.html" string left in JS
+# is not a broken link — .html still resolves — which is exactly why it
+# survives review: it works, it is just the wrong spelling, and it escapes
+# an href-based sweep because it is built at runtime.
+#
+# One of these shipped into the SHARE URL for every duel, so the link people
+# passed around carried the old form indefinitely.
+STALE_URLS=$(grep -rnoE "'[a-z0-9-]+\.html" site/*.html site/*.js | grep -v papertrench.com || true)
+if [ -n "$STALE_URLS" ]; then
+  echo "$STALE_URLS" >&2
+  fail "site JS still builds .html URLs — the site links extensionless"
+fi
+echo "url spelling OK (no .html URLs built in site JS)"
 
 # Every public page must be in sitemap.xml, or deliberately named as excluded.
 #
