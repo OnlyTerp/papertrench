@@ -3619,7 +3619,7 @@ function renderLbWizard(el, steps, identity, chainLen) {
 
   const action = (step, i) => {
     if (step.done) return '';
-    if (i !== current) return '<p class="lb-step-wait dim">Finish the step above first.</p>';
+    if (i !== current) return '';   // only the current step is ever rendered
     if (step.id === 'link') {
       return `
         <a class="btn" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
@@ -3648,35 +3648,32 @@ function renderLbWizard(el, steps, identity, chainLen) {
       </div>`;
   };
 
+  const step = steps[current];
+
+  // One question, centred, with the finished ones behind it as pips. The
+  // list form showed all three at once: two of them were things the reader
+  // could not act on yet, and a step they cannot do is a step they have to
+  // read past. Requested as "center the questions one by one".
   el.innerHTML = `
-    <div class="card lb-intro">
-      <h3>Get on the leaderboard</h3>
-      <p class="dim" style="font-size:13px;line-height:1.6;margin:6px 0 0">
-        Three steps, once. The board ranks a hash-chained record of real fills, so
-        it needs an identity to rank, a chain to read, and your permission to read it.
-      </p>
-      <div class="lb-progress" role="img" aria-label="${doneCount} of ${steps.length} steps complete">
-        ${steps.map((s) => `<span class="lb-pip ${s.done ? 'on' : ''}"></span>`).join('')}
-        <span class="lb-progress-label">${doneCount} of ${steps.length} done</span>
+    <div class="lb-onboard">
+      <div class="lb-onboard-card">
+        <div class="lb-progress" role="img" aria-label="Step ${current + 1} of ${steps.length}">
+          ${steps.map((x, i) => `<span class="lb-pip ${x.done ? 'on' : i === current ? 'now' : ''}"></span>`).join('')}
+        </div>
+        <div class="lb-onboard-count">Step ${current + 1} of ${steps.length}</div>
+
+        <h2 class="lb-onboard-q">${esc(step.title)}</h2>
+        <p class="lb-onboard-why">${esc(step.blurb)}</p>
+
+        <div class="lb-onboard-do">${action(step, current)}</div>
+
+        ${doneCount ? `<ul class="lb-onboard-done">${steps.filter((x) => x.done).map((x) =>
+          `<li>✓ ${esc(x.title)}${x.id === 'link' && identity ? ` — @${esc(identity.handle)}` : ''}</li>`).join('')}</ul>` : ''}
       </div>
-    </div>
 
-    <ol class="lb-steps">
-      ${steps.map((s, i) => `
-        <li class="lb-step ${s.done ? 'done' : i === current ? 'now' : 'later'}">
-          <div class="lb-step-n">${s.done ? '✓' : i + 1}</div>
-          <div class="lb-step-body">
-            <h4>${esc(s.title)}${s.done && s.id === 'link' && identity ? ` <span class="dim" style="font-weight:600">— @${esc(identity.handle)}</span>` : ''}</h4>
-            <p class="dim">${esc(s.blurb)}</p>
-            ${action(s, i)}
-          </div>
-        </li>`).join('')}
-    </ol>
-
-    <div class="card" style="margin-top:16px">
-      <details>
+      <details class="lb-onboard-more">
         <summary>What the board does with it</summary>
-        <ul style="margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.65">
+        <ul>
           <li>Standings are recomputed server-side from the chain, never from a number this app reports.</li>
           <li>Every fill is hashed when made, before the outcome is known, so a winning entry cannot be backdated.</li>
           <li>Results compare return on your declared bankroll, not absolute SOL — a bigger starting balance buys no rank.</li>
@@ -3685,7 +3682,6 @@ function renderLbWizard(el, steps, identity, chainLen) {
       </details>
     </div>`;
 }
-
 function renderLeaderboard(el) {
   const chain = attestChain; // F-14: loaded from the segmented store
   const stats = E.sessionStats(state, settings);
