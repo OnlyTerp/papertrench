@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS x_feed_cache (
 -- This is the one table in the schema holding contact details for people who
 -- are not users — a Discord handle, maybe an email in contact_link, and when
 -- they are reachable. Nothing here is served by a public route: the roster
--- endpoint selects only name/twitch_login/notes from approved rows, and
+-- endpoint selects only name/twitch_login/blurb from approved rows, and
 -- everything else leaves D1 solely through the moderator-gated read.
 CREATE TABLE IF NOT EXISTS streamer_applications (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

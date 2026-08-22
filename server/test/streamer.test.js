@@ -260,3 +260,22 @@ test('review statuses are a closed set, and pending is one of them', () => {
     assert.equal(S.isStatus(bogus), false);
   }
 });
+
+/* -------------------------------------------------- post-merge hardening */
+
+test('an over-long URL is rejected whole, never stored as a broken prefix', () => {
+  // Review nit fixed post-merge: safeUrl used to slice AFTER validation, and
+  // worse, clean() pre-truncated before parsing — so an over-limit URL sailed
+  // through as a valid-looking prefix pointing somewhere the applicant never
+  // sent. Now the full string is validated and length is judged once, on the
+  // normalized result.
+  const at = 'https://twitch.tv/' + 'a'.repeat(180);   // exactly 200 raw
+  const norm = S.safeUrl(at, 200);
+  assert.ok(norm && norm.startsWith('https://twitch.tv/aaaa'), 'at-limit URL survives');
+  assert.ok(norm.length <= 200, 'normalized form respects the cap');
+  const over = 'https://twitch.tv/' + 'a'.repeat(200); // 219
+  assert.equal(S.safeUrl(over, 200), null);
+  // Whitespace around an over-limit URL must not mask the length: the padding
+  // is stripped before judging, so this is still over.
+  assert.equal(S.safeUrl('  ' + over + '  ', 200), null);
+});

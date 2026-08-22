@@ -88,7 +88,11 @@ function cleanMultiline(value, max) {
  * door means no downstream renderer has to remember.
  */
 function safeUrl(raw, max) {
-  let text = clean(raw, max);
+  // Validate the FULL string, never a pre-truncated copy: clean() would slice
+  // it to `max` before parsing, so an over-long URL would sail through as a
+  // valid-looking broken prefix. Length is judged once, at the end, on the
+  // normalized result.
+  let text = trim(raw).replace(STRIP_INVISIBLE, '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
   // A bare "twitch.tv/name" is what people actually type; assume https rather
   // than failing them for it.
@@ -97,7 +101,10 @@ function safeUrl(raw, max) {
   try { url = new URL(text); } catch { return null; }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
   if (!url.hostname.includes('.')) return null;
-  return url.toString().slice(0, max);
+  // Reject over-length rather than truncating: a sliced URL stores a
+  // valid-looking prefix that points somewhere the applicant never sent us.
+  if (url.toString().length > max) return null;
+  return url.toString();
 }
 
 /** Which platform a channel URL points at — a label for the mod queue. */
