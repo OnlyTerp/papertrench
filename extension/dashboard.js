@@ -4253,7 +4253,11 @@ function renderSettings(el) {
       ${renderTurboCard()}
     </div>
     <div class="card" style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <button class="btn" id="save-settings">Save settings</button>
+      <!-- Kept, though nothing needs it: changes save on their own now. It is
+           here for the person who wants to see something happen after typing,
+           and as the retry when an auto-save reports a failure. -->
+      <button class="btn-sec" id="save-settings" title="Changes already save on their own — this forces one now">Save now</button>
+      <span class="dim" style="font-size:12px">Changes save automatically.</span>
       <span id="save-status" class="dim" style="font-size:12px" role="status"></span>
       <button class="btn-sec" id="test-ai">Test AI endpoint</button>
       <span id="ai-test-result" class="dim" style="font-size:12px"></span>
@@ -4265,7 +4269,56 @@ function renderSettings(el) {
 }
 
 /** Wire the settings form. Called after the section is in the document. */
+/**
+ * Persist settings as they are changed, so the Save button is a confirmation
+ * rather than a requirement.
+ *
+ * Reported repeatedly: people change a setting, leave the tab, and find it
+ * reverted — the form looked applied because the control looked applied, and
+ * the button that made it true was a scroll away past seventy other controls.
+ *
+ * Bound to `change`, deliberately not `input`. On a text or number field
+ * `change` fires when the value is COMMITTED (blur, or Enter), while `input`
+ * fires per keystroke — which would save "0." as someone types "0.5", and
+ * saveFromForm coerces what it is given. Checkboxes, selects and ranges fire
+ * `change` at the moment they settle, so those still feel instant.
+ *
+ * saveFromForm re-reads storage, lays only form-controlled keys over it, and
+ * writes nothing back into the DOM, so calling it repeatedly is safe and
+ * cannot fight the user's cursor.
+ */
+function bindSettingsAutosave(section) {
+  if (!section) return;
+  let timer = null;
+
+  section.addEventListener('change', (event) => {
+    const el = event.target;
+    if (!el || !el.matches || !el.matches('input, select, textarea')) return;
+    // The search box is a view control, not a setting.
+    if (el.id === 'set-search') return;
+
+    const status = document.getElementById('save-status');
+    if (status) { status.textContent = 'Saving…'; status.style.color = ''; }
+
+    // Coalesce bursts — toggling three checkboxes is one write, not three.
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      // saveFromForm owns its own success/failure reporting, including the
+      // "adjusted:" notes when a value had to be coerced. Nothing to add here.
+      saveFromForm().catch((err) => {
+        console.error('PaperTrench: autosave failed', err);
+        if (status) {
+          status.textContent = 'Auto-save failed — press Save settings to retry.';
+          status.style.color = 'var(--red)';
+        }
+      });
+    }, 250);
+  });
+}
+
 function bindSettings() {
+  bindSettingsAutosave(document.getElementById('settings'));
   document.getElementById('save-settings').addEventListener('click', saveFromForm);
   // Fees & costs quick fill-in: writes the fields, never storage — Save still
   // owns persistence, and the numbers stay the user's to edit.
