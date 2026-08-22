@@ -3793,7 +3793,6 @@
     .pt-box.pt-micro .pt-header #pt-visibility,
     .pt-box.pt-micro .pt-header #pt-dash,
     .pt-box.pt-micro .pt-header #pt-min,
-    .pt-box.pt-micro #pt-buy-label,
     .pt-box.pt-micro #pt-costs,
     .pt-box.pt-micro #pt-custom,
     .pt-box.pt-micro .pt-buy,
@@ -4369,13 +4368,43 @@
       border-color: var(--pt-line); cursor: not-allowed;
     }
     /* Round ledger — what went in, what came back, what is still held. */
+    /* Micro keeps the balance. It hid #pt-buy-label with the rest of the buy
+       furniture, and that label is where cash on hand lives — so the smallest
+       panel was the one that never showed how much paper SOL you had, on any
+       site. Trimmed rather than dropped. */
+    .pt-box.pt-micro #pt-buy-label {
+      font-size: 9px; margin: 0 0 3px; letter-spacing: 0.4px;
+    }
+    /* Compact modes keep the ledger too, at two columns rather than four. */
+    .pt-box.pt-micro .pt-ledger { grid-template-columns: repeat(2, 1fr); gap: 3px; }
+    .pt-box.pt-micro .pt-led { padding: 4px 5px; }
+    .pt-box.pt-micro .pt-led .k { font-size: 7.5px; }
+    .pt-box.pt-micro .pt-led .v { font-size: 10px; }
+    .pt-box.pt-focus .pt-ledger { gap: 3px; }
+    /* Direction is colour before it is text: the buy chips read green, the
+       sell ladder red, so a mis-click is visible before it is a fill. */
+    .pt-preset { color: var(--pt-green); }
+    .pt-buy { color: var(--pt-green); }
+    .pt-sell { color: var(--pt-red); }
+    .pt-sell:disabled, .pt-preset:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Sell-initial sits in the same row rhythm as the ladder above it. */
+    .pt-sell-initial { margin-top: 4px; padding: 5px 8px; font-size: 10px; }
+    .pt-sell-initial:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* One box per figure, with its own border. They were four labels sharing
+       a background — reported as "thrown there" with nothing separating the
+       numbers, and at a glance the value of one read as the label of the next. */
     .pt-ledger {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
-      margin-top: 8px; padding: 7px 8px;
-      background: rgba(0, 0, 0, 0.22); border: 1px solid var(--pt-line);
-      border-radius: 9px;
+      margin-top: 8px;
     }
-    .pt-led { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .pt-led {
+      min-width: 0; padding: 5px 6px;
+      display: flex; flex-direction: column; gap: 2px;
+      background: rgba(0, 0, 0, 0.26);
+      border: 1px solid var(--pt-line);
+      border-radius: 7px;
+    }
     .pt-led .k {
       font-size: 8.5px; font-weight: 700; letter-spacing: 0.7px;
       text-transform: uppercase; color: var(--pt-faint); white-space: nowrap;
@@ -7148,20 +7177,29 @@
     if (!els.position) return;
     const pos = token && state.positions[token.mint];
 
+    // The card is ALWAYS present, held or not. It used to be torn down the
+    // moment a position closed, so the sell ladder and the round ledger
+    // appeared and vanished — reported as the sell buttons not always being
+    // there. An empty card states the shape of the thing and disables what
+    // cannot be done; it never claims a number it does not have.
+    if (!posEls) buildPositionCard(pos || null);
+
     if (!pos) {
-      if (els.position.childNodes.length) els.position.textContent = '';
-      posEls = null;
+      renderEmptyPosition();
       posOrderEls = null;
       return;
     }
-
-    if (!posEls) buildPositionCard(pos);
     // Armed levels change from the chart (a drag, a cancel) and from the
     // wallet (an order firing), neither of which rebuilds the card.
     renderOrderList();
 
     const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
     if (!mark) return;
+
+    // Re-arm whatever the empty state switched off — the card persists now,
+    // so a disabled control would otherwise stay disabled after a buy.
+    setSellLadderEnabled(true);
+    if (posEls.orders) posEls.orders.classList.remove('pt-hidden');
 
     posEls.qty.textContent = `${E.fmt(mark.qty, 2)} ${pos.symbol}`;
     // "I got in at 240K" is how the entry is actually discussed, so the card
@@ -7228,28 +7266,84 @@
     if (!posEls || !posEls.initial) return;
     const btn = posEls.initial;
     const plan = currentInitialPlan();
-    if (!plan) { btn.classList.add('pt-hidden'); return; }
+    // Always on screen, never hidden — a control that comes and goes cannot
+    // be reached for. It goes inert with a reason instead.
     btn.classList.remove('pt-hidden');
+    if (!plan) {
+      btn.disabled = true;
+      btn.classList.remove('pt-short');
+      btn.textContent = 'Sell init';
+      btn.title = 'Nothing left to recover — the sells have already returned what went in.';
+      return;
+    }
 
     if (plan.shortfall) {
       btn.disabled = true;
       btn.classList.add('pt-short');
-      btn.textContent = 'Not enough to cover the initial yet';
+      btn.textContent = 'Sell init';
       btn.title = 'Selling the whole position would still return less than went in.';
       return;
     }
     btn.disabled = false;
     btn.classList.remove('pt-short');
     const pct = plan.fraction * 100;
-    btn.textContent = `Sell initial (${pct < 1 ? pct.toFixed(1) : pct.toFixed(0)}%)`;
+    btn.textContent = `Sell init ${pct < 1 ? pct.toFixed(1) : pct.toFixed(0)}%`;
     btn.title = 'Sells just enough to take back what you put in, costs included — '
       + 'the rest of the bag becomes house money.';
+  }
+  /**
+   * The card with nothing held.
+   *
+   * Every figure is an em dash rather than a zero. A zero is a measurement
+   * — it says the position is worth nothing — and there is no position to
+   * measure. The controls stay on screen and go inert, so the panel has one
+   * shape whether or not a bag is open.
+   */
+  /** Arm or disarm the quick-sell ladder. Direct children, not a selector:
+   *  the buttons are appended straight into the row, and reading them this
+   *  way behaves identically in a real DOM and under test. */
+  function setSellLadderEnabled(on) {
+    if (!posEls || !posEls.sellRow) return;
+    for (const b of Array.from(posEls.sellRow.children || [])) {
+      if (b && b.className === 'pt-sell') b.disabled = !on;
+    }
+  }
+  function renderEmptyPosition() {
+    if (!posEls) return;
+    const DASH = '—';
+    posEls.qty.textContent = DASH;
+    posEls.entry.textContent = DASH;
+    posEls.value.textContent = DASH;
+    posEls.pnl.textContent = DASH;
+    posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
+
+    if (posEls.ledger) {
+      posEls.ledger.classList.remove('pt-hidden', 'pt-house');
+      posEls.ledIn.textContent = DASH;
+      posEls.ledOut.textContent = DASH;
+      posEls.ledLeft.textContent = DASH;
+      posEls.ledChg.textContent = DASH;
+      posEls.ledChg.classList.remove('pt-green', 'pt-red');
+    }
+    if (posEls.initial) {
+      posEls.initial.classList.remove('pt-hidden', 'pt-short');
+      posEls.initial.disabled = true;
+      posEls.initial.textContent = 'Sell init';
+      posEls.initial.title = 'Nothing held yet — this sells just enough to take back what you put in.';
+    }
+    setSellLadderEnabled(false);
+    if (posEls.orders) posEls.orders.classList.add('pt-hidden');
+    lastRenderedPrice = null;
   }
   function renderPositionLedger(pos, mark) {
     if (!posEls || !posEls.ledger) return;
     const led = Q.positionLedger(state.journal, pos, mark.valueSol);
-    if (!led || led.sells === 0) { posEls.ledger.classList.add('pt-hidden'); return; }
+    // Always on screen. It used to appear only after the first partial sell,
+    // so the row the trader was looking for arrived exactly when they were
+    // busy. Before a sell, `sold` is honestly zero — money genuinely has not
+    // come back — while invested and remaining are real from the first fill.
     posEls.ledger.classList.remove('pt-hidden');
+    if (!led) return;
 
     // The panel speaks the venue's currency: dollars off Solana, SOL on it.
     const rate = panelUsd() ? panelUsdRate() : null;
@@ -7805,6 +7899,7 @@
       ledLeft: card.querySelector('[data-f="led-left"]'),
       ledChg: card.querySelector('[data-f="led-chg"]'),
       initial: card.querySelector('[data-f="initial"]'),
+      sellRow: card.querySelector('[data-f="sell"]'),
     };
 
     const row = card.querySelector('[data-f="sell"]');

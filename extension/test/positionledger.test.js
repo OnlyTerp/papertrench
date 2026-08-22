@@ -83,8 +83,90 @@ test('the panel renders it in the venue currency, and only after a sell', () => 
   const fn = content.slice(
     content.indexOf('function renderPositionLedger('),
     content.indexOf('\n  }', content.indexOf('function renderPositionLedger(')) + 4);
-  assert.match(fn, /led\.sells === 0/, 'it must stay hidden until something has been sold');
+  // It is permanent now. Before the first sell, `sold` is honestly zero —
+  // money genuinely has not come back — while invested and remaining are
+  // real from the first fill, so there is nothing to hide.
+  assert.ok(!/led\.sells === 0/.test(fn), 'the ledger must not hide itself any more');
+  assert.match(fn, /ledger\.classList\.remove\('pt-hidden'\)/,
+    'it is shown on every pass');
   assert.match(fn, /panelUsd\(\)/, 'dollars off Solana');
   assert.match(fn, /E\.fmt\(sol, 3\)} SOL/, 'SOL on Solana');
   assert.match(fn, /pt-house/, 'and it must mark the house-money state');
+});
+
+/* ------------------------------------------------------------------------
+ * The panel keeps its shape whether or not a bag is open.
+ *
+ * Reported: the sell buttons are not always there, the ledger is not always
+ * there, and on the smallest panel the paper balance is nowhere at all.
+ * ---------------------------------------------------------------------- */
+
+function fnOf(name) {
+  const at = content.indexOf(`function ${name}(`);
+  assert.ok(at !== -1, `${name} must exist`);
+  return content.slice(at, content.indexOf('\n  }', at) + 4);
+}
+
+test('the position card is no longer torn down when nothing is held', () => {
+  const render = fnOf('renderPosition');
+  assert.ok(!/els\.position\.textContent = ''/.test(render),
+    'clearing the card is what made the sell ladder come and go');
+  assert.match(render, /renderEmptyPosition\(\)/, 'it renders an empty card instead');
+});
+
+test('an empty card dashes every figure rather than showing zeros', () => {
+  // A zero is a measurement — it says the position is worth nothing. There is
+  // no position to measure, so the honest mark is an em dash.
+  const empty = fnOf('renderEmptyPosition');
+  assert.match(empty, /const DASH = '—';/);
+  for (const field of ['qty', 'entry', 'value', 'pnl', 'ledIn', 'ledOut', 'ledLeft', 'ledChg']) {
+    assert.ok(new RegExp(`${field}\.textContent = DASH`).test(empty),
+      `${field} must be dashed, not zeroed`);
+  }
+});
+
+test('an empty card disables what cannot be done, and keeps it on screen', () => {
+  const empty = fnOf('renderEmptyPosition');
+  assert.match(empty, /setSellLadderEnabled\(false\)/, 'the ladder goes inert');
+  assert.match(empty, /initial\.disabled = true/, 'so does sell-initial');
+  assert.match(empty, /ledger\.classList\.remove\('pt-hidden'/, 'the ledger stays visible');
+  assert.match(empty, /initial\.classList\.remove\('pt-hidden'/, 'and so does sell-initial');
+});
+
+test('a live position re-arms everything the empty state switched off', () => {
+  // The card persists now, so a disabled control would otherwise stay
+  // disabled after a buy — the ladder would be permanently dead.
+  const render = fnOf('renderPosition');
+  assert.match(render, /setSellLadderEnabled\(true\)/,
+    'the ladder must be re-enabled once something is held');
+});
+
+test('direction is colour-coded before it is read', () => {
+  assert.match(content, /\.pt-preset \{ color: var\(--pt-green\); \}/, 'buy chips are green');
+  assert.match(content, /\.pt-buy \{ color: var\(--pt-green\); \}/, 'so is the BUY button');
+  assert.match(content, /\.pt-sell \{ color: var\(--pt-red\); \}/, 'the sell ladder is red');
+});
+
+test('each ledger figure gets its own box', () => {
+  // Reported as "thrown there" with nothing separating the numbers: at a
+  // glance the value of one read as the label of the next.
+  assert.match(content, /\.pt-led \{[^}]*border: 1px solid var\(--pt-line\)/,
+    'every cell needs its own border, not a shared background');
+});
+
+test('the smallest panel still shows the paper balance', () => {
+  // #pt-buy-label is where cash on hand lives. Micro hid it with the rest of
+  // the buy furniture, so the smallest panel was the one that never showed
+  // how much paper SOL you had — on any site.
+  const microHides = content.slice(content.indexOf('.pt-box.pt-micro #pt-costs'),
+    content.indexOf('.pt-box.pt-micro .pt-xray'));
+  assert.ok(!microHides.includes('#pt-buy-label'),
+    'micro must not hide the element that carries the balance');
+  assert.match(content, /\.pt-box\.pt-micro #pt-buy-label \{/,
+    'it is trimmed for the smaller panel instead');
+});
+
+test('the compact panels keep the ledger, at fewer columns', () => {
+  assert.match(content, /\.pt-box\.pt-micro \.pt-ledger \{ grid-template-columns: repeat\(2, 1fr\)/,
+    'four boxes do not fit a micro panel; two do');
 });

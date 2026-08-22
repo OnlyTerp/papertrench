@@ -44,7 +44,7 @@ test('a changed sellPcts list forces exactly one position-card rebuild', () => {
   const r = src.indexOf('function renderPosition(');
   const rblk = src.slice(r, r + 600);
   assert.ok(
-    /if \(!posEls\) buildPositionCard\(pos\);/.test(rblk),
+    /if \(!posEls\) buildPositionCard\(pos \|\| null\);/.test(rblk),
     'renderPosition must rebuild via buildPositionCard when posEls is null'
   );
 });

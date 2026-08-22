@@ -349,7 +349,14 @@ test('the quick-sell buttons render for a position adopted from another tab', as
   const ov = runOverlay([0.001, 0.0012]);
 
   await ov.advance(1200);
-  assert.equal(ov.sellButtons().length, 0, 'no position, no sell buttons');
+  // The ladder is permanent now — reported as the sell buttons not always
+  // being there. With nothing held they are present and INERT, which is a
+  // stronger contract than absence: a disabled control cannot fire a sell,
+  // and it also cannot vanish from under the cursor.
+  const idle = ov.sellButtons();
+  assert.ok(idle.length > 0, 'the sell ladder must stay on screen with no position');
+  assert.ok(idle.every((b) => b.disabled === true),
+    'and every one of them must be disabled while there is nothing to sell');
 
   assert.ok(ov.openPaperPosition(1));
   await ov.advance(600);

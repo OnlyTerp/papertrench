@@ -199,7 +199,17 @@ function runOverlay(priceSeries, opts = {}) {
         toggle(c, on) { if (on === undefined) { this._s.has(c) ? this._s.delete(c) : this._s.add(c); } else if (on) this._s.add(c); else this._s.delete(c); },
         contains(c) { return this._s.has(c); } },
       children: [],
-      set textContent(v) { this._t = v; if (this.dataset.f) textOf[this.dataset.f] = v; },
+      set textContent(v) {
+        this._t = v;
+        if (this.dataset.f) textOf[this.dataset.f] = v;
+        // A real DOM DROPS every child when textContent is set. Without that
+        // here, a rebuilt card appends beside the old one and children[0]
+        // stays the FIRST card ever built — so fieldText() reads a detached
+        // node and reports whatever it last held. That made the position card
+        // untestable the moment it started being built before a position
+        // existed rather than after.
+        if (v === '') { this.children.length = 0; if (this._fields) this._fields = {}; }
+      },
       get textContent() { return this._t || ''; },
       set innerHTML(v) {
         this._h = v;
