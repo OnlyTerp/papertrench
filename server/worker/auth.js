@@ -231,7 +231,7 @@ async function finishLogin(request, env, ctx) {
   // verbatim. The bare '#authed' marker semantics remain for pages served
   // before this change: token or not, the fragment still means "a sign-in
   // just completed".
-  const headers = new Headers({ Location: env.SITE_ORIGIN + '/leaderboard.html#authed=' + session });
+  const headers = new Headers({ Location: env.SITE_ORIGIN + '/leaderboard#authed=' + session });
   headers.append('Set-Cookie', cookieHeader(SESSION_COOKIE, session, SESSION_TTL_MS / 1000, env));
   headers.append('Set-Cookie', cookieHeader(OAUTH_COOKIE, '', 0, env));
   return new Response(null, { status: 302, headers });

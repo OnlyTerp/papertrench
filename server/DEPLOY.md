@@ -119,7 +119,7 @@ done   # every line must read 200
 
 
 - [ ] `GET /api/health` returns ok over the custom domain
-- [ ] Sign in with X on papertrench.com/leaderboard.html round-trips and
+- [ ] Sign in with X on papertrench.com/leaderboard round-trips and
       shows your handle
 - [ ] Submitting an exported record from a real install returns
       `status: pending` with replayed stats

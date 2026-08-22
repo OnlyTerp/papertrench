@@ -22,15 +22,15 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="leaderboard.html">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -76,13 +76,13 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="clans.html">All clans</a>
-        <a href="leaderboard.html">Leaderboard</a>
-        <a href="sprint.html">Weekly Sprint</a>
-        <a href="duels.html">Duels</a>
-        <a href="privacy.html">Privacy</a>
+        <a href="/clans">All clans</a>
+        <a href="/leaderboard">Leaderboard</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
       </div>
     </div>
@@ -132,7 +132,7 @@
               <span class="ar-clan-tag" style="margin-right:6px">[${L.clanLabel(clan.tag)}]</span>
               ${clan.open ? 'Open to anyone signed in' : 'Invite only'} ·
               founded ${esc(day(clan.createdAt))} by
-              <a href="profile.html?handle=${encodeURIComponent(clan.founder)}">@${esc(clan.founder)}</a>
+              <a href="/profile?handle=${encodeURIComponent(clan.founder)}">@${esc(clan.founder)}</a>
             </p>
             ${clan.motto ? `<p style="margin-top:10px;font-size:14.5px;color:var(--muted)">“${L.clanLabel(clan.motto)}”</p>` : ''}
           </div>
@@ -167,18 +167,18 @@
     if (mine && mine.inClan && mine.tag === clan.tag) {
       box.innerHTML = `<p class="ar-note" style="text-align:right">You are in this clan since
         <strong>${esc(day(mine.joinedAt))}</strong>.<br>
-        <a href="clans.html">Manage membership →</a></p>`;
+        <a href="/clans">Manage membership →</a></p>`;
       return;
     }
     if (mine && mine.inClan) {
       box.innerHTML = `<p class="ar-note" style="text-align:right">You are in
-        <a href="clan.html?tag=${encodeURIComponent(mine.tag)}">[${esc(mine.tag)}]</a>.
+        <a href="/clan?tag=${encodeURIComponent(mine.tag)}">[${esc(mine.tag)}]</a>.
         One clan at a time — leave that one first.</p>`;
       return;
     }
     if (!signedIn) {
       box.innerHTML = `<p class="ar-note" style="text-align:right">
-        <a href="clans.html">Sign in to join a clan →</a></p>`;
+        <a href="/clans">Sign in to join a clan →</a></p>`;
       return;
     }
     if (!mine) {
@@ -190,7 +190,7 @@
     }
     if (!clan.open) {
       box.innerHTML = `<p class="ar-note" style="text-align:right">Invite only. Ask a member for the
-        code, then join from <a href="clans.html">the clan board</a>.</p>`;
+        code, then join from <a href="/clans">the clan board</a>.</p>`;
       return;
     }
     box.innerHTML = `<button class="ar-btn primary" id="join-btn" style="width:100%">Join [${esc(clan.tag)}]</button>
@@ -239,7 +239,7 @@
       </div>
       <div style="display:grid;gap:8px">
         ${standing.counting.map((m, i) => `
-          <a href="profile.html?handle=${encodeURIComponent(m.handle)}"
+          <a href="/profile?handle=${encodeURIComponent(m.handle)}"
              style="display:flex;align-items:center;gap:9px;padding:8px 10px;border:var(--edge);border-radius:10px;background:var(--pane-lo)">
             <span style="font-family:var(--mono);font-size:11px;font-weight:800;color:var(--dim);width:14px">${i + 1}</span>
             ${face({ handle: m.handle }, 'ar-face')}
@@ -289,7 +289,7 @@
         <span class="mark"></span>
         <span class="ar-who">
           ${face(member)}
-          <a class="ar-handle" href="profile.html?handle=${encodeURIComponent(member.handle)}">@${esc(member.handle)}</a>
+          <a class="ar-handle" href="/profile?handle=${encodeURIComponent(member.handle)}">@${esc(member.handle)}</a>
           ${member.role === 'founder' ? '<span class="ar-role">founder</span>' : ''}
         </span>
         <span class="c-status">${chipFor(member.status)}</span>
@@ -304,7 +304,7 @@
       <span class="mark" title="${counts ? 'One of the five this clan\'s score is the mean of' : ''}">${counts ? '★' : ''}</span>
       <span class="ar-who">
         ${face(member)}
-        <a class="ar-handle" href="profile.html?handle=${encodeURIComponent(member.handle)}">@${esc(member.handle)}</a>
+        <a class="ar-handle" href="/profile?handle=${encodeURIComponent(member.handle)}">@${esc(member.handle)}</a>
         ${member.role === 'founder' ? '<span class="ar-role">founder</span>' : ''}
       </span>
       <span class="c-status">${chipFor(member.status)}</span>
@@ -456,7 +456,7 @@
   (async () => {
     if (!tag) {
       headEl.innerHTML = '<section class="ar-pane"><div class="pad">' +
-        L.empty('⚔', 'No clan named.', 'Pick one from <a href="clans.html">the clan board</a>.') +
+        L.empty('⚔', 'No clan named.', 'Pick one from <a href="/clans">the clan board</a>.') +
         '</div></section>';
       return;
     }
@@ -470,7 +470,7 @@
       headEl.innerHTML = '<section class="ar-pane"><div class="pad">' + (
         String(err && err.message) === 'api 404'
           ? L.empty('⚔', 'No clan with that tag.',
-              'It may have disbanded — a clan whose last member leaves is removed rather than left as an empty shell. <a href="clans.html">See the clans that exist</a>.')
+              'It may have disbanded — a clan whose last member leaves is removed rather than left as an empty shell. <a href="/clans">See the clans that exist</a>.')
           : L.errorState('The verifier is unreachable right now, so this clan is not shown. Nothing here is cached or guessed.')
       ) + '</div></section>';
       rosterEl.innerHTML = '';

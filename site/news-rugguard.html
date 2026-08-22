@@ -46,17 +46,17 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="index.html#bubbles">Chart bubbles</a>
-      <a href="index.html#replay">Replay</a>
-      <a href="leaderboard.html">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html" aria-current="page">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/#bubbles">Chart bubbles</a>
+      <a href="/#replay">Replay</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news" aria-current="page">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -65,7 +65,7 @@
 <article>
   <header class="post-hero">
     <div class="wrap-read">
-      <a class="post-back" href="news.html"><span aria-hidden="true">←</span> All updates</a>
+      <a class="post-back" href="/news"><span aria-hidden="true">←</span> All updates</a>
       <div class="post-meta">
         <span class="ver-chip">v2.8.0</span>
         <span class="tag feature">Feature</span>
@@ -83,7 +83,7 @@
 
     <div class="callout" style="border-left-color:#ff8a80">
       <span class="co-label" style="color:#ff8a80">Do not run the v2.8.0 build</span>
-      <p>These features are real and they work — but the v2.8.0 <em>zip</em> shipped with attestation-chain recording broken and has been superseded. Everything described here is in the current release. <a href="news-chain.html">What happened, in full →</a></p>
+      <p>These features are real and they work — but the v2.8.0 <em>zip</em> shipped with attestation-chain recording broken and has been superseded. Everything described here is in the current release. <a href="/news-chain">What happened, in full →</a></p>
     </div>
 
     <h2>The armed buy that never fired (F-34)</h2>
@@ -93,7 +93,7 @@
     <p>Except on a coin 39 seconds old, the first trusted price never landed. Two independent reasons, stacked:</p>
 
     <ul>
-      <li><b>No aggregator had indexed it.</b> Dexscreener and Jupiter cannot quote a coin they have not seen. PaperTrench <a href="news-v2.html">refuses to invent a price</a>, so it correctly refused — and kept refusing, forever.</li>
+      <li><b>No aggregator had indexed it.</b> Dexscreener and Jupiter cannot quote a coin they have not seen. PaperTrench <a href="/news-v2">refuses to invent a price</a>, so it correctly refused — and kept refusing, forever.</li>
       <li><b>The chart was in MCap mode.</b> Every close was rejected as "no implied supply", because turning a market-cap value into a price needs a supply figure nobody had published yet.</li>
     </ul>
 
@@ -177,7 +177,7 @@
       <li><b>Threshold and off-switch live in Settings → Guardrails.</b></li>
     </ul>
 
-    <p>This is the one guardrail that ships <b>ON</b> — every other <a href="news-the-after.html">Guardrail</a> is opt-in — because the maintainer asked for exactly that. Practising the reflex of checking concentration before you buy is worth more than the friction costs.</p>
+    <p>This is the one guardrail that ships <b>ON</b> — every other <a href="/news-the-after">Guardrail</a> is opt-in — because the maintainer asked for exactly that. Practising the reflex of checking concentration before you buy is worth more than the friction costs.</p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -199,23 +199,23 @@
         </div>
         <div class="pn-item">
           <h4>Also aboard, unmentioned at the time</h4>
-          <p>The Turbo receipts card, and half of an in-flight attestation-chain migration that broke chain recording on this build. <a href="news-chain.html">Both are covered here →</a></p>
+          <p>The Turbo receipts card, and half of an in-flight attestation-chain migration that broke chain recording on this build. <a href="/news-chain">Both are covered here →</a></p>
         </div>
       </div>
       <div class="pn-foot">
         <span>Full history:</span>
-        <a href="news.html#v2-8-0">this release in the archive</a>
+        <a href="/news#v2-8-0">this release in the archive</a>
         <span>·</span>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG.md ↗</a>
       </div>
     </div>
 
     <div class="post-nav">
-      <a class="pnav" href="news-chain.html">
+      <a class="pnav" href="/news-chain">
         <span class="dir">← Newer</span>
         <span class="t">We shipped a build that broke the chain</span>
       </a>
-      <a class="pnav next" href="news-turbo.html">
+      <a class="pnav next" href="/news-turbo">
         <span class="dir">Older →</span>
         <span class="t">Terminal Turbo: every terminal, warm</span>
       </a>
@@ -227,11 +227,11 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="index.html">Home</a>
-        <a href="news.html">News</a>
-        <a href="streams.html">Live on Twitch</a>
+        <a href="/">Home</a>
+        <a href="/news">News</a>
+        <a href="/streams">Live on Twitch</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/DEFECTS.md" target="_blank" rel="noopener">Defect register</a>
       </div>

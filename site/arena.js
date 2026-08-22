@@ -122,7 +122,7 @@
     const title = esc(opts.title || ('Clan ' + tag));
     if (opts.plain) return `<span class="ar-clan-tag" style="${style}" title="${title}">${label}</span>`;
     return `<a class="ar-clan-tag" style="${style}" title="${title}"
-      href="clan.html?tag=${encodeURIComponent(tag)}">${label}</a>`;
+      href="/clan?tag=${encodeURIComponent(tag)}">${label}</a>`;
   }
 
   /* ------------------------------------------------- clan label floor ---

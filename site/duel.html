@@ -313,15 +313,15 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="leaderboard.html">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html" aria-current="page">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels" aria-current="page">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -455,8 +455,8 @@
           <p class="ar-note" style="margin-bottom:12px">Duels cost nothing and risk nothing — no entry, no real money,
             no wallet. You trade real charts on the real sites with paper size, and the server replays both chains.</p>
           <div class="ar-actions">
-            <a class="ar-btn primary" href="duels.html">Open a duel invite</a>
-            <a class="ar-btn" href="index.html#install">Install the extension</a>
+            <a class="ar-btn primary" href="/duels">Open a duel invite</a>
+            <a class="ar-btn" href="/#install">Install the extension</a>
           </div>
         </div>
       </section>
@@ -468,13 +468,13 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="sprint.html">Weekly Sprint</a>
-        <a href="duels.html">Duels</a>
-        <a href="clans.html">Clans</a>
-        <a href="news.html">News &amp; patch notes</a>
-        <a href="privacy.html">Privacy</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
       </div>
@@ -685,7 +685,7 @@
     return `<div class="${classes.join(' ')}">
       <div class="ar-corner">${esc(corner)}</div>
       ${face(side, 'face')}
-      <a class="who" href="profile.html?handle=${encodeURIComponent(side.handle)}">@${esc(side.handle)}</a>
+      <a class="who" href="/profile?handle=${encodeURIComponent(side.handle)}">@${esc(side.handle)}</a>
       <div style="margin-top:9px">${chipFor(side.status)}</div>
       ${roi}
       <div class="meta">${meta}</div>
@@ -802,7 +802,7 @@
       <p class="ar-note" style="margin-top:10px">Whoever never submits after the close <strong>forfeits</strong>. If
         neither does, the duel is recorded as a no-contest and nobody gets a win.</p>
       <div class="ar-actions" style="margin-top:14px">
-        <a class="ar-btn primary" href="leaderboard.html">Submit my record</a>
+        <a class="ar-btn primary" href="/leaderboard">Submit my record</a>
       </div>
     </div>`;
   }
@@ -810,7 +810,7 @@
   function slotActions(v) {
     if (v.status === 'expired') {
       return `<p class="ar-note" style="margin-top:12px">This invite lapsed with nobody in the other corner.</p>
-        <a class="ar-btn" href="duels.html" style="margin-top:14px">Open a fresh invite</a>`;
+        <a class="ar-btn" href="/duels" style="margin-top:14px">Open a fresh invite</a>`;
     }
     const msg = acceptMsg ? `<p class="ar-note" style="margin-top:12px;color:var(--down)">${esc(acceptMsg)}</p>` : '';
     if (accepting) return '<button class="ar-btn primary" disabled>Accepting…</button>' + msg;
@@ -842,7 +842,7 @@
         <div class="ar-duel-side">
           <div class="ar-corner">Challenger</div>
           ${face(a, 'face')}
-          <a class="who" href="profile.html?handle=${encodeURIComponent(a.handle)}">@${esc(a.handle)}</a>
+          <a class="who" href="/profile?handle=${encodeURIComponent(a.handle)}">@${esc(a.handle)}</a>
           <div style="margin-top:9px">${chipFor(a.status)}</div>
           <p class="meta" style="margin-top:14px">No window has run, so this player has no duel numbers yet — and
             none are invented here.</p>
@@ -1053,7 +1053,7 @@
       ${face(session, 'ar-face')}
       <div style="min-width:0">
         <div style="font-weight:800">@${esc(session.handle)}</div>
-        <a class="ar-note" style="color:var(--orange2)" href="profile.html?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
+        <a class="ar-note" style="color:var(--orange2)" href="/profile?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
       </div></div>`;
 
     let body;
@@ -1079,18 +1079,18 @@
           'dashboard → Leaderboard tab → Sync from site (or Export record) and submit it on the leaderboard page. ' +
           'Your post-close chain carries every fill from inside the window, which is exactly why it is the only ' +
           'thing allowed to settle this.</p><div class="ar-actions" style="margin-top:12px">' +
-          '<a class="ar-btn primary" href="leaderboard.html">Submit my record</a></div>';
+          '<a class="ar-btn primary" href="/leaderboard">Submit my record</a></div>';
     } else if (v.status === 'settled') {
       body = '<p class="ar-note">This one is in the books and will read the same forever — the result was written ' +
         'the first time it became decidable.</p><div class="ar-actions" style="margin-top:12px">' +
-        '<a class="ar-btn" href="duels.html">Start another</a></div>';
+        '<a class="ar-btn" href="/duels">Start another</a></div>';
     } else {
       body = role === 'challenger'
         ? '<p class="ar-note">Your invite lapsed before anyone accepted it. Nothing ran and nothing was recorded — ' +
           'opening a new one takes a click.</p><div class="ar-actions" style="margin-top:12px">' +
-          '<a class="ar-btn primary" href="duels.html">Open a new invite</a></div>'
+          '<a class="ar-btn primary" href="/duels">Open a new invite</a></div>'
         : '<p class="ar-note">This invite lapsed before anyone accepted it. There is nothing to join here.</p>' +
-          '<div class="ar-actions" style="margin-top:12px"><a class="ar-btn" href="duels.html">Open your own</a></div>';
+          '<div class="ar-actions" style="margin-top:12px"><a class="ar-btn" href="/duels">Open your own</a></div>';
     }
     seatEl.innerHTML = you + body;
   }
@@ -1321,7 +1321,7 @@
       'A duel link carries its code in the address, like ' +
       '<code style="font-family:var(--mono);color:var(--orange2)">duel.html?code=TRENCH-XXXXXX</code>. ' +
       'Without one there is no duel to look up, and nothing is invented to fill the page. ' +
-      '<a href="duels.html" style="color:var(--orange2)">Your duels are here</a>.'));
+      '<a href="/duels" style="color:var(--orange2)">Your duels are here</a>.'));
     seatEl.innerHTML = '<p class="ar-note">Nothing to join without a code.</p>';
   } else {
     document.getElementById('spec-code').textContent = CODE;

@@ -464,15 +464,15 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="leaderboard.html">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html" aria-current="page">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels" aria-current="page">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -562,9 +562,9 @@
       <h2 id="you-h">Your side</h2>
       <span class="spacer"></span>
       <div class="ar-tabs">
-        <a class="ar-tab" href="leaderboard.html">All-time</a>
-        <a class="ar-tab" href="sprint.html">This week</a>
-        <a class="ar-tab" href="duels.html" aria-current="page">Duels</a>
+        <a class="ar-tab" href="/leaderboard">All-time</a>
+        <a class="ar-tab" href="/sprint">This week</a>
+        <a class="ar-tab" href="/duels" aria-current="page">Duels</a>
       </div>
     </div>
     <div class="pad">
@@ -792,13 +792,13 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="leaderboard.html">Leaderboard</a>
-        <a href="sprint.html">Weekly Sprint</a>
-        <a href="clans.html">Clans</a>
-        <a href="news.html">News &amp; patch notes</a>
-        <a href="privacy.html">Privacy</a>
+        <a href="/leaderboard">Leaderboard</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
       </div>
@@ -961,11 +961,11 @@
         <div style="min-width:0">
           <div style="font-weight:800">@${esc(session.handle)}</div>
           <a class="ar-note" style="color:var(--orange2)"
-             href="profile.html?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
+             href="/profile?handle=${encodeURIComponent(session.handle)}">View public profile →</a>
         </div>
       </div>
       <p class="ar-note" style="margin-top:12px">Your duel slices are recomputed from your chain
-        every time you submit on the <a href="leaderboard.html">leaderboard page</a> — there is no
+        every time you submit on the <a href="/leaderboard">leaderboard page</a> — there is no
         separate duel record to keep up to date, and no second book to game.
         <a href="#" id="you-signout" style="color:var(--dim)">sign out</a></p>`;
     document.getElementById('you-signout').addEventListener('click', (event) => {
@@ -1047,7 +1047,7 @@
         </div>
         <div class="ar-acts">
           <button class="ar-btn" id="copy-gauntlet">Copy the whole gauntlet</button>
-          <a class="ar-btn" href="duel.html?code=${encodeURIComponent(code)}">Open duel →</a>
+          <a class="ar-btn" href="/duel?code=${encodeURIComponent(code)}">Open duel →</a>
         </div>
       </div>`;
     tick();
@@ -1157,7 +1157,7 @@
         <time datetime="${esc(isoTime(w.endTs))}">${esc(absTime(w.endTs))}</time> —
         ${clockHtml(w.endTs, 'window closed', false)} left.` : ''}
       Nothing is decided until you both submit a record after that.
-      <a class="ar-btn" href="duel.html?code=${encodeURIComponent(body.code || code)}">Open duel →</a>`);
+      <a class="ar-btn" href="/duel?code=${encodeURIComponent(body.code || code)}">Open duel →</a>`);
     tick();
     joinInput.value = '';
     syncCodeField();
@@ -1285,7 +1285,7 @@
     if (status === 'awaiting') {
       const mine = [view.challenger, view.opponent].find((s) => s && isMe(s.handle));
       const nudge = mine && !mine.final
-        ? ` <a href="leaderboard.html">Submit your record →</a>`
+        ? ` <a href="/leaderboard">Submit your record →</a>`
         : '';
       const text = view.awaiting
         ? esc(view.awaiting)

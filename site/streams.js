@@ -41,7 +41,7 @@
 
   // Where "Sign up as a streamer" points — the on-site form, which posts to
   // the leaderboard Worker and lands in the moderator queue (site/admin.html).
-  const SIGNUP_URL = 'streamer-signup.html';
+  const SIGNUP_URL = '/streamer-signup';
 
   // The API roster: every application a moderator approved in site/admin.html.
   // This is the pipeline the signup form feeds, and it needs no configuration —

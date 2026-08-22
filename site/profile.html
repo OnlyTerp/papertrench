@@ -361,18 +361,18 @@
 
 <nav>
   <div class="nav-inner">
-    <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
       <!-- A profile has no nav entry of its own — it is a leaf under the
            leaderboard. aria-current="true" says "you are inside this section";
            aria-current="page" would claim this IS leaderboard.html. -->
-      <a href="leaderboard.html" aria-current="true">Leaderboard</a>
-      <a href="sprint.html">Sprint</a>
-      <a href="duels.html">Duels</a>
-      <a href="clans.html">Clans</a>
-      <a href="news.html">News</a>
-      <a href="index.html#install">Install</a>
-      <a class="nav-live" href="streams.html" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a href="/leaderboard" aria-current="true">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
     </div>
   </div>
@@ -439,7 +439,7 @@
         <div class="ar-pane-head">
           <span class="glyph" style="color:var(--orange2)">▤</span><span id="sprints-h" role="heading" aria-level="2">Sprint history</span>
           <span class="spacer"></span>
-          <a class="ar-note" style="color:var(--orange2)" href="sprint.html">This week →</a>
+          <a class="ar-note" style="color:var(--orange2)" href="/sprint">This week →</a>
         </div>
         <div id="sprints"></div>
       </section>
@@ -473,13 +473,13 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="index.html"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="sprint.html">Weekly Sprint</a>
-        <a href="duels.html">Duels</a>
-        <a href="clans.html">Clans</a>
-        <a href="news.html">News &amp; patch notes</a>
-        <a href="privacy.html">Privacy</a>
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
       </div>
@@ -1381,7 +1381,7 @@
     if (!asked) {
       showState(L.empty('🔎', 'This page needs a name.',
         'Profiles open from the board — every ranked row on the ' +
-        '<a href="leaderboard.html" style="color:var(--orange2)">leaderboard</a> links to the record ' +
+        '<a href="/leaderboard" style="color:var(--orange2)">leaderboard</a> links to the record ' +
         'behind it. There is no directory to browse, because a directory would list people who have ' +
         'submitted nothing.'));
       heroEl.innerHTML = '';
@@ -1420,7 +1420,7 @@
       showState(L.empty('🏴', 'Nobody trades under that name here.',
         '<strong>@' + esc(asked) + '</strong> has no PaperTrench profile. Profiles are minted by ' +
         'evidence rather than by signup: sign in on the ' +
-        '<a href="leaderboard.html" style="color:var(--orange2)">leaderboard</a>, submit a ' +
+        '<a href="/leaderboard" style="color:var(--orange2)">leaderboard</a>, submit a ' +
         'hash-chained record, and this page writes itself. Until then there is nothing to show, and ' +
         'nothing gets invented to fill the gap.'));
       return;
