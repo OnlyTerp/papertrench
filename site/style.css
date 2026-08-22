@@ -47,6 +47,22 @@ a:focus-visible, button:focus-visible {
   outline-offset: 3px;
   border-radius: 8px;
 }
+/* Skip link — the first tab stop on every page.
+   Ten-odd nav links sit before the content, so reaching it by keyboard meant
+   tabbing through all of them on every navigation. Positioned off-screen
+   rather than display:none: a hidden element is not focusable, and a skip
+   link that cannot be focused is decoration. */
+.skip-link {
+  position: absolute; left: 12px; top: -60px; z-index: 200;
+  padding: 10px 18px; border-radius: 0 0 10px 10px;
+  background: var(--orange); color: #2a1400;
+  font-size: 14px; font-weight: 750;
+  transition: top .18s;
+}
+.skip-link:focus { top: 0; }
+
+/* The landmark is a scroll target, not a control — no ring when jumped to. */
+#main:focus { outline: none; }
 
 /* Anchor jumps (#bubbles, #install, …) land below the fixed navbar instead
    of underneath it. */

@@ -59,6 +59,26 @@ done
 [ -z "$NAV_MISSING" ] || fail "nav is missing destinations —$NAV_MISSING"
 echo "nav OK ($(grep -lc 'class="nav-links"' site/*.html | wc -l) pages reach $NAV_DESTS)"
 
+# Every page carries the same accessibility landmarks.
+#
+# A skip link is the first tab stop; without it, reaching page content by
+# keyboard means tabbing through eleven nav links on every navigation. It
+# needs a <main id="main"> to land on, and the primary <nav> needs a name so
+# a screen reader can tell it from the ones inside the page.
+#
+# Checked rather than remembered, for the same reason as the nav destinations
+# above: 20 of 27 pages had no landmark at all until this pass, because
+# nothing said they should.
+A11Y_MISSING=""
+for page in site/*.html; do
+  grep -q 'class="nav-links"' "$page" || continue
+  grep -q 'class="skip-link"' "$page" || A11Y_MISSING="$A11Y_MISSING $(basename "$page"):skip-link"
+  grep -q 'id="main"'         "$page" || A11Y_MISSING="$A11Y_MISSING $(basename "$page"):main"
+  grep -q '<nav aria-label='   "$page" || A11Y_MISSING="$A11Y_MISSING $(basename "$page"):nav-label"
+done
+[ -z "$A11Y_MISSING" ] || fail "pages missing accessibility landmarks —$A11Y_MISSING"
+echo "a11y OK (skip link, main landmark and named nav on $(grep -lc 'class="skip-link"' site/*.html | wc -l) pages)"
+
 # Every public page must be in sitemap.xml, or deliberately named as excluded.
 #
 # A sitemap is the one file that rots without any symptom: pages get added, the
