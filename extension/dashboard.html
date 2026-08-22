@@ -157,6 +157,38 @@
       text-transform: uppercase; color: var(--dim);
     }
     .card h4 { margin: 16px 0 8px; font-size: 12px; font-weight: 700; color: var(--dim); }
+    /* ---------- what's new ---------- */
+    #pt-whatsnew {
+      position: fixed; inset: 0; z-index: 200;
+      display: grid; place-items: center; padding: 24px;
+      background: rgba(4, 6, 10, 0.72); backdrop-filter: blur(4px);
+    }
+    .wn-card {
+      width: min(560px, 100%); max-height: 80vh; display: flex; flex-direction: column;
+      background: var(--panel-solid); border: 1px solid var(--line-2);
+      border-radius: var(--r-xl); box-shadow: var(--shadow-lg);
+    }
+    .wn-head { display: flex; align-items: flex-start; gap: 12px; padding: 20px 22px 12px; }
+    .wn-kicker { font-size: 9.5px; font-weight: 800; letter-spacing: 1.3px; text-transform: uppercase; color: var(--amber); }
+    .wn-head h2 { margin: 4px 0 0; font-size: 18px; font-weight: 800; letter-spacing: -0.3px; }
+    .wn-close {
+      margin-left: auto; width: 28px; height: 28px; flex: none;
+      font: inherit; font-size: 17px; line-height: 1; cursor: pointer;
+      color: var(--faint); background: none; border: 0; border-radius: 8px;
+    }
+    .wn-close:hover { color: var(--text); background: var(--raised); }
+    .wn-body { overflow-y: auto; padding: 4px 22px 8px; }
+    .wn-entry { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .wn-entry:last-child { border-bottom: none; }
+    .wn-entry h3 { margin: 0 0 5px; font-size: 14px; font-weight: 750; color: var(--text); letter-spacing: 0; text-transform: none; }
+    .wn-entry p { margin: 0; font-size: 13px; line-height: 1.62; color: var(--dim); }
+    .wn-foot {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 22px 18px; border-top: 1px solid var(--line);
+    }
+    .wn-foot a { color: var(--amber); font-size: 12.5px; font-weight: 650; text-decoration: none; }
+    .wn-foot a:hover { text-decoration: underline; }
+    .wn-foot .btn { margin-left: auto; }
     .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(370px, 1fr)); gap: 16px; align-items: start; }
     .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; align-items: start; }
 
