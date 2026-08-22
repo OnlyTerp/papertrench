@@ -5251,6 +5251,58 @@
     renderPositionsBar();
   }
 
+  /* ---------------- keyboard shortcuts ----------------
+   *
+   * Three bindings, and every one of them only moves PaperTrench's own
+   * furniture: show the panel, show the positions bar, put the cursor in the
+   * amount box. Deliberately nothing that trades and nothing that touches a
+   * tab — a keystroke that fires an order is a keystroke that fires one by
+   * accident, and opening or closing tabs from a key is exactly what this was
+   * asked to stay away from.
+   *
+   * Off by default. Two schemes rather than a rebinding UI: these run on other
+   * people's sites, where every plain key and most single-modifier combos are
+   * already spoken for, so the choice that matters is which modifier is free
+   * on the terminal you use — not which letter.
+   */
+  const SHORTCUT_SCHEMES = {
+    alt: (e) => e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey,
+    ctrlshift: (e) => e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey,
+  };
+
+  function onShortcutKey(event) {
+    const test = SHORTCUT_SCHEMES[settings && settings.shortcutScheme];
+    if (!test || masterOff || settings.overlayEnabled === false) return;
+    if (event.repeat || !test(event)) return;
+
+    // Never steal a key from something being typed into — the host site's
+    // search box, a comment field, or our own amount input.
+    const target = event.composedPath ? event.composedPath()[0] : event.target;
+    if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName || '')
+      || target.isContentEditable)) return;
+
+    const key = String(event.key || '').toLowerCase();
+    if (key === 'p') {
+      panelMinimized = !panelMinimized;
+      setPanelVisible(true);
+    } else if (key === 'b') {
+      setBarHidden(!positionsBarHidden);
+    } else if (key === 'a') {
+      if (!els.custom || els.custom.offsetParent === null) return; // buy section hidden
+      panelMinimized = false;
+      setPanelVisible(true);
+      els.custom.focus();
+      els.custom.select();
+    } else return;
+
+    // Claimed only once we know we acted, so an unbound combo still reaches
+    // whatever the site wanted it for.
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  window.addEventListener('keydown', onShortcutKey, true);
+
   function renderPresets() {
     // Two user toggles strip the buy controls back: the preset row can be
     // hidden on its own, or the whole buy section (label, presets, custom

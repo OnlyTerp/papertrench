@@ -4267,6 +4267,17 @@ function renderSettings(el) {
         <div class="field field-check"><label><input type="checkbox" id="set-overlay" ${settings.overlayEnabled !== false ? 'checked' : ''}> Enable overlay</label><small>The trade panel itself. Off hides the panel on all pages (the switch above outranks this one).</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-overlay-auto-hide" ${settings.overlayHideWhenNoToken !== false ? 'checked' : ''}> Hide overlay when no token is detected</label><small>The panel disappears on home pages and screeners, then pops back when you open a coin.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-focus-mode" ${settings.panelFocusMode === true ? 'checked' : ''}> Focus mode — minimal trade panel</label><small>Strips the banner, sparkline, thesis and last-close card from the trade tab — only token, price, balance and buy/sell controls remain. For distraction-free execution.</small></div>
+        <div class="field"><label for="set-shortcuts">Keyboard shortcuts</label>
+          <select id="set-shortcuts">
+            <option value="off" ${!settings.shortcutScheme || settings.shortcutScheme === 'off' ? 'selected' : ''}>Off</option>
+            <option value="alt" ${settings.shortcutScheme === 'alt' ? 'selected' : ''}>Alt + key</option>
+            <option value="ctrlshift" ${settings.shortcutScheme === 'ctrlshift' ? 'selected' : ''}>Ctrl + Shift + key</option>
+          </select>
+          <small><b>P</b> show/hide the trade panel · <b>B</b> show/hide the positions bar · <b>A</b> jump to the amount box.
+          Two schemes rather than free rebinding, because these run on the dex's own page where most combinations are already
+          taken — the choice that matters is which modifier is free on the terminal you use, not which letter. Nothing here
+          trades, and nothing opens or closes a tab. Keys are ignored while you are typing in any field.</small>
+        </div>
       </div>
       <div class="card">
         <h3>Instant links</h3>
@@ -4678,6 +4689,11 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     overlayEnabled: document.getElementById('set-overlay').checked,
     overlayHideWhenNoToken: document.getElementById('set-overlay-auto-hide').checked,
     panelFocusMode: document.getElementById('set-focus-mode').checked,
+    // Closed set, validated here rather than trusted: content.js looks the
+    // value up in SHORTCUT_SCHEMES, and anything unrecognised means no
+    // shortcuts at all — which would be an invisible failure, not a refusal.
+    shortcutScheme: ['off', 'alt', 'ctrlshift'].includes(document.getElementById('set-shortcuts').value)
+      ? document.getElementById('set-shortcuts').value : 'off',
     gamingModeEnabled: document.getElementById('set-gaming-mode').checked,
     warmXLinksEnabled: document.getElementById('set-warm-x').checked,
     warmEverywhereEnabled: document.getElementById('set-warm-everywhere').checked,

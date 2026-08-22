@@ -5,6 +5,12 @@ details live in the commit messages.
 
 ## Unreleased
 
+**Keyboard shortcuts, off by default.** Pick **Alt + key** or **Ctrl + Shift + key**
+in Settings and three keys become available on any trading page: **P** shows or
+hides the trade panel, **B** the positions bar, **A** jumps straight to the
+amount box. Nothing here places an order and nothing opens or closes a tab, and
+the keys stay out of the way entirely while you are typing in any field.
+
 **Streamer signup lives on the site now.** "Sign up as a streamer" used to
 hand you off to a Google Form; it now opens **papertrench.com/streamer-signup**
 — the same questions, on the site, in the site's own styling. Applications go
