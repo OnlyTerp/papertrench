@@ -392,8 +392,11 @@ test('the preset row hides alone while the BUY button stays', async () => {
     'the one-tap presets must be hidden');
   assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
     'the BUY button must remain available');
-  assert.notEqual(ov.shadowNodes['pt-custom'].style.display, 'none',
-    'the custom amount input must remain available');
+  // The free-text amount box is OFF by default as of the panel declutter —
+  // the preset row it duplicates is now eight configurable boxes. It is
+  // hidden, never removed, so BUY and limit-arm still read it.
+  assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
+    'the custom amount box is opt-in now');
 });
 
 test('with both toggles on, every buy control is visible', async () => {
@@ -401,12 +404,36 @@ test('with both toggles on, every buy control is visible', async () => {
 
   await ov.advance(1200);
 
-  for (const id of ['pt-buy-label', 'pt-buy-presets', 'pt-custom', 'pt-buy']) {
+  for (const id of ['pt-buy-label', 'pt-buy-presets', 'pt-buy']) {
     assert.notEqual(ov.shadowNodes[id].style.display, 'none',
       `${id} must be visible with default settings`);
   }
 });
 
+test('the custom amount box returns when the setting is switched on', async () => {
+  // Off by default, but nothing is removed — the request was for panel space,
+  // not for the capability. BUY reads this element either way and falls back
+  // to the selected preset when it is empty, so hiding it can never strand a
+  // trader without a way to size an order.
+  const ov = runOverlay([0.001], {
+    initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200);
+  assert.notEqual(ov.shadowNodes['pt-custom'].style.display, 'none',
+    'switching it on must bring the box back');
+});
+
+test('the buy-section switch still outranks the custom-amount setting', async () => {
+  const ov = runOverlay([0.001], {
+    initialSettings: {
+      panelBuyEnabled: false, panelCustomAmount: true,
+      settingsRevision: E.SETTINGS_REVISION,
+    },
+  });
+  await ov.advance(1200);
+  assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
+    'a view-only trade tab shows no buy controls at all');
+});
 /* ---------------- reported: panel forgets its place on refresh ----------------
  *
  * levv6x: "make it remember its place — every time I refresh or open a new

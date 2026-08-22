@@ -4429,6 +4429,7 @@ function renderSettings(el) {
       <div class="field"><label for="set-list-quick-buy-placement">Buy-button position on lists</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-panel-buy" ${settings.panelBuyEnabled !== false ? 'checked' : ''}> Buy section in the trade tab</label><small>Shows the quick-buy presets, custom amount and BUY button in the overlay. Off makes the trade tab view-only.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-panel-presets" ${settings.panelPresetsEnabled !== false ? 'checked' : ''}> Quick-buy preset buttons</label><small>The one-tap SOL amount buttons. Off keeps the custom amount and BUY button.</small></div>
+        <div class="field field-check"><label><input type="checkbox" id="set-panel-custom" ${settings.panelCustomAmount === true ? 'checked' : ''}> Custom amount box</label><small>A free-text SOL amount under the presets. Off by default — the preset row is eight boxes you configure above, so an arbitrary size is rarely needed and the field costs three lines of panel on every token. BUY and limit orders use the selected preset when it is off.</small></div>
         </div>
         <div class="card">
           <h3>Exits — take profit &amp; stop loss</h3>
@@ -5038,6 +5039,7 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     overlayEnabled: document.getElementById('set-overlay').checked,
     overlayHideWhenNoToken: document.getElementById('set-overlay-auto-hide').checked,
     panelFocusMode: document.getElementById('set-focus-mode').checked,
+    panelCustomAmount: document.getElementById('set-panel-custom').checked,
     // Closed set, validated here rather than trusted: content.js looks the
     // value up in SHORTCUT_SCHEMES, and anything unrecognised means no
     // shortcuts at all — which would be an invisible failure, not a refusal.
