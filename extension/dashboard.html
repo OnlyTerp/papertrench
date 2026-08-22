@@ -758,6 +758,45 @@
     .lb-step.done .lb-step-body > p.dim, .lb-step.later .lb-step-body > p.dim { margin-bottom: 0; }
     .lb-step-wait { margin: 0; font-size: 12px; font-style: italic; }
 
+    /* ---------- leaderboard hero + folds ----------
+       The tab used to open on two dense cards of chain vocabulary before the
+       reader reached a single standing. The hero answers "how am I doing" in
+       one row; the evidence that backs it is one disclosure away. */
+    .lb-hero {
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+      padding: 18px 20px;
+      background: linear-gradient(150deg, rgba(255,255,255,0.05), rgba(255,255,255,0.014));
+      border: 1px solid var(--line-2); border-radius: var(--r-xl);
+      box-shadow: var(--shadow-md);
+    }
+    .lb-hero-me { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .lb-hero-handle { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; }
+    .lb-hero-roi {
+      margin-left: auto; text-align: right;
+      font-size: 26px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.05;
+    }
+    .lb-hero-roi-lab {
+      display: block; margin-top: 2px;
+      font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px;
+      text-transform: uppercase; color: var(--faint);
+    }
+    /* The verify chip drops to its own line rather than squeezing the ROI. */
+    .lb-hero-verify { flex: 1 0 100%; margin: 0; }
+
+    .lb-fold {
+      background: linear-gradient(155deg, rgba(255,255,255,0.03), rgba(255,255,255,0.008));
+      border: 1px solid var(--line); border-radius: var(--r-lg);
+    }
+    .lb-fold > summary {
+      cursor: pointer; padding: 13px 18px; list-style: none;
+      font-size: 12px; font-weight: 750; letter-spacing: 0.9px;
+      text-transform: uppercase; color: var(--dim);
+    }
+    .lb-fold > summary::-webkit-details-marker { display: none; }
+    .lb-fold > summary::after { content: " ▾"; color: var(--faint); }
+    .lb-fold[open] > summary::after { content: " ▴"; }
+    .lb-fold > summary:hover { color: var(--text); }
+    .lb-fold-body { padding: 0 18px 16px; }
     /* ---------- Live board ---------- */
     .lb-live-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
     .lb-live-head .btn-sec { margin-left: auto; }

@@ -3697,59 +3697,22 @@ function renderLeaderboard(el) {
   const steps = lbSteps(identity, chain.length);
   if (!lbReady(steps)) return renderLbWizard(el, steps, identity, chain.length);
 
+  // The board leads. Everything that explains the board is one disclosure
+  // away — this tab used to open on two dense cards of chain vocabulary
+  // (committed fills, derived P&L, a full SHA-256 head) before the reader
+  // reached a single standing. Reported as too much text, and dated beside
+  // the newer surfaces.
+  const roiUp = roiPct >= 0;
   el.innerHTML = `
-    <div class="grid2">
-      <div class="card">
-        <h3>Verified record</h3>
-        <div id="lb-verify" class="${verify.cls}">${verify.html}</div>
-        <div class="stat" style="margin-top:14px"><span>Committed fills</span><span style="font-weight:750">${chain.length}</span></div>
-        <div class="stat"><span>Claimed realized P&amp;L</span><span class="${stats.realizedPnlSol >= 0 ? 'green' : 'red'}" style="font-weight:750">${stats.realizedPnlSol >= 0 ? '+' : ''}${fmt(stats.realizedPnlSol, 3)} SOL · ${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(1)}% ROI</span></div>
-        <div class="stat"><span>Declared starting bankroll</span><span style="font-weight:750">${fmt(settings.balanceStartSol, 2)} SOL</span></div>
-        <div class="stat" id="lb-derived"><span>Derived from chain</span>${verify.derivedHtml}</div>
-        <h4>Chain head</h4>
-        <div class="lb-proof" id="lb-head">${chain.length
-          ? esc(chain[chain.length - 1].hash)
-          : '<span class="dim">Not started — your first paper fill anchors the chain.</span>'}</div>
+    <div class="lb-hero">
+      <div class="lb-hero-me">
+        <span class="lb-hero-handle">@${esc(identity.handle)}</span>
+        <span class="lb-x ${identity.verified ? 'verified' : ''}">${identity.verified ? 'verified' : 'not verified yet'}</span>
       </div>
-
-      <div class="card">
-        <h3>Identity</h3>
-        ${identity ? `
-          <div class="stat"><span>Linked account</span><span style="font-weight:750">@${esc(identity.handle)}
-            <span class="lb-x ${identity.verified ? 'verified' : ''}">${identity.verified ? 'verified' : 'not verified yet'}</span></span></div>
-          <div class="stat"><span>Linked at</span><span class="dim">${formatDateTime(identity.linkedAt)}</span></div>
-          ${identity.verified ? '' : `
-          <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 0">
-            Verification happens on papertrench.com, not here: sign in with X there and
-            this chip goes green on its own — the signed-in page hands your handle to
-            the extension, which is the one direction that keeps the extension from
-            ever phoning a server. The board still goes by the site's word, not this
-            chip.
-          </p>
-          <a class="btn" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
-             style="margin-top:10px;display:inline-block">Sign in on papertrench.com →</a>
-          `}
-          <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 0">
-            Ranking is bound to this account, so competing under many identities costs
-            a real, publicly visible X account each time.
-          </p>
-          <button class="btn-sec" id="lb-unlink" style="margin-top:12px">Unlink</button>
-        ` : `
-          <p class="dim" style="font-size:12.5px;line-height:1.6;margin-top:0">
-            Link your X account to appear on the leaderboard. The easy way: sign in with X
-            on <a href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
-            style="color:var(--orange2)">papertrench.com</a> and this links itself. Or type
-            the handle below — stored locally, submitted with your signed chain; a server
-            verifies ownership before ranking you either way.
-          </p>
-          <div class="field">
-            <label for="lb-handle">X handle</label>
-            <input id="lb-handle" type="text" placeholder="yourhandle" autocomplete="off">
-            <small>Without the @. Verification is completed by the leaderboard service.</small>
-          </div>
-          <button class="btn" id="lb-link">Link account</button>
-        `}
+      <div class="lb-hero-roi ${roiUp ? 'green' : 'red'}">${roiUp ? '+' : ''}${roiPct.toFixed(1)}%
+        <span class="lb-hero-roi-lab">return on bankroll</span>
       </div>
+      <div id="lb-verify" class="${verify.cls} lb-hero-verify">${verify.html}</div>
     </div>
 
     <div class="card" style="margin-top:16px">
@@ -3764,27 +3727,53 @@ function renderLeaderboard(el) {
     </div>
 
     <div class="card" style="margin-top:16px">
-      <h3>Standings</h3>
+      <h3>Your row</h3>
       <div id="lb-standings">
         ${renderStandingsPlaceholder(identity, stats)}
       </div>
     </div>
 
-    <div class="card" style="margin-top:16px">
-      <details>
-      <summary>How ranking is kept honest</summary>
-      <ul style="margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.65">
-        <li><strong>Ordering is provable.</strong> Each fill commits to the hash of the one before it, so a trade cannot be inserted, removed, or reordered afterwards.</li>
-        <li><strong>Entries are pre-committed.</strong> A fill is hashed when it is made, before the outcome is known, so a winning entry cannot be backdated.</li>
-        <li><strong>Prices are re-checkable.</strong> Every fill records mint, price and timestamp, so a verifier can re-fetch real price history and reject fills at prices that never existed.</li>
-        <li><strong>Identity costs something.</strong> One ranked record per verified X account.</li>
-        <li><strong>Bankroll travels with the record.</strong> Your declared starting balance is part of the committed data, so results are compared by return on bankroll — not by absolute SOL, which a bigger deposit would inflate for free.</li>
-        <li><strong>Stated plainly:</strong> this is evidence, not proof. Anyone can run modified code locally, so final standings must be recomputed server-side from the chain — never from the number this app displays.</li>
-      </ul>
-      </details>
-    </div>`;
-}
+    <details class="lb-fold" style="margin-top:16px">
+      <summary>The evidence behind your row</summary>
+      <div class="lb-fold-body">
+        <div class="stat"><span>Committed fills</span><span style="font-weight:750">${chain.length}</span></div>
+        <div class="stat"><span>Claimed realized P&amp;L</span><span class="${stats.realizedPnlSol >= 0 ? 'green' : 'red'}" style="font-weight:750">${stats.realizedPnlSol >= 0 ? '+' : ''}${fmt(stats.realizedPnlSol, 3)} SOL</span></div>
+        <div class="stat" id="lb-derived"><span>Derived from chain</span>${verify.derivedHtml}</div>
+        <div class="stat"><span>Declared starting bankroll</span><span style="font-weight:750">${fmt(settings.balanceStartSol, 2)} SOL</span></div>
+        <div class="stat"><span>Linked</span><span class="dim">${formatDateTime(identity.linkedAt)}</span></div>
+        <h4>Chain head</h4>
+        <div class="lb-proof" id="lb-head">${chain.length
+          ? esc(chain[chain.length - 1].hash)
+          : '<span class="dim">Not started — your first paper fill anchors the chain.</span>'}</div>
+        ${identity.verified ? '' : `
+        <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 0">
+          Verification happens on papertrench.com, not here: sign in with X there and
+          this chip goes green on its own. The board goes by the site’s word, not this chip.
+        </p>
+        <a class="btn-sec" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
+           style="margin-top:10px;display:inline-block;text-decoration:none">Sign in on papertrench.com →</a>`}
+        <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 0">
+          Ranking is bound to this account, so competing under many identities costs a real,
+          publicly visible X account each time.
+        </p>
+        <button class="btn-sec" id="lb-unlink" style="margin-top:12px">Unlink @${esc(identity.handle)}</button>
+      </div>
+    </details>
 
+    <details class="lb-fold" style="margin-top:10px">
+      <summary>How ranking is kept honest</summary>
+      <div class="lb-fold-body">
+        <ul style="margin:0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.65">
+          <li><strong>Ordering is provable.</strong> Each fill commits to the hash of the one before it, so a trade cannot be inserted, removed, or reordered afterwards.</li>
+          <li><strong>Entries are pre-committed.</strong> A fill is hashed when it is made, before the outcome is known, so a winning entry cannot be backdated.</li>
+          <li><strong>Prices are re-checkable.</strong> Every fill records mint, price and timestamp, so a verifier can re-fetch real price history and reject fills at prices that never existed.</li>
+          <li><strong>Identity costs something.</strong> One ranked record per verified X account.</li>
+          <li><strong>Bankroll travels with the record.</strong> Your declared starting balance is part of the committed data, so results are compared by return on bankroll — not by absolute SOL.</li>
+          <li><strong>Stated plainly:</strong> this is evidence, not proof. Anyone can run modified code locally, so final standings must be recomputed server-side from the chain — never from the number this app displays.</li>
+        </ul>
+      </div>
+    </details>`;
+}
 function renderStandingsPlaceholder(identity, stats) {
   // Remote standings are never invented here: this card shows YOUR row and
   // the two hand-off paths to the board at papertrench.com. The extension
