@@ -21,3 +21,6 @@ HANDOFF.md
 # (*.local above already covers recon-data/DENYLIST.local.)
 recon-data/
 tools/recon/.headless/node_modules/
+
+# wrangler local state — never commit (may embed oauth/session material)
+server/.wrangler/
