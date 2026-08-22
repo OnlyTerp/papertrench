@@ -4455,6 +4455,14 @@ function renderSettings(el) {
           <div class="field field-check"><label><input type="checkbox" id="set-overlay" ${settings.overlayEnabled !== false ? 'checked' : ''}> Enable overlay</label><small>The trade panel itself. Off hides the panel on all pages (the switch above outranks this one).</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-overlay-auto-hide" ${settings.overlayHideWhenNoToken !== false ? 'checked' : ''}> Hide overlay when no token is detected</label><small>The panel disappears on home pages and screeners, then pops back when you open a coin.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-focus-mode" ${settings.panelFocusMode === true ? 'checked' : ''}> Focus mode — minimal trade panel</label><small>Strips the banner, sparkline, thesis and last-close card from the trade tab — only token, price, balance and buy/sell controls remain. For distraction-free execution.</small></div>
+          <div class="field"><label for="set-shortcuts">Keyboard shortcuts</label>
+            <select id="set-shortcuts">
+              <option value="off" ${!settings.shortcutScheme || settings.shortcutScheme === 'off' ? 'selected' : ''}>Off</option>
+              <option value="alt" ${settings.shortcutScheme === 'alt' ? 'selected' : ''}>Alt + key</option>
+              <option value="ctrlshift" ${settings.shortcutScheme === 'ctrlshift' ? 'selected' : ''}>Ctrl + Shift + key</option>
+            </select>
+            <small>Off by default. When on: P shows or hides the trade panel, B the positions bar, A jumps to the amount box — on trading pages only, and never while you are typing in a field.</small>
+          </div>
         </div>
         <div class="card">
           <h3>Feedback &amp; alerts</h3>
