@@ -3493,6 +3493,124 @@ function lbVerifyView(chain, stats) {
   };
 }
 
+/** The leaderboard API. Only ever read, and only after onboarding completes. */
+const LB_API = 'https://papertrench-api.onerobby.workers.dev';
+
+/**
+ * The three things that have to be true before a record can rank, in the order
+ * they have to happen.
+ *
+ * Written as data rather than as branches in the markup because two other
+ * places need the same answer: the tab gate below, and the live-board fetch,
+ * which must not fire until every step is done.
+ */
+function lbSteps(identity, chainLen) {
+  return [
+    {
+      id: 'link',
+      title: 'Link your X account',
+      done: Boolean(identity),
+      blurb: 'Ranking is one record per verified account, so the board needs to know who you are before anything else counts.',
+    },
+    {
+      id: 'anchor',
+      title: 'Make your first paper trade',
+      done: chainLen > 0,
+      blurb: 'Your first fill anchors the hash chain. Until one exists there is no record to rank — the board has nothing to check.',
+    },
+    {
+      id: 'sync',
+      title: 'Turn on Site sync',
+      done: settings.leaderboardBridge === true,
+      blurb: 'Lets papertrench.com read your verified record when you click Sync there. Nothing is sent on its own, and no other site can ask.',
+    },
+  ];
+}
+
+const lbReady = (steps) => steps.every((s) => s.done);
+
+/**
+ * The onboarding gate.
+ *
+ * The full tab used to open on a wall of verification vocabulary — chain
+ * heads, derived stats, six honesty rules — to someone who had not yet done
+ * the one thing that makes any of it apply. Steps first, board after: each
+ * step states why it exists, and only the current one is actionable, so there
+ * is exactly one thing to do at any moment.
+ */
+function renderLbWizard(el, steps, identity, chainLen) {
+  const doneCount = steps.filter((s) => s.done).length;
+  const current = steps.findIndex((s) => !s.done);
+
+  const action = (step, i) => {
+    if (step.done) return '';
+    if (i !== current) return '<p class="lb-step-wait dim">Finish the step above first.</p>';
+    if (step.id === 'link') {
+      return `
+        <a class="btn" href="https://papertrench.com/leaderboard" target="_blank" rel="noopener"
+           style="display:inline-block;text-decoration:none">Sign in with X on papertrench.com →</a>
+        <p class="dim" style="font-size:12px;line-height:1.55;margin:12px 0 6px">
+          Signing in there links this automatically — the page hands your handle to the
+          extension, which is the direction that keeps the extension from ever calling a
+          server. Or type it here if you would rather:
+        </p>
+        <div class="field" style="margin-bottom:8px">
+          <label for="lb-handle">X handle</label>
+          <input id="lb-handle" type="text" placeholder="yourhandle" autocomplete="off">
+          <small>Without the @. The service verifies ownership before you rank either way.</small>
+        </div>
+        <button class="btn-sec" id="lb-link">Link this handle</button>`;
+    }
+    if (step.id === 'anchor') {
+      return `<p class="dim" style="font-size:12.5px;line-height:1.6;margin:0">
+        Open any supported dex with PaperTrench running and make a paper buy.
+        Come back here and this step ticks itself.</p>`;
+    }
+    return `
+      <div class="field field-check" style="margin:0">
+        <label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label>
+        <small>Off means the site asks you for the exported file instead — the board still works, it just costs you a download each time.</small>
+      </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="card lb-intro">
+      <h3>Get on the leaderboard</h3>
+      <p class="dim" style="font-size:13px;line-height:1.6;margin:6px 0 0">
+        Three steps, once. The board ranks a hash-chained record of real fills, so
+        it needs an identity to rank, a chain to read, and your permission to read it.
+      </p>
+      <div class="lb-progress" role="img" aria-label="${doneCount} of ${steps.length} steps complete">
+        ${steps.map((s) => `<span class="lb-pip ${s.done ? 'on' : ''}"></span>`).join('')}
+        <span class="lb-progress-label">${doneCount} of ${steps.length} done</span>
+      </div>
+    </div>
+
+    <ol class="lb-steps">
+      ${steps.map((s, i) => `
+        <li class="lb-step ${s.done ? 'done' : i === current ? 'now' : 'later'}">
+          <div class="lb-step-n">${s.done ? '✓' : i + 1}</div>
+          <div class="lb-step-body">
+            <h4>${esc(s.title)}${s.done && s.id === 'link' && identity ? ` <span class="dim" style="font-weight:600">— @${esc(identity.handle)}</span>` : ''}</h4>
+            <p class="dim">${esc(s.blurb)}</p>
+            ${action(s, i)}
+          </div>
+        </li>`).join('')}
+    </ol>
+
+    <div class="card" style="margin-top:16px">
+      <details>
+        <summary>What the board does with it</summary>
+        <ul style="margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px;line-height:1.65">
+          <li>Standings are recomputed server-side from the chain, never from a number this app reports.</li>
+          <li>Every fill is hashed when made, before the outcome is known, so a winning entry cannot be backdated.</li>
+          <li>Results compare return on your declared bankroll, not absolute SOL — a bigger starting balance buys no rank.</li>
+          <li>Nothing leaves this machine until the last step is on, and then only when you click Sync on the site.</li>
+        </ul>
+      </details>
+    </div>`;
+}
+
 function renderLeaderboard(el) {
   const chain = attestChain; // F-14: loaded from the segmented store
   const stats = E.sessionStats(state, settings);
@@ -3504,6 +3622,9 @@ function renderLeaderboard(el) {
     ? (stats.realizedPnlSol / E.anchorStartSol(state, settings)) * 100
     : 0;
   const verify = lbVerifyView(chain, stats);
+
+  const steps = lbSteps(identity, chain.length);
+  if (!lbReady(steps)) return renderLbWizard(el, steps, identity, chain.length);
 
   el.innerHTML = `
     <div class="grid2">
@@ -3558,6 +3679,17 @@ function renderLeaderboard(el) {
           <button class="btn" id="lb-link">Link account</button>
         `}
       </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="lb-live-head">
+        <h3 style="margin:0">Live standings</h3>
+        <button class="btn-sec" id="lb-refresh" type="button">Refresh</button>
+      </div>
+      <!-- Filled by loadLiveBoard(). Starts as a plain waiting line: an empty
+           table here would read as "nobody is on the board", which is a claim
+           about the world made before we have looked. -->
+      <div id="lb-live" class="lb-live"><p class="dim" style="font-size:12.5px;margin:10px 0 0">Loading the board…</p></div>
     </div>
 
     <div class="card" style="margin-top:16px">
@@ -3621,8 +3753,91 @@ function renderStandingsPlaceholder(identity, stats) {
     <div class="field field-check" style="margin-top:10px"><label><input type="checkbox" id="update-check" ${settings.updateCheckEnabled === false ? '' : 'checked'}> Check for new versions</label><small>Asks GitHub (api.github.com) if a newer release is out, twice a day, and shows a banner with the download link. Sends nothing but that one request. Unpacked extensions never update themselves, so this is the only way you hear about fixes. Turn it off for full no-phone-home mode.</small></div>`;
 }
 
+/**
+ * Fetch and draw the public board.
+ *
+ * This is the ONLY request the extension makes to papertrench's own server,
+ * and it is deliberately fenced: it runs after onboarding is complete, which
+ * means the user has linked an identity and switched Site sync on. Before
+ * that, privacy.html's "never phones home" holds without an asterisk, and a
+ * dashboard opened by someone who never touched the leaderboard makes no
+ * request at all.
+ *
+ * Read-only and unauthenticated: no cookies, no token, nothing about this
+ * machine in the request beyond what any GET carries.
+ */
+async function loadLiveBoard(el) {
+  const box = el.querySelector('#lb-live');
+  if (!box) return;
+  const mine = (settings.leaderboardIdentity || {}).handle || null;
+
+  let entries = null;
+  try {
+    const res = await fetch(LB_API + '/api/leaderboard', { credentials: 'omit', cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const body = await res.json();
+    entries = Array.isArray(body && body.entries) ? body.entries : null;
+    if (!entries) throw new Error('unexpected shape');
+  } catch (err) {
+    // Say the read failed. Rendering "no entries" here would state that the
+    // board is empty on the strength of a request that did not arrive.
+    console.warn('PaperTrench: leaderboard unavailable —', err.message);
+    box.innerHTML = `<p class="dim" style="font-size:12.5px;margin:10px 0 0">
+      Couldn't reach the board just now — your record is unaffected.
+      <button type="button" class="linkish" id="lb-retry">Try again</button></p>`;
+    const retry = box.querySelector('#lb-retry');
+    if (retry) retry.addEventListener('click', () => loadLiveBoard(el));
+    return;
+  }
+
+  if (!entries.length) {
+    box.innerHTML = '<p class="dim" style="font-size:12.5px;margin:10px 0 0">'
+      + 'No verified records on the board yet. First one there sets the bar.</p>';
+    return;
+  }
+
+  const top = entries.slice(0, 10);
+  const myIndex = mine
+    ? entries.findIndex((e) => String(e.handle).toLowerCase() === mine.toLowerCase())
+    : -1;
+
+  const row = (e, i) => {
+    const roi = Number(e.stats && e.stats.roiPct) || 0;
+    const rounds = Number(e.stats && e.stats.rounds) || 0;
+    const isMe = mine && String(e.handle).toLowerCase() === mine.toLowerCase();
+    return `
+      <div class="lb-rank${isMe ? ' me' : ''}">
+        <span class="pos">${i + 1}</span>
+        <span class="lb-handle">@${esc(e.handle)}
+          ${e.clanTag ? `<span class="lb-clan">[${esc(e.clanTag)}]</span>` : ''}
+          <small>${rounds} round trip${rounds === 1 ? '' : 's'}${e.chainLen ? ` · ${e.chainLen} committed fills` : ''}</small></span>
+        <span class="${roi >= 0 ? 'green' : 'red'}" style="font-weight:800">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%
+          <small style="font-weight:700;opacity:.8">ROI</small></span>
+      </div>`;
+  };
+
+  // If the user ranks outside the top ten, show their row too rather than
+  // leaving them to wonder whether they are on the board at all.
+  const outside = myIndex >= top.length
+    ? `<div class="lb-gap">⋯</div>${row(entries[myIndex], myIndex)}`
+    : '';
+
+  box.innerHTML = top.map(row).join('') + outside
+    + `<p class="dim" style="font-size:11.5px;line-height:1.6;margin:12px 0 0">
+        Top ${top.length} of ${entries.length} verified record${entries.length === 1 ? '' : 's'},
+        recomputed server-side from submitted chains.
+        ${mine && myIndex < 0 ? 'Your record is not ranked yet — sync it on the site to enter.' : ''}
+      </p>`;
+}
+
 /** Verify the chain and show the user exactly what a server would compute. */
 async function bindLeaderboard(el) {
+  // Only when the gate is passed — see loadLiveBoard() on why this is fenced.
+  if (el.querySelector('#lb-live')) {
+    loadLiveBoard(el);
+    const refresh = el.querySelector('#lb-refresh');
+    if (refresh) refresh.addEventListener('click', () => loadLiveBoard(el));
+  }
   const link = el.querySelector('#lb-link');
   if (link) {
     link.addEventListener('click', async () => {
@@ -3671,6 +3886,11 @@ async function bindLeaderboard(el) {
     bridge.addEventListener('change', async () => {
       settings.leaderboardBridge = bridge.checked === true;
       try { await saveSettings(); } catch (err) { console.error('PaperTrench: bridge save failed', err); }
+      // Site sync is the last onboarding step, so ticking it here is what
+      // opens the full tab. Re-render only from the wizard: doing it from the
+      // finished tab would tear down the board the user is reading to rebuild
+      // an identical one.
+      if (el.querySelector('.lb-steps')) renderSection('leaderboard');
     });
   }
 
@@ -4121,136 +4341,182 @@ function renderSettings(el) {
   const sellPctsList = Array.isArray(settings.sellPcts) ? settings.sellPcts : DEFAULTS.sellPcts;
   const presetsBuyList = Array.isArray(settings.presetsBuy) ? settings.presetsBuy : DEFAULTS.presetsBuy;
   el.innerHTML = `
-    <div class="card" style="margin-bottom:16px">
-      <h3>Modes</h3>
-      <div class="dim" style="font-size:11.5px;margin-bottom:8px">PaperTrench is three tools in one — turn on only what you came for.</div>
-      <div class="field field-check"><label><input type="checkbox" id="set-gaming-mode" ${settings.gamingModeEnabled === true ? 'checked' : ''}> Gaming on the charts</label><small>Grade toasts, streak chips and ambient game furniture on the trading sites. The Game tab here in the dashboard is always available either way — and a game you start from it always shows its HUD while it runs.</small></div>
-      <div class="dim" style="font-size:11px;margin-top:2px">Paper trading lives in Overlay settings; the speed features (Instant links, warm viewers) live in Turbo — both below.</div>
+    <div class="set-toolbar">
+      <div class="set-search-wrap">
+        <span class="set-search-ico" aria-hidden="true">🔍</span>
+        <input id="set-search" type="search" placeholder="Search settings — try &quot;fee&quot;, &quot;overlay&quot;, &quot;sound&quot;" autocomplete="off" aria-label="Search settings">
+      </div>
+      <div class="set-tabs" id="set-tabs" role="tablist">
+        <button class="set-tab on" type="button" data-group="all" role="tab" aria-selected="true">All</button>
+        <button class="set-tab" type="button" data-group="trading" role="tab" aria-selected="false"><span aria-hidden="true">📈</span>Trading</button>
+        <button class="set-tab" type="button" data-group="interface" role="tab" aria-selected="false"><span aria-hidden="true">🎛️</span>Interface</button>
+        <button class="set-tab" type="button" data-group="safety" role="tab" aria-selected="false"><span aria-hidden="true">🛡️</span>Safety</button>
+        <button class="set-tab" type="button" data-group="speed" role="tab" aria-selected="false"><span aria-hidden="true">⚡</span>Speed</button>
+        <button class="set-tab" type="button" data-group="intel" role="tab" aria-selected="false"><span aria-hidden="true">🔎</span>Intel</button>
+        <button class="set-tab" type="button" data-group="ai" role="tab" aria-selected="false"><span aria-hidden="true">🤖</span>AI</button>
+      </div>
     </div>
-    <div class="grid2">
-      <div class="card">
-        <h3>Wallet &amp; Trading</h3>
-        <div class="field"><label for="set-balance">Starting paper balance (SOL)</label><input id="set-balance" type="number" min="0.1" step="0.1" value="${settings.balanceStartSol}"></div>
-        <div class="field"><label for="set-sellpcts">Quick-sell presets (%)</label><input id="set-sellpcts" type="text" value="${esc(sellPctsList.join(', '))}"></div>
-      </div>
-      <div class="card">
-        <h3>Fees &amp; costs</h3>
-        <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Make paper fills cost what real fills cost. Copy YOUR settings from the site you trade on — on small entries the flat costs below matter more than the percentage.</p>
-        <div class="field"><label for="set-fee-preset">Quick fill-in</label>
-          <select id="set-fee-preset">
-            <option value="">— pick a rough starting point —</option>
-            <option value="bot">≈ Axiom/Padre-style bot (1% + 0.001 gas + 0.001 tip)</option>
-            <option value="fast">≈ Aggressive sniper (1% + 0.003 gas + 0.005 tip)</option>
-            <option value="zero">No costs (pure price practice)</option>
-          </select>
-          <small>Fills the fields below — they stay yours to edit. Real fees drift; the site's own settings are the truth.</small>
+    <p class="set-none" id="set-none" hidden>No setting matches that. <button type="button" class="linkish" id="set-clear">Clear the search</button></p>
+    <div class="set-panes" id="set-panes">
+      <section class="set-pane" data-group="trading" data-label="Trading">
+        <h2 class="set-pane-title"><span aria-hidden="true">📈</span>Trading</h2>
+        <div class="grid2">
+        <div class="card">
+          <h3>Wallet &amp; Trading</h3>
+          <div class="field"><label for="set-balance">Starting paper balance (SOL)</label><input id="set-balance" type="number" min="0.1" step="0.1" value="${settings.balanceStartSol}"></div>
+          <div class="field"><label for="set-sellpcts">Quick-sell presets (%)</label><input id="set-sellpcts" type="text" value="${esc(sellPctsList.join(', '))}"></div>
         </div>
-        <div class="field"><label for="set-fee">Platform fee per side (bps — 100 = 1%)</label><input id="set-fee" type="number" min="0" step="1" value="${settings.feeBps}"></div>
-        <div class="field"><label for="set-gas">Network fee per trade (SOL)</label><input id="set-gas" type="number" min="0" max="0.5" step="0.0001" value="${Number(settings.gasSolPerTx) > 0 ? settings.gasSolPerTx : ''}" placeholder="0"><small>Charged on every buy AND sell, like real gas.</small></div>
-        <div class="field"><label for="set-tip">Validator tip per trade (SOL)</label><input id="set-tip" type="number" min="0" max="0.5" step="0.0001" value="${Number(settings.tipSolPerTx) > 0 ? settings.tipSolPerTx : ''}" placeholder="0"><small>Jito-style inclusion tip. Flat, per transaction.</small></div>
-        <div class="field"><label for="set-slippage">Slippage (bps — 100 = 1%)</label><input id="set-slippage" type="number" min="0" step="1" value="${settings.slippageBps}"><small>Extra price impact on fills. 0 fills at the live tick.</small></div>
+        <div class="card">
+          <h3>Fees &amp; costs</h3>
+          <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Make paper fills cost what real fills cost. Copy YOUR settings from the site you trade on — on small entries the flat costs below matter more than the percentage.</p>
+          <div class="field"><label for="set-fee-preset">Quick fill-in</label>
+            <select id="set-fee-preset">
+              <option value="">— pick a rough starting point —</option>
+              <option value="bot">≈ Axiom/Padre-style bot (1% + 0.001 gas + 0.001 tip)</option>
+              <option value="fast">≈ Aggressive sniper (1% + 0.003 gas + 0.005 tip)</option>
+              <option value="zero">No costs (pure price practice)</option>
+            </select>
+            <small>Fills the fields below — they stay yours to edit. Real fees drift; the site's own settings are the truth.</small>
+          </div>
+          <div class="field"><label for="set-fee">Platform fee per side (bps — 100 = 1%)</label><input id="set-fee" type="number" min="0" step="1" value="${settings.feeBps}"></div>
+          <div class="field"><label for="set-gas">Network fee per trade (SOL)</label><input id="set-gas" type="number" min="0" max="0.5" step="0.0001" value="${Number(settings.gasSolPerTx) > 0 ? settings.gasSolPerTx : ''}" placeholder="0"><small>Charged on every buy AND sell, like real gas.</small></div>
+          <div class="field"><label for="set-tip">Validator tip per trade (SOL)</label><input id="set-tip" type="number" min="0" max="0.5" step="0.0001" value="${Number(settings.tipSolPerTx) > 0 ? settings.tipSolPerTx : ''}" placeholder="0"><small>Jito-style inclusion tip. Flat, per transaction.</small></div>
+          <div class="field"><label for="set-slippage">Slippage (bps — 100 = 1%)</label><input id="set-slippage" type="number" min="0" step="1" value="${settings.slippageBps}"><small>Extra price impact on fills. 0 fills at the live tick.</small></div>
+        </div>
+        <div class="card">
+          <h3>Buying</h3>
+          <div class="field"><label for="set-presets">Quick-buy presets (SOL)</label><input id="set-presets" type="text" value="${esc(presetsBuyList.join(', '))}"><small>Comma separated, shown as buttons in the overlay.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-instant-buy" ${settings.instantBuyEnabled !== false ? 'checked' : ''}> One-click quick buy</label><small>Tapping a preset amount fires the buy immediately, like Axiom and Padre. Off makes presets only select the amount for the BUY button.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-list-quick-buy" ${settings.listQuickBuyEnabled !== false ? 'checked' : ''}> One-tap buy buttons on token lists</label><small>A "P" button on every token row of Axiom Pulse, Padre Trenches and GMGN Trenches — buys the first preset amount without opening the chart.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-list-quick-open" ${settings.listQuickOpen !== false ? 'checked' : ''}> Open the chart tab after a list buy</label><small>When a one-tap list buy opens a NEW position, its chart opens in a background tab so the position is one click away. Turn off for list-only trading.</small></div>
+      <div class="field"><label for="set-panel-theme">Panel theme</label><select id="set-panel-theme"><option value="trench" ${!settings.panelTheme || settings.panelTheme === 'trench' ? 'selected' : ''}>Trench — PaperTrench default (amber on slate)</option><option value="axiom" ${settings.panelTheme === 'axiom' ? 'selected' : ''}>Axiom — dark slate, cyan accents</option><option value="padre" ${settings.panelTheme === 'padre' ? 'selected' : ''}>Padre — warm near-black, amber accents</option><option value="lute" ${settings.panelTheme === 'lute' ? 'selected' : ''}>Lute — deep indigo, violet accents</option><option value="solana" ${settings.panelTheme === 'solana' ? 'selected' : ''}>Solana — void green, terminal phosphor</option></select><small>Skins the PaperTrench overlay to match your dex. The site's own page is never touched — only the panel's colors. Or cycle them live with the ◍ button on the panel header.</small></div>
+      <div class="field"><label for="set-list-quick-buy-size">Buy-button size on lists <span id="val-list-quick-buy-size">${(settings.listQuickBuySize || 1).toFixed(2)}</span>x</label><input id="set-list-quick-buy-size" type="range" min="0.6" max="1.5" step="0.05" value="${Number(settings.listQuickBuySize || 1).toFixed(2)}"><small>Make the list buy buttons larger or smaller to fit your screen density.</small></div>
+      <div class="field"><label for="set-list-quick-buy-placement">Buy-button position on lists</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-panel-buy" ${settings.panelBuyEnabled !== false ? 'checked' : ''}> Buy section in the trade tab</label><small>Shows the quick-buy presets, custom amount and BUY button in the overlay. Off makes the trade tab view-only.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-panel-presets" ${settings.panelPresetsEnabled !== false ? 'checked' : ''}> Quick-buy preset buttons</label><small>The one-tap SOL amount buttons. Off keeps the custom amount and BUY button.</small></div>
+        </div>
+        <div class="card">
+          <h3>Exits — take profit &amp; stop loss</h3>
+          <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Arm a level on the chart and the position exits itself when the market gets there. Drag the line to place it exactly, the way a terminal does it.</p>
+          <div class="field field-check"><label><input type="checkbox" id="set-chart-orders" ${settings.chartOrdersEnabled !== false ? 'checked' : ''}> Take profit / stop loss on the chart</label><small>Adds a TP/SL section to the trade panel and draggable order lines to the chart. Costs nothing until a level is actually armed.</small></div>
+          <div class="field"><label for="set-chart-line-thickness">Order-line thickness</label><select id="set-chart-line-thickness"><option value="1" ${(settings.chartOrderLineThickness || 2) === 1 ? 'selected' : ''}>Thin (1px)</option><option value="2" ${(settings.chartOrderLineThickness || 2) === 2 ? 'selected' : ''}>Standard (2px)</option><option value="3" ${(settings.chartOrderLineThickness || 3) === 3 ? 'selected' : ''}>Thick (3px)</option><option value="4" ${(settings.chartOrderLineThickness || 4) === 4 ? 'selected' : ''}>Extra thick (4px)</option></select><small>Width of TP/SL and average-cost lines on the chart. Thicker lines are easier to grab and drag.</small></div>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>When a level is watched:</strong> while a page feeding that token's price is open. PaperTrench checks armed levels against the prices your own tabs are already receiving — nothing runs in the background, and an armed level says so on the chart.</p>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>How a paper stop fills:</strong> at the next price this machine actually observed after your level was crossed — never at the level itself. On an illiquid coin a stop can gap well past where you put it, and the journal records both numbers (“stop 180K → filled 154K”). A paper stop that always fills exactly where you placed it would teach an exit quality that does not exist.</p>
+        </div>
+        </div>
+      </section>
+      <section class="set-pane" data-group="interface" data-label="Interface">
+        <h2 class="set-pane-title"><span aria-hidden="true">🎛️</span>Interface</h2>
+        <div class="grid2">
+        <div class="card" style="margin-bottom:16px">
+        <h3>Modes</h3>
+        <div class="dim" style="font-size:11.5px;margin-bottom:8px">PaperTrench is three tools in one — turn on only what you came for.</div>
+        <div class="field field-check"><label><input type="checkbox" id="set-gaming-mode" ${settings.gamingModeEnabled === true ? 'checked' : ''}> Gaming on the charts</label><small>Grade toasts, streak chips and ambient game furniture on the trading sites. The Game tab here in the dashboard is always available either way — and a game you start from it always shows its HUD while it runs.</small></div>
+        <div class="dim" style="font-size:11px;margin-top:2px">Paper trading lives in Overlay settings; the speed features (Instant links, warm viewers) live in Turbo — both below.</div>
       </div>
-      <div class="card">
-        <h3>Buying</h3>
-        <div class="field"><label for="set-presets">Quick-buy presets (SOL)</label><input id="set-presets" type="text" value="${esc(presetsBuyList.join(', '))}"><small>Comma separated, shown as buttons in the overlay.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-instant-buy" ${settings.instantBuyEnabled !== false ? 'checked' : ''}> One-click quick buy</label><small>Tapping a preset amount fires the buy immediately, like Axiom and Padre. Off makes presets only select the amount for the BUY button.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-list-quick-buy" ${settings.listQuickBuyEnabled !== false ? 'checked' : ''}> One-tap buy buttons on token lists</label><small>A "P" button on every token row of Axiom Pulse, Padre Trenches and GMGN Trenches — buys the first preset amount without opening the chart.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-list-quick-open" ${settings.listQuickOpen !== false ? 'checked' : ''}> Open the chart tab after a list buy</label><small>When a one-tap list buy opens a NEW position, its chart opens in a background tab so the position is one click away. Turn off for list-only trading.</small></div>
-    <div class="field"><label for="set-panel-theme">Panel theme</label><select id="set-panel-theme"><option value="trench" ${!settings.panelTheme || settings.panelTheme === 'trench' ? 'selected' : ''}>Trench — PaperTrench default (amber on slate)</option><option value="axiom" ${settings.panelTheme === 'axiom' ? 'selected' : ''}>Axiom — dark slate, cyan accents</option><option value="padre" ${settings.panelTheme === 'padre' ? 'selected' : ''}>Padre — warm near-black, amber accents</option><option value="lute" ${settings.panelTheme === 'lute' ? 'selected' : ''}>Lute — deep indigo, violet accents</option><option value="solana" ${settings.panelTheme === 'solana' ? 'selected' : ''}>Solana — void green, terminal phosphor</option></select><small>Skins the PaperTrench overlay to match your dex. The site's own page is never touched — only the panel's colors. Or cycle them live with the ◍ button on the panel header.</small></div>
-    <div class="field"><label for="set-list-quick-buy-size">Buy-button size on lists <span id="val-list-quick-buy-size">${(settings.listQuickBuySize || 1).toFixed(2)}</span>x</label><input id="set-list-quick-buy-size" type="range" min="0.6" max="1.5" step="0.05" value="${Number(settings.listQuickBuySize || 1).toFixed(2)}"><small>Make the list buy buttons larger or smaller to fit your screen density.</small></div>
-    <div class="field"><label for="set-list-quick-buy-placement">Buy-button position on lists</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-panel-buy" ${settings.panelBuyEnabled !== false ? 'checked' : ''}> Buy section in the trade tab</label><small>Shows the quick-buy presets, custom amount and BUY button in the overlay. Off makes the trade tab view-only.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-panel-presets" ${settings.panelPresetsEnabled !== false ? 'checked' : ''}> Quick-buy preset buttons</label><small>The one-tap SOL amount buttons. Off keeps the custom amount and BUY button.</small></div>
-      </div>
-      <div class="card">
-        <h3>Exits — take profit &amp; stop loss</h3>
-        <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Arm a level on the chart and the position exits itself when the market gets there. Drag the line to place it exactly, the way a terminal does it.</p>
-        <div class="field field-check"><label><input type="checkbox" id="set-chart-orders" ${settings.chartOrdersEnabled !== false ? 'checked' : ''}> Take profit / stop loss on the chart</label><small>Adds a TP/SL section to the trade panel and draggable order lines to the chart. Costs nothing until a level is actually armed.</small></div>
-        <div class="field"><label for="set-chart-line-thickness">Order-line thickness</label><select id="set-chart-line-thickness"><option value="1" ${(settings.chartOrderLineThickness || 2) === 1 ? 'selected' : ''}>Thin (1px)</option><option value="2" ${(settings.chartOrderLineThickness || 2) === 2 ? 'selected' : ''}>Standard (2px)</option><option value="3" ${(settings.chartOrderLineThickness || 3) === 3 ? 'selected' : ''}>Thick (3px)</option><option value="4" ${(settings.chartOrderLineThickness || 4) === 4 ? 'selected' : ''}>Extra thick (4px)</option></select><small>Width of TP/SL and average-cost lines on the chart. Thicker lines are easier to grab and drag.</small></div>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>When a level is watched:</strong> while a page feeding that token's price is open. PaperTrench checks armed levels against the prices your own tabs are already receiving — nothing runs in the background, and an armed level says so on the chart.</p>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>How a paper stop fills:</strong> at the next price this machine actually observed after your level was crossed — never at the level itself. On an illiquid coin a stop can gap well past where you put it, and the journal records both numbers (“stop 180K → filled 154K”). A paper stop that always fills exactly where you placed it would teach an exit quality that does not exist.</p>
-      </div>
-      <div class="card">
-        <h3>AI &amp; Recording</h3>
-        <div class="field"><label for="set-endpoint">AI server address</label><input id="set-endpoint" type="text" value="${esc(settings.aiEndpoint)}" placeholder="https://api.openai.com/v1 or http://127.0.0.1:8765/v1"><small>Blank turns the AI coach off. Paste any OpenAI-compatible endpoint; if it runs on localhost or your LAN, also tick the local toggle below, then Save.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-ai-allow-local" ${settings.aiAllowLocalEndpoint ? 'checked' : ''}> Allow local/private AI endpoints</label><small>Enable only if you run a self-hosted (localhost, 127.0.0.1, or LAN) AI server. Off blocks requests to private/internal addresses.</small></div>
-        <div class="field"><label for="set-model">AI model</label><input id="set-model" type="text" value="${esc(settings.aiModel || '')}" placeholder="endpoint default"><small>Optional override. Blank uses the endpoint's own default.</small></div>
-        <div class="field"><label for="set-key">API key</label><input id="set-key" type="password" value="${esc(settings.aiApiKey || '')}" autocomplete="off" placeholder="optional"><small>Only if your AI server needs a key.</small></div>
-        <div class="field"><label for="set-rpc">Price connection</label><input id="set-rpc" type="text" value="${esc(settings.rpcUrl || '')}" placeholder="blank = built-in keyless public pool"><small>Blank uses the free public pool — fine for most. If new coins feel slow where you live (public endpoints throttle by region), paste a free personal endpoint: two minutes, no card — <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/RPC-SPEEDUP.md" target="_blank" rel="noopener" style="color:var(--orange2)">the 2-minute guide</a>. Your endpoint stays on this machine and is only ever used to read prices.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-rec" ${settings.recordingEnabled ? 'checked' : ''}> Record screen while a position is open</label><small>Chrome asks for screen permission once per session.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-frames" ${settings.framesEnabled ? 'checked' : ''}> Capture key frames on fills</label></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-autorev" ${settings.autoReview ? 'checked' : ''}> Auto-run AI review when a round closes</label></div>
-      </div>
-      <div class="card">
-        <h3>Forge — generate the banner inside the dex's own box</h3>
-        <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">When a paid upload box appears on a dex — fund, boost, enhance token info — PaperTrench puts a <strong>Generate</strong> chip on the image slot. It reads what the coin is about, draws the art at the size that box asks for, and drops the file straight into the uploader. Bring your own keys; the calls are yours and so are the bills.</p>
-        <div class="field field-check"><label><input type="checkbox" id="set-forge" ${settings.forgeEnabled === true ? 'checked' : ''}> Show the Generate chip on image upload boxes</label><small>Off by default. Nothing is generated, and no key is used, until you click Generate yourself.</small></div>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:10px 0 4px"><strong>1 · The narrative AI (optional).</strong> Reads what the coin is actually about and writes the art direction. Grok is the interesting one: with X search on, it looks at the live timeline first, so the art matches the joke people are actually posting. Leave this blank and you just describe the picture yourself.</p>
-        <div class="field"><label for="set-forge-brain">Narrative AI</label><select id="set-forge-brain">${forgeOptions(FG.BRAINS, settings.forgeBrainProvider)}</select><small>${esc(forgeBlurb(FG.BRAINS, settings.forgeBrainProvider))}</small></div>
-        <div class="field"><label for="set-forge-brain-endpoint">Narrative endpoint</label><input id="set-forge-brain-endpoint" type="text" value="${esc(settings.forgeBrainEndpoint || '')}" placeholder="${esc(forgeEndpointHint(FG.BRAINS, settings.forgeBrainProvider))}"><small>Blank uses that provider's usual address.</small></div>
-        <div class="field"><label for="set-forge-brain-model">Narrative model</label><input id="set-forge-brain-model" type="text" value="${esc(settings.forgeBrainModel || '')}" placeholder="${esc(forgeModelHint(FG.BRAINS, settings.forgeBrainProvider))}"><small>Model names change often — the placeholder is a hint, not a promise. Use whatever your account can call.</small></div>
-        <div class="field"><label for="set-forge-brain-key">Narrative API key</label><input id="set-forge-brain-key" type="password" value="${esc(settings.forgeBrainKey || '')}" autocomplete="off" placeholder="sk-…"><small>Stored on this machine only, never synced, and only ever sent to the endpoint above.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-forge-search" ${settings.forgeSearchX !== false ? 'checked' : ''}> Let Grok search X for the narrative</label><small>Uses xAI's server-side <code>x_search</code> tool on <code>/v1/responses</code> — Grok runs the search itself and answers with citations you can click. Costs more per call. If your key is not entitled to it, PaperTrench retries once without the tool and still returns a brief rather than failing.</small></div>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:12px 0 4px"><strong>2 · The image AI (required).</strong> Draws the picture. Anything with an OpenAI-style <code>/images/generations</code> endpoint works as-is; Gemini and Stability have their own adapters. For anything else — Higgsfield, a private model, next month's release — pick <em>Custom</em> and paste the request shape.</p>
-        <div class="field"><label for="set-forge-image">Image AI</label><select id="set-forge-image">${forgeOptions(FG.HANDS, settings.forgeImageProvider)}</select><small>${esc(forgeBlurb(FG.HANDS, settings.forgeImageProvider))}</small></div>
-        <div class="field"><label for="set-forge-image-endpoint">Image endpoint</label><input id="set-forge-image-endpoint" type="text" value="${esc(settings.forgeImageEndpoint || '')}" placeholder="${esc(forgeEndpointHint(FG.HANDS, settings.forgeImageProvider))}"><small>Required for a custom provider; blank uses the provider's usual address otherwise.</small></div>
-        <div class="field"><label for="set-forge-image-model">Image model</label><input id="set-forge-image-model" type="text" value="${esc(settings.forgeImageModel || '')}" placeholder="${esc(forgeModelHint(FG.HANDS, settings.forgeImageProvider))}"></div>
-        <div class="field"><label for="set-forge-image-key">Image API key</label><input id="set-forge-image-key" type="password" value="${esc(settings.forgeImageKey || '')}" autocomplete="off" placeholder="sk-…"></div>
-        <div class="field"><label for="set-forge-image-headers">Custom: extra headers (JSON)</label><input id="set-forge-image-headers" type="text" value="${esc(settings.forgeImageHeaders || '')}" placeholder='{"x-api-key":"…"}'><small>Only used by the Custom provider. Leave blank to send just <code>Authorization: Bearer &lt;key&gt;</code>.</small></div>
-        <div class="field"><label for="set-forge-image-body">Custom: request body template</label><input id="set-forge-image-body" type="text" value="${esc(settings.forgeImageBody || '')}" placeholder='{"prompt":"{{prompt}}","width":{{width}},"height":{{height}}}'><small>JSON with <code>{{prompt}}</code>, <code>{{width}}</code>, <code>{{height}}</code>, <code>{{n}}</code>, <code>{{model}}</code> substituted in.</small></div>
-        <div class="field"><label for="set-forge-image-path">Custom: where the image is in the reply</label><input id="set-forge-image-path" type="text" value="${esc(settings.forgeImagePath || '')}" placeholder="data.0.b64_json"><small>A dotted path to a base64 string or an image URL. Blank means PaperTrench guesses from the shapes it already knows.</small></div>
-        <div class="field"><label for="set-forge-style">Default style</label><select id="set-forge-style">${FG.STYLES.map((s) => `<option value="${esc(s.id)}" ${settings.forgeStyle === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select><small>Changeable per generation from the panel.</small></div>
-        <div class="field"><label for="set-forge-variants">Options per click</label><input id="set-forge-variants" type="number" min="1" max="4" step="1" value="${Number(settings.forgeVariants) || 2}"><small>Rendered in parallel, so four is barely slower than one — but it is four times the bill.</small></div>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:10px 0 0"><strong>What PaperTrench will not do here:</strong> it never sizes the image from a table of numbers we made up. It reads the required dimensions off the box in front of you and says so on the panel; when a box states nothing, the panel says the size is our preset instead. It never pays for anything, never submits the form, and never touches the site's own DOM — the chip floats over the upload slot rather than being injected into it.</p>
-      </div>
-      <div class="card">
-        <h3>Feedback &amp; alerts</h3>
-        <div class="field field-check"><label><input type="checkbox" id="set-effects" ${settings.tradeEffectsEnabled ? 'checked' : ''}> Buy/sell screen effects</label><small>Confetti burst and a brief color flash on each fill.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-sounds" ${settings.tradeSoundsEnabled ? 'checked' : ''}> Trade sounds</label><small>Synthesized locally — no audio files, no network calls.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-profit-alerts" ${settings.profitAlertsEnabled ? 'checked' : ''}> Profit sound when the tab is hidden</label><small>Rings once per new profit threshold while the tab is in the background.</small></div>
-        <div class="field"><label for="set-profit-alert-pct">Profit bell interval (%)</label><input id="set-profit-alert-pct" type="number" min="1" max="1000" step="1" value="${settings.profitAlertPct || 10}"><small>10 rings at +10%, +20%, +30%. Crossed levels never repeat.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-mc-alerts" ${settings.mcAlertsEnabled !== false ? 'checked' : ''}> Market cap alerts</label><small>Arm “alert above / alert below” on any token from the panel — including ones you do not hold. Watched from whichever trading tab you have open, so a level still fires while you are looking at a different chart.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-mc-alert-desktop" ${settings.mcAlertDesktopEnabled !== false ? 'checked' : ''}> Desktop notification when one fires</label><small>Posted through the trading site's own notification permission, exactly as its built-in alerts are — PaperTrench asks for no notification permission of its own. If a site has notifications blocked, the alert still appears in the panel.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-avg-lines" ${settings.averagePriceLinesEnabled ? 'checked' : ''}> Average entry/exit lines on the chart</label><small>Native “Avg. Fill Price” and “Avg. Exit Price” lines from your paper fills.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-positions-bar" ${settings.positionsBarEnabled !== false ? 'checked' : ''}> Positions bar</label><small>A top rail on every trading page showing all open paper positions and their live P&amp;L. Click a position to jump to its chart.</small></div>
-      </div>
-      <div class="card">
-        <h3>Guardrails</h3>
-        <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">The three rules every surviving trader eventually adopts — practicable here while the money is fake. Each blocks the buy with an honest message; each is yours to switch off.</p>
-        <div class="field field-check"><label><input type="checkbox" id="set-guard-tilt" ${settings.guardTiltEnabled === true ? 'checked' : ''}> Loss-streak cooldown</label><small>After a streak of straight losses, buying pauses for a cooldown. Revenge trades are how small losses become big ones.</small></div>
-        <div class="field"><label for="set-guard-tilt-losses">Tilt: losses in a row</label><input id="set-guard-tilt-losses" type="number" min="2" max="10" step="1" value="${Number(settings.guardTiltLosses) || 4}"></div>
-        <div class="field"><label for="set-guard-tilt-minutes">Tilt: cooldown minutes</label><input id="set-guard-tilt-minutes" type="number" min="1" max="120" step="1" value="${Number(settings.guardTiltMinutes) || 10}"></div>
-        <div class="field"><label for="set-guard-max-pct">Max position size (% of book)</label><input id="set-guard-max-pct" type="number" min="1" max="100" step="1" value="${Number(settings.guardMaxPositionPct) > 0 ? settings.guardMaxPositionPct : ''}" placeholder="blank = off"><small>A single buy larger than this share of your equity is refused.</small></div>
-        <div class="field"><label for="set-guard-daily-loss">Daily loss limit (SOL)</label><input id="set-guard-daily-loss" type="number" min="0.01" step="0.01" value="${Number(settings.guardDailyLossSol) > 0 ? settings.guardDailyLossSol : ''}" placeholder="blank = off"><small>Once today's realized paper losses reach this, buying stops until tomorrow.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-guard-rug" ${settings.guardRugEnabled !== false ? 'checked' : ''}> Rug guard (on by default)</label><small>Reads holder concentration from chain state; when the top wallets (excluding the pool) control more than the % below, a paper BUY is refused with a 🚩 RUG WARNING naming the number. Sells are never blocked, and a chain read that fails blocks nothing.</small></div>
-        <div class="field"><label for="set-guard-rug-pct">Rug guard — block when the top 10 wallets hold over this %</label><input id="set-guard-rug-pct" type="number" min="10" max="90" step="1" value="${Number(settings.guardRugTopPct) || 40}"></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-post-exit-watch" ${settings.postExitWatchEnabled !== false ? 'checked' : ''}> The After — track the hour after each exit</label><small>Records what the coin actually did after you sold (observed extremes, on the round). Measured truth instead of FOMO guesswork.</small></div>
-      </div>
-      <div class="card">
-        <h3>Overlay</h3>
-        <div class="field field-check"><label><input type="checkbox" id="set-app-enabled" ${settings.appEnabled !== false ? 'checked' : ''}> Enable PaperTrench</label><small>The app-wide master switch. Off means PaperTrench shows up nowhere at all — no overlay, no positions bar, no chart drawings, no instant X links — until you turn it back on. Your wallet, journal, and every other setting are kept.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-overlay" ${settings.overlayEnabled !== false ? 'checked' : ''}> Enable overlay</label><small>The trade panel itself. Off hides the panel on all pages (the switch above outranks this one).</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-overlay-auto-hide" ${settings.overlayHideWhenNoToken !== false ? 'checked' : ''}> Hide overlay when no token is detected</label><small>The panel disappears on home pages and screeners, then pops back when you open a coin.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-focus-mode" ${settings.panelFocusMode === true ? 'checked' : ''}> Focus mode — minimal trade panel</label><small>Strips the banner, sparkline, thesis and last-close card from the trade tab — only token, price, balance and buy/sell controls remain. For distraction-free execution.</small></div>
-      </div>
-      <div class="card">
-        <h3>Instant links</h3>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-x" ${settings.warmXLinksEnabled === true ? 'checked' : ''}> Instant X links</label><small>X posts, profiles, communities, and CA searches clicked on a trading site open in a kept-warm viewer tab (~0.5s instead of ~3.5s), with hover prefetch. Keeps one muted background x.com tab while on. Ctrl/Cmd/middle-click always opens normal tabs.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-everywhere" ${settings.warmEverywhereEnabled === true ? 'checked' : ''}> Instant terminal links</label><small>The same warm-viewer treatment for pump.fun, Solscan and cross-terminal token links — now the whole matrix: Axiom, Padre, GMGN, Fomo, BullX, Photon, Dexscreener, Birdeye, Jupiter and Lute. Close a warm tab and it stays closed until you actually click that destination again.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-instant-discord" ${settings.instantDiscordEnabled === true ? 'checked' : ''}> Instant links on Discord</label><small>Registers the link interceptor on discord.com, so token and X links pasted in channels route through the same warm viewers. Uses the two toggles above for what actually routes; only classified links are ever touched — every other click stays native.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-instant-telegram" ${settings.instantTelegramEnabled === true ? 'checked' : ''}> Instant links on Telegram Web</label><small>Same treatment on web.telegram.org.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-instant-everywhere" ${settings.instantAllSitesEnabled === true ? 'checked' : ''}> Instant links on every site</label><small>The maximal version: the interceptor registers on all https sites (terminals and x.com keep their built-ins). The cost is one small script per page while this is on; the contract is unchanged — a link that is not a token/X link is never touched, and nothing is ever injected with this off.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-cards" ${settings.warmHoverCardsEnabled === true ? 'checked' : ''}> Tweet preview card on hover</label><small>Hover an X link and a large readable preview of the post renders right on the page — the card itself is the click target, so no aiming at a 14px icon. Deleted posts say so before you click. Uses X's public oEmbed endpoint (no login, no tracking — see docs/PERMISSIONS.md).</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-row" ${settings.warmHoverRowEnabled === true ? 'checked' : ''}> Preview from anywhere on the row</label><small>Rest the cursor about a third of a second anywhere on a token row and its X preview appears — no need to find the icon at all. Needs Instant X links on.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-warm-buy" ${settings.warmHoverBuyEnabled === true ? 'checked' : ''}> Preview on the terminal's quick-buy button</label><small>Where a terminal hides the launch tweet behind a held hotkey, this puts it on the button your cursor is already on: hover the site's own quick-buy pill and the tweet appears in about a tenth of a second, no key held. The card is placed clear of the pill, never over it, so the buy click it was aiming at still lands. Works where the site's pill is a verified one — Axiom and Padre today. Needs Instant X links on.</small></div>
-      </div>
-      <div class="card">
-        <h3>X-Ray</h3>
-        <div class="field field-check"><label><input type="checkbox" id="set-xray" ${settings.xrayEnabled === true ? 'checked' : ''}> X-Ray account intel on x.com</label><small>On any X profile or post, a card appears immediately with account age, follower counts, bio / display-name / @handle changes, contract addresses the account has posted, and Smart Following (its biggest followers). Built from the data the X page itself loads — no third-party service, no account of yours is used to follow anyone, nothing leaves this device.</small></div>
-        <div class="field field-check"><label><input type="checkbox" id="set-xray-deep" ${settings.xrayDeepScanEnabled !== false ? 'checked' : ''}> Deep scan (read further back)</label><small>Lets X-Ray ask X for a few more pages of the account's posts and its follower list — the same requests the page makes when you scroll, throttled hard and only while you are looking at that account. Off means X-Ray only uses what the page loads on its own.</small></div>
-        <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>Honest limits:</strong> change history starts the first time this device sees an account — X-Ray cannot know a bio it never saw, and the card always states the date it started watching. CA history and Smart Following come from posts and follower lists actually read, so they are a floor, never a complete record.</p>
-      </div>
-      ${renderTurboCard()}
+        <div class="card">
+          <h3>Overlay</h3>
+          <div class="field field-check"><label><input type="checkbox" id="set-app-enabled" ${settings.appEnabled !== false ? 'checked' : ''}> Enable PaperTrench</label><small>The app-wide master switch. Off means PaperTrench shows up nowhere at all — no overlay, no positions bar, no chart drawings, no instant X links — until you turn it back on. Your wallet, journal, and every other setting are kept.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-overlay" ${settings.overlayEnabled !== false ? 'checked' : ''}> Enable overlay</label><small>The trade panel itself. Off hides the panel on all pages (the switch above outranks this one).</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-overlay-auto-hide" ${settings.overlayHideWhenNoToken !== false ? 'checked' : ''}> Hide overlay when no token is detected</label><small>The panel disappears on home pages and screeners, then pops back when you open a coin.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-focus-mode" ${settings.panelFocusMode === true ? 'checked' : ''}> Focus mode — minimal trade panel</label><small>Strips the banner, sparkline, thesis and last-close card from the trade tab — only token, price, balance and buy/sell controls remain. For distraction-free execution.</small></div>
+        </div>
+        <div class="card">
+          <h3>Feedback &amp; alerts</h3>
+          <div class="field field-check"><label><input type="checkbox" id="set-effects" ${settings.tradeEffectsEnabled ? 'checked' : ''}> Buy/sell screen effects</label><small>Confetti burst and a brief color flash on each fill.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-sounds" ${settings.tradeSoundsEnabled ? 'checked' : ''}> Trade sounds</label><small>Synthesized locally — no audio files, no network calls.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-profit-alerts" ${settings.profitAlertsEnabled ? 'checked' : ''}> Profit sound when the tab is hidden</label><small>Rings once per new profit threshold while the tab is in the background.</small></div>
+          <div class="field"><label for="set-profit-alert-pct">Profit bell interval (%)</label><input id="set-profit-alert-pct" type="number" min="1" max="1000" step="1" value="${settings.profitAlertPct || 10}"><small>10 rings at +10%, +20%, +30%. Crossed levels never repeat.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-mc-alerts" ${settings.mcAlertsEnabled !== false ? 'checked' : ''}> Market cap alerts</label><small>Arm “alert above / alert below” on any token from the panel — including ones you do not hold. Watched from whichever trading tab you have open, so a level still fires while you are looking at a different chart.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-mc-alert-desktop" ${settings.mcAlertDesktopEnabled !== false ? 'checked' : ''}> Desktop notification when one fires</label><small>Posted through the trading site's own notification permission, exactly as its built-in alerts are — PaperTrench asks for no notification permission of its own. If a site has notifications blocked, the alert still appears in the panel.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-avg-lines" ${settings.averagePriceLinesEnabled ? 'checked' : ''}> Average entry/exit lines on the chart</label><small>Native “Avg. Fill Price” and “Avg. Exit Price” lines from your paper fills.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-positions-bar" ${settings.positionsBarEnabled !== false ? 'checked' : ''}> Positions bar</label><small>A top rail on every trading page showing all open paper positions and their live P&amp;L. Click a position to jump to its chart.</small></div>
+        </div>
+        </div>
+      </section>
+      <section class="set-pane" data-group="safety" data-label="Safety">
+        <h2 class="set-pane-title"><span aria-hidden="true">🛡️</span>Safety</h2>
+        <div class="grid2">
+        <div class="card">
+          <h3>Guardrails</h3>
+          <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">The three rules every surviving trader eventually adopts — practicable here while the money is fake. Each blocks the buy with an honest message; each is yours to switch off.</p>
+          <div class="field field-check"><label><input type="checkbox" id="set-guard-tilt" ${settings.guardTiltEnabled === true ? 'checked' : ''}> Loss-streak cooldown</label><small>After a streak of straight losses, buying pauses for a cooldown. Revenge trades are how small losses become big ones.</small></div>
+          <div class="field"><label for="set-guard-tilt-losses">Tilt: losses in a row</label><input id="set-guard-tilt-losses" type="number" min="2" max="10" step="1" value="${Number(settings.guardTiltLosses) || 4}"></div>
+          <div class="field"><label for="set-guard-tilt-minutes">Tilt: cooldown minutes</label><input id="set-guard-tilt-minutes" type="number" min="1" max="120" step="1" value="${Number(settings.guardTiltMinutes) || 10}"></div>
+          <div class="field"><label for="set-guard-max-pct">Max position size (% of book)</label><input id="set-guard-max-pct" type="number" min="1" max="100" step="1" value="${Number(settings.guardMaxPositionPct) > 0 ? settings.guardMaxPositionPct : ''}" placeholder="blank = off"><small>A single buy larger than this share of your equity is refused.</small></div>
+          <div class="field"><label for="set-guard-daily-loss">Daily loss limit (SOL)</label><input id="set-guard-daily-loss" type="number" min="0.01" step="0.01" value="${Number(settings.guardDailyLossSol) > 0 ? settings.guardDailyLossSol : ''}" placeholder="blank = off"><small>Once today's realized paper losses reach this, buying stops until tomorrow.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-guard-rug" ${settings.guardRugEnabled !== false ? 'checked' : ''}> Rug guard (on by default)</label><small>Reads holder concentration from chain state; when the top wallets (excluding the pool) control more than the % below, a paper BUY is refused with a 🚩 RUG WARNING naming the number. Sells are never blocked, and a chain read that fails blocks nothing.</small></div>
+          <div class="field"><label for="set-guard-rug-pct">Rug guard — block when the top 10 wallets hold over this %</label><input id="set-guard-rug-pct" type="number" min="10" max="90" step="1" value="${Number(settings.guardRugTopPct) || 40}"></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-post-exit-watch" ${settings.postExitWatchEnabled !== false ? 'checked' : ''}> The After — track the hour after each exit</label><small>Records what the coin actually did after you sold (observed extremes, on the round). Measured truth instead of FOMO guesswork.</small></div>
+        </div>
+        </div>
+      </section>
+      <section class="set-pane" data-group="speed" data-label="Speed">
+        <h2 class="set-pane-title"><span aria-hidden="true">⚡</span>Speed</h2>
+        <div class="grid2">
+        <div class="card">
+          <h3>Instant links</h3>
+          <div class="field field-check"><label><input type="checkbox" id="set-warm-x" ${settings.warmXLinksEnabled === true ? 'checked' : ''}> Instant X links</label><small>X posts, profiles, communities, and CA searches clicked on a trading site open in a kept-warm viewer tab (~0.5s instead of ~3.5s), with hover prefetch. Keeps one muted background x.com tab while on. Ctrl/Cmd/middle-click always opens normal tabs.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-warm-everywhere" ${settings.warmEverywhereEnabled === true ? 'checked' : ''}> Instant terminal links</label><small>The same warm-viewer treatment for pump.fun, Solscan and cross-terminal token links — now the whole matrix: Axiom, Padre, GMGN, Fomo, BullX, Photon, Dexscreener, Birdeye, Jupiter and Lute. Close a warm tab and it stays closed until you actually click that destination again.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-instant-discord" ${settings.instantDiscordEnabled === true ? 'checked' : ''}> Instant links on Discord</label><small>Registers the link interceptor on discord.com, so token and X links pasted in channels route through the same warm viewers. Uses the two toggles above for what actually routes; only classified links are ever touched — every other click stays native.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-instant-telegram" ${settings.instantTelegramEnabled === true ? 'checked' : ''}> Instant links on Telegram Web</label><small>Same treatment on web.telegram.org.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-instant-everywhere" ${settings.instantAllSitesEnabled === true ? 'checked' : ''}> Instant links on every site</label><small>The maximal version: the interceptor registers on all https sites (terminals and x.com keep their built-ins). The cost is one small script per page while this is on; the contract is unchanged — a link that is not a token/X link is never touched, and nothing is ever injected with this off.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-warm-cards" ${settings.warmHoverCardsEnabled === true ? 'checked' : ''}> Tweet preview card on hover</label><small>Hover an X link and a large readable preview of the post renders right on the page — the card itself is the click target, so no aiming at a 14px icon. Deleted posts say so before you click. Uses X's public oEmbed endpoint (no login, no tracking — see docs/PERMISSIONS.md).</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-warm-row" ${settings.warmHoverRowEnabled === true ? 'checked' : ''}> Preview from anywhere on the row</label><small>Rest the cursor about a third of a second anywhere on a token row and its X preview appears — no need to find the icon at all. Needs Instant X links on.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-warm-buy" ${settings.warmHoverBuyEnabled === true ? 'checked' : ''}> Preview on the terminal's quick-buy button</label><small>Where a terminal hides the launch tweet behind a held hotkey, this puts it on the button your cursor is already on: hover the site's own quick-buy pill and the tweet appears in about a tenth of a second, no key held. The card is placed clear of the pill, never over it, so the buy click it was aiming at still lands. Works where the site's pill is a verified one — Axiom and Padre today. Needs Instant X links on.</small></div>
+        </div>
+        ${renderTurboCard()}
+        </div>
+      </section>
+      <section class="set-pane" data-group="intel" data-label="Intel">
+        <h2 class="set-pane-title"><span aria-hidden="true">🔎</span>Intel</h2>
+        <div class="grid2">
+        <div class="card">
+          <h3>X-Ray</h3>
+          <div class="field field-check"><label><input type="checkbox" id="set-xray" ${settings.xrayEnabled === true ? 'checked' : ''}> X-Ray account intel on x.com</label><small>On any X profile or post, a card appears immediately with account age, follower counts, bio / display-name / @handle changes, contract addresses the account has posted, and Smart Following (its biggest followers). Built from the data the X page itself loads — no third-party service, no account of yours is used to follow anyone, nothing leaves this device.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-xray-deep" ${settings.xrayDeepScanEnabled !== false ? 'checked' : ''}> Deep scan (read further back)</label><small>Lets X-Ray ask X for a few more pages of the account's posts and its follower list — the same requests the page makes when you scroll, throttled hard and only while you are looking at that account. Off means X-Ray only uses what the page loads on its own.</small></div>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>Honest limits:</strong> change history starts the first time this device sees an account — X-Ray cannot know a bio it never saw, and the card always states the date it started watching. CA history and Smart Following come from posts and follower lists actually read, so they are a floor, never a complete record.</p>
+        </div>
+        </div>
+      </section>
+      <section class="set-pane" data-group="ai" data-label="AI">
+        <h2 class="set-pane-title"><span aria-hidden="true">🤖</span>AI</h2>
+        <div class="grid2">
+        <div class="card">
+          <h3>AI &amp; Recording</h3>
+          <div class="field"><label for="set-endpoint">AI server address</label><input id="set-endpoint" type="text" value="${esc(settings.aiEndpoint)}" placeholder="https://api.openai.com/v1 or http://127.0.0.1:8765/v1"><small>Blank turns the AI coach off. Paste any OpenAI-compatible endpoint; if it runs on localhost or your LAN, also tick the local toggle below, then Save.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-ai-allow-local" ${settings.aiAllowLocalEndpoint ? 'checked' : ''}> Allow local/private AI endpoints</label><small>Enable only if you run a self-hosted (localhost, 127.0.0.1, or LAN) AI server. Off blocks requests to private/internal addresses.</small></div>
+          <div class="field"><label for="set-model">AI model</label><input id="set-model" type="text" value="${esc(settings.aiModel || '')}" placeholder="endpoint default"><small>Optional override. Blank uses the endpoint's own default.</small></div>
+          <div class="field"><label for="set-key">API key</label><input id="set-key" type="password" value="${esc(settings.aiApiKey || '')}" autocomplete="off" placeholder="optional"><small>Only if your AI server needs a key.</small></div>
+          <div class="field"><label for="set-rpc">Price connection</label><input id="set-rpc" type="text" value="${esc(settings.rpcUrl || '')}" placeholder="blank = built-in keyless public pool"><small>Blank uses the free public pool — fine for most. If new coins feel slow where you live (public endpoints throttle by region), paste a free personal endpoint: two minutes, no card — <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/RPC-SPEEDUP.md" target="_blank" rel="noopener" style="color:var(--orange2)">the 2-minute guide</a>. Your endpoint stays on this machine and is only ever used to read prices.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-rec" ${settings.recordingEnabled ? 'checked' : ''}> Record screen while a position is open</label><small>Chrome asks for screen permission once per session.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-frames" ${settings.framesEnabled ? 'checked' : ''}> Capture key frames on fills</label></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-autorev" ${settings.autoReview ? 'checked' : ''}> Auto-run AI review when a round closes</label></div>
+        </div>
+        <div class="card">
+          <h3>Forge — generate the banner inside the dex's own box</h3>
+          <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">When a paid upload box appears on a dex — fund, boost, enhance token info — PaperTrench puts a <strong>Generate</strong> chip on the image slot. It reads what the coin is about, draws the art at the size that box asks for, and drops the file straight into the uploader. Bring your own keys; the calls are yours and so are the bills.</p>
+          <div class="field field-check"><label><input type="checkbox" id="set-forge" ${settings.forgeEnabled === true ? 'checked' : ''}> Show the Generate chip on image upload boxes</label><small>Off by default. Nothing is generated, and no key is used, until you click Generate yourself.</small></div>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:10px 0 4px"><strong>1 · The narrative AI (optional).</strong> Reads what the coin is actually about and writes the art direction. Grok is the interesting one: with X search on, it looks at the live timeline first, so the art matches the joke people are actually posting. Leave this blank and you just describe the picture yourself.</p>
+          <div class="field"><label for="set-forge-brain">Narrative AI</label><select id="set-forge-brain">${forgeOptions(FG.BRAINS, settings.forgeBrainProvider)}</select><small>${esc(forgeBlurb(FG.BRAINS, settings.forgeBrainProvider))}</small></div>
+          <div class="field"><label for="set-forge-brain-endpoint">Narrative endpoint</label><input id="set-forge-brain-endpoint" type="text" value="${esc(settings.forgeBrainEndpoint || '')}" placeholder="${esc(forgeEndpointHint(FG.BRAINS, settings.forgeBrainProvider))}"><small>Blank uses that provider's usual address.</small></div>
+          <div class="field"><label for="set-forge-brain-model">Narrative model</label><input id="set-forge-brain-model" type="text" value="${esc(settings.forgeBrainModel || '')}" placeholder="${esc(forgeModelHint(FG.BRAINS, settings.forgeBrainProvider))}"><small>Model names change often — the placeholder is a hint, not a promise. Use whatever your account can call.</small></div>
+          <div class="field"><label for="set-forge-brain-key">Narrative API key</label><input id="set-forge-brain-key" type="password" value="${esc(settings.forgeBrainKey || '')}" autocomplete="off" placeholder="sk-…"><small>Stored on this machine only, never synced, and only ever sent to the endpoint above.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-forge-search" ${settings.forgeSearchX !== false ? 'checked' : ''}> Let Grok search X for the narrative</label><small>Uses xAI's server-side <code>x_search</code> tool on <code>/v1/responses</code> — Grok runs the search itself and answers with citations you can click. Costs more per call. If your key is not entitled to it, PaperTrench retries once without the tool and still returns a brief rather than failing.</small></div>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:12px 0 4px"><strong>2 · The image AI (required).</strong> Draws the picture. Anything with an OpenAI-style <code>/images/generations</code> endpoint works as-is; Gemini and Stability have their own adapters. For anything else — Higgsfield, a private model, next month's release — pick <em>Custom</em> and paste the request shape.</p>
+          <div class="field"><label for="set-forge-image">Image AI</label><select id="set-forge-image">${forgeOptions(FG.HANDS, settings.forgeImageProvider)}</select><small>${esc(forgeBlurb(FG.HANDS, settings.forgeImageProvider))}</small></div>
+          <div class="field"><label for="set-forge-image-endpoint">Image endpoint</label><input id="set-forge-image-endpoint" type="text" value="${esc(settings.forgeImageEndpoint || '')}" placeholder="${esc(forgeEndpointHint(FG.HANDS, settings.forgeImageProvider))}"><small>Required for a custom provider; blank uses the provider's usual address otherwise.</small></div>
+          <div class="field"><label for="set-forge-image-model">Image model</label><input id="set-forge-image-model" type="text" value="${esc(settings.forgeImageModel || '')}" placeholder="${esc(forgeModelHint(FG.HANDS, settings.forgeImageProvider))}"></div>
+          <div class="field"><label for="set-forge-image-key">Image API key</label><input id="set-forge-image-key" type="password" value="${esc(settings.forgeImageKey || '')}" autocomplete="off" placeholder="sk-…"></div>
+          <div class="field"><label for="set-forge-image-headers">Custom: extra headers (JSON)</label><input id="set-forge-image-headers" type="text" value="${esc(settings.forgeImageHeaders || '')}" placeholder='{"x-api-key":"…"}'><small>Only used by the Custom provider. Leave blank to send just <code>Authorization: Bearer &lt;key&gt;</code>.</small></div>
+          <div class="field"><label for="set-forge-image-body">Custom: request body template</label><input id="set-forge-image-body" type="text" value="${esc(settings.forgeImageBody || '')}" placeholder='{"prompt":"{{prompt}}","width":{{width}},"height":{{height}}}'><small>JSON with <code>{{prompt}}</code>, <code>{{width}}</code>, <code>{{height}}</code>, <code>{{n}}</code>, <code>{{model}}</code> substituted in.</small></div>
+          <div class="field"><label for="set-forge-image-path">Custom: where the image is in the reply</label><input id="set-forge-image-path" type="text" value="${esc(settings.forgeImagePath || '')}" placeholder="data.0.b64_json"><small>A dotted path to a base64 string or an image URL. Blank means PaperTrench guesses from the shapes it already knows.</small></div>
+          <div class="field"><label for="set-forge-style">Default style</label><select id="set-forge-style">${FG.STYLES.map((s) => `<option value="${esc(s.id)}" ${settings.forgeStyle === s.id ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select><small>Changeable per generation from the panel.</small></div>
+          <div class="field"><label for="set-forge-variants">Options per click</label><input id="set-forge-variants" type="number" min="1" max="4" step="1" value="${Number(settings.forgeVariants) || 2}"><small>Rendered in parallel, so four is barely slower than one — but it is four times the bill.</small></div>
+          <p class="dim" style="font-size:11.5px;line-height:1.6;margin:10px 0 0"><strong>What PaperTrench will not do here:</strong> it never sizes the image from a table of numbers we made up. It reads the required dimensions off the box in front of you and says so on the panel; when a box states nothing, the panel says the size is our preset instead. It never pays for anything, never submits the form, and never touches the site's own DOM — the chip floats over the upload slot rather than being injected into it.</p>
+        </div>
+        </div>
+      </section>
     </div>
     <div class="card" style="margin-top:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button class="btn" id="save-settings">Save settings</button>
@@ -4259,13 +4525,99 @@ function renderSettings(el) {
       <span id="ai-test-result" class="dim" style="font-size:12px"></span>
       <button class="btn-red" id="reset-all" style="margin-left:auto">Reset wallet &amp; history</button>
     </div>
+  
   `;
   // Handlers are attached by rebindSection() once the markup is live in the
   // document; binding here would target the detached staging element.
 }
 
 /** Wire the settings form. Called after the section is in the document. */
+/**
+ * Group tabs + search over the settings form.
+ *
+ * Filtering is presentational only: nothing is detached, disabled or moved, so
+ * a hidden control still holds its value and Save still reads all seventy-odd
+ * fields exactly as it did when they were one flat list. A filter that dropped
+ * inputs from the form would silently reset whatever was scrolled past.
+ */
+function bindSettingsFilter() {
+  const panes = document.getElementById('set-panes');
+  const tabs = document.getElementById('set-tabs');
+  const search = document.getElementById('set-search');
+  const none = document.getElementById('set-none');
+  if (!panes || !tabs || !search) return;
+
+  let group = 'all';
+
+  // The searchable text of a control: its label, helper copy and any option
+  // labels. Read once — this markup does not change between renders.
+  const fields = [...panes.querySelectorAll('.field')].map((el) => ({
+    el,
+    card: el.closest('.card'),
+    text: (el.textContent || '').toLowerCase(),
+  }));
+
+  function apply() {
+    const q = search.value.trim().toLowerCase();
+    const searching = q.length > 0;
+    panes.classList.toggle('searching', searching);
+    // Search spans every group, so the group tabs stop applying while one is
+    // running — otherwise a match in Trading is invisible from Safety and the
+    // page looks like it has no answer.
+    panes.classList.toggle('one-group', !searching && group !== 'all');
+
+    let shown = 0;
+    for (const f of fields) {
+      const hit = !searching || f.text.includes(q);
+      f.el.hidden = !hit;
+      f.el.classList.toggle('hit', searching && hit);
+      if (hit) shown++;
+    }
+
+    for (const pane of panes.querySelectorAll('.set-pane')) {
+      const inGroup = group === 'all' || pane.dataset.group === group;
+      // A card whose every field is filtered out is noise: hide the card, and
+      // hide the pane once all of its cards are gone.
+      let paneHas = false;
+      for (const card of pane.querySelectorAll('.card')) {
+        const cardFields = [...card.querySelectorAll('.field')];
+        const alive = cardFields.length === 0 || cardFields.some((el) => !el.hidden);
+        // Cards with no .field at all (pure explainer cards) belong to their
+        // group but have nothing to match, so they go while a search is on.
+        const keep = searching ? cardFields.some((el) => !el.hidden) : alive;
+        card.hidden = !keep;
+        if (keep) paneHas = true;
+      }
+      pane.hidden = !inGroup || !paneHas;
+    }
+
+    if (none) none.hidden = !(searching && shown === 0);
+  }
+
+  tabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('.set-tab');
+    if (!tab) return;
+    group = tab.dataset.group;
+    for (const t of tabs.querySelectorAll('.set-tab')) {
+      const on = t === tab;
+      t.classList.toggle('on', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    apply();
+  });
+
+  search.addEventListener('input', apply);
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { search.value = ''; apply(); }
+  });
+  const clear = document.getElementById('set-clear');
+  if (clear) clear.addEventListener('click', () => { search.value = ''; search.focus(); apply(); });
+
+  apply();
+}
+
 function bindSettings() {
+  bindSettingsFilter();
   document.getElementById('save-settings').addEventListener('click', saveFromForm);
   // Fees & costs quick fill-in: writes the fields, never storage — Save still
   // owns persistence, and the numbers stay the user's to edit.

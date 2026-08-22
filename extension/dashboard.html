@@ -74,13 +74,17 @@
       border-bottom: 1px solid var(--line);
     }
     .brand { display: flex; align-items: center; gap: 11px; }
+    /* The mark is the plane on near-black, exactly as brand/logo.png is drawn.
+       The old amber-filled tile cannot carry it: the plane is itself amber, so
+       on that background it disappears. */
     .brand-mark {
       width: 30px; height: 30px; border-radius: 9px;
       display: grid; place-items: center;
-      font-size: 14px; font-weight: 900; color: #2A1400;
-      background: linear-gradient(145deg, var(--amber-2), var(--amber) 55%, #E77B22);
-      box-shadow: 0 5px 16px -4px rgba(255, 157, 69, 0.55), inset 0 1px 0 rgba(255,255,255,0.45);
+      background: #0B0B0A;
+      border: 1px solid rgba(255, 157, 69, 0.22);
+      box-shadow: 0 5px 16px -5px rgba(255, 157, 69, 0.45);
     }
+    .brand-mark svg { width: 19px; height: 19px; display: block; }
     h1 { margin: 0; font-size: 16px; font-weight: 750; letter-spacing: -0.3px; }
     .badge {
       padding: 3px 9px; border-radius: 999px;
@@ -158,6 +162,68 @@
     }
     .card h4 { margin: 16px 0 8px; font-size: 12px; font-weight: 700; color: var(--dim); }
     .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(370px, 1fr)); gap: 16px; align-items: start; }
+
+    /* ---------- Settings: groups + search ----------
+       Settings had grown to seventy-odd controls in one flat run of cards, so
+       finding a known setting meant scrolling and reading every heading. Two
+       ways in now: filter to a group, or type what you remember. Search wins
+       when both are active — someone typing has a specific control in mind and
+       should not also have to guess which group it was filed under. */
+    .set-toolbar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .set-search-wrap { position: relative; flex: 1 1 260px; min-width: 220px; }
+    .set-search-ico {
+      position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+      font-size: 12px; opacity: 0.55; pointer-events: none;
+    }
+    #set-search {
+      width: 100%; font: inherit; font-size: 13px; color: var(--text);
+      background: rgba(0,0,0,0.26); border: 1px solid var(--line);
+      border-radius: 999px; padding: 9px 14px 9px 32px;
+      transition: border-color .15s;
+    }
+    #set-search:focus { outline: none; border-color: var(--amber); }
+    #set-search::-webkit-search-cancel-button { cursor: pointer; }
+
+    .set-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .set-tab {
+      font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--dim); background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px;
+      transition: color .15s, background .15s, border-color .15s;
+    }
+    .set-tab:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+    .set-tab.on {
+      color: #2A1400; font-weight: 750; border-color: transparent;
+      background: linear-gradient(145deg, var(--amber-2, #FFC081), var(--amber) 60%, #E77B22);
+    }
+
+    .set-pane { margin-bottom: 26px; }
+    .set-pane-title {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 0 11px; font-size: 12px; font-weight: 800;
+      letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim);
+    }
+    /* While a group is selected the other panes are gone, so their heading is
+       redundant — but during a SEARCH every surviving pane keeps its heading,
+       because that is the label telling you where the match lives. */
+    .set-panes.one-group .set-pane-title { display: none; }
+    .set-pane[hidden], .field[hidden], .card[hidden] { display: none !important; }
+
+    /* A search that hides most of a card can leave a lone control under a
+       heading it does not belong to; dimming the heading keeps the card
+       readable as "part of X" without competing with the match. */
+    .set-panes.searching .card h3 { opacity: 0.6; }
+    .set-panes.searching .field.hit label { color: var(--amber); }
+
+    .set-none { margin: 30px 0; text-align: center; color: var(--dim); font-size: 13.5px; }
+    .linkish {
+      font: inherit; font-size: inherit; color: var(--amber);
+      background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline;
+    }
     .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; align-items: start; }
 
     .section { animation: fade-in 0.3s var(--ease) both; }
@@ -539,6 +605,52 @@
       word-break: break-all; line-height: 1.5;
     }
 
+    /* ---------- Leaderboard onboarding ----------
+       The tab used to open on chain heads and six honesty rules for someone
+       who had not yet linked an account. Three steps, one actionable at a
+       time; the board itself replaces this once they are done. */
+    .lb-intro { margin-bottom: 16px; }
+    .lb-progress { display: flex; align-items: center; gap: 7px; margin-top: 14px; }
+    .lb-pip {
+      width: 34px; height: 4px; border-radius: 999px;
+      background: rgba(255,255,255,0.12);
+    }
+    .lb-pip.on { background: linear-gradient(90deg, var(--amber-2, #FFC081), var(--amber)); }
+    .lb-progress-label { margin-left: 6px; font-size: 11.5px; font-weight: 650; color: var(--dim); }
+
+    .lb-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    .lb-step {
+      display: flex; gap: 14px; padding: 16px 18px;
+      background: linear-gradient(155deg, rgba(255,255,255,0.042), rgba(255,255,255,0.012));
+      border: 1px solid var(--line); border-radius: var(--r-xl);
+      transition: border-color .2s, opacity .2s;
+    }
+    /* Only the current step is at full strength. A later step still readable
+       at full contrast reads as another thing to do now, which is the exact
+       "wall of options" this replaces. */
+    .lb-step.later { opacity: 0.5; }
+    .lb-step.now { border-color: rgba(255,157,69,0.4); box-shadow: 0 8px 26px -14px rgba(255,157,69,0.5); }
+    .lb-step.done .lb-step-n { background: rgba(52,211,153,0.16); color: var(--green, #34D399); border-color: rgba(52,211,153,0.4); }
+    .lb-step.now .lb-step-n { background: linear-gradient(145deg, var(--amber-2, #FFC081), var(--amber) 60%, #E77B22); color: #2A1400; border-color: transparent; }
+    .lb-step-n {
+      width: 28px; height: 28px; flex: none; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 12.5px; font-weight: 800; color: var(--dim);
+      background: rgba(255,255,255,0.05); border: 1px solid var(--line);
+    }
+    .lb-step-body { min-width: 0; flex: 1; }
+    .lb-step-body h4 { margin: 3px 0 5px; font-size: 14.5px; font-weight: 750; }
+    .lb-step-body > p.dim { margin: 0 0 10px; font-size: 12.5px; line-height: 1.6; }
+    .lb-step.done .lb-step-body > p.dim, .lb-step.later .lb-step-body > p.dim { margin-bottom: 0; }
+    .lb-step-wait { margin: 0; font-size: 12px; font-style: italic; }
+
+    /* ---------- Live board ---------- */
+    .lb-live-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+    .lb-live-head .btn-sec { margin-left: auto; }
+    .lb-live { margin-top: 6px; }
+    .lb-clan { font-size: 10.5px; font-weight: 700; color: var(--amber); margin-left: 5px; }
+    .lb-gap { text-align: center; color: var(--faint); font-size: 14px; letter-spacing: 3px; padding: 4px 0; }
+
     /* session tape */
     .tape { max-height: 300px; overflow-y: auto; margin: -4px -4px 0; padding: 0 4px; }
     .tape-row {
@@ -684,7 +796,7 @@
 <body>
   <header>
     <div class="brand">
-      <div class="brand-mark">P</div>
+      <div class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="ptmA" x1="23" y1="3.19" x2="4" y2="13.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFC94A"/><stop offset=".55" stop-color="#FF9D32"/><stop offset="1" stop-color="#F5751F"/></linearGradient><linearGradient id="ptmB" x1="23" y1="3.19" x2="11" y2="20.8" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FBA23A"/><stop offset=".6" stop-color="#F87A24"/><stop offset="1" stop-color="#EE5F1C"/></linearGradient></defs><path d="M23 3.19 L1 10.56 L8.74 15.68 Z" fill="url(#ptmA)"/><path d="M23 3.19 L8.74 15.68 L9.2 18.24 L13.07 20.8 Z" fill="url(#ptmB)"/></svg></div>
       <h1>PaperTrench</h1>
       <span class="badge">PAPER ONLY</span>
     </div>

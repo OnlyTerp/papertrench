@@ -3369,6 +3369,11 @@
   /* Inline SVG beats emoji: it inherits currentColor, stays crisp at any DPI,
    * and renders identically across every host site's font stack. */
   const ICONS = {
+    // The PaperTrench mark. Silhouette only — the two-tone brand version needs
+    // gradient <defs>, and this one renders twice in the same shadow tree
+    // (positions bar and panel header), which would collide their ids. Vertices
+    // are the master's, traced in brand/mark.svg.
+    mark: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 3.19 L1 10.56 L8.74 15.68 L9.2 18.24 L13.07 20.8 Z"/></svg>',
     chart: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18.7 8 13 13.7l-3-3L6.3 14.4"/></svg>',
     minimize: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>',
     grip: '<svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.2"/><circle cx="7.5" cy="2.5" r="1.2"/><circle cx="2.5" cy="6" r="1.2"/><circle cx="7.5" cy="6" r="1.2"/><circle cx="2.5" cy="9.5" r="1.2"/><circle cx="7.5" cy="9.5" r="1.2"/></svg>',
@@ -3837,13 +3842,21 @@
       cursor: grab; user-select: none;
     }
     .pt-header:active { cursor: grabbing; }
+    /* The mark, not a letter. Single-colour silhouette on the panel's own
+       dark surface, inked with --pt-amber so it follows the panel theme —
+       the five skins exist to blend with the host dex, and a hardcoded
+       orange plane would sit wrong on the Solana and Axiom palettes. The
+       two-tone brand version lives on our own surfaces, where the
+       background is always brand-black. */
     .pt-icon {
       width: 30px; height: 30px; border-radius: 10px; flex: none;
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px; font-weight: 900; color: #2A1400;
-      background: linear-gradient(145deg, #FFC081, var(--pt-amber) 55%, #E77B22);
-      box-shadow: 0 4px 14px rgba(255, 157, 69, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      color: var(--pt-amber);
+      background: var(--pt-void);
+      border: 1px solid var(--pt-amber-soft);
+      box-shadow: 0 4px 14px rgba(255, 157, 69, 0.28);
     }
+    .pt-icon svg, .pt-bar-mark svg { width: 62%; height: 62%; fill: currentColor; display: block; }
     .pt-title { font-weight: 750; font-size: 13.5px; letter-spacing: -0.15px; min-width: 0; }
     .pt-title .sub {
       display: block; margin-top: 1px;
@@ -4510,8 +4523,9 @@
     .pt-bar-mark {
       width: 18px; height: 18px; border-radius: 5px; flex: none;
       display: flex; align-items: center; justify-content: center;
-      font-size: 9.5px; font-weight: 900; color: #2A1400;
-      background: linear-gradient(145deg, #FFC081, var(--pt-amber) 60%, #E77B22);
+      color: var(--pt-amber);
+      background: var(--pt-void);
+      border: 1px solid var(--pt-amber-soft);
     }
     .pt-bar-label {
       font-size: 9px; font-weight: 800; letter-spacing: 1.1px;
@@ -4867,7 +4881,7 @@
         <div class="pt-bar pt-hidden" id="pt-bar">
           <div class="pt-bar-grip" id="pt-bar-grip" title="Drag to move">${ICONS.grip}</div>
           <div class="pt-bar-brand" id="pt-bar-brand" title="Open PaperTrench dashboard">
-            <span class="pt-bar-mark">P</span>
+            <span class="pt-bar-mark">${ICONS.mark}</span>
             <span class="pt-bar-label">Paper</span>
           </div>
           <div class="pt-bar-total" id="pt-bar-total"></div>
@@ -4882,7 +4896,7 @@
         <div class="pt-box" id="pt-box">
           <div class="pt-banner"><b>Paper Trading</b> · Simulated Funds</div>
           <div class="pt-header" id="pt-drag">
-            <div class="pt-icon">P</div>
+            <div class="pt-icon">${ICONS.mark}</div>
             <div class="pt-title">PaperTrench<span class="sub" id="pt-subtitle">Quick paper buy box</span></div>
             <span class="pt-grow"></span>
             <button class="pt-hbtn" id="pt-jump-orders" title="Jump to take-profit / stop-loss presets" aria-label="Jump to take-profit and stop-loss">⚑</button>
