@@ -2063,6 +2063,32 @@
       }
       if (remutate) await remutate();
     }
+    // Live report 2026-08-22 (Trenches, 5 PT tabs live): every quick-buy chip
+    // fill LOST all four CAS rounds — each tap opens a chart tab (#29), every
+    // tab heartbeats ~800ms, and the losers threw here. The fill vanished
+    // with a silent pageerror and the chart page had nothing to draw (the
+    // exact "buy lines, bubbles and position missing" report). Policy:
+    // a MUTATION (a fill — remutate present) must never be dropped; after
+    // the loop its state is already last-adopted + re-applied, so one final
+    // FORCED commit lands it with only a millisecond-wide clobber window.
+    // A pure heartbeat (no remutate) has nothing unique — it walks away and
+    // tries again next beat, which is what keeps the LYAR silent-eat class
+    // dead: heartbeats never force.
+    if (remutate) {
+      state.seq = (Number(state.seq) || 0) + 1;
+      state.updatedAt = Date.now();
+      lastWrittenState = state;
+      lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
+      const forced = await sendMessage({
+        type: 'pt_state_commit', state, expectedSeq: state.seq - 1, force: true,
+      }).catch(() => null);
+      if (!forced || !forced.ok) {
+        // SW unreachable: the direct-write fallback, same availability rule
+        // as inside the loop. A fill is never droppable.
+        await store.set({ [E.STORAGE_KEYS.state]: state });
+      }
+      return;
+    }
     // Four consecutive losses means writers are landing every few ms —
     // something is wrong enough that pretending to have persisted is worse.
     throw new Error('The wallet kept changing under this write — please retry');
@@ -2791,7 +2817,12 @@
           if (p && Number(p.priceNative) > 0) E.markPosition(state, mint, p.priceNative, p.priceUsd);
         }
       }
-      await persistStateNow();
+      // Heartbeat persistence must never surface as a pageerror: under
+      // multi-tab contention this tab simply loses this round (persistStateNow
+      // throws after its CAS retries when no remutate is present). Nothing
+      // unique is lost — the marks re-apply next beat. The live Trenches
+      // report (5 tabs) logged 40 of these as uncaught rejections.
+      await persistStateNow().catch(() => {});
     }, 800);
   }
 

@@ -3487,6 +3487,29 @@
     return null;
   }
 
+  /* Bug 5 (live report 2026-08-22): one chip per CARD, even when several
+   * anchors on the card climb to several NESTED rows. Measured on padre's
+   * reworked Trenches DOM: the trade-link anchor finds the inner body
+   * (384x59) while the pump.fun icon anchor finds the card (472x98) —
+   * both fit findRowContainer's size heuristic, and the old anchor loop
+   * keyed BOTH, so every card wore two quick-buy chips. The rule: among
+   * nested rows the OUTERMOST wins; an inner row is dropped from the map.
+   * Sibling cards never nest, so distinct cards keep distinct chips.
+   * Pure function over [row, address] pairs — unit-tested in
+   * extension/test/rowchipdedupe.test.js. */
+  function dedupeNestedRows(pairs) {
+    const rows = new Map();
+    for (const [row, address] of pairs) {
+      let skip = false;
+      for (const [other] of rows) {
+        if (other === row || (other.contains && other.contains(row))) { skip = true; break; }
+        if (row.contains && row.contains(other)) rows.delete(other); // outer wins
+      }
+      if (!skip) rows.set(row, address);
+    }
+    return rows;
+  }
+
   function scanScreenerRows(spec) {
     const amount = numberValue(spec && spec.amount) || 0.1;
     const size = Math.max(0.6, Math.min(1.5, numberValue(spec && spec.size) || 1));
@@ -3503,6 +3526,7 @@
     const beforeButton = spec && spec.placement === 'before-buy-button';
     const rows = new Map(); // row/card element -> address
 
+    const anchorPairs = [];
     for (const selector of selectors) {
       let anchors;
       try { anchors = document.querySelectorAll(selector); } catch (_) { continue; }
@@ -3512,9 +3536,15 @@
         // Axiom Pulse rows carry the stable `group` class — matching it
         // exactly keeps chips out of page chrome.
         const row = groupRows ? anchor.closest('div.group') : findRowContainer(anchor);
-        if (row && !rows.has(row)) rows.set(row, match[0]);
+        if (row) anchorPairs.push([row, match[0]]);
       }
     }
+    // Bug 5: several anchors on one card can climb to NESTED rows (card +
+    // inner body); the outermost row wins — one chip per card.
+    for (const [row, address] of dedupeNestedRows(anchorPairs)) rows.set(row, address);
+    // A chip left by an earlier sweep on a NESTED row of a card we just
+    // claimed is a leftover of the duplicate bug — counted below when the
+    // map is final, not inside the loop that mutates it.
 
     // Rows/cards with no address link at all: the identity lives in React
     // props. Enumerate siblings of known rows (same list container), plus
@@ -3543,14 +3573,16 @@
         }
       }
     }
-    const isNested = (a, b) => a === b || a.contains(b) || b.contains(a);
     const staleAt = Date.now() - 3000;
+    const isNested = (a, b) => a === b || (a.contains && a.contains(b)) || (b.contains && b.contains(a));
     for (const row of candidates) {
       if (rows.has(row)) continue;
       const chipped = rowChips.get(row);
       if (chipped && chipped.verifiedAt > staleAt) continue;
       if (!chipped) {
         // A card and its inner body both look like rows — one chip only.
+        // (The anchor loop already dedupes nested rows via dedupeNestedRows;
+        // this walk covers rows ONLY the fiber scan can find.)
         let nested = false;
         for (const other of rows.keys()) if (isNested(other, row)) { nested = true; break; }
         if (!nested) {
@@ -3571,6 +3603,22 @@
     try { pattern = new RegExp((spec && spec.buyButtonPattern) || '^Buy\\s', 'i'); } catch (_) { pattern = /^Buy\s/i; }
     const layer = ensureRowChipLayer();
     ensureRowChipObserver();
+
+    // Retire chips whose row nests under a row this scan just claimed (an
+    // update from a build without the anchor-loop dedupe leaves one chip on
+    // the card and one on its inner body). The inner one goes.
+    for (const chippedRow of [...rowChips.keys()]) {
+      if (rows.has(chippedRow)) continue;
+      let nested = false;
+      for (const claimed of rows.keys()) {
+        if (claimed !== chippedRow && claimed.contains(chippedRow)) { nested = true; break; }
+      }
+      if (nested) {
+        const entry = rowChips.get(chippedRow);
+        rowChips.delete(chippedRow);
+        if (entry && entry.el) entry.el.remove();
+      }
+    }
 
     const now = Date.now();
     for (const [row, address] of rows) {
