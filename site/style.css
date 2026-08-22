@@ -679,6 +679,30 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
    worth on phones once the Arena pages were added to it. */
 .foot-links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 12px 22px; font-size: 13.5px; color: var(--muted); font-weight: 600; }
 .foot-links a:hover { color: var(--text); }
+
+/* Community buttons.
+   Their own row rather than two more entries in .foot-links: that list is
+   already wrapping to two lines on a phone (see above), and "join the Discord"
+   is a different kind of destination from "MIT License" — a thing to do, not a
+   document to read. Sitting after the link row on desktop and centred above the
+   note on mobile keeps both readable. */
+.foot-social { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.foot-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--muted);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line2); border-radius: 999px; padding: 8px 15px;
+  transition: color .18s, background .18s, border-color .18s, transform .18s;
+}
+.foot-btn svg { width: 15px; height: 15px; fill: currentColor; flex: none; }
+.foot-btn:hover { transform: translateY(-1px); color: var(--text); }
+/* Brand colour on hover only: two saturated pills sitting in a muted footer
+   pull the eye off the page content they sit under. */
+.foot-btn.discord:hover { color: #b9a5ff; background: rgba(88, 101, 242, 0.14); border-color: rgba(88, 101, 242, 0.45); }
+.foot-btn.x:hover { background: rgba(255, 255, 255, 0.11); border-color: rgba(255, 255, 255, 0.3); }
+@media (prefers-reduced-motion: reduce) { .foot-btn:hover { transform: none; } }
+@media (max-width: 720px) { .foot-social { justify-content: center; } }
+
 .foot-note { margin-top: 18px; font-size: 12.5px; color: var(--dim); }
 
 /* ---------- reveal animations ---------- */
