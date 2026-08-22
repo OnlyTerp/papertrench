@@ -3,6 +3,24 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.2 — 2026-08-22
+
+**Trenches quick-buy: one button per card, and fills that actually stick.**
+Two live reports from the Trenches screener, both fixed:
+
+- **Every card showed TWO quick-buy buttons.** The site redesigned its card
+  layout; two of its link anchors now climb to different containers that both
+  look like "the row" to our scanner, and each got its own chip. Chips are now
+  deduplicated per card — one button, one buy, no twins.
+
+- **Buy from the list, open the chart, and your line/bubbles/position were
+  missing.** Each quick-buy opens the coin's chart in a background tab by
+  design — and with several PaperTrench tabs alive, the wallet's write race
+  could starve a fresh fill on all its retries and silently drop it: the buy
+  happened, the toast fired, but nothing reached the chart. A fill now lands
+  with a final forced write instead of ever being dropped, and the losing
+  background writes no longer surface as page errors.
+
 ## v3.13.1 — 2026-08-22
 
 **Fresh-pair position links land on the chart, not a dead page.** On terminals

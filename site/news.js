@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.2', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['fix'],
+        title: 'Trenches quick-buy: one button per card, fills that stick',
+        body: 'Two live reports from the Trenches screener. Every card had grown TWO quick-buy buttons — the site redesigned its card layout so two link anchors climb to different containers that both look like "the row," and each got its own chip; chips are now deduplicated per card. And a buy made from the list could vanish before reaching the chart: each quick-buy opens the coin\'s chart tab, and with several PaperTrench tabs alive the wallet\'s write race could starve a fresh fill on all its retries — toast fired, position never landed, no line or bubbles on the chart. A fill now lands with a final forced write instead of ever being dropped.',
+      },
+      {
         v: '3.13.1', date: 'Aug 22, 2026', iso: '2026-08-22',
         tags: ['fix'],
         title: 'Fresh-pair position links land on the chart, not a dead page',
