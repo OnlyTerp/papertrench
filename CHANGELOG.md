@@ -5,6 +5,32 @@ details live in the commit messages.
 
 ## Unreleased
 
+**New look: the paper plane.** PaperTrench has a real mark now, and it replaces
+the placeholder "P" everywhere it appeared — browser toolbar, popup, dashboard
+header, the trade panel on every dex, and the stream overlay. On the trading
+panel it takes the colour of whichever skin you're running, so it still looks
+at home on the Axiom and Solana themes.
+
+**Settings you can actually navigate.** Seventy-odd controls used to sit in one
+unbroken run of cards, so finding a known setting meant scrolling and reading
+every heading. They're now grouped — **Trading, Interface, Safety, Speed, Intel,
+AI** — with a search box that reaches across all of them: type "fee", "sound" or
+"overlay" and only matching controls stay on screen. Nothing moved out of Save's
+reach; a filtered setting still holds its value.
+
+**The Leaderboard tab starts with three steps, not a wall.** It used to open on
+chain heads and six paragraphs of verification vocabulary for someone who hadn't
+linked an account yet. Now it asks for three things, one at a time — link your X
+account, make your first paper trade, turn on Site sync — and each says why it's
+needed. Finish them and the full tab opens.
+
+**Live standings, in the dashboard.** Once you're through those steps, the
+Leaderboard tab shows the real board — top ten, plus your own row if you rank
+below it — refreshed on demand. If you're outside the top ten you still see
+where you stand. Before those steps, the extension makes no request at all: the
+board is the one thing it ever reads from our server, and only after you've
+linked an account and switched Site sync on yourself.
+
 **Keyboard shortcuts, off by default.** Pick **Alt + key** or **Ctrl + Shift + key**
 in Settings and three keys become available on any trading page: **P** shows or
 hides the trade panel, **B** the positions bar, **A** jumps straight to the

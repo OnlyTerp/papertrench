@@ -1,0 +1,37 @@
+<!--
+  The PaperTrench mark, derived from brand/logo.png rather than redrawn by eye.
+
+  Vertices were read off the master's ink mask (silhouette) and its colour
+  discontinuities (the fold). In master pixel space the shape is:
+
+      tip    (872, 233)      the point, top right
+      wing   (150, 475)      leftmost point
+      knee   (404, 643)      where the trailing edge turns vertical
+      notch  (419, 727)      bottom of the tail cut
+      tail   (546, 811)      lowest point
+      fold   tip → knee      splits the lit upper face from the shaded body
+
+  Mapped into a 24×24 box: scale 22/722, centred vertically.
+
+  Two faces, not one silhouette: the master is lit brightly along the top edge
+  and falls away to a deeper orange under the fold, and a single flat gradient
+  loses the paper-fold read the logo is built on.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="PaperTrench">
+  <defs>
+    <linearGradient id="pt-mark-lit" x1="23" y1="3.19" x2="4" y2="13.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFC94A"/>
+      <stop offset="0.55" stop-color="#FF9D32"/>
+      <stop offset="1" stop-color="#F5751F"/>
+    </linearGradient>
+    <linearGradient id="pt-mark-shade" x1="23" y1="3.19" x2="11" y2="20.8" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBA23A"/>
+      <stop offset="0.6" stop-color="#F87A24"/>
+      <stop offset="1" stop-color="#EE5F1C"/>
+    </linearGradient>
+  </defs>
+  <!-- lit upper face: tip → wing → knee -->
+  <path d="M23 3.19 L1 10.56 L8.74 15.68 Z" fill="url(#pt-mark-lit)"/>
+  <!-- shaded body under the fold: tip → knee → notch → tail -->
+  <path d="M23 3.19 L8.74 15.68 L9.2 18.24 L13.07 20.8 Z" fill="url(#pt-mark-shade)"/>
+</svg>

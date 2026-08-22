@@ -52,13 +52,16 @@
       padding: 14px 16px 12px;
       border-bottom: 1px solid var(--line);
     }
+    /* Plane on near-black, as brand/logo.png is drawn — an amber tile would
+       swallow an amber mark. */
     .mark {
       width: 26px; height: 26px; border-radius: 8px;
       display: grid; place-items: center;
-      font-size: 12px; font-weight: 900; color: #2A1400;
-      background: linear-gradient(145deg, var(--amber-2), var(--amber) 55%, #E77B22);
-      box-shadow: 0 4px 12px -3px rgba(255, 157, 69, 0.55), inset 0 1px 0 rgba(255,255,255,0.45);
+      background: #0B0B0A;
+      border: 1px solid rgba(255, 157, 69, 0.22);
+      box-shadow: 0 4px 12px -4px rgba(255, 157, 69, 0.45);
     }
+    .mark svg { width: 17px; height: 17px; display: block; }
     h1 { margin: 0; font-size: 14px; font-weight: 750; letter-spacing: -0.2px; }
     .badge {
       margin-left: auto; padding: 3px 8px; border-radius: 999px;
@@ -195,7 +198,7 @@
 </head>
 <body>
   <header>
-    <div class="mark">P</div>
+    <div class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="ptmA" x1="23" y1="3.19" x2="4" y2="13.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFC94A"/><stop offset=".55" stop-color="#FF9D32"/><stop offset="1" stop-color="#F5751F"/></linearGradient><linearGradient id="ptmB" x1="23" y1="3.19" x2="11" y2="20.8" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FBA23A"/><stop offset=".6" stop-color="#F87A24"/><stop offset="1" stop-color="#EE5F1C"/></linearGradient></defs><path d="M23 3.19 L1 10.56 L8.74 15.68 Z" fill="url(#ptmA)"/><path d="M23 3.19 L8.74 15.68 L9.2 18.24 L13.07 20.8 Z" fill="url(#ptmB)"/></svg></div>
     <h1>PaperTrench</h1>
     <span class="badge" id="badge">PAPER</span>
   </header>
