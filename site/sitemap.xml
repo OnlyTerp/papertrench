@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Public pages, in the extensionless form the site links (GitHub Pages resolves
+  /leaderboard to leaderboard.html).
+
+  No <lastmod>. Every file's git mtime is the day the extensionless-URL refactor
+  rewrote its links, so a lastmod here would tell search engines that a
+  three-week-old news article changed today. A date that is technically true and
+  semantically false is worse than no date: Google treats an untrustworthy
+  lastmod as a reason to ignore the field everywhere on the site.
+
+  Deliberately absent:
+    /admin                  noindex — moderator queue, not public
+    /clan /duel /profile    parameterised; without ?tag= / ?code= / ?handle=
+                            they render an empty state, so there is nothing at
+                            these URLs worth landing on
+    /404                    error page
+
+  scripts/preflight.sh checks this file against site/*.html, so a new page
+  cannot be added without either listing it here or naming it as excluded.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://papertrench.com/</loc></url>
+  <url><loc>https://papertrench.com/leaderboard</loc></url>
+  <url><loc>https://papertrench.com/sprint</loc></url>
+  <url><loc>https://papertrench.com/duels</loc></url>
+  <url><loc>https://papertrench.com/clans</loc></url>
+  <url><loc>https://papertrench.com/streams</loc></url>
+  <url><loc>https://papertrench.com/streamer-signup</loc></url>
+  <url><loc>https://papertrench.com/news</loc></url>
+  <url><loc>https://papertrench.com/privacy</loc></url>
+  <url><loc>https://papertrench.com/news-chain</loc></url>
+  <url><loc>https://papertrench.com/news-fees</loc></url>
+  <url><loc>https://papertrench.com/news-fills</loc></url>
+  <url><loc>https://papertrench.com/news-flex</loc></url>
+  <url><loc>https://papertrench.com/news-instant-x</loc></url>
+  <url><loc>https://papertrench.com/news-perps</loc></url>
+  <url><loc>https://papertrench.com/news-quickedit</loc></url>
+  <url><loc>https://papertrench.com/news-rugguard</loc></url>
+  <url><loc>https://papertrench.com/news-the-after</loc></url>
+  <url><loc>https://papertrench.com/news-trench-rank</loc></url>
+  <url><loc>https://papertrench.com/news-turbo</loc></url>
+  <url><loc>https://papertrench.com/news-v2</loc></url>
+  <url><loc>https://papertrench.com/news-xray</loc></url>
+</urlset>
