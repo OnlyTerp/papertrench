@@ -50,7 +50,7 @@ for page in site/*.html; do
   # report OK. The 15 legacy pages happened to be protected because they carry
   # no such body links, which is also why a mutation test against news.html
   # could not tell the two implementations apart.
-  nav=$(sed -n '/<nav>/,/<\/nav>/p' "$page")
+  nav=$(sed -n '/<nav\( [^>]*\)\?>/,/<\/nav>/p' "$page")
   for dest in $NAV_DESTS; do
     printf '%s' "$nav" | grep -q "href=\"$dest\"" \
       || NAV_MISSING="$NAV_MISSING $(basename "$page"):$dest"
