@@ -199,3 +199,58 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
   assert.equal(els['update-banner'].hidden, true, 'a failed fetch must never surface the banner');
   assert.ok(els['update-banner'].innerHTML === '' || true);
 });
+
+/* ------------------------------------------------------------------------
+ * The CSS half of "hidden".
+ *
+ * Every test above asserts on the `hidden` PROPERTY, and every one of them
+ * passed while the banner was permanently on screen for every user. That is
+ * the gap they could not see: `hidden` only blanks an element because the UA
+ * stylesheet says [hidden] { display: none }, and that rule loses to any
+ * author rule with a class selector. `.update-banner { display: flex }` shipped
+ * without a guard, so the attribute in the markup did nothing, the banner
+ * rendered its placeholder text to everyone, and `el.hidden = true` from the
+ * dismiss handler could not take it away.
+ *
+ * A property assertion cannot catch that. These check the stylesheet instead.
+ * ---------------------------------------------------------------------- */
+
+const HTML_WITH_HIDDEN_TOGGLES = ['popup.html', 'dashboard.html', 'overlay.html'];
+
+/** The <style> block of an extension page. */
+function styleOf(file) {
+  const s = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  const from = s.indexOf('<style>');
+  const to = s.lastIndexOf('</style>');
+  assert.ok(from !== -1 && to > from, `${file} must have a <style> block`);
+  return s.slice(from, to);
+}
+
+test('every page that hides things declares a [hidden] guard', () => {
+  for (const file of HTML_WITH_HIDDEN_TOGGLES) {
+    assert.match(styleOf(file), /\[hidden\]\s*\{[^}]*display:\s*none/,
+      `${file} needs a [hidden] rule, or its display-styled components ignore the attribute`);
+  }
+});
+
+test('the [hidden] guard outranks the component rules it has to beat', () => {
+  // Both sides are author rules here, so specificity decides: [hidden] is an
+  // attribute selector (0,1,0) and ties with a single class (0,1,0). A tie is
+  // broken by source order, which would make the guard depend on sitting after
+  // every component in the file — a rule nobody would remember when adding
+  // one. !important removes the question.
+  for (const file of HTML_WITH_HIDDEN_TOGGLES) {
+    assert.match(styleOf(file), /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/,
+      `${file}'s [hidden] guard must be !important, or a later class rule silently wins`);
+  }
+});
+
+test('the update banner in particular cannot render while hidden', () => {
+  const css = styleOf('popup.html');
+  // The banner is the component the bug actually shipped on: it sets a display
+  // value, and it is the one element popup.js toggles with .hidden.
+  assert.match(css, /\.update-banner\s*\{[^}]*display:\s*flex/,
+    'this test is about the banner being display-styled — if that changed, revisit it');
+  assert.match(css, /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/,
+    'and the guard that makes hiding it actually work');
+});
