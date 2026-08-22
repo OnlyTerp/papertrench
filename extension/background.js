@@ -2684,7 +2684,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       case 'pt_bridge_ping': {
         if (!senderOnBridgeOrigin(sender)) { sendResponse({ ok: false, reason: 'origin-not-allowed' }); break; }
-        sendResponse({ ok: true, bridgeEnabled: settings.leaderboardBridge === true });
+        // The wallet rides on the ping so the site can show a balance without
+        // a second round trip — and ONLY when Site sync is on, which is the
+        // same consent gate the record itself sits behind. With it off this
+        // stays exactly what it was: a yes/no about the extension existing.
+        sendResponse({
+          ok: true,
+          bridgeEnabled: settings.leaderboardBridge === true,
+          wallet: settings.leaderboardBridge === true ? await bridgeWallet() : null,
+        });
         break;
       }
 
@@ -3313,6 +3321,42 @@ function senderOnBridgeOrigin(sender) {
   try { return BRIDGE_ORIGINS.has(new URL(url).origin); } catch (_) { return false; }
 }
 
+/**
+ * The wallet summary the site header shows: cash, equity, open positions.
+ *
+ * Deliberately NOT a chain replay. bridgeRecord exists to hand over evidence
+ * and costs a full verification; this is a number for a header chip and must
+ * not make opening papertrench.com expensive.
+ *
+ * Equity marks open bags at the last price the extension itself observed —
+ * the same figure the popup and the positions bar already display, so the
+ * site cannot disagree with the app about the user's own balance. No price
+ * is fetched to produce it: an unmarked bag contributes its last known mark
+ * or nothing, never a guess.
+ */
+async function bridgeWallet() {
+  const state = (await getState()) || {};
+  const cash = Number(state.cashSol) || 0;
+  const positions = state.positions && typeof state.positions === 'object' ? state.positions : {};
+  let open = 0;
+  let held = 0;
+  for (const pos of Object.values(positions)) {
+    const qty = Number(pos && pos.qty) || 0;
+    if (!(qty > 0)) continue;
+    open += 1;
+    const px = Number(pos.lastPriceNative) || 0;
+    if (px > 0) held += qty * px;
+  }
+  return {
+    cashSol: cash,
+    equitySol: cash + held,
+    openPositions: open,
+    // Says whether every open bag actually had a mark. The site can then
+    // show the number plainly or say it is partial, rather than presenting
+    // an understated equity as though it were complete.
+    marked: open === 0 || held > 0,
+  };
+}
 async function bridgeRecord() {
   const settings = await getSettings();
   if (!settings.leaderboardBridge) return { ok: false, reason: 'bridge-disabled' };

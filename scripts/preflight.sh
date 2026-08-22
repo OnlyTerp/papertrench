@@ -108,6 +108,20 @@ done
 [ -z "$PROFILE_MISSING" ] || fail "pages missing the header profile control —$PROFILE_MISSING"
 echo "profile control OK (slot + script on every page)"
 
+# The profile control is on every page or it is on none: a header that shows
+# who you are on the leaderboard and not on a news article reads as a bug in
+# the sign-in, not as a missing include.
+PROFILE_MISSING=""
+for page in site/*.html; do
+  grep -q 'class="nav-links"' "$page" || continue
+  grep -q 'id="nav-profile"' "$page" || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):slot"
+  grep -q 'nav-profile.js' "$page"    || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):script"
+  grep -q 'id="nav-wallet"' "$page"  || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):wallet-slot"
+  grep -q 'nav-wallet.js' "$page"     || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):wallet-script"
+done
+[ -z "$PROFILE_MISSING" ] || fail "pages missing the header profile control —$PROFILE_MISSING"
+echo "profile control OK (slot + script on every page)"
+
 # Every public page must be in sitemap.xml, or deliberately named as excluded.
 #
 # A sitemap is the one file that rots without any symptom: pages get added, the
