@@ -135,3 +135,68 @@ test('D-56 does not disarm migrations for genuinely old installs', () => {
     'a pre-revision install (no settingsRevision at all) still migrates');
   assert.equal(fromAncient.settingsRevision, E.SETTINGS_REVISION);
 });
+
+/* ------------------------------------------------------------------------
+ * Auto-save.
+ *
+ * Reported repeatedly: a setting is changed, the tab is left, and the change
+ * is gone. The control looked applied because it WAS applied — to the DOM —
+ * and the button that made it true sat past seventy other controls.
+ * ---------------------------------------------------------------------- */
+
+// This file's existing suite is behavioural (it drives the engine), so it
+// never needed the filesystem. These cases assert a source contract instead.
+const fsAuto = require('node:fs');
+const pathAuto = require('node:path');
+const dashSrcAuto = fsAuto.readFileSync(pathAuto.join(__dirname, '..', 'dashboard.js'), 'utf8');
+
+function autosaveBlock() {
+  const start = dashSrcAuto.indexOf('function bindSettingsAutosave(');
+  assert.ok(start !== -1, 'bindSettingsAutosave must exist');
+  const end = dashSrcAuto.indexOf('\n}', start);
+  return dashSrcAuto.slice(start, end + 2);
+}
+
+test('settings auto-save is wired, and the Save button is no longer the only path', () => {
+  const bind = dashSrcAuto.slice(
+    dashSrcAuto.indexOf('function bindSettings()'),
+    dashSrcAuto.indexOf('\n}', dashSrcAuto.indexOf('function bindSettings()')));
+  assert.match(bind, /bindSettingsAutosave\(/, 'bindSettings must install the autosave listener');
+});
+
+test('auto-save listens for change, never input', () => {
+  // `input` fires per keystroke, so it would hand saveFromForm "0." midway
+  // through someone typing "0.5" — and saveFromForm coerces what it is given.
+  // `change` fires when a text field is COMMITTED (blur or Enter) and the
+  // moment a checkbox, select or range settles.
+  const block = autosaveBlock();
+  assert.match(block, /addEventListener\('change'/, 'must bind change');
+  assert.ok(!/addEventListener\('input'/.test(block),
+    'binding input would save half-typed numbers');
+});
+
+test('auto-save coalesces a burst into one write', () => {
+  const block = autosaveBlock();
+  assert.match(block, /clearTimeout\(timer\)/, 'a pending save must be superseded');
+  assert.match(block, /setTimeout\(/, 'and the write deferred briefly');
+});
+
+test('the search box is not mistaken for a setting', () => {
+  const block = autosaveBlock();
+  assert.match(block, /id === 'set-search'/,
+    'typing in the settings filter must not trigger a settings write');
+});
+
+test('a failed auto-save says so and names the way out', () => {
+  // Silence here is the worst outcome: the user believes a setting persisted
+  // BECAUSE they were told saving is automatic.
+  const block = autosaveBlock();
+  assert.match(block, /catch/, 'the save promise must be caught');
+  assert.match(block, /Auto-save failed/, 'and the failure surfaced');
+  assert.match(block, /Save/, 'pointing at the manual button as the retry');
+});
+
+test('the settings screen tells the user saving is automatic', () => {
+  assert.match(dashSrcAuto, /Changes save automatically\./,
+    'the promise has to be visible, or the button still looks required');
+});
