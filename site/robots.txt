@@ -1,0 +1,18 @@
+# PaperTrench — https://papertrench.com
+#
+# Everything public is crawlable. The one page that should stay out of results
+# is /admin, and it is kept out by the `noindex` meta tag it already carries —
+# deliberately NOT by a Disallow line here.
+#
+# Those two are not interchangeable. Disallow stops a crawler from FETCHING the
+# page, which means it never reads the noindex; a URL discovered from an
+# external link can then still be listed, and the instruction telling it not to
+# be is the one thing the crawler was blocked from seeing. Allowing the fetch is
+# what lets the noindex actually work. Nothing is exposed by that: signed out,
+# /admin renders a sign-in gate and no application data, and the queue itself is
+# gated server-side on every request.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://papertrench.com/sitemap.xml

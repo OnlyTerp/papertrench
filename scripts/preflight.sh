@@ -59,6 +59,39 @@ done
 [ -z "$NAV_MISSING" ] || fail "nav is missing destinations —$NAV_MISSING"
 echo "nav OK ($(grep -lc 'class="nav-links"' site/*.html | wc -l) pages reach $NAV_DESTS)"
 
+# Every public page must be in sitemap.xml, or deliberately named as excluded.
+#
+# A sitemap is the one file that rots without any symptom: pages get added, the
+# sitemap stays as it was, and nothing anywhere reports that search engines are
+# being handed a stale map. The failure is invisible until someone wonders why a
+# page never appeared in results. So the exclusions are enumerated HERE rather
+# than left implicit — adding a page forces a decision about it.
+#
+#   admin            noindex — moderator queue
+#   clan/duel/profile parameterised; without a query string they are empty states
+#   404              error page
+SITEMAP_SKIP="admin clan duel profile 404"
+SITEMAP_MISSING=""
+for page in site/*.html; do
+  slug=$(basename "$page" .html)
+  case " $SITEMAP_SKIP " in *" $slug "*) continue ;; esac
+  # index is published as the bare origin, every other page as /<slug>.
+  if [ "$slug" = "index" ]; then want="<loc>https://papertrench.com/</loc>"
+  else want="<loc>https://papertrench.com/$slug</loc>"; fi
+  grep -qF "$want" site/sitemap.xml || SITEMAP_MISSING="$SITEMAP_MISSING $slug"
+done
+[ -z "$SITEMAP_MISSING" ] || fail "sitemap.xml is missing pages —$SITEMAP_MISSING"
+
+# ...and the reverse: a <loc> whose page was deleted or renamed points crawlers
+# at a 404, which costs more than the missing entry above.
+SITEMAP_STALE=""
+for loc in $(sed -n 's,.*<loc>https://papertrench\.com/\([a-z0-9-]*\)</loc>.*,\1,p' site/sitemap.xml); do
+  [ -z "$loc" ] && continue   # the bare origin, which is index.html
+  [ -f "site/$loc.html" ] || SITEMAP_STALE="$SITEMAP_STALE $loc"
+done
+[ -z "$SITEMAP_STALE" ] || fail "sitemap.xml lists pages that do not exist —$SITEMAP_STALE"
+echo "sitemap OK ($(grep -c '<loc>' site/sitemap.xml) urls, all resolve to a page)"
+
 # The manifest must never regress to <all_urls> content scripts (DEFECT O-09).
 if grep -q '"<all_urls>"' extension/manifest.json; then
   # host_permissions may legitimately stay broad (user-configured AI/RPC
