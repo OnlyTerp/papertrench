@@ -131,6 +131,26 @@ nav {
 }
 .nav-profile.signin { padding: 8px 15px; color: var(--muted); font-weight: 650; }
 .nav-profile.signin:hover { color: var(--text); }
+/* Paper balance, read from the extension over the site bridge.
+   Absent unless the extension is installed AND Site sync is on — the site
+   cannot know this number otherwise, and would not invent one. */
+.nav-wallet {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 8px; padding: 5px 11px 5px 6px; border-radius: 999px;
+  background: rgba(255, 157, 69, 0.09);
+  border: 1px solid rgba(255, 157, 69, 0.28);
+  white-space: nowrap;
+}
+.nav-wallet-tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.9px;
+  color: #2a1400; background: var(--orange2);
+  padding: 2px 5px; border-radius: 999px;
+}
+.nav-wallet-num { font-size: 12.5px; font-weight: 750; color: var(--orange2); font-variant-numeric: tabular-nums; }
+/* The number goes before the handle does — on a narrow bar the PAPER tag
+   alone still says the wallet is connected. */
+@media (max-width: 1010px) { .nav-wallet-num { display: none; } }
+@media (max-width: 640px) { .nav-wallet { display: none; } }
 /* The handle is the first thing to go when the bar runs out of room — the
    avatar alone still says "signed in, this is you". */
 @media (max-width: 1010px) { .nav-profile-handle { display: none; } }

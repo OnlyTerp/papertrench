@@ -87,6 +87,8 @@ for page in site/*.html; do
   grep -q 'class="nav-links"' "$page" || continue
   grep -q 'id="nav-profile"' "$page" || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):slot"
   grep -q 'nav-profile.js' "$page"    || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):script"
+  grep -q 'id="nav-wallet"' "$page"  || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):wallet-slot"
+  grep -q 'nav-wallet.js' "$page"     || PROFILE_MISSING="$PROFILE_MISSING $(basename "$page"):wallet-script"
 done
 [ -z "$PROFILE_MISSING" ] || fail "pages missing the header profile control —$PROFILE_MISSING"
 echo "profile control OK (slot + script on every page)"

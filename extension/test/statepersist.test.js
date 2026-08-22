@@ -1095,3 +1095,61 @@ test("focus mode is compact and carries the two-step quick reset (community: lev
   assert.match(resetBlock, /pt_clear_recordings/, "recordings are erased like every other reset path");
   assert.match(resetBlock, /paper-lines-clear/, "chart drawings of the old wallet are cleared");
 });
+
+/* ---------------- the site's paper-balance chip ----------------
+ *
+ * papertrench.com cannot know your paper wallet on its own — it lives in the
+ * extension, on your machine. The chip is fed over the same bridge the
+ * leaderboard Sync uses, so the tests are about the gate and the cost.
+ */
+
+const bgSrc = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
+
+function walletFn() {
+  const at = bgSrc.indexOf('async function bridgeWallet(');
+  assert.ok(at !== -1, 'bridgeWallet must exist');
+  return bgSrc.slice(at, bgSrc.indexOf('\n}', at) + 2);
+}
+
+test('the wallet is only handed over when Site sync is on', () => {
+  // Same consent gate the record sits behind. With it off, the ping stays
+  // exactly what it was: a yes/no about the extension existing.
+  assert.match(bgSrc, /leaderboardBridge === true \? await bridgeWallet\(\) : null/,
+    'the balance must never ride an un-consented ping');
+});
+
+test('the header chip costs no network and no chain replay', () => {
+  // bridgeRecord exists to hand over evidence and verifies the whole chain.
+  // Opening papertrench.com must not pay that for a header chip.
+  const fn = walletFn();
+  assert.ok(!/fetch\(/.test(fn), 'no price may be fetched to answer this');
+  assert.ok(!/replayChain|readChainStore/.test(fn), 'and no chain replay');
+});
+
+test('an unpriced bag contributes its last mark or nothing, never a guess', () => {
+  const fn = walletFn();
+  assert.match(fn, /const px = Number\(pos\.lastPriceNative\) \|\| 0;/);
+  assert.match(fn, /if \(px > 0\) held \+= qty \* px;/,
+    'a bag with no mark adds nothing rather than an invented value');
+  assert.match(fn, /marked:/,
+    'and the reply must say whether every open bag was actually marked');
+});
+
+test('the site says nothing at all when it has not been told', () => {
+  const site = fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'nav-wallet.js'), 'utf8');
+  assert.match(site, /if \(!wallet\) return;/, 'no answer renders no chip');
+  assert.match(site, /reply\.ok && reply\.bridgeEnabled/, 'and a refusal renders no chip');
+  // The render path must have exactly one way to put a chip on the page, and
+  // it must sit after the guards — no placeholder balance on any other route.
+  const render = site.slice(site.indexOf('function render('), site.indexOf('// The relay only'));
+  const appends = render.match(/slot\.appendChild/g) || [];
+  assert.equal(appends.length, 1, 'one and only one way to render a balance');
+  assert.ok(render.indexOf('if (!wallet) return;') < render.indexOf('slot.appendChild'),
+    'the guards must come before anything is appended');
+});
+
+test('the chip always labels the money as paper', () => {
+  const site = fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'nav-wallet.js'), 'utf8');
+  assert.match(site, /nav-wallet-tag">PAPER</,
+    'this number shares a bar with a leaderboard and a sign-in — it must never read as real');
+});
