@@ -251,6 +251,8 @@ async function init() {
   // Unpacked installs never auto-update; this is the only channel that tells
   // a user a fix shipped. Renders once per load, before any section.
   try { renderUpdateBanner(); } catch (_) {}
+  // And once, after an update actually lands, what changed in it.
+  renderWhatsNew().catch((err) => console.warn("PaperTrench: what's-new skipped —", err.message));
   renderSidebar();
   renderSection(currentSection);
   // Seed the baseline so the first poll does not re-render an unchanged page.
@@ -655,6 +657,79 @@ async function renderUpdateBanner() {
   document.body.insertBefore(banner, document.body.firstChild);
   const dismiss = banner.querySelector('#pt-update-dismiss');
   if (dismiss) dismiss.addEventListener('click', () => banner.remove());
+}
+
+/**
+ * "What's new", once per version.
+ *
+ * An unpacked install has no update channel and no store listing, so a user who
+ * replaces the folder has nowhere to learn what they just got. The notes are
+ * baked into the build by scripts/make-whatsnew.js and read from disk — no
+ * network, and true of the build actually running rather than of whatever is
+ * newest on GitHub.
+ *
+ * Shown when the running version differs from the last one acknowledged here.
+ * A FIRST install is not an update, so it is recorded silently: opening a brand
+ * new dashboard to a changelog for a version you have never not had is noise.
+ */
+async function renderWhatsNew() {
+  const version = String(chrome.runtime.getManifest().version);
+  const stored = await chrome.storage.local.get(['pt_whatsnew_seen']);
+  const seen = stored && stored.pt_whatsnew_seen;
+
+  if (seen === version) return;
+  if (!seen) {
+    // Nothing acknowledged yet: this is a first run, not an upgrade.
+    await chrome.storage.local.set({ pt_whatsnew_seen: version });
+    return;
+  }
+
+  const res = await fetch(chrome.runtime.getURL('whatsnew.json'));
+  const notes = await res.json();
+  // The notes are baked per build, so a mismatch means the file was not
+  // regenerated for this version. Say nothing rather than show the last one.
+  if (!notes || notes.version !== version || !Array.isArray(notes.entries) || !notes.entries.length) {
+    await chrome.storage.local.set({ pt_whatsnew_seen: version });
+    return;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.id = 'pt-whatsnew';
+  wrap.innerHTML = `
+    <div class="wn-card" role="dialog" aria-modal="true" aria-labelledby="wn-title">
+      <div class="wn-head">
+        <div>
+          <div class="wn-kicker">Updated</div>
+          <h2 id="wn-title">What's new in v${esc(version)}</h2>
+        </div>
+        <button class="wn-close" id="wn-close" aria-label="Close">×</button>
+      </div>
+      <div class="wn-body">
+        ${notes.entries.map((e) => `
+          <div class="wn-entry">
+            ${e.title ? `<h3>${esc(e.title)}</h3>` : ''}
+            <p>${esc(e.text)}</p>
+          </div>`).join('')}
+      </div>
+      <div class="wn-foot">
+        <a href="https://papertrench.com/news" target="_blank" rel="noopener noreferrer">All patch notes ↗</a>
+        <button class="btn" id="wn-done">Got it</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  // Acknowledged on close, not on show: a dashboard opened and abandoned
+  // should still get one chance to read this.
+  const close = async () => {
+    wrap.remove();
+    try { await chrome.storage.local.set({ pt_whatsnew_seen: version }); } catch (_) {}
+  };
+  wrap.querySelector('#wn-close').addEventListener('click', close);
+  wrap.querySelector('#wn-done').addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  document.addEventListener('keydown', function esc2(e) {
+    if (e.key === 'Escape') { document.removeEventListener('keydown', esc2); close(); }
+  });
 }
 
 async function saveSettings() {

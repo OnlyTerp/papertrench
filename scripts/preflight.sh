@@ -18,6 +18,10 @@ echo "manifest: $MANIFEST_V  package: $PACKAGE_V"
 [ "$MANIFEST_V" = "$PACKAGE_V" ] || fail "manifest.json ($MANIFEST_V) != package.json ($PACKAGE_V)"
 
 grep -q "## v$MANIFEST_V" CHANGELOG.md || fail "CHANGELOG.md has no entry for v$MANIFEST_V"
+# The in-extension patch notes are generated from the section above, so they
+# rot the moment a version is bumped without regenerating them — and a user
+# who just updated would be shown the PREVIOUS release as if it were new.
+node scripts/make-whatsnew.js --check || fail "extension/whatsnew.json is stale for v$MANIFEST_V"
 # Download CTAs must point at /releases/latest and never pin a versioned zip,
 # which 404s until the release asset exists (policy since f23df6c).
 grep -q 'github.com/OnlyTerp/papertrench/releases/latest' site/index.html \
