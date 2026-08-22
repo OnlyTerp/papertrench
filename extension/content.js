@@ -3416,6 +3416,59 @@
         '--pt-faint': '#4E7A62',
       },
     },
+    // away32 (bug-reports 8/22 02:01): "a feature maybe to choose a style for
+    // the trade panel to be like padre, axiom — literally just maybe different
+    // colors". The competitors he named, as skins: token overrides only, the
+    // site's page is never touched. Axiom = its signature dark slate with
+    // cyan accents; Padre = its warm near-black with amber terminals. The
+    // shell tokens (--pt-shell-*, --pt-rim) re-paint the panel's own body
+    // and rim so a skin never renders children-on-a-trench-shell.
+    axiom: {
+      label: 'Axiom — dark slate, cyan accents',
+      tokens: {
+        '--pt-void': '#0B0F14',
+        '--pt-bg': '#10161D',
+        '--pt-surface': 'rgba(18, 26, 35, 0.92)',
+        '--pt-raised': 'rgba(26, 37, 50, 0.78)',
+        '--pt-line': 'rgba(148, 190, 220, 0.10)',
+        '--pt-line-2': 'rgba(148, 190, 220, 0.18)',
+        '--pt-text': '#E6EDF3',
+        '--pt-amber': '#3FA9F5',
+        '--pt-amber-soft': 'rgba(63, 169, 245, 0.16)',
+        '--pt-green': '#2BD9C7',
+        '--pt-green-soft': 'rgba(43, 217, 199, 0.15)',
+        '--pt-red': '#F4586E',
+        '--pt-red-soft': 'rgba(244, 88, 110, 0.15)',
+        '--pt-dim': '#8CA0B3',
+        '--pt-faint': '#5B6B7A',
+        '--pt-shell-hi': 'rgba(18, 26, 35, 0.96)',
+        '--pt-shell-lo': 'rgba(9, 13, 18, 0.97)',
+        '--pt-rim': 'linear-gradient(150deg, rgba(63, 169, 245, 0.75), rgba(63, 169, 245, 0.14) 34%, rgba(255, 255, 255, 0.07) 62%, rgba(43, 217, 199, 0.42))',
+      },
+    },
+    padre: {
+      label: 'Padre — warm near-black, amber accents',
+      tokens: {
+        '--pt-void': '#100E0B',
+        '--pt-bg': '#171410',
+        '--pt-surface': 'rgba(33, 28, 21, 0.92)',
+        '--pt-raised': 'rgba(46, 39, 29, 0.78)',
+        '--pt-line': 'rgba(232, 190, 120, 0.10)',
+        '--pt-line-2': 'rgba(232, 190, 120, 0.18)',
+        '--pt-red': '#E8564F',
+        '--pt-red-soft': 'rgba(232, 86, 79, 0.15)',
+        '--pt-green': '#E8BE78',
+        '--pt-green-soft': 'rgba(232, 190, 120, 0.15)',
+        '--pt-amber': '#E8BE78',
+        '--pt-amber-soft': 'rgba(232, 190, 120, 0.15)',
+        '--pt-text': '#F2EDE4',
+        '--pt-dim': '#A89A85',
+        '--pt-faint': '#6E6353',
+        '--pt-shell-hi': 'rgba(26, 22, 17, 0.96)',
+        '--pt-shell-lo': 'rgba(13, 11, 9, 0.97)',
+        '--pt-rim': 'linear-gradient(150deg, rgba(232, 190, 120, 0.75), rgba(232, 190, 120, 0.14) 34%, rgba(255, 255, 255, 0.07) 62%, rgba(232, 190, 120, 0.42))',
+      },
+    },
   };
 
   // One CSS block with every theme's token overrides, gated on the host's
@@ -3469,6 +3522,13 @@
       --pt-r-md: 12px;
       --pt-r-sm: 9px;
       --pt-ease: cubic-bezier(0.16, 1, 0.3, 1);
+      /* Shell gradient tokens: the panel's own body+rim, so a theme skin
+         re-paints the WHOLE panel, not its children on a trench shell. */
+      --pt-shell-hi: rgba(17, 21, 28, 0.96);
+      --pt-shell-lo: rgba(9, 11, 16, 0.97);
+      --pt-rim: linear-gradient(150deg,
+        rgba(255, 157, 69, 0.75), rgba(255, 157, 69, 0.14) 34%,
+        rgba(255, 255, 255, 0.07) 62%, rgba(255, 157, 69, 0.42));
       --pt-sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
       --pt-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
     }
@@ -3496,8 +3556,8 @@
       max-height: min(820px, 88vh);
       color: var(--pt-text);
       background:
-        radial-gradient(120% 90% at 50% -10%, rgba(255, 157, 69, 0.10), transparent 62%),
-        linear-gradient(180deg, rgba(17, 21, 28, 0.96), rgba(9, 11, 16, 0.97));
+        radial-gradient(120% 90% at 50% -10%, var(--pt-amber-soft), transparent 62%),
+        linear-gradient(180deg, var(--pt-shell-hi), var(--pt-shell-lo));
       backdrop-filter: blur(20px) saturate(140%);
       -webkit-backdrop-filter: blur(20px) saturate(140%);
       border-radius: var(--pt-r-lg);
@@ -3513,9 +3573,7 @@
     .pt-box::before {
       content: ''; position: absolute; inset: 0; z-index: 4;
       border-radius: inherit; padding: 1px; pointer-events: none;
-      background: linear-gradient(150deg,
-        rgba(255, 157, 69, 0.75), rgba(255, 157, 69, 0.14) 34%,
-        rgba(255, 255, 255, 0.07) 62%, rgba(255, 157, 69, 0.42));
+      background: var(--pt-rim);
       -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
       -webkit-mask-composite: xor;
       mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -3802,6 +3860,16 @@
     }
     .pt-hbtn:hover { background: var(--pt-raised); border-color: var(--pt-line-2); color: var(--pt-text); }
     .pt-hbtn:active { transform: scale(0.92); }
+
+    /* Jump-flash: one pulse on the section a header button lands you on. */
+    @keyframes pt-jump-flash { 0%, 100% { box-shadow: none; } 25% { box-shadow: 0 0 0 3px var(--pt-amber-soft), 0 0 18px var(--pt-amber-soft); } }
+    .pt-jump-flash { animation: pt-jump-flash 1.2s var(--pt-ease) 1; border-radius: var(--pt-r-sm); }
+    /* Micro keeps the three jump/skin buttons (⚑ 🔔 ◍) — away32 asked for
+       them "next to the Density button", and micro is HIS density. They
+       shrink to the ◧'s 20px footprint so the strip stays a strip. */
+    .pt-box.pt-micro .pt-header #pt-jump-orders,
+    .pt-box.pt-micro .pt-header #pt-jump-alerts,
+    .pt-box.pt-micro .pt-header #pt-theme-toggle { width: 20px; height: 20px; font-size: 11px; }
 
     /* ---------------- body ---------------- */
 
@@ -4817,6 +4885,9 @@
             <div class="pt-icon">P</div>
             <div class="pt-title">PaperTrench<span class="sub" id="pt-subtitle">Quick paper buy box</span></div>
             <span class="pt-grow"></span>
+            <button class="pt-hbtn" id="pt-jump-orders" title="Jump to take-profit / stop-loss presets" aria-label="Jump to take-profit and stop-loss">⚑</button>
+            <button class="pt-hbtn" id="pt-jump-alerts" title="Jump to the market-cap alert" aria-label="Jump to market-cap alert">🔔</button>
+            <button class="pt-hbtn" id="pt-theme-toggle" title="Cycle panel theme — trench / axiom / padre / lute / solana" aria-label="Cycle panel theme">◍</button>
             <button class="pt-hbtn" id="pt-focus-toggle" title="Toggle focus mode — the minimal panel" aria-label="Toggle focus mode">◧</button>
             <button class="pt-hbtn" id="pt-edit" title="Edit presets &amp; fees right here" aria-label="Edit presets and fees">✎</button>
             <button class="pt-hbtn" id="pt-quickreset" title="Reset paper wallet (tap twice)" aria-label="Quick reset">⟲</button>
@@ -4990,6 +5061,54 @@
 
     shadow.getElementById('pt-dash').addEventListener('click', openDashboard);
     shadow.getElementById('pt-settings').addEventListener('click', openDashboard);
+    // away32 (8/22 02:01): "a button to show this [take profit stop loss]… a
+    // button to show the market cap alert (next to the Density button)". The
+    // sections existed but lived below the fold — the header buttons JUMP to
+    // them instead of duplicating controls: one source of truth per feature,
+    // and the scroll teaches where they live. Honest refusal beats a dead
+    // control: with no position there is no TP/SL card to jump to.
+    const jumpOrders = shadow.getElementById('pt-jump-orders');
+    if (jumpOrders) {
+      jumpOrders.addEventListener('click', () => {
+        // TP/SL presets render inside the position card's orders section; a
+        // chart without draggable lines (F-39) still arms via percentages —
+        // but with no position there is no card and no honest target.
+        const target = shadow.querySelector('.pt-orders');
+        if (!target) {
+          if (!chartOrdersOn()) toast('TP/SL is off — enable chart orders in Settings');
+          else toast('No open position yet — TP/SL lives on the position card');
+          return;
+        }
+        jumpToSection(target, 'TP/SL');
+      });
+    }
+    const jumpAlerts = shadow.getElementById('pt-jump-alerts');
+    if (jumpAlerts) {
+      jumpAlerts.addEventListener('click', () => {
+        const target = els.alerts && els.alerts.querySelector('.pt-alerts');
+        if (!target) {
+          toast('No token on this page — alerts arm per token');
+          return;
+        }
+        jumpToSection(target, 'Alerts');
+      });
+    }
+    // Theme cycler ◍: trench → axiom → padre → lute → solana → trench (the
+    // named looks first — that is what was asked for). Same preference the
+    // dashboard's select owns; cycling here never desyncs it.
+    const THEME_CYCLE = ['trench', 'axiom', 'padre', 'lute', 'solana'];
+    const themeToggle = shadow.getElementById('pt-theme-toggle');
+    if (themeToggle) {
+      themeToggle.addEventListener('click', async () => {
+        const cur = THEMES[settings.panelTheme] ? settings.panelTheme : 'trench';
+        const next = THEME_CYCLE[(THEME_CYCLE.indexOf(cur) + 1) % THEME_CYCLE.length];
+        settings = { ...settings, panelTheme: next };
+        applyTheme(next);
+        const label = (THEMES[next] && THEMES[next].label) || 'Trench';
+        toast('Theme — ' + label.split(' — ')[0]);
+        try { await store.set({ [E.STORAGE_KEYS.settings]: settings }); } catch (_) {}
+      });
+    }
     // In-panel density toggle (maintainer): ◧ cycles standard → focus →
     // micro in place, with a soft pulse — no dashboard round-trip. The choice
     // persists so every surface agrees. Micro (away32 8/21: "axiom or padre
@@ -7969,6 +8088,22 @@
     }
     // However tall the panel, keep at least two slots on screen.
     return { right, top: Math.max(8, Math.min(top, vh - 2 * TOAST_STEP_PX)) };
+  }
+
+  /**
+   * Scroll a panel section into view and pulse it once (away32 8/22: the
+   * TP/SL and alert controls existed but lived below the fold — the header
+   * jump buttons land the eye ON them, then hand the shape back). scroll-
+   * IntoView on the section is enough: the panel body is the scroll
+   * container, so the page never moves under the user.
+   */
+  function jumpToSection(target, name) {
+    try { target.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {}
+    target.classList.remove('pt-jump-flash');
+    void target.offsetWidth; // restart the animation on repeat jumps
+    target.classList.add('pt-jump-flash');
+    setTimeout(() => target.classList.remove('pt-jump-flash'), 1400);
+    toast(name + ' — right here');
   }
 
   function toast(msg) {

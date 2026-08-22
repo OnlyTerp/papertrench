@@ -46,11 +46,17 @@ test('every token override value is a plausible color', () => {
   assert.ok(vals.length >= 20);
   const hex = /^#[0-9a-fA-F]{6}$/;
   const rgba = /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0|1|0?\.\d+)\s*)?\)$/;
+  // U5 skins: the panel rim is a gradient token (--pt-rim) — every channel
+  // inside it must still be a validated rgba() color, but the wrapper is a
+  // linear-gradient, not a flat color.
+  const grad = /^linear-gradient\([\s\S]*\)$/;
   for (const v of vals) {
-    assert.ok(hex.test(v) || rgba.test(v), `value "${v}" is a #rrggbb or rgba() color`);
-    if (rgba.test(v)) {
-      const parts = v.match(/\d{1,3}/g).map(Number);
-      for (const n of parts) assert.ok(n <= 255, `rgba channel ${n} in "${v}" <= 255`);
+    assert.ok(hex.test(v) || rgba.test(v) || (grad.test(v) && !/[;'`]}{]/.test(v) && /rgba?\(/.test(v)),
+      `value "${v.slice(0, 60)}" is a #rrggbb, rgba() color, or rgba-only gradient`);
+    if (rgba.test(v) || grad.test(v)) {
+      const parts = (v.match(/rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}/g) || [])
+        .join(',').match(/\d{1,3}/g).map(Number);
+      for (const n of parts) assert.ok(n <= 255, `rgba channel ${n} in "${v.slice(0, 60)}" <= 255`);
     }
   }
 });

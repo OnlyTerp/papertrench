@@ -3,6 +3,31 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.12.0 — 2026-08-22
+
+**Everything one tap from the header** (away32: "a button to show this [take
+profit / stop loss]… a button to show the market cap alert… next to the
+Density button"). Two new header buttons: **⚑** jumps straight to the TP/SL
+presets (+25 / +50 / +100 / +200% and stop-losses) and **🔔** jumps to the
+market-cap alert — each scrolls the section into view with a one-time pulse
+so you see exactly where it lives. No position or no token? The button says
+so plainly instead of scrolling you nowhere.
+
+**Panel skins: the looks you asked for** (away32: "a feature maybe to choose
+a style for the trade panel to be like padre, axiom — literally just maybe
+different colors"). The **◍** header button cycles five full skins — Trench
+(default) → **Axiom** (dark slate, cyan) → **Padre** (warm near-black, amber)
+→ Lute → Solana — re-painting the whole panel including its shell and rim,
+not just the buttons. The same choice lives in Settings, and the two stay in
+sync. The site's page is never touched; only the panel's colors.
+
+**Rug honesty, pinned** (remsonly1, sebaasumana: "when you get rugged your
+PnL turns green and the percentage doubles or triples"). The wrong-price
+fills behind that were fixed in v3.10.0 — this release adds a permanent
+regression test so a rug can never again print a green round: a −98% exit
+must close deeply red, on full and partial exits alike, while real winners
+still print green.
+
 ## v3.11.1 — 2026-08-22
 
 **Trade history in the words you actually trade in** (01jb: "bought, held,
