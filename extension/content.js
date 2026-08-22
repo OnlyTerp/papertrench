@@ -4331,11 +4331,26 @@
       font-size: 12px; cursor: pointer; padding: 0 2px; line-height: 1;
     }
     .pt-akill:hover { color: #FFB3AE; }
-    /* Same rule as an armed stop: focus mode hides the ladder, never the
-       levels already armed. */
+    /* The compact sizes drop the market-cap alert.
+
+       Requested for both focus and micro: at those widths the arm row, the
+       entry box and the hint are three lines of furniture for a feature you
+       are not using in the moment you chose the smallest panel.
+
+       Levels ALREADY ARMED still show, in both. Same rule as an armed stop,
+       and for a stronger reason here: an alert is watching whether the panel
+       displays it or not, and hiding a live one leaves the trader unable to
+       see or cancel something that will fire at them. The label goes with the
+       controls, so an armed list does not sit under a heading for a form that
+       is not there. */
     .pt-box.pt-focus .pt-alerts .pt-alert-arm,
     .pt-box.pt-focus .pt-alerts .pt-alert-entry,
-    .pt-box.pt-focus .pt-alerts .pt-alert-hint { display: none; }
+    .pt-box.pt-focus .pt-alerts .pt-alert-hint,
+    .pt-box.pt-focus .pt-alerts > .pt-label,
+    .pt-box.pt-micro .pt-alerts .pt-alert-arm,
+    .pt-box.pt-micro .pt-alerts .pt-alert-entry,
+    .pt-box.pt-micro .pt-alerts .pt-alert-hint,
+    .pt-box.pt-micro .pt-alerts > .pt-label { display: none; }
 
     /* ---------------- sell row ---------------- */
 
@@ -5365,11 +5380,18 @@
     } else if (key === 'b') {
       setBarHidden(!positionsBarHidden);
     } else if (key === 'a') {
-      if (!els.custom || els.custom.offsetParent === null) return; // buy section hidden
       panelMinimized = false;
       setPanelVisible(true);
-      els.custom.focus();
-      els.custom.select();
+      // The amount box is optional now, so this key falls through to the
+      // first preset rather than becoming a key that does nothing.
+      if (els.custom && els.custom.offsetParent !== null) {
+        els.custom.focus();
+        els.custom.select();
+      } else {
+        const first = els.buyPresets && els.buyPresets.querySelector('.pt-preset');
+        if (!first) return;
+        first.focus();
+      }
     } else return;
 
     // Claimed only once we know we acted, so an unbound combo still reaches
@@ -5388,7 +5410,14 @@
     const sectionOn = settings.panelBuyEnabled !== false;
     const presetsOn = sectionOn && settings.panelPresetsEnabled !== false;
     if (els.buyLabel) els.buyLabel.style.display = sectionOn ? '' : 'none';
-    if (els.custom) els.custom.style.display = sectionOn ? '' : 'none';
+    // The free-text amount box is off by default now. It was three lines of
+    // panel for a field the preset row already covers: those became eight
+    // configurable boxes, so an arbitrary size is a setting away rather than
+    // a permanent tax on every panel. Hidden, never removed — BUY and the
+    // limit-arm both read it and both already fall back to the selected
+    // preset when it is empty, so nothing downstream has to know.
+    const customOn = sectionOn && settings.panelCustomAmount === true;
+    if (els.custom) els.custom.style.display = customOn ? '' : 'none';
     if (els.btnBuy) els.btnBuy.style.display = sectionOn ? '' : 'none';
     if (els.buyPresets) els.buyPresets.style.display = presetsOn ? '' : 'none';
 
