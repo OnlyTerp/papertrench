@@ -1140,6 +1140,57 @@
       houseMoney: soldSol >= invested && invested > 0,
     };
   }
+
+  /**
+   * How much of the bag to sell so the money that went in has come back.
+   *
+   * "Sell your initial" is a real move with a real number behind it, and the
+   * number is not "half". Costs come off the top: to NET back what you put
+   * in you must sell MORE than the naive fraction, and by exactly how much
+   * depends on the fee, the flat tx cost and the slippage the fill will take.
+   * Getting that wrong leaves the trader believing they are de-risked when
+   * they are still a few percent short — the one belief this feature exists
+   * to make true.
+   *
+   * Solves for gross from the net that is actually wanted:
+   *   net   = gross - gross*fee - flat
+   *   gross = (need + flat) / (1 - fee)
+   * against the slipped price the engine will really fill at.
+   *
+   * Returns null when there is nothing to do, or { fraction, needSol,
+   * shortfall } — shortfall true when the WHOLE bag cannot cover it, which
+   * is a fact to state rather than a button to grey out silently.
+   */
+  function sellInitialPlan(pos, ledger, priceNative, costs) {
+    if (!pos || !(pos.qty > 0) || !ledger) return null;
+    var px = Number(priceNative) > 0 ? Number(priceNative) : Number(pos.lastPriceNative);
+    if (!(px > 0)) return null;
+
+    var need = Number(ledger.investedSol) - Number(ledger.soldSol);
+    if (!(need > 0)) return null;   // already whole — nothing to recover
+
+    var c = costs || {};
+    var feeRate = Math.min(0.95, Math.max(0, (Number(c.feeBps) || 0) / 10000));
+    var slipRate = Math.min(0.95, Math.max(0, (Number(c.slippageBps) || 0) / 10000));
+    var flat = Math.max(0, Number(c.flatSol) || 0);
+
+    // The engine fills a sell at the slipped price, so that is the price this
+    // plan has to be built on — not the quote on screen.
+    var fillPx = px * (1 - slipRate);
+    if (!(fillPx > 0)) return null;
+
+    var grossNeeded = (need + flat) / (1 - feeRate);
+    var qtyNeeded = grossNeeded / fillPx;
+    var fraction = qtyNeeded / pos.qty;
+
+    return {
+      needSol: need,
+      // Capped at the whole bag: a fraction over 1 would be silently clamped
+      // by the engine anyway, and the caller has to be able to SAY so.
+      fraction: Math.min(1, fraction),
+      shortfall: fraction > 1,
+    };
+  }
   function positionMark(pos, priceNative, priceUsd) {
     if (!pos || !(pos.qty > 0)) return null;
     var px = Number(priceNative) > 0 ? Number(priceNative) : Number(pos.lastPriceNative);
@@ -1485,6 +1536,7 @@
     pricesFromBatch,
     positionRows,
     positionLedger,
+    sellInitialPlan,
     portfolioSummary,
     headerFields,
     shortAddress,
