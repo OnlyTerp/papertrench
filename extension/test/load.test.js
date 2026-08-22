@@ -695,10 +695,16 @@ test('quoteForTrade prices a fresh screen at the price on screen (F-33 → F-52)
   const fnStart = contentSrc.indexOf('async function pickQuoteForTrade()');
   const block = contentSrc.slice(fnStart, contentSrc.indexOf('\n  }', fnStart) + 4);
 
-  assert.match(block, /const screenFresh = atClick && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
+  assert.match(block, /const screenFresh = atClick\s*\n\s*&& atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
     'freshness is judged at click time, before any async hop');
   assert.match(contentSrc, /const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600/,
     'the fill-at-screen window must stay sub-second so a stale display never rides it');
+  // F-57: "fresh screen" must mean the SCREEN. atClickAge derives from
+  // lastPriceAt, which resolver adoptions also stamp — so age alone let a
+  // lagging aggregator quote take this path AS the on-screen price. The page
+  // feed having ticked is now a separate, required condition.
+  assert.match(block, /&& lastPageTickAt > 0\s*\n\s*&& clickAt - lastPageTickAt <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
+    'the fast path requires the PAGE FEED to have ticked, not merely a fresh timestamp');
   const screenReturnAt = block.indexOf('if (screenFresh) return atClick');
   const chainHopAt = block.indexOf('await R.onchainQuote');
   assert.ok(screenReturnAt !== -1, 'a fresh screen must fill at the on-screen price, unconditionally');

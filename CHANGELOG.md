@@ -3,6 +3,18 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+- **Entries land on the chart you're looking at.** Field report: *"higher
+  entry without wicks or anything. just filled me at 35k while the coin is
+  moving around 25k."* A lagging aggregator quote could reach the fill path
+  wearing a fresh timestamp and be taken for the on-screen price, skipping
+  every cross-check on the way. The fast path now requires the page's own
+  feed to have actually ticked, and an aggregator quote that disagrees with
+  what the tab just accepted as money has to be backed by the chain before
+  it can price a fill. A quote nothing can vouch for is refused out loud
+  instead of filling you 40% high.
+
 ## v3.13.3 — 2026-08-22
 
 **Twelve quality-of-life upgrades from the community wave.** The overlay
