@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.1', date: 'Aug 22, 2026', iso: '2026-08-22',
+        tags: ['fix'],
+        title: 'Fresh-pair position links land on the chart, not a dead page',
+        body: 'A buy made in the window where a brand-new pair has no mint route yet recorded the position with no pool address — and it never updated. Positions-bar clicks then fell back to a token route that didn\'t exist yet, and died on "not found" (Twitch chat report). The position now adopts the pool the chart is actually trading on, on every buy while it learns and at click time from the live page.',
+      },
+      {
         v: '3.13.0', date: 'Aug 22, 2026', iso: '2026-08-22',
         tags: ['feature'],
         title: 'The paper plane lands — grouped settings, live standings, shortcuts',

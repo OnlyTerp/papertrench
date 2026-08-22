@@ -421,6 +421,19 @@
     // after the extension updates from an older version.
     if (!pos.sessionId) pos.sessionId = replaySessionId(pos.mint, pos.openedAt || o.ts);
 
+    // Bug 6 (Twitch 2026-08-22, "in the Positions section it's picking up
+    // the links incorrectly"): on pair-URL sites (Axiom /meme/, Photon /lp/)
+    // a brand-new pair trades under its PAIR stand-in while the position is
+    // pending, so the buy that opens the bag records pairAddress: null. The
+    // resolver learns the pool seconds later, but the position's own
+    // pairAddress was write-once — every link built from it forever after
+    // fell back to the mint route (axiom.trade/t/<mint>), which for a
+    // brand-new pair does not exist yet. "Click a position to jump to its
+    // chart" landed on a dead page. Every buy re-offers the page's CURRENT
+    // identity: a null pairAddress heals, and a stale one is corrected to
+    // the pool the chart is actually trading on.
+    if (o.pairAddress && o.pairAddress !== pos.pairAddress) pos.pairAddress = o.pairAddress;
+
     pos.qty += qty;
     // Flat tx costs (gas + tip) join the COST BASIS: they bought no tokens,
     // but this trade cannot break even until the price covers them — which

@@ -6907,9 +6907,16 @@
     if (!mint) return;
     if (token && token.mint === mint) return; // already here
     const pos = state.positions && state.positions[mint];
+    // Bug 6 (Twitch 2026-08-22): the position's pairAddress was write-once —
+    // a bag opened while a fresh pair was still pending carries null, and its
+    // chip link fell back to the mint route, which on a brand-new pair is a
+    // dead page. When THIS tab is showing the same token the live record has
+    // the resolver's current identity (pool included); prefer it, and only
+    // then fall back to the position's own stored pair.
+    const livePair = token && token.mint === mint ? token.pairAddress : null;
     const url = S.tokenUrlFor(mint, {
       siteId: (pos && pos.site) || (site && site.id),
-      pairAddress: pos && pos.pairAddress,
+      pairAddress: livePair || (pos && pos.pairAddress),
       fallbackSite: site,
     });
     if (!url) return;

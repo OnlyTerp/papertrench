@@ -3,6 +3,22 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.1 — 2026-08-22
+
+**Fresh-pair position links land on the chart, not a dead page.** On terminals
+that route by pool address (Axiom's /meme/, Photon's /lp/), a brand-new pair
+opens its page before the token has a mint route anywhere. A buy made in that
+window recorded the position with no pool address — and the position's stored
+address never updated after. Every "click a position to jump to its chart"
+from the positions bar then fell back to the token route, which for a
+just-launched pair doesn't exist yet: the click died on a "not found" page
+(Twitch chat, 2026-08-22: "in the Positions section it's picking up the links
+incorrectly, and because of that it doesn't work"). The position now adopts
+the pool the chart is actually trading on — on every buy while it learns, and
+at click time from the live page when the same token is open — and a
+graduation or relist to a new pool updates the link instead of leaving it
+pointing at the old one.
+
 ## v3.13.0 — 2026-08-22
 
 **New look: the paper plane.** PaperTrench has a real mark now, and it replaces
