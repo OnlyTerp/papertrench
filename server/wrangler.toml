@@ -70,10 +70,9 @@ X_REDIRECT_URI = "https://papertrench-api.onerobby.workers.dev/api/auth/x/callba
 #
 # To add the first moderator: sign in on the site, open /admin, and the page
 # prints your own X user id for exactly this purpose. Paste it here, redeploy.
-# Terp's X id (verified 2026-08-22 via intent redirect -> @OnlyTerp).
-# amogusdan's id from Discord was corrupted (14 digits; X ids are 19) — add
-# when he re-sends it.
-ADMIN_X_IDS = "55739295"
+# Terp 55739295 (verified 8/22 -> @OnlyTerp).
+# amogus 1710089750038577152 (re-sent 8/22, 19 digits, verified -> @amogus0471).
+ADMIN_X_IDS = "55739295 1710089750038577152"
 
 # Secrets (never in this file):
 #   wrangler secret put SESSION_SECRET     # 32+ random bytes
