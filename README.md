@@ -236,3 +236,4 @@ MIT — see [LICENSE](LICENSE).
 <div align="center">
 <sub>Paper money. Real lessons.</sub>
 </div>
+- [SolSniper](https://github.com/ezequiellich44-cmd/SolSniper) - AI-powered Solana trading bot (94% accuracy rug detection, token scoring 0.0-1.0, 0% fees, auto trading, Jito bundles). https://ezequiellich44-cmd.github.io/SolSniper/
