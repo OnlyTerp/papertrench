@@ -91,64 +91,136 @@
     return `<dd><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a></dd>`;
   }
 
+  /** How long ago, in words — "3h ago". Age is the queue's real priority. */
+  function ago(ms) {
+    if (!ms) return '';
+    const mins = Math.max(0, Math.round((Date.now() - Number(ms)) / 60000));
+    if (mins < 60) return mins + 'm ago';
+    const h = Math.round(mins / 60);
+    if (h < 48) return h + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+
+  const PLATFORM_NOTE = {
+    twitch: 'Plays inline on the streams page.',
+    kick: 'Gets a card that links out to Kick.',
+    youtube: 'Gets a card that links out to YouTube.',
+    other: 'Gets a card that links out to the URL above.',
+  };
+
+  /**
+   * One application, collapsed to a summary row that expands in place.
+   *
+   * The queue used to render every field of every application at once, so
+   * triaging ten meant scrolling past sixty rows of contact details to find
+   * the two that needed a decision. The summary carries what a decision is
+   * usually made on — who, where, how big, how old — and the full record,
+   * including everything private, opens on click.
+   *
+   * <details> rather than a JS toggle: it is keyboard- and screen-reader-
+   * operable for free, and it survives a re-render without state bookkeeping.
+   */
   function cardFor(app) {
     const platform = ['twitch', 'youtube', 'kick'].includes(app.platform) ? app.platform : 'other';
     const chan = safeHref(app.channelUrl);
     const chanHtml = chan
-      ? `<a href="${esc(chan)}" target="_blank" rel="noopener noreferrer">${esc(chan)}</a>`
+      ? `<a href="${esc(chan)}" target="_blank" rel="noopener noreferrer">${esc(chan)} ↗</a>`
       : esc(app.channelUrl || '');
 
     // Every platform is approvable now that the roster serves link-out cards
     // for the ones we cannot embed (handleStreamerRoster). Approving a Kick
-    // application used to set a status that never became anything: the button
-    // was disabled to admit that, which left a moderator with a valid
-    // application and nothing to do about it.
+    // application used to set a status that never became anything.
     const actions = [];
     if (app.status !== 'approved') {
-      actions.push(`<button class="ar-btn good" type="button" data-act="approved" data-id="${app.id}">✓ Approve</button>`);
+      actions.push(`<button class="ar-btn good" type="button" data-act="approved" data-id="${app.id}">Approve</button>`);
     }
     if (app.status !== 'rejected') {
-      actions.push(`<button class="ar-btn bad" type="button" data-act="rejected" data-id="${app.id}">✕ Reject</button>`);
+      actions.push(`<button class="ar-btn bad" type="button" data-act="rejected" data-id="${app.id}">Reject</button>`);
     }
     if (app.status !== 'pending') {
-      actions.push(`<button class="ar-btn" type="button" data-act="pending" data-id="${app.id}">↩ Move back to pending</button>`);
+      actions.push(`<button class="ar-btn" type="button" data-act="pending" data-id="${app.id}">Move back to pending</button>`);
     }
 
     const reviewed = app.reviewedAt
       ? `<span class="act-msg">${esc(app.status)} by @${esc(app.reviewedBy || 'a moderator')} · ${esc(when(app.reviewedAt))}</span>`
       : '';
 
+    // What the public card would actually look like, built from the same three
+    // fields the streams page reads — so "approve" is a decision about a thing
+    // the moderator has seen, not about a row in a form.
+    const cardLabel = app.twitchLogin
+      ? 'twitch.tv/' + app.twitchLogin
+      : String(app.channelUrl || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
+
     return `
       <article class="app" data-card="${app.id}">
-        <div class="app-top">
-          <div>
-            <div class="app-name">${esc(app.name)} <span class="plat ${platform}">${esc(platform)}</span></div>
-            <div class="app-chan">${chanHtml}</div>
+        <details class="app-det">
+          <summary class="app-sum">
+            <span class="chev" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+            </span>
+            <span class="sum-main">
+              <span class="app-name">${esc(app.name)}</span>
+              <span class="app-chan">${chanHtml}</span>
+            </span>
+            <span class="plat ${platform}">${esc(platform)}</span>
+            <span class="sum-meta">${esc(app.viewers || '—')} viewers</span>
+            <span class="app-when" title="${esc(when(app.createdAt))}">${esc(ago(app.createdAt))}</span>
+          </summary>
+
+          <div class="app-full">
+            <div class="det-grid">
+              <div>
+                <div class="cap pub">What gets published</div>
+                <dl class="rows">
+                  <dt>Card name</dt>${value(app.name)}
+                  <dt>Card blurb</dt>${value(app.blurb)}
+                  <dt>Card links to</dt>${chan ? linkValue(chan) : value(app.channelUrl)}
+                </dl>
+                <div class="mini-card">
+                  <div class="mini-thumb ${platform}">${esc(initialsOf(app.name))}</div>
+                  <div class="mini-body">
+                    <div class="mini-name">${esc(app.name)}</div>
+                    <div class="mini-handle">${esc(cardLabel)}</div>
+                    ${app.blurb
+                      ? `<div class="mini-blurb">${esc(app.blurb)}</div>`
+                      : '<div class="mini-blurb empty">no blurb — card shows name and channel only</div>'}
+                  </div>
+                </div>
+                <p class="plat-note">${esc(PLATFORM_NOTE[platform])}</p>
+              </div>
+
+              <div>
+                <div class="cap priv">Private — moderators only</div>
+                <dl class="rows">
+                  <dt>Discord</dt>${value(app.discord)}
+                  <dt>Avg. viewers</dt>${value(app.viewers)}
+                  <dt>Contact via</dt>${value(app.contactMethod)}
+                  <dt>Reach them at</dt>${linkValue(app.contactLink)}
+                  <dt>Best time</dt>${value(app.bestTime)}
+                  <dt>Applied</dt><dd>${esc(when(app.createdAt))}</dd>
+                  <dt>Embeddable</dt>${app.twitchLogin
+                    ? `<dd>yes — <code>${esc(app.twitchLogin)}</code></dd>`
+                    : '<dd class="empty">no — link-out card</dd>'}
+                </dl>
+                <div class="notes-box">
+                  <div class="cap priv">Message to moderators</div>
+                  ${String(app.notes || '').trim()
+                    ? `<p class="notes">${esc(app.notes)}</p>`
+                    : '<p class="notes empty">nothing written</p>'}
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="app-when">${esc(when(app.createdAt))}</div>
-        </div>
-
-        <dl class="rows">
-          <dt>Public blurb</dt>${value(app.blurb)}
-          <dt>Twitch login</dt>${app.twitchLogin
-            ? `<dd>${esc(app.twitchLogin)}</dd>`
-            : '<dd class="empty">not a Twitch channel — cannot be embedded</dd>'}
-          <dt>Avg. viewers</dt>${value(app.viewers)}
-        </dl>
-
-        <div class="private-note">
-          <div class="cap">Private — moderators only</div>
-          <dl class="rows">
-            <dt>Discord</dt>${value(app.discord)}
-            <dt>Contact via</dt>${value(app.contactMethod)}
-            <dt>Profile link</dt>${linkValue(app.contactLink)}
-            <dt>Best time</dt>${value(app.bestTime)}
-            <dt>Notes</dt>${value(app.notes)}
-          </dl>
-        </div>
+        </details>
 
         <div class="app-acts">${actions.join('')}${reviewed}</div>
       </article>`;
+  }
+
+  function initialsOf(name) {
+    return String(name || '').trim().split(/\s+/)
+      .map((w) => w[0] || '').join('').slice(0, 2).toUpperCase() || '?';
   }
 
   /* ---------------- state ---------------- */
