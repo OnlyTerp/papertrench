@@ -237,6 +237,7 @@ function runFreshLaunch(opts) {
   let jupiterCalls = 0;
   let attempts = 0;
   let lastAttemptAt = -1;
+  let winListeners = {};   // window message listeners, so tests can emit bridge ticks
 
   function makeNode(tag) {
     const node = {
@@ -304,7 +305,10 @@ function runFreshLaunch(opts) {
   const url = options.url || `https://trade.padre.gg/trade/solana/${NEW_MINT}`;
   const parsed = new URL(url);
   const win = {
-    addEventListener: () => {}, removeEventListener: () => {},
+    addEventListener: (type, fn) => {
+      if (type === 'message') (winListeners.message = winListeners.message || []).push(fn);
+    },
+    removeEventListener: () => {},
     postMessage: (msg) => { if (msg && msg.source === 'papertrench-content') messages.push(msg.type); },
     location: { href: url, hostname: parsed.hostname, pathname: parsed.pathname, search: parsed.search },
     getComputedStyle: () => ({ right: '18px', top: '84px' }),
@@ -427,6 +431,14 @@ function runFreshLaunch(opts) {
     buyButtonArmed: () => {
       const el = nodesById['pt-buy'];
       return !!(el && el.classList.contains('pt-buy-armed'));
+    },
+    // Emit a bridge 'tick' exactly the MAIN-world bridge sends it. Tests drive
+    // the real handlePageTick path this way — the same path a live chart's
+    // first price takes.
+    emitTick: (payload) => {
+      for (const fn of (winListeners.message || [])) {
+        fn({ source: win, origin: null, data: { source: 'papertrench-bridge', type: 'tick', payload } });
+      }
     },
     storage: () => storage,
   };
@@ -568,6 +580,99 @@ test('an armed buy expires visibly when no quote ever arrives', async () => {
   const st = ov.storage().pt_state;
   assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
     'an expired armed buy must never fill');
+});
+
+/* ---------------- the fire path must honor F-16's quiet-aware expiry ----------
+ *
+ * The 8/20 field reports (CHENG and SoranaSokan, Discord): armed buys that
+ * never fire while the chart visibly trades — "armed / waiting for first
+ * quotes" on coin after coin. On GMGN/Axiom a pre-index chart emits
+ * mcap-only ticks for minutes. F-16 made the WATCHDOG expiry quiet-aware so
+ * the intent survives — but flushArmedBuy(), the FIRE path, still consulted
+ * the bare 60 s clock. The first real price landing at 61–300 s was accepted
+ * by handlePageTick and then killed by the flush it triggered, at the exact
+ * moment it became fillable. The fire path must ask armedBuyExpired() — the
+ * same predicate the watchdog uses.
+ */
+
+// A NON-pump mint: mcap-only ticks cannot price it (no implied supply), so
+// they stay what they are on GMGN pre-index — proof of trading, not a quote.
+const QUIET_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+function mcapOnlyTick(mint, mcap) {
+  return { mint, source: 'gmgn-mcap-candle', mcap, candidates: [] };
+}
+
+test('an armed buy fires on the first price even when it lands after the base TTL', async () => {
+  // Structural: the fire path must consult the quiet-aware predicate, and the
+  // bare-clock check must be gone from content.js entirely.
+  const content = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'content.js'), 'utf8');
+  assert.doesNotMatch(content, /Date\.now\(\) - armedBuy\.at > ARMED_BUY_TTL_MS/,
+    'the fire path must never judge expiry on the bare base clock');
+
+  // Behavioral: the exact reported journey. The coin never resolves from any
+  // API — the chart's own feed is the only source, mcap-only for 90 seconds.
+  const ov = runFreshLaunch({
+    url: `https://trade.padre.gg/trade/solana/${QUIET_MINT}`,
+    resolved: () => false,
+  });
+
+  await ov.advance(2000);
+  ov.setInput('pt-custom', '1');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  assert.ok(ov.buyButtonArmed(), 'the intent arms while the chart is mcap-only');
+
+  // 90 s of mcap-only ticks: past the 60 s base TTL, but the market is LIVE.
+  // The F-16 quiet rule must keep the intent armed the whole way.
+  for (let i = 0; i < 18; i++) {
+    await ov.advance(5_000);
+    ov.emitTick(mcapOnlyTick(QUIET_MINT, 9000 + i * 250));
+  }
+  assert.ok(ov.buyButtonArmed(),
+    'an armed buy must survive mcap-only ticks past the base TTL (F-16)');
+
+  // The first real price lands at t≈90 s. This is the exact moment the old
+  // bare-clock fire path killed the intent. It must FILL instead.
+  ov.emitTick({
+    mint: QUIET_MINT, source: 'chart-export',
+    candidates: [{ value: 0.00000012, unit: 'native' }],
+  });
+  await ov.settle();
+  await ov.advance(1000);
+
+  const st = ov.storage().pt_state;
+  const pos = st && st.positions && st.positions[QUIET_MINT];
+  assert.ok(pos && pos.qty > 0,
+    'the first price after a long mcap-only wait must FILL, not expire');
+  assert.ok(!ov.buyButtonArmed(), 'the button must leave the armed state on fill');
+});
+
+test('the hard cap still bounds the wait when mcap ticks never stop', async () => {
+  const ov = runFreshLaunch({
+    url: `https://trade.padre.gg/trade/solana/${QUIET_MINT}`,
+    resolved: () => false,
+  });
+
+  await ov.advance(2000);
+  ov.setInput('pt-custom', '1');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  assert.ok(ov.buyButtonArmed());
+
+  // 305 s of live mcap ticks: quiet-aware expiry must still surrender at the
+  // hard cap — a quiet-aware wait may not become an eternal one.
+  for (let i = 0; i < 61; i++) {
+    await ov.advance(5_000);
+    ov.emitTick(mcapOnlyTick(QUIET_MINT, 9000 + i * 250));
+  }
+
+  assert.ok(!ov.buyButtonArmed(),
+    'ARMED_BUY_MAX_TTL_MS must expire the intent even while ticks keep coming');
+  const st = ov.storage().pt_state;
+  assert.ok(!st || !st.positions || Object.keys(st.positions).length === 0,
+    'a hard-capped armed buy must never fill');
 });
 
 /* ---------------- F-34: fresh pump.fun launches must be priceable ----------

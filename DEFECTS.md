@@ -375,6 +375,30 @@ end-to-end feed prewatch test (bare curve address → watched mint → primed
 quote → reserve account remembered), bootstrap acceptance/ambiguity tests,
 and the existing armed-buy suite.
 
+**F-58 · S1 · The fire path judged expiry on the bare 60 s clock — an armed buy that survived by F-16's quiet-aware watchdog was killed at the exact moment the first quote landed**
+`content.js` flushArmedBuy · GMGN, Axiom (pre-index launches) · field reports
+2026-08-20 (Discord: CHENG "Buy armed — fires the instant the first quote
+lands" but it never fires; SoranaSokan "i cant buy alot of coins it says
+armed/waiting for first quotes") · **fixed v3.13.4** (the fire path consults
+armedBuyExpired(), the same quiet-aware predicate the watchdog uses)
+F-16 (v2.0.0) made armed-buy EXPIRY quiet-aware: mcap-only ticks keep
+proving the coin trades, so the watchdog extends the wait past the base
+60 s TTL up to the 300 s hard cap. But that doctrine was applied to the
+WAIT only — flushArmedBuy(), the FIRE path invoked the moment a first
+price is accepted, still ran `Date.now() - armedBuy.at > ARMED_BUY_TTL_MS`.
+On a GMGN/Axiom pre-index launch the chart streams mcap-only ticks for
+minutes; the first fillable price lands at t=61–300 s; handlePageTick
+accepts it, sets priceNative, and calls flushArmedBuy() — which executes
+the expiry branch and drops the intent with "Armed buy expired" at the
+very moment it became fillable. The button visibly un-arms, nothing
+fills, coin after coin — while the chart plainly trades. The panel arm
+path (fromClick) skips the corroboration gate, so the raw TTL check was
+the ONLY thing killing these intents. Locked by: behavioral regression
+(mcap-only ticks past base TTL → first price must FILL) + hard-cap test
+(300 s bounds the wait even when ticks never stop) + structural lock (the
+bare-clock check may not reappear in content.js), in
+extension/test/freshlaunch.test.js.
+
 **F-41 · S1 · One buy drew TWO bubbles, and the average line never appeared — a dead self-write guard duplicated every fill, and a stale-ledger veto quietly relocated the line off-screen**
 `content.js` watchStorage/doBuy/doSellInner · `price-bridge.js`
 vettedMcapClose/paper-lines · fomo.family, maintainer field test ·

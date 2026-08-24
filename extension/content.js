@@ -6166,8 +6166,14 @@
       renderBuyButton();
       return;
     }
-    if (Date.now() - armedBuy.at > ARMED_BUY_TTL_MS) {
-      // Never execute a stale intent silently.
+    if (armedBuyExpired()) {
+      // Never execute a stale intent silently. F-16 made expiry quiet-aware
+      // (mcap-only ticks extend the base TTL, hard cap ARMED_BUY_MAX_TTL_MS)
+      // and the watchdog already uses that predicate — the FIRE path must use
+      // it too, or a first price landing at 61–300 s on a live pre-index
+      // launch is killed at the exact moment it becomes fillable (8/20 field
+      // reports: armed intent that never fires while the chart visibly
+      // trades — DEFECTS.md F-16 family, CHENG/SoranaSokan).
       armedBuy = null;
       renderBuyButton();
       toast('Armed buy expired — the quote took too long');
@@ -6542,11 +6548,17 @@
       if (data && data.priceNative > 0) {
         // The screener's own realtime price wins when it is fresh: that is
         // the number the trader just looked at before tapping.
-        const live = data.mint && recentRowPrices.get(data.mint);
+        // F-59: try every identity (see doRowBuy) and rescale the cap with
+        // the price — a pair-keyed row tick used to miss the mint-only
+        // lookup, and the stale resolver mcap rode along into the fill.
+        const live = (data.mint && recentRowPrices.get(data.mint))
+          || (data.pairAddress && recentRowPrices.get(data.pairAddress))
+          || recentRowPrices.get(armed.address);
         if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
-          const rate = data.priceUsd / data.priceNative;
+          const scale = live.usd / Number(data.priceUsd);
           data.priceUsd = live.usd;
-          data.priceNative = live.usd / rate;
+          data.priceNative = Number(data.priceNative) * scale;
+          if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
           data.priceSource = 'row-feed';
         }
         const result = await fillRowBuy(armed.address, data, armed.amount);
@@ -6657,11 +6669,26 @@
       }
       // The screener's own realtime price wins when it is fresh: that is the
       // number the user just looked at before tapping.
-      const live = data.mint && recentRowPrices.get(data.mint);
+      // F-59: the lookup tries EVERY identity the token answers to. Pulse
+      // frames key their records by whichever mint-shaped key they carry —
+      // often the PAIR address — while `data.mint` is the resolver's MINT,
+      // so a mint-only lookup missed the fresh row print entirely and the
+      // fill booked the resolver's stale snapshot instead (8/16: row
+      // printing 20k MC, fill booked 6k). The click's own address and the
+      // resolver's pairAddress are tried before giving up.
+      const live = (data.mint && recentRowPrices.get(data.mint))
+        || (data.pairAddress && recentRowPrices.get(data.pairAddress))
+        || (address && recentRowPrices.get(address));
       if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
-        const rate = data.priceUsd / data.priceNative;
+        // F-59: the cap rides the price. The old override rewrote
+        // priceUsd/priceNative and left `mcap` at the resolver's stale
+        // value — the toast and the position then reported an entry MC the
+        // market never printed at fill time. Supply is constant across the
+        // two reads, so the cap scales by exactly the price ratio.
+        const scale = live.usd / Number(data.priceUsd);
         data.priceUsd = live.usd;
-        data.priceNative = live.usd / rate;
+        data.priceNative = Number(data.priceNative) * scale;
+        if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
         data.priceSource = 'row-feed';
       }
 
