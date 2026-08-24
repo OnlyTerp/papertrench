@@ -98,16 +98,14 @@
       ? `<a href="${esc(chan)}" target="_blank" rel="noopener noreferrer">${esc(chan)}</a>`
       : esc(app.channelUrl || '');
 
-    // Approve is offered only where it can do something. A YouTube or Kick
-    // application is perfectly valid, but the streams page embeds Twitch, so
-    // approving one would set a status that never becomes a card — a button
-    // that silently does nothing is worse than a button that isn't there.
-    const embeddable = Boolean(app.twitchLogin);
-
+    // Every platform is approvable now that the roster serves link-out cards
+    // for the ones we cannot embed (handleStreamerRoster). Approving a Kick
+    // application used to set a status that never became anything: the button
+    // was disabled to admit that, which left a moderator with a valid
+    // application and nothing to do about it.
     const actions = [];
     if (app.status !== 'approved') {
-      actions.push(`<button class="ar-btn good" type="button" data-act="approved" data-id="${app.id}"
-        ${embeddable ? '' : 'disabled title="Only Twitch channels can be embedded on the streams page"'}>✓ Approve</button>`);
+      actions.push(`<button class="ar-btn good" type="button" data-act="approved" data-id="${app.id}">✓ Approve</button>`);
     }
     if (app.status !== 'rejected') {
       actions.push(`<button class="ar-btn bad" type="button" data-act="rejected" data-id="${app.id}">✕ Reject</button>`);
