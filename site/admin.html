@@ -30,6 +30,19 @@
   .gate code { font-family: var(--mono); font-size: 12.5px; color: var(--orange2);
     background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; }
 
+  /* Two consoles, one gate. The link is here rather than in the site nav
+     because /admin-mod is noindex and moderator-only — it has no business in
+     the public navbar. */
+  .console-nav { display: flex; gap: 6px; margin-top: 20px; flex-wrap: wrap; }
+  .cn {
+    font-size: 13px; font-weight: 700; color: var(--muted);
+    padding: 8px 15px; border-radius: 10px;
+    border: 1px solid var(--line2); background: rgba(255,255,255,0.03);
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .cn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+  .cn.on { color: var(--orange2); background: rgba(255,157,69,0.09); border-color: rgba(255,157,69,0.32); }
+
   .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
   .tab {
     font: inherit; font-size: 13px; font-weight: 750; cursor: pointer;
@@ -166,6 +179,10 @@
   <div class="wrap">
     <h1>Streamer queue</h1>
     <p>Applications from <a href="/streamer-signup" style="color:var(--orange2)">the signup form</a>. Nothing here is public: an application becomes a card on the streams page only when a moderator approves it, and the contact details never appear anywhere. Twitch channels play inline; Kick and YouTube get a card that links out.</p>
+    <div class="console-nav">
+      <a class="cn on" href="/admin">Streamer queue</a>
+      <a class="cn" href="/admin-mod">Accounts &amp; boards</a>
+    </div>
   </div>
 </header>
 

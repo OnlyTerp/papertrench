@@ -31,6 +31,20 @@ re-run of the idempotent schema:
 npx wrangler d1 execute papertrench --remote --file=schema.sql
 ```
 
+**Moderation adds one table** (`moderation_log`, created by the schema re-run
+above) **and eight columns**, which the schema cannot add for you.
+
+> **Run this BEFORE deploying the Worker version that contains it.** SQLite
+> fails any query naming a column that does not exist, and both the session
+> lookup and the leaderboard name these — so a Worker deployed ahead of the
+> migration takes sign-in and the board down until the migration lands. One
+> command, then deploy:
+
+```bash
+npx wrangler d1 execute papertrench --remote \
+  --command "ALTER TABLE users ADD COLUMN banned_at INTEGER; ALTER TABLE users ADD COLUMN banned_reason TEXT; ALTER TABLE users ADD COLUMN banned_by INTEGER; ALTER TABLE records ADD COLUMN dq_at INTEGER; ALTER TABLE records ADD COLUMN dq_reason TEXT; ALTER TABLE records ADD COLUMN dq_by INTEGER; ALTER TABLE clans ADD COLUMN disbanded_at INTEGER; ALTER TABLE clans ADD COLUMN disbanded_reason TEXT"
+```
+
 > **Run this BEFORE `wrangler deploy`, not after.** The `[TAG]` chip on the
 > leaderboard and Sprint comes from a `LEFT JOIN clan_members` inside those
 > boards' own queries, and SQLite fails a statement that names a missing table

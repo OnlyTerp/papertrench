@@ -248,3 +248,45 @@ CREATE INDEX IF NOT EXISTS idx_streamer_applications_status
 CREATE UNIQUE INDEX IF NOT EXISTS idx_streamer_applications_open_channel
   ON streamer_applications(channel_url)
   WHERE status IN ('pending', 'approved');
+
+-- ---------------------------------------------------------------- moderation
+--
+-- Two reversible switches and a ledger. Deliberately NOT a deletion tool: a
+-- moderator needs to stop a bad record counting, and needs it undoable, but
+-- nothing here removes a user's data or rewrites their chain.
+--
+-- The switches live as COLUMNS on users and records (added by the ALTERs in
+-- DEPLOY.md, since this file is re-run against live databases and ADD COLUMN
+-- is not idempotent):
+--
+--   users.banned_at / banned_reason / banned_by
+--       the ACCOUNT is closed — sign-in refused, record off every board.
+--   records.dq_at / dq_reason / dq_by
+--       the RECORD does not rank, but the account is fine. For a chain that
+--       is wrong rather than a person who is a problem.
+--   clans.disbanded_at / disbanded_reason
+--       the clan stops appearing; the roster stays readable.
+--
+-- Keeping ban and disqualify separate matters: collapsing them would force a
+-- moderator to ban somebody in order to take a bad chain off the board, which
+-- is a much bigger statement than the situation usually deserves.
+--
+-- The ledger is a real table, so it is created here.
+CREATE TABLE IF NOT EXISTS moderation_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id INTEGER NOT NULL REFERENCES users(id),  -- the moderator
+  action TEXT NOT NULL,             -- user.ban | user.unban | record.disqualify
+                                    -- record.reinstate | clan.disband | clan.restore
+  target_kind TEXT NOT NULL,        -- user | record | clan
+  target_id INTEGER NOT NULL,
+  target_label TEXT,                -- handle or [TAG] at the time, for reading
+  reason TEXT NOT NULL,             -- mandatory at the route; never empty here
+  created_at INTEGER NOT NULL
+);
+
+-- A moderation tool without a ledger is an invitation to argue about what
+-- happened; with one, "who took this off the board and why" is a query.
+CREATE INDEX IF NOT EXISTS idx_moderation_log_recent
+  ON moderation_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_moderation_log_target
+  ON moderation_log(target_kind, target_id, created_at DESC);

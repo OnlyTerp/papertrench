@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Accounts &amp; boards</title>
+<!-- Not a public page: keep it out of search results and out of previews.
+     This is presentation only — every route it calls is gated server-side. -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
+<link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/assets/icon192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+  /* ================================================================== *
+   *  /admin-mod — accounts, records and clans.
+   *
+   *  Scope is deliberately narrow. A moderator here can close an account,
+   *  take a record off the boards, or disband a clan — and can undo all
+   *  three. There is no delete, no score edit, no chain rewrite, and no way
+   *  to add another moderator; that stays a deploy-time decision in
+   *  ADMIN_X_IDS, because a moderation console that can promote its own
+   *  users is a console that only has to be breached once.
+   *
+   *  Every action demands a written reason before its button enables, and
+   *  every action lands in an append-only ledger shown at the bottom of the
+   *  page. Unexplained moderation is indistinguishable from a mistake three
+   *  weeks later, including to the moderator who did it.
+   * ================================================================== */
+  .admin-head { padding: 130px 0 22px; }
+  .admin-head h1 { font-size: clamp(30px, 4vw, 44px); font-weight: 900; letter-spacing: -0.5px; }
+  .admin-head p { font-size: 14px; color: var(--muted); margin-top: 10px; max-width: 680px; line-height: 1.6; }
+
+  .console-nav { display: flex; gap: 6px; margin-top: 20px; flex-wrap: wrap; }
+  .cn { font-size: 13px; font-weight: 700; color: var(--muted); padding: 8px 15px;
+    border-radius: 10px; border: 1px solid var(--line2); background: rgba(255,255,255,0.03);
+    transition: color .15s, background .15s, border-color .15s; }
+  .cn:hover { color: var(--text); background: rgba(255,255,255,0.07); }
+  .cn.on { color: var(--orange2); background: rgba(255,157,69,0.09); border-color: rgba(255,157,69,0.32); }
+
+  .gate { max-width: 560px; margin: 0 auto 90px; text-align: center;
+    background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); padding: 40px 32px; }
+  .gate .big { font-size: 42px; margin-bottom: 14px; }
+  .gate h2 { font-size: 20px; font-weight: 800; margin-bottom: 10px; }
+  .gate p { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 18px; }
+  .gate code { font-family: var(--mono); font-size: 12.5px; color: var(--orange2);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; }
+
+  .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .who img { width: 26px; height: 26px; border-radius: 50%; }
+  .who b { color: var(--text); font-weight: 750; }
+  .who .spacer { margin-left: auto; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tab { font: inherit; font-size: 13px; font-weight: 750; cursor: pointer;
+    color: var(--muted); background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line2); border-radius: 999px; padding: 8px 16px;
+    transition: color .15s, background .15s, border-color .15s; }
+  .tab:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+  .tab.on { color: #2a1a05; background: var(--grad-heat); border-color: transparent; font-weight: 800; }
+
+  .searchbar { display: flex; gap: 9px; margin-bottom: 16px; flex-wrap: wrap; }
+  .searchbar .ar-input { flex: 1; min-width: 220px; }
+
+  .rowset { display: grid; gap: 10px; padding-bottom: 30px; }
+
+  .rec { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .rec.flagged { border-color: rgba(224,67,58,0.3); }
+
+  .rec-sum { display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+    padding: 14px 18px; cursor: pointer; list-style: none; transition: background .15s; }
+  .rec-sum::-webkit-details-marker { display: none; }
+  .rec-sum:hover { background: rgba(255,255,255,0.025); }
+  details[open] > .rec-sum { background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--line); }
+  details[open] > .rec-sum .chev { transform: rotate(90deg); }
+  .chev { flex: none; color: var(--dim); display: flex; transition: transform .18s; }
+
+  .rec-id { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .rec-handle { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; }
+  .rec-sub { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+  .rec-metrics { display: flex; gap: 16px; flex-wrap: wrap; }
+  .met { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .met b { display: block; font-size: 13px; color: var(--text); font-weight: 700; }
+
+  .tagline { display: flex; gap: 6px; flex-wrap: wrap; }
+  .st { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.9px;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .st.verified { color: var(--green2); background: rgba(52,211,153,0.11); border: 1px solid rgba(52,211,153,0.3); }
+  .st.partial  { color: var(--orange2); background: rgba(255,157,69,0.10); border: 1px solid rgba(255,157,69,0.3); }
+  .st.rejected { color: #ff8a80; background: rgba(224,67,58,0.10); border: 1px solid rgba(224,67,58,0.3); }
+  .st.pending  { color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--line2); }
+  .st.banned   { color: #fff; background: rgba(224,67,58,0.8); border: 1px solid rgba(224,67,58,0.9); }
+  .st.dq       { color: #ffd9a0; background: rgba(231,123,34,0.22); border: 1px solid rgba(231,123,34,0.45); }
+  .st.clan     { color: var(--blue); background: rgba(106,169,255,0.10); border: 1px solid rgba(106,169,255,0.3); }
+  .st.open     { color: var(--green2); background: rgba(52,211,153,0.09); border: 1px solid rgba(52,211,153,0.26); }
+
+  .rec-body { padding: 18px 18px 6px; }
+  .rows { display: grid; grid-template-columns: 128px minmax(0,1fr); gap: 6px 16px; font-size: 13px; }
+  @media (max-width: 620px) { .rows { grid-template-columns: 1fr; gap: 2px; } .rows dt { margin-top: 9px; } }
+  .rows dt { color: var(--dim); font-size: 11px; font-weight: 750; letter-spacing: 0.5px; text-transform: uppercase; padding-top: 2px; }
+  .rows dd { color: var(--text); word-break: break-word; }
+  .rows dd.empty { color: var(--dim); font-style: italic; }
+
+  .split { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
+  @media (max-width: 780px) { .split { grid-template-columns: 1fr; } }
+  .cap { font-family: var(--mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.1px; text-transform: uppercase; color: var(--dim); margin-bottom: 9px; }
+
+  /* ---------- the action box ----------
+     A reason is not optional and the UI should not pretend otherwise: the
+     button stays disabled until one is typed. */
+  .act-box { margin-top: 16px; padding: 15px 16px; border-radius: 12px;
+    background: rgba(0,0,0,0.24); border: 1px solid var(--line); }
+  .act-box .cap { margin-bottom: 10px; }
+  .act-row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .act-box .ar-input { font-size: 12.5px; }
+  .ar-btn.bad  { background: rgba(224,67,58,0.11); border-color: rgba(224,67,58,0.32); color: #ff8a80; }
+  .ar-btn.warn { background: rgba(231,123,34,0.13); border-color: rgba(231,123,34,0.36); color: #ffd9a0; }
+  .ar-btn.good { background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.33); color: var(--green2); }
+  .ar-btn[disabled] { opacity: .4; cursor: not-allowed; }
+  .act-msg { font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .act-msg.err { color: #ff8a80; }
+  .act-msg.ok { color: var(--green2); }
+
+  .why { margin-top: 10px; font-size: 12.5px; color: #ffb4ae; line-height: 1.55; }
+  .why b { color: #fff; }
+
+  /* ---------- ledger ---------- */
+  .ledger { margin-top: 10px; padding-bottom: 90px; }
+  .ledger h2 { font-size: 17px; font-weight: 800; margin-bottom: 6px; }
+  .ledger .lede { font-size: 13px; color: var(--muted); margin-bottom: 16px; max-width: 620px; line-height: 1.6; }
+  .log-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+    padding: 11px 14px; border-radius: 10px; background: var(--panel);
+    border: 1px solid var(--line); margin-bottom: 7px; font-size: 13px; }
+  .log-act { font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.6px; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+    color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--line2); }
+  .log-act.undo { color: var(--green2); background: rgba(52,211,153,0.09); border-color: rgba(52,211,153,0.26); }
+  .log-act.hit  { color: #ff8a80; background: rgba(224,67,58,0.10); border-color: rgba(224,67,58,0.28); }
+  .log-target { font-weight: 750; }
+  .log-reason { color: var(--muted); flex: 1; min-width: 200px; }
+  .log-when { font-family: var(--mono); font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+
+  .state { text-align: center; padding: 54px 20px; color: var(--muted); font-size: 14px; }
+  .state .big { font-size: 34px; margin-bottom: 12px; opacity: 0.8; }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<nav aria-label="Primary">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/streamer-signup">Streamer signup</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <span id="nav-wallet"></span>
+      <span id="nav-profile"></span>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+<header class="admin-head">
+  <div class="wrap">
+    <h1>Accounts &amp; boards</h1>
+    <p>Close an account, take a record off the boards, or disband a clan — each of them reversible, each of them requiring a written reason, and all of them recorded in the ledger at the bottom of this page. Nothing here deletes data or edits a score.</p>
+    <div class="console-nav">
+      <a class="cn" href="/admin">Streamer queue</a>
+      <a class="cn on" href="/admin-mod">Accounts &amp; boards</a>
+    </div>
+  </div>
+</header>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <div id="loading" class="state"><div class="big">⏳</div>Checking your access…</div>
+
+    <div id="gateSignedOut" class="gate" hidden>
+      <div class="big">🔒</div>
+      <h2>Moderators only</h2>
+      <p>Sign in with the X account on the moderator list to open this console.</p>
+      <a class="btn btn-primary" id="signInBtn" href="#">Sign in with X</a>
+      <p style="margin:16px 0 0;font-size:12.5px">Sign-in returns you to the leaderboard — come back here afterwards.</p>
+    </div>
+
+    <div id="gateNotMod" class="gate" hidden>
+      <div class="big">🚧</div>
+      <h2>Not on the moderator list</h2>
+      <p>You're signed in as <b id="notModHandle"></b>, but that account isn't a PaperTrench moderator.</p>
+      <p>To be added, send an owner your X user id:<br><code id="notModId"></code><br>
+         they add it to <code>ADMIN_X_IDS</code> and redeploy the Worker.</p>
+      <a class="btn btn-ghost" href="/">Back to the site</a>
+    </div>
+
+    <div id="console" hidden>
+      <div class="who">
+        <img id="whoAvatar" src="" alt="" hidden>
+        <span>Signed in as <b id="whoHandle"></b> · moderator</span>
+        <span class="spacer"></span>
+        <button class="ar-btn" type="button" id="refreshBtn">Refresh</button>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <button class="tab on" type="button" data-view="accounts">Accounts</button>
+        <button class="tab" type="button" data-view="clans">Clans</button>
+      </div>
+
+      <div class="searchbar" id="searchbar">
+        <input class="ar-input" type="search" id="q" placeholder="Search by handle or X user id…" autocomplete="off">
+      </div>
+
+      <div class="rowset" id="rows"></div>
+
+      <div class="ledger">
+        <h2>Moderation ledger</h2>
+        <p class="lede">Append-only. Every action on this page writes a row here with the moderator who took it and the reason they gave — so "who took this off the board and why" is a lookup rather than a memory.</p>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="/">Home</a>
+        <a href="/admin">Streamer queue</a>
+        <a href="/streams">Watch Live</a>
+        <a href="/privacy">Privacy</a>
+      </div>
+    </div>
+    <div class="foot-note">Moderator actions are recorded with your handle. Ban and disqualify are reversible; both still affect a real person's standing — leave a reason your successor can read.</div>
+  </div>
+</footer>
+
+<script src="admin-mod.js"></script>
+<script src="/nav-wallet.js"></script>
+<script src="/nav-profile.js"></script>
+</body>
+</html>
