@@ -2057,6 +2057,12 @@
     // already the correct value for that case, so never fabricate over a
     // state this session has since populated.
     if (stored[E.STORAGE_KEYS.state]) state = stored[E.STORAGE_KEYS.state];
+    // D-56: first load of a LEGACY wallet (born before D-06's startSol
+    // snapshot) re-derives its birth balance from the journal and freezes it
+    // onto state. The in-memory write lands in storage with the next
+    // heartbeat CAS — the derivation is stable across concurrent fills, so
+    // no dedicated writer is needed here. Idempotent once startSol exists.
+    E.backfillAnchor(state, settings);
   }
 
   /**
@@ -2067,6 +2073,11 @@
   function adoptState(next) {
     const hadPosition = Boolean(token && state.positions && state.positions[token.mint]);
     state = next;
+    // D-56: a state adopted from another writer (storage listener, CAS
+    // contention) may be the first sighting of a legacy wallet — anchor it
+    // before the re-render below, so the vs-start figures read the derived
+    // birth instead of the live setting on this very paint.
+    E.backfillAnchor(state, settings);
     const hasPosition = Boolean(token && state.positions && state.positions[token.mint]);
     // The card's structure only changes when a position appears or vanishes.
     if (hadPosition !== hasPosition) posEls = null;

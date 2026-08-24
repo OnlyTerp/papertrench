@@ -1753,6 +1753,28 @@ invisible one. Fixed by adding 'game' to SECTIONS; locked GENERICALLY: every
 nav data-section id must appear in SECTIONS, proven failing against the
 v2.11.0 tag in a temp worktree.
 
+**D-56 · S1 · Legacy wallets anchor on the LIVE "Starting paper balance" setting — editing the form retroactively rewrote the session (jb's 100× equity report)**
+`engine.js` (anchorStartSol, defaultState), `content.js`, `dashboard.js`, `popup.js`, `overlay.js`, `background.js` (bridge replay) · wallets born before v3.9.5 (the D-06 birth snapshot) · jb report 2026-08-18: "after a full exit, paper equity showed +9.109 SOL where it should show +0.091 SOL — exactly 100×" · **fixed v3.13.8** (journal-derived birth-anchor backfill: `derivedBirthSol`/`backfillAnchor` in engine.js, `anchorFor`/`derivedAnchor` in popup+overlay, `derivedBirthAnchor` in the worker; locked by `test/d06_backfill.test.js`)
+D-06 (v3.9.5) froze the birth balance onto `state.startSol` — but only for
+wallets BORN AFTER the fix. Every pre-v3.9.5 wallet (jb's 8/18 wallet, and
+every community wallet that existed on 8/21) kept falling through
+`anchorStartSol` to the LIVE setting: edit "Starting paper balance" 10 → 1
+and the whole session re-denominates overnight. jb's exact numbers: born 10,
+real profit +0.091 SOL → equity 10.091; vs-start = 10.091 − **1** = +9.109
+instead of 10.091 − 10 = +0.091 — the 10→1 gap reads as "exactly 100×" on a
+1-SOL round. The derivation is the wallet's own fill arithmetic (the same
+identity equityCurvePoints uses):
+`birth = equity − open P&L − Σ steps`, a BUY steps −(its fee) and a SELL
+steps +(its per-sell pnlSol). It is stable across marks AND concurrent
+fills (proven in tests), so the one-time backfill on first load can race a
+heartbeat and still land the same value; `anchorStartSol` gains the derived
+middle layer (snapshot → derived → setting) so the correct number shows even
+before the persistence lands, and the self-contained surfaces (popup,
+overlay, worker bridge) carry local copies of the rule since none of them
+load engine.js. Conservative: empty journal or dust equity defers to the
+setting, and a wallet born via popup reset now snapshots `startSol` too
+(popup's local `freshState` had the same hole).
+
 **D-54 · S2 · The graduation thesis criterion could never pass — coverage counted only legacy STRING theses while the engine stores objects**
 `mastery.js` thesisCoverage · dashboard graduation bar, all users ·
 found building the gamification rank ladder on top of the criterion

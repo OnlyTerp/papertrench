@@ -913,6 +913,34 @@
    * a single dropped fill is far above it. */
   const CURVE_ANCHOR_EPS = 1e-6;
 
+  /**
+   * D-56: the per-fill equity step, in SOL.
+   *
+   * The ONE definition of "what this fill did to equity" — shared by the
+   * curve walk (equityCurvePoints) and the birth backfill (derivedBirthSol)
+   * so the two can never drift apart. A BUY debits its fee: the cash that
+   * left the wallet to buy it was solGross, only solGross − fee became
+   * position cost, and that missing sliver is the fee (feeSol, falling back
+   * to solGross − solNet for fills recorded before the field existed; the
+   * flat tx cost rides costSol, so it stays inside the open-position term
+   * and is never stepped separately). A SELL credits its per-sell pnlSol —
+   * net proceeds minus the position's cost share, so the whole open→closed
+   * transition nets exactly to the banked pnl.
+   */
+  function stepOf(t) {
+    if (t.side === 'buy') {
+      const feeRaw = Number(t.feeSol);
+      const fee = Number.isFinite(feeRaw) && feeRaw >= 0
+        ? feeRaw
+        : (Number.isFinite(Number(t.solNet))
+          ? Math.max(0, (Number(t.solGross) || 0) - Number(t.solNet))
+          : 0);
+      return -fee;
+    }
+    if (t.side === 'sell') return Number(t.pnlSol) || 0;
+    return 0;
+  }
+
   function equitySol(state) {
     let eq = state.cashSol;
     for (const mint of Object.keys(state.positions)) {
@@ -920,6 +948,69 @@
       eq += p.qty * (p.lastPriceNative || 0);
     }
     return eq;
+  }
+
+  /**
+   * D-56: the wallet's BIRTH balance, re-derived from the fill journal alone.
+   *
+   * equityCurvePoints proves the identity: equity = birth + Σ stepOf(fills)
+   * + openPnl, so birth = equity − Σ stepOf − openPnl. That derivation is
+   * the wallet's own arithmetic — it needs no mark that the journal doesn't
+   * already hold (an unmarked bag contributes lastPrice 0, exactly like
+   * bridgeWallet), and it is stable across every writer that only appends
+   * fills or moves marks.
+   *
+   * This is the anchor every legacy wallet (created before D-06's
+   * state.startSol snapshot, v3.9.5) is missing. For those,
+   * anchorStartSol was still reading the LIVE "Starting paper balance"
+   * setting, so editing the form retroactively rewrote the whole session —
+   * jb's 8/18 wallet: born 10, setting edited to 1, +0.091 SOL of real
+   * profit displayed as +9.109 SOL (exactly the 10→1 gap).
+   *
+   * Returns the derived birth, or null when the derivation is not trustworthy
+   * (no fills to derive from, or a non-finite result) — a null never
+   * overwrites the setting fallback, it just defers to it.
+   */
+  function derivedBirthSol(state) {
+    if (!state) return null;
+    const journal = (state.journal || []).slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+    if (!journal.length) return null;
+    let openPnl = 0;
+    for (const pos of Object.values(state.positions || {})) {
+      if (pos && Number(pos.qty) > 0) openPnl += unrealizedPnl(pos);
+    }
+    let walked = 0;
+    for (const t of journal) walked += stepOf(t);
+    const derived = equitySol(state) - openPnl - walked;
+    if (!Number.isFinite(derived)) return null;
+    return derived;
+  }
+
+  /**
+   * D-56: one-time birth-anchor backfill.
+   *
+   * Freezes the journal-derived birth balance onto state.startSol for wallets
+   * created before D-06 snapshotted it at birth. Idempotent — a state that
+   * already carries a positive startSol is left byte-for-byte untouched —
+   * and conservative: it only writes when the derivation is finite and
+   * clearly positive (well above float dust), so a wallet whose equity
+   * drifted to zero is never anchored on noise, and an empty journal is
+   * never anchored on nothing.
+   *
+   * Callers persist the returned state through their normal CAS writer; the
+   * read-only surfaces (popup/overlay/bridge) that can't write use
+   * anchorStartSol's derived layer directly.
+   *
+   * Returns true when a snapshot was written.
+   */
+  function backfillAnchor(state, settings) {
+    if (!state || typeof state !== 'object') return false;
+    const birth = Number(state.startSol);
+    if (Number.isFinite(birth) && birth > 0) return false; // already anchored
+    const derived = derivedBirthSol(state);
+    if (derived === null || derived <= CURVE_ANCHOR_EPS) return false;
+    state.startSol = derived;
+    return true;
   }
 
   /**
@@ -959,20 +1050,9 @@
     const startedAt = Number(state && state.startedAt)
       || (journal[0] ? Number(journal[0].ts) : Date.now());
 
-    const stepOf = (t) => {
-      if (t.side === 'buy') {
-        const feeRaw = Number(t.feeSol);
-        const fee = Number.isFinite(feeRaw) && feeRaw >= 0
-          ? feeRaw
-          : (Number.isFinite(Number(t.solNet))
-            ? Math.max(0, (Number(t.solGross) || 0) - Number(t.solNet))
-            : 0);
-        return -fee;
-      }
-      if (t.side === 'sell') return Number(t.pnlSol) || 0;
-      return 0;
-    };
-
+    // D-56: the per-fill step is the shared stepOf — the curve and the birth
+    // backfill must walk the journal by the same rule or the two anchors
+    // drift apart.
     let openPnl = 0;
     const positions = (state && state.positions) || {};
     for (const mint of Object.keys(positions)) openPnl += unrealizedPnl(positions[mint]);
@@ -1062,10 +1142,19 @@
    * became "+90%" against 1 — retroactively rewriting history with a
    * settings form. The anchor is frozen at birth; only a wallet reset moves
    * it.
+   *
+   * D-56: the middle layer. Legacy wallets (pre-v3.9.5) never got
+   * state.startSol, so the raw setting fallback kept their % — and their
+   * SOL-vs-start — welded to a live form. When the journal can re-derive
+   * the birth balance (derivedBirthSol), trust THAT before the setting.
+   * backfillAnchor() persists the derived value onto state.startSol so this
+   * layer is only ever needed on the first read after an update.
    */
   function anchorStartSol(state, settings) {
     const birth = Number(state && state.startSol);
     if (Number.isFinite(birth) && birth > 0) return birth;
+    const derived = derivedBirthSol(state);
+    if (derived !== null && derived > CURVE_ANCHOR_EPS) return derived;
     const setting = Number(settings && settings.balanceStartSol);
     return Number.isFinite(setting) && setting > 0 ? setting : 0;
   }
@@ -2193,6 +2282,9 @@
     unrealizedPnl,
     equitySol,
     equityCurvePoints,
+    stepOf,
+    derivedBirthSol,
+    backfillAnchor,
     grossOpenCostSol,
     positionPnlPct,
     beginPostWatch,

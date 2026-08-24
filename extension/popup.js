@@ -157,6 +157,12 @@ function freshState(settings) {
     version: 1,
     seq: 0,
     cashSol: settings.balanceStartSol,
+    // D-06/D-56: snapshot the birth balance the way engine.defaultState does
+    // (engine.js isn't loaded in the popup). Without it a wallet RESET FROM
+    // THE POPUP would be born as a legacy wallet — anchoring on the live
+    // setting for its whole life and re-opening the jb 100× hole on a
+    // brand-new wallet.
+    startSol: settings.balanceStartSol,
     startedAt: Date.now(),
     positions: {},
     rounds: [],
@@ -185,6 +191,61 @@ function journalFlow(journal, positions) {
   return { boughtSol, heldSol, soldSol };
 }
 
+/** D-56: the birth balance re-derived from the fill journal alone — the
+ * anchor for LEGACY wallets that predate D-06's state.startSol snapshot
+ * (created before v3.9.5). Same identity the engine's equity curve uses:
+ * equity = birth + Σ(buy fees) + Σ(sell pnl) + open P&L, so
+ * birth = equity − open P&L − Σ steps. Mirrors engine.derivedBirthSol: the
+ * popup is self-contained on purpose (no engine.js dependency), so the
+ * rule is duplicated here and the test suite pins both to the same
+ * fixture. Returns null when the journal can't support the derivation
+ * (empty or non-finite) — null defers to the setting fallback, it never
+ * overrides a real startSol. */
+function derivedAnchor(state) {
+  const journal = ((state && state.journal) || [])
+    .slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  if (!journal.length) return null;
+  const positions = Object.values((state && state.positions) || {});
+  let openValue = 0;
+  let openPnl = 0;
+  for (const p of positions) {
+    const qty = Number(p.qty) || 0;
+    const px = Number(p.lastPriceNative) || 0;
+    if (qty <= 0) continue;
+    openValue += qty * px;
+    openPnl += qty * px - (Number(p.costSol) || 0);
+  }
+  const equity = (Number(state.cashSol) || 0) + openValue;
+  let walked = 0;
+  for (const t of journal) {
+    if (t.side === 'buy') {
+      const feeRaw = Number(t.feeSol);
+      const fee = Number.isFinite(feeRaw) && feeRaw >= 0
+        ? feeRaw
+        : (Number.isFinite(Number(t.solNet))
+          ? Math.max(0, (Number(t.solGross) || 0) - Number(t.solNet))
+          : 0);
+      walked -= fee;
+    } else if (t.side === 'sell') {
+      walked += Number(t.pnlSol) || 0;
+    }
+  }
+  const derived = equity - openPnl - walked;
+  return Number.isFinite(derived) ? derived : null;
+}
+
+/** D-06 + D-56: the honest "% since start" denominator, in one place.
+ * Birth snapshot first (D-06), the journal-derived birth second (D-56,
+ * legacy wallets), the live setting LAST. */
+function anchorFor(state, settings) {
+  const birth = Number(state && state.startSol);
+  if (Number.isFinite(birth) && birth > 0) return birth;
+  const derived = derivedAnchor(state);
+  if (derived !== null && derived > 1e-6) return derived;
+  const setting = Number(settings && settings.balanceStartSol);
+  return Number.isFinite(setting) && setting > 0 ? setting : 0;
+}
+
 /** Equity = cash + mark-to-market value of every open position. */
 function computeStats(state, settings) {
   const positions = Object.values(state.positions || {});
@@ -209,8 +270,9 @@ function computeStats(state, settings) {
     openPositions: positions.length,
     realizedPnlSol: realized,
     rounds: rounds.length,
-    // D-06: birth anchor first; the setting is only a legacy fallback.
-    equityVsStart: equity - ((Number(state.startSol) > 0 ? Number(state.startSol) : Number(settings.balanceStartSol)) || 0),
+    // D-06 + D-56: birth snapshot → journal-derived birth (legacy wallets)
+    // → live setting, all through anchorFor.
+    equityVsStart: equity - anchorFor(state, settings),
     boughtSol: flow.boughtSol,
     heldSol: flow.heldSol,
     soldSol: flow.soldSol,
@@ -256,11 +318,10 @@ async function load() {
     $('equity').className = 'equity ' + (up ? 'green' : 'red');
 
     const deltaEl = $('delta');
-    // D-06: % change is judged against the wallet's birth balance (the
-    // state's startSol anchor), not the live setting.
-    const anchor = (state && Number(state.startSol)) > 0
-      ? Number(state.startSol)
-      : (Number(settings.balanceStartSol) > 0 ? Number(settings.balanceStartSol) : 0);
+    // D-06 + D-56: % change is judged against the wallet's birth balance —
+    // the snapshot when one exists, the journal-derived birth for legacy
+    // wallets, the live setting only as the last resort.
+    const anchor = anchorFor(state, settings);
     const pct = anchor ? (stats.equityVsStart / anchor) * 100 : 0;
     deltaEl.textContent = `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(stats.equityVsStart, 3)} SOL (${up ? '+' : ''}${pct.toFixed(1)}%)`;
     deltaEl.className = 'delta ' + (up ? 'green' : 'red');

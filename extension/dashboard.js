@@ -543,6 +543,17 @@ async function loadAll(changedKeys) {
   renderStorageErrorBanner();
   settings = E.mergeSettings(s.pt_settings);
   state = s.pt_state || E.defaultState(settings);
+  // D-56: first sighting of a LEGACY wallet (born before D-06's startSol
+  // snapshot): re-derive the birth balance from the journal and freeze it
+  // onto state. The in-memory anchor fixes THIS render; the CAS persist
+  // lands it in storage so no later reader sees the setting fallback again.
+  // The derivation is stable across concurrent fills (it is the wallet's
+  // own fill arithmetic), so a race re-derives the same value — and
+  // backfillAnchor is a no-op once startSol exists.
+  const anchored = E.backfillAnchor(state, settings);
+  if (anchored) {
+    mutateState((fresh) => { E.backfillAnchor(fresh, settings); }).catch(() => {});
+  }
   if (wantFrames) frames = s.pt_frames || [];
   turboStats = s.pt_turbo_stats || {};
   // The perps book is revision-wrapped by its content script ({rev, state}).

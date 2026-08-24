@@ -71,6 +71,58 @@ $('helpBtn').addEventListener('click', () => $('setup').classList.toggle('open')
 
 /* ------------------------------ stats ------------------------------ */
 
+/** D-56: the birth balance re-derived from the fill journal alone — the
+ * anchor for LEGACY wallets that predate D-06's state.startSol snapshot
+ * (created before v3.9.5). Mirrors engine.derivedBirthSol / popup's
+ * derivedAnchor (the overlay is self-contained on purpose — no engine.js
+ * load-order dependency — so the rule is duplicated here and the test
+ * suite pins all three to the same fixture):
+ * equity = birth + Σ(buy fees) + Σ(sell pnl) + open P&L →
+ * birth = equity − open P&L − Σ steps. Null when the journal can't support
+ * the derivation; null defers to the setting fallback. */
+function derivedAnchor(state) {
+  const journal = ((state && state.journal) || [])
+    .slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  if (!journal.length) return null;
+  const positions = Object.values((state && state.positions) || {});
+  let openValue = 0;
+  let openPnl = 0;
+  for (const p of positions) {
+    const qty = Number(p.qty) || 0;
+    const px = Number(p.lastPriceNative) || 0;
+    if (qty <= 0) continue;
+    openValue += qty * px;
+    openPnl += qty * px - (Number(p.costSol) || 0);
+  }
+  const equity = (Number(state.cashSol) || 0) + openValue;
+  let walked = 0;
+  for (const t of journal) {
+    if (t.side === 'buy') {
+      const feeRaw = Number(t.feeSol);
+      const fee = Number.isFinite(feeRaw) && feeRaw >= 0
+        ? feeRaw
+        : (Number.isFinite(Number(t.solNet))
+          ? Math.max(0, (Number(t.solGross) || 0) - Number(t.solNet))
+          : 0);
+      walked -= fee;
+    } else if (t.side === 'sell') {
+      walked += Number(t.pnlSol) || 0;
+    }
+  }
+  const derived = equity - openPnl - walked;
+  return Number.isFinite(derived) ? derived : null;
+}
+
+/** D-06 + D-56: the honest "% since start" denominator, in one place. */
+function anchorFor(state, settings) {
+  const birth = Number(state && state.startSol);
+  if (Number.isFinite(birth) && birth > 0) return birth;
+  const derived = derivedAnchor(state);
+  if (derived !== null && derived > 1e-6) return derived;
+  const setting = Number(settings && settings.balanceStartSol);
+  return Number.isFinite(setting) && setting > 0 ? setting : 0;
+}
+
 function computeStats(state, settings) {
   const positions = Object.values(state.positions || {});
   const rounds = state.rounds || [];
@@ -79,8 +131,9 @@ function computeStats(state, settings) {
   const wins = rounds.filter((r) => r.pnlSol > 0).length;
   return {
     equitySol: equity,
-    // D-06: birth anchor first; the live setting is only a legacy fallback.
-    equityVsStart: equity - ((Number(state.startSol) > 0 ? Number(state.startSol) : Number(settings.balanceStartSol)) || 0),
+    // D-06 + D-56: birth snapshot → journal-derived birth (legacy wallets)
+    // → live setting, all through anchorFor.
+    equityVsStart: equity - anchorFor(state, settings),
     realizedPnlSol: rounds.reduce((s, r) => s + (r.pnlSol || 0), 0),
     rounds: rounds.length,
     winRate: rounds.length ? (wins / rounds.length) * 100 : null,
@@ -177,10 +230,10 @@ async function render() {
   $('equity').style.color = up ? 'var(--green)' : 'var(--red)';
 
   const deltaEl = $('delta');
-  // D-06: % vs start uses the wallet's birth balance, not the live setting.
-  const anchor = (state && Number(state.startSol)) > 0
-    ? Number(state.startSol)
-    : (Number(settings.balanceStartSol) > 0 ? Number(settings.balanceStartSol) : 0);
+  // D-06 + D-56: % vs start uses the wallet's birth balance — the snapshot
+  // when one exists, the journal-derived birth for legacy wallets, the
+  // live setting only as the last resort.
+  const anchor = anchorFor(state, settings);
   const pct = anchor > 0 ? (stats.equityVsStart / anchor) * 100 : 0;
   deltaEl.textContent = `${up ? '▲' : '▼'} ${up ? '+' : ''}${fmt(stats.equityVsStart, 3)} SOL (${up ? '+' : ''}${pct.toFixed(1)}%) vs start`;
   deltaEl.style.color = up ? 'var(--green)' : 'var(--red)';

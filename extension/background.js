@@ -3322,6 +3322,54 @@ function senderOnBridgeOrigin(sender) {
 }
 
 /**
+ * D-56: the birth balance re-derived from the fill journal alone — the
+ * anchor for LEGACY wallets created before D-06's state.startSol snapshot
+ * (v3.9.5). Same identity as engine.derivedBirthSol (the service worker
+ * doesn't load engine.js, so the rule is inlined here and the test suite
+ * pins both to the same fixture):
+ *
+ *   equity = birth + Σ per-fill steps + open P&L
+ *   birth  = equity − open P&L − Σ steps
+ *
+ * where a BUY steps −(its fee: the cash that became cost basis) and a SELL
+ * steps +(its per-sell pnlSol: net proceeds − cost share). Returns 0 when
+ * the journal can't support the derivation (empty or non-finite) — 0 means
+ * "no derived anchor", deferring to the setting fallback.
+ */
+function derivedBirthAnchor(state) {
+  if (!state || typeof state !== 'object') return 0;
+  const journal = ((state.journal) || [])
+    .slice().sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  if (!journal.length) return 0;
+  let openValue = 0;
+  let openPnl = 0;
+  for (const p of Object.values(state.positions || {})) {
+    const qty = Number(p && p.qty) || 0;
+    const px = Number(p && p.lastPriceNative) || 0;
+    if (qty <= 0) continue;
+    openValue += qty * px;
+    openPnl += qty * px - (Number(p.costSol) || 0);
+  }
+  const equity = (Number(state.cashSol) || 0) + openValue;
+  let walked = 0;
+  for (const t of journal) {
+    if (t.side === 'buy') {
+      const feeRaw = Number(t.feeSol);
+      const fee = Number.isFinite(feeRaw) && feeRaw >= 0
+        ? feeRaw
+        : (Number.isFinite(Number(t.solNet))
+          ? Math.max(0, (Number(t.solGross) || 0) - Number(t.solNet))
+          : 0);
+      walked -= fee;
+    } else if (t.side === 'sell') {
+      walked += Number(t.pnlSol) || 0;
+    }
+  }
+  const derived = equity - openPnl - walked;
+  return Number.isFinite(derived) ? derived : 0;
+}
+
+/**
  * The wallet summary the site header shows: cash, equity, open positions.
  *
  * Deliberately NOT a chain replay. bridgeRecord exists to hand over evidence
@@ -3367,10 +3415,19 @@ async function bridgeRecord() {
   // never disagree with the number the trader sees. (engine.js isn't loaded
   // in the service worker, so the anchor rule is inlined: birth snapshot
   // first, live setting only as a legacy fallback.)
+  // D-56: legacy wallets (pre-v3.9.5) never got the birth snapshot, so the
+  // raw setting fallback welded their replay denominator to the live form.
+  // Re-derive the birth from the journal (same identity as
+  // engine.derivedBirthSol: equity − open P&L − Σ per-fill steps) and trust
+  // it before the setting. The derivation is stable across fills, so the
+  // bridge and the local display agree even before a tab persists the
+  // backfill.
   const state = (await getState()) || {};
   const start = (Number(state.startSol) || 0) > 0
     ? Number(state.startSol)
-    : (Number(settings.balanceStartSol) || 0);
+    : (derivedBirthAnchor(state) > 0
+      ? derivedBirthAnchor(state)
+      : (Number(settings.balanceStartSol) || 0));
   // The claim mirrors the chain-derived replay on purpose: the server ranks
   // on its own replay anyway, and a bridge claim that disagreed with the
   // chain would only flag honest users whose local display drifted.

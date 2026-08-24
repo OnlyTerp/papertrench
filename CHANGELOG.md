@@ -3,6 +3,31 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.8 — 2026-08-24
+
+**"Paper equity showed +9.109 SOL, should be +0.091 — exactly 100×."** jb's
+8/18 report, after a full exit: the wallet's session return was welded to the
+"Starting paper balance" setting. Change the form 10 → 1 SOL and a wallet
+that really started at 10 re-denominates its whole history overnight.
+
+- **Who was hit:** every wallet created before v3.9.5 (the D-06 birth
+  snapshot). Newer wallets froze their starting balance at reset; older ones
+  never got the field, so every "vs start" number — popup, overlay,
+  dashboard, even the leaderboard bridge — read the *live* form value.
+
+- **The fix:** the wallet's own fill history now re-derives its birth
+  balance (equity − open P&L − the sum of every fill's effect), and the
+  first load after this update freezes that number onto the wallet. Marks
+  moving or another tab trading in between can't shift it — it's the same
+  arithmetic the equity curve already uses. Until the frozen number lands,
+  every surface falls back to the derived value before the form, so the
+  right number shows on the very first paint. jb's wallet: +0.091 SOL stays
+  +0.091 SOL, whatever the form says. (D-56)
+
+- **Also closed:** a wallet reset from the popup now snapshots its starting
+  balance too — previously a popup-born wallet would have lived its whole
+  life as a "legacy" wallet with the same hole.
+
 ## v3.13.7 — 2026-08-24
 
 **Bags bought from a Pulse final-stretch row no longer vanish when the coin
