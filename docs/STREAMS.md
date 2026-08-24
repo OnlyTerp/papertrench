@@ -50,17 +50,24 @@ Routes on the Worker:
 ### Day-to-day approval
 
 Open `/admin` and sign in with an allowlisted X account. Pending applications
-are listed newest first, with **Approve** / **Reject** on each. Approving a
-Twitch application publishes its card on the streams page within ~60 s (the
-edge cache window). **Move back to pending** undoes a decision.
+are listed newest first as summary rows — name, channel, platform, viewer
+bucket, age — and expand on click into the full record: what would be
+published (including a preview of the card itself), the private contact block,
+and the applicant's message to the mod team. **Approve** / **Reject** sit on
+each row, and **Move back to pending** undoes a decision. An approval publishes
+the card within ~60 s (the edge cache window).
 
 Rules the pipeline applies:
 
+- **Every platform can be approved.** Twitch channels are embedded and play
+  inline; Kick, YouTube and anything else get a roster card that links out.
+  This used to be Twitch-only — `handleStreamerRoster` filtered on
+  `twitch_login IS NOT NULL`, so an approved Kick creator became a row nobody
+  could see, and the queue admitted it by disabling Approve for them.
 - Twitch logins are normalized (`https://twitch.tv/Name?x=1` → `name`) by the
-  same rule `streams.js` uses; an application whose URL can't be normalized to
-  a valid login is stored but **cannot be approved** — the streams page embeds
-  Twitch, so approving it would set a status that never becomes a card. The
-  Approve button is disabled on those, with a tooltip saying why.
+  same rule `streams.js` uses. A URL that cannot be normalized to a valid
+  login is still approvable — it simply becomes a link-out card rather than a
+  player, and `login` stays null to say so.
 - Duplicate logins are deduped and `STREAMERS` entries win, same as before.
 - One application per channel URL may sit in the queue at a time (a partial
   unique index). A rejected applicant can reapply later.
@@ -74,7 +81,7 @@ enforced in the SQL rather than in a convention:
 
 | Published on approval | Never leaves the mod queue |
 | --- | --- |
-| Creator name, channel URL, Twitch login, the one-line blurb | Discord username, viewer count, contact method, profile link, best time to reach, and the free-text notes |
+| Creator name, channel URL, platform, Twitch login, the one-line blurb | Discord username, viewer count, contact method, contact answer, best time to reach, and the free-text notes |
 
 The one that matters is **blurb vs. notes**. "One line about your stream" says
 it will be shown publicly and is the roster card's text. "Anything else you'd
@@ -97,9 +104,26 @@ show, then set `ROSTER_CSV_URL` back to `''` and unpublish the sheet.
 No Twitch API key: the page checks Twitch's public preview CDN. A live
 channel's `live_user_<login>` thumbnail resolves; an offline one redirects to
 the `404_preview` image. Checked every 60 s. If Twitch ever changes this, the
-page degrades to showing no badges — never wrong ones. The featured player
-auto-promotes the first live streamer unless the viewer clicked a specific one
-(or arrived via `/streams?channel=<login>`).
+page degrades to showing no badges — never wrong ones.
+
+**This is a Twitch-only signal**, so non-Twitch cards show their platform name
+where the badge would be rather than a guessed status, and `refreshLive` does
+not query the CDN for them at all — a Kick login asked of Twitch's CDN answers
+about a Twitch channel that happens to share the name.
+
+### Card order
+
+Live first, then playable-but-offline, then link-out, then by name so two
+loads of the board never disagree. The featured player takes the first live
+channel from that same order unless the viewer clicked one (or arrived via
+`/streams?channel=<login>`) — which means a single live streamer is always the
+one in the player.
+
+There is deliberately **no viewer-count sort**. The preview-CDN signal reports
+whether a channel is up and nothing else, so ranking by viewers would mean
+inventing a number. Real counts need Twitch API credentials
+(`TWITCH_CLIENT_ID` / secret → Helix `GET /streams`); until those exist,
+live-first is the honest ordering.
 
 ## Stream overlay (what streamers use)
 
@@ -128,3 +152,30 @@ Until then, a season can run manually: approved streamers submit their chain
 export at season close, chains are verified offline, winners announced on
 stream. Keep prize copy on the page vague-but-true (it currently says prizes
 are "announced on the streams").
+
+## Moderation console (`/admin-mod`)
+
+Behind the same `ADMIN_X_IDS` gate as the queue. Three reversible switches,
+each requiring a written reason, each recorded in an append-only ledger shown
+on the page:
+
+| Switch | Column | Effect |
+|---|---|---|
+| Ban account | `users.banned_at` | Sign-in refused (checked in `sessionUser`, so it holds on every route); record drops off every board. Bumps `session_epoch`, so live sessions end on the next request. |
+| Disqualify record | `records.dq_at` | The record stops ranking. The account is untouched. |
+| Disband clan | `clans.disbanded_at` | The clan stops appearing; membership rows are kept, so restoring puts the roster back exactly as it was. |
+
+Ban and disqualify are separate deliberately: collapsed into one flag, taking a
+duplicate chain off the board would require banning its owner.
+
+Enforcement is in SQL on the leaderboard and Sprint queries, not in the page —
+there is no board, cache or export that can still be showing a banned account.
+
+**Not available, on purpose:** delete, score editing, chain rewriting, and any
+way to add a moderator. Moderators stay a deploy-time decision in
+`ADMIN_X_IDS` — a console that can promote its own users only has to be
+breached once.
+
+The columns are added by the ALTERs in `server/DEPLOY.md`, which must run
+**before** the Worker is deployed: SQLite fails a query naming a column that
+does not exist, and both the session lookup and the leaderboard name these.

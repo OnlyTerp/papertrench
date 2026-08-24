@@ -3,6 +3,30 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+- **Streamers on Kick and YouTube can actually be featured.** The roster only
+  ever served Twitch, so a moderator could approve a Kick creator and the site
+  would silently never show them. Every approved platform now gets a card:
+  Twitch plays inline, the rest link out and are drawn as links rather than
+  imitating a player that will not open.
+- **The watch page claims less and shows more.** "Verified records" and
+  "giveaways" are replaced by the three checks a record actually passes, with
+  a panel stating what those checks do *not* cover. The live pill no longer
+  glows red at an empty roster, live channels sort to the top, and every card
+  links to its channel without going through the player first.
+- **The streamer form says what happens to an application.** It led with
+  PUBLISHED over the first question, which is the opposite of the truth —
+  nothing is published until a moderator approves it. It now says so, shows a
+  live preview of the card that would be built, picks up the domain from a
+  platform dropdown instead of asking you to type it, and asks for the contact
+  detail that matches the method you chose. Answering "Other" honestly used to
+  be rejected outright.
+- **Moderators can act without deleting anyone.** A new console bans an
+  account, takes a single record off the boards, or disbands a clan — each
+  reversible, each requiring a written reason, all of it in an append-only
+  ledger. The application queue triages at a glance and opens in full on click.
+
 ## v3.13.3 — 2026-08-22
 
 **Twelve quality-of-life upgrades from the community wave.** The overlay
