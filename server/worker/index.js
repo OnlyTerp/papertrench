@@ -391,6 +391,17 @@ async function handleLeaderboard(env) {
     -- labeled — they simply do not take a position on the board.
     WHERE r.status = 'verified'
       AND json_extract(r.stats_json, '$.rankable')
+      -- Moderation, applied where the ranking happens rather than in the page.
+      -- A banned account and a disqualified record both stop counting here, so
+      -- there is no board, cache or export that can still be showing them.
+      --
+      -- These columns are added by the ALTERs in DEPLOY.md, which must be run
+      -- BEFORE this version of the Worker is deployed: SQLite fails a query
+      -- naming a column that does not exist, so a deploy that runs ahead of
+      -- the migration takes the board down rather than degrading. COALESCE
+      -- here is about the NULL that means "never actioned", nothing else.
+      AND COALESCE(u.banned_at, 0) = 0
+      AND COALESCE(r.dq_at, 0) = 0
     -- The ORDER decides WHO makes the cut, so it must be the ranking order
     -- (DEFECT L-05): the old ORDER BY submitted_at DESC LIMIT 500 selected
     -- the five hundred most RECENT records and only then sorted by score —
@@ -441,7 +452,12 @@ async function handleSprint(env) {
     LEFT JOIN clans cl ON cl.id = cm.clan_id
     -- Same rule as the season board: a week's slice of an unverified record
     -- is still an unverified record.
+    -- ...and a banned account or disqualified record is off this board too,
+    -- or a moderator would have to remember that the Sprint is a second place
+    -- the same name can still be showing.
     WHERE s.week_id = ? AND s.rounds > 0 AND r.status = 'verified'
+      AND COALESCE(u.banned_at, 0) = 0
+      AND COALESCE(r.dq_at, 0) = 0
     -- Deterministic ties, same doctrine as the season board (DEFECT L-05):
     -- the earlier entry keeps the rank, then handle as the fixed final key.
     ORDER BY s.score DESC, s.updated_at ASC, u.handle ASC LIMIT 200`)
@@ -1595,6 +1611,258 @@ async function handleStreamerRoster(env) {
   });
 }
 
+/* ---------------- moderation ----------------
+ *
+ * Everything here is behind the same `moderator()` gate as the streamer queue,
+ * and every route is deliberately small. A moderator can:
+ *
+ *   - look up an account and read its record, clan and moderation history
+ *   - ban / unban an account
+ *   - disqualify / reinstate a RECORD without touching the account
+ *   - disband / restore a clan
+ *
+ * and nothing else. There is no delete, no score edit, no chain rewrite, no
+ * way to promote another moderator — that stays a deploy-time decision in
+ * ADMIN_X_IDS. The powers that exist are the ones that are reversible, and
+ * every one of them writes a moderation_log row with a mandatory reason.
+ *
+ * Reasons are required rather than encouraged: an unexplained ban is
+ * indistinguishable from a mistake three weeks later, including to the
+ * moderator who made it.
+ */
+
+/** Record one moderator action. Reason is pre-validated by the caller. */
+function logModeration(env, actor, action, kind, id, label, reason) {
+  return env.DB.prepare(`
+    INSERT INTO moderation_log
+      (actor_id, action, target_kind, target_id, target_label, reason, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(actor.id, action, kind, id, label || null, reason, Date.now())
+    .run();
+}
+
+/** The reason string, or null when it is not usable. */
+function moderationReason(raw) {
+  const text = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+  return text.length >= 3 ? text.slice(0, 500) : null;
+}
+
+/** Accounts, newest first, optionally filtered by handle or X id. */
+async function handleAdminUsers(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  const term = (new URL(request.url).searchParams.get('q') || '').trim().toLowerCase();
+  const like = '%' + term.replace(/[%_]/g, '') + '%';
+  const rows = await env.DB.prepare(`
+    SELECT u.id, u.handle, u.display_name, u.x_id, u.avatar_url,
+           u.created_at, u.last_login_at, u.banned_at, u.banned_reason,
+           r.status AS record_status, r.chain_len, r.stats_json, r.dq_at, r.dq_reason,
+           cl.tag AS clan_tag
+      FROM users u
+      LEFT JOIN records r ON r.user_id = u.id
+      LEFT JOIN clan_members cm ON cm.user_id = u.id
+      LEFT JOIN clans cl ON cl.id = cm.clan_id
+     WHERE (?1 = '' OR LOWER(u.handle) LIKE ?2 OR u.x_id LIKE ?2)
+     ORDER BY u.last_login_at DESC
+     LIMIT 100`).bind(term, like).all();
+
+  return json({
+    ok: true,
+    users: (rows.results || []).map((r) => {
+      const stats = r.stats_json ? JSON.parse(r.stats_json) : null;
+      return {
+        id: r.id, handle: r.handle, displayName: r.display_name, xId: r.x_id,
+        avatarUrl: r.avatar_url, joinedAt: r.created_at, lastLoginAt: r.last_login_at,
+        banned: Boolean(r.banned_at), bannedReason: r.banned_reason || null,
+        clanTag: r.clan_tag || null,
+        recordStatus: r.record_status || null, chainLen: r.chain_len || 0,
+        rounds: stats ? stats.rounds : 0,
+        score: stats ? stats.score : null,
+        rankable: stats ? Boolean(stats.rankable) : false,
+        disqualified: Boolean(r.dq_at), dqReason: r.dq_reason || null,
+      };
+    }),
+  });
+}
+
+/** One account in full, plus everything a moderator has ever done to it. */
+async function handleAdminUser(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  const handle = (new URL(request.url).searchParams.get('handle') || '').trim();
+  if (!handle) return json({ ok: false, reason: 'handle-required' }, 422);
+
+  const row = await env.DB.prepare(`
+    SELECT u.id, u.handle, u.display_name, u.x_id, u.avatar_url,
+           u.created_at, u.last_login_at, u.banned_at, u.banned_reason,
+           r.status AS record_status, r.chain_len, r.starting_sol, r.stats_json,
+           r.pricing_json, r.submitted_at, r.verified_at, r.dq_at, r.dq_reason,
+           cl.tag AS clan_tag, cl.name AS clan_name, cm.role AS clan_role
+      FROM users u
+      LEFT JOIN records r ON r.user_id = u.id
+      LEFT JOIN clan_members cm ON cm.user_id = u.id
+      LEFT JOIN clans cl ON cl.id = cm.clan_id
+     WHERE u.handle = ? COLLATE NOCASE`).bind(handle).first();
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+
+  const log = await env.DB.prepare(`
+    SELECT m.action, m.reason, m.created_at, m.target_label, a.handle AS actor
+      FROM moderation_log m LEFT JOIN users a ON a.id = m.actor_id
+     WHERE (m.target_kind = 'user' AND m.target_id = ?1)
+        OR (m.target_kind = 'record' AND m.target_id = ?1)
+     ORDER BY m.created_at DESC LIMIT 50`).bind(row.id).all();
+
+  return json({
+    ok: true,
+    user: {
+      id: row.id, handle: row.handle, displayName: row.display_name, xId: row.x_id,
+      avatarUrl: row.avatar_url, joinedAt: row.created_at, lastLoginAt: row.last_login_at,
+      banned: Boolean(row.banned_at), bannedAt: row.banned_at, bannedReason: row.banned_reason,
+      clanTag: row.clan_tag, clanName: row.clan_name, clanRole: row.clan_role,
+      recordStatus: row.record_status, chainLen: row.chain_len,
+      startingSol: row.starting_sol,
+      stats: row.stats_json ? JSON.parse(row.stats_json) : null,
+      pricing: row.pricing_json ? JSON.parse(row.pricing_json) : null,
+      submittedAt: row.submitted_at, verifiedAt: row.verified_at,
+      disqualified: Boolean(row.dq_at), dqAt: row.dq_at, dqReason: row.dq_reason,
+    },
+    log: (log.results || []).map((l) => ({
+      action: l.action, reason: l.reason, at: l.created_at, actor: l.actor || 'a moderator',
+    })),
+  });
+}
+
+/** Close or reopen an account. */
+async function handleAdminBan(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const target = await env.DB.prepare('SELECT id, handle FROM users WHERE id = ?')
+    .bind(Number(body.userId)).first();
+  if (!target) return json({ ok: false, reason: 'not-found' }, 404);
+  // A moderator cannot ban themselves out of the room they are standing in.
+  if (target.id === mod.id) return json({ ok: false, reason: 'cannot-ban-self' }, 422);
+
+  const banning = Boolean(body.banned);
+  const reason = moderationReason(body.reason);
+  if (!reason) return json({ ok: false, reason: 'reason-required' }, 422);
+
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE users SET banned_at = ?, banned_reason = ?, banned_by = ?,
+                       session_epoch = session_epoch + ?
+       WHERE id = ?`)
+      // Bumping session_epoch revokes every live session for this account, so
+      // a ban takes effect on the next request rather than whenever their
+      // current token happens to expire.
+      .bind(banning ? Date.now() : null, banning ? reason : null,
+        banning ? mod.id : null, banning ? 1 : 0, target.id),
+  ]);
+  await logModeration(env, mod, banning ? 'user.ban' : 'user.unban',
+    'user', target.id, target.handle, reason);
+
+  return json({ ok: true });
+}
+
+/** Take a record off the boards, or put it back. The account is untouched. */
+async function handleAdminDisqualify(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const target = await env.DB.prepare(`
+    SELECT u.id, u.handle FROM users u
+      JOIN records r ON r.user_id = u.id
+     WHERE u.id = ?`).bind(Number(body.userId)).first();
+  if (!target) return json({ ok: false, reason: 'no-record' }, 404);
+
+  const dq = Boolean(body.disqualified);
+  const reason = moderationReason(body.reason);
+  if (!reason) return json({ ok: false, reason: 'reason-required' }, 422);
+
+  await env.DB.prepare(`
+    UPDATE records SET dq_at = ?, dq_reason = ?, dq_by = ? WHERE user_id = ?`)
+    .bind(dq ? Date.now() : null, dq ? reason : null, dq ? mod.id : null, target.id)
+    .run();
+  await logModeration(env, mod, dq ? 'record.disqualify' : 'record.reinstate',
+    'record', target.id, target.handle, reason);
+
+  return json({ ok: true });
+}
+
+/** Clans, with size and standing. */
+async function handleAdminClans(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  const rows = await env.DB.prepare(`
+    SELECT c.id, c.tag, c.name, c.motto, c.open, c.created_at,
+           c.disbanded_at, c.disbanded_reason,
+           f.handle AS founder,
+           (SELECT COUNT(*) FROM clan_members m WHERE m.clan_id = c.id) AS members
+      FROM clans c LEFT JOIN users f ON f.id = c.founder_id
+     ORDER BY c.created_at DESC LIMIT 200`).all();
+
+  return json({
+    ok: true,
+    clans: (rows.results || []).map((c) => ({
+      id: c.id, tag: c.tag, name: c.name, motto: c.motto || '',
+      open: Boolean(c.open), createdAt: c.created_at, founder: c.founder || null,
+      members: c.members || 0,
+      disbanded: Boolean(c.disbanded_at), disbandedReason: c.disbanded_reason || null,
+    })),
+  });
+}
+
+/** Disband a clan, or restore one. Membership rows are left intact. */
+async function handleAdminClanDisband(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const clanRow = await env.DB.prepare('SELECT id, tag FROM clans WHERE id = ?')
+    .bind(Number(body.clanId)).first();
+  if (!clanRow) return json({ ok: false, reason: 'not-found' }, 404);
+
+  const off = body.disbanded === undefined ? true : Boolean(body.disbanded);
+  const reason = moderationReason(body.reason);
+  if (!reason) return json({ ok: false, reason: 'reason-required' }, 422);
+
+  await env.DB.prepare(
+    'UPDATE clans SET disbanded_at = ?, disbanded_reason = ? WHERE id = ?')
+    .bind(off ? Date.now() : null, off ? reason : null, clanRow.id).run();
+  await logModeration(env, mod, off ? 'clan.disband' : 'clan.restore',
+    'clan', clanRow.id, '[' + clanRow.tag + ']', reason);
+
+  return json({ ok: true });
+}
+
+/** The whole ledger, newest first. */
+async function handleAdminLog(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  const rows = await env.DB.prepare(`
+    SELECT m.action, m.target_kind, m.target_label, m.reason, m.created_at,
+           a.handle AS actor
+      FROM moderation_log m LEFT JOIN users a ON a.id = m.actor_id
+     ORDER BY m.created_at DESC LIMIT 100`).all();
+
+  return json({
+    ok: true,
+    log: (rows.results || []).map((l) => ({
+      action: l.action, kind: l.target_kind, target: l.target_label,
+      reason: l.reason, at: l.created_at, actor: l.actor || 'a moderator',
+    })),
+  });
+}
+
 /* ---------------- entry ---------------- */
 
 export default {
@@ -1718,6 +1986,21 @@ export default {
       }
       else if (path === '/api/streamer/roster') {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
+      }
+      // Moderation. Every one of these re-checks `moderator()` itself — the
+      // routing table is not the gate, the handler is.
+      else if (path === '/api/admin/users') response = await handleAdminUsers(request, env);
+      else if (path === '/api/admin/user') response = await handleAdminUser(request, env);
+      else if (path === '/api/admin/log') response = await handleAdminLog(request, env);
+      else if (path === '/api/admin/clans') response = await handleAdminClans(request, env);
+      else if (path === '/api/admin/user/ban' && request.method === 'POST') {
+        response = await handleAdminBan(request, env);
+      }
+      else if (path === '/api/admin/record/disqualify' && request.method === 'POST') {
+        response = await handleAdminDisqualify(request, env);
+      }
+      else if (path === '/api/admin/clan/disband' && request.method === 'POST') {
+        response = await handleAdminClanDisband(request, env);
       }
       else response = json({ ok: false, reason: 'not-found' }, 404);
     } catch (err) {

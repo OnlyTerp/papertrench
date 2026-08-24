@@ -112,9 +112,19 @@ async function sessionUser(request, env) {
   const session = await verifyPayload(env.SESSION_SECRET, token);
   if (!session || !session.uid || session.exp < Date.now()) return null;
   const user = await env.DB.prepare(
-    'SELECT id, x_id, handle, display_name, avatar_url, session_epoch FROM users WHERE id = ?')
+    'SELECT id, x_id, handle, display_name, avatar_url, session_epoch, banned_at FROM users WHERE id = ?')
     .bind(session.uid).first();
   if (!user || user.session_epoch !== session.epoch) return null;
+  // A banned account has no session, on any route. Enforcing it here rather
+  // than per-endpoint means a ban cannot be defeated by finding a handler
+  // somebody forgot to guard — including one written after the ban feature.
+  //
+  // `banned_at` is added by the ALTERs in DEPLOY.md and this SELECT names it,
+  // so the migration has to run BEFORE this Worker is deployed. That ordering
+  // is the deliberate trade: a missing column fails loudly at deploy time,
+  // where it is fixed in one command, rather than silently letting every
+  // banned account keep its session.
+  if (user.banned_at) return null;
   return user;
 }
 

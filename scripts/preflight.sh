@@ -130,10 +130,11 @@ echo "profile control OK (slot + script on every page)"
 # page never appeared in results. So the exclusions are enumerated HERE rather
 # than left implicit — adding a page forces a decision about it.
 #
-#   admin            noindex — moderator queue
+#   admin            noindex — streamer queue
+#   admin-mod        noindex — accounts & boards console
 #   clan/duel/profile parameterised; without a query string they are empty states
 #   404              error page
-SITEMAP_SKIP="admin clan duel profile 404"
+SITEMAP_SKIP="admin admin-mod clan duel profile 404"
 SITEMAP_MISSING=""
 for page in site/*.html; do
   slug=$(basename "$page" .html)
