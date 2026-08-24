@@ -3,6 +3,28 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.6 — 2026-08-24
+
+**Bags bought from a Pulse final-stretch row no longer vanish when the coin
+bonds.** jb's 8/17 report: buy via final stretch, hold until the coin
+graduates, reopen it from the bonding section — the position card renders
+empty.
+
+- **What broke:** on an unresolved final-stretch row the fill committed
+  under the row's CLICK address — on Pulse that is the pair/curve
+  stand-in, not the mint. Right while the page lived, dead after
+  graduation: the bonded reopen resolves the real mint, a key the wallet
+  never held. Closing the page between buy and graduation also skipped the
+  graduation stash entirely — a list page has no loaded token to stash.
+
+- **The fix:** the commit core now probes the click address on-chain (one
+  bounded read) whenever the fill's identity is missing or an echo, and
+  books under the discovered real mint. Wallets already carrying stranded
+  bags heal on reopen: every pool the mint lists — including its graduated
+  bonding-era curve — now carries its orphaned position onto the real key.
+  An unrelated coin can never inherit the bag; a silent probe keeps the
+  honest legacy keying and the fill still books. (F-61)
+
 ## v3.13.4 — 2026-08-24
 
 **Armed buys fire the moment the first quote lands — even when the launch

@@ -185,11 +185,14 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // F-56 widened it again: chip fills now run the same witness gate as
   // panel fills — an existing position anchors the check, a >2x divergent
   // candidate needs a vouching second source or the fill refuses.)
+  // F-61 widened it once more: a row-fed candidate with a missing/echoed
+  // mint gets ONE bounded prewatch probe to heal the key before commit —
+  // the stand-in stranding the 8/17 report chased (jb).
   assert.match(content, /async function fillRowBuy\(address, data, amount\)/,
     'the shared commit extractor exists (one commit path for click + armed flush)');
-  assert.match(content, /fillRowBuy[\s\S]{0,4200}E\.buy\(state, settings/,
+  assert.match(content, /fillRowBuy[\s\S]{0,5200}E\.buy\(state, settings/,
     'the extractor runs the engine buy');
-  assert.match(content, /fillRowBuy[\s\S]{0,4200}commitFill\(filled\.trade\)/,
+  assert.match(content, /fillRowBuy[\s\S]{0,5600}commitFill\(filled\.trade\)/,
     'the extractor appends the attestation chain');
   assert.match(content, /await fillRowBuy\(address, data, amount\);/,
     'the click path commits through the shared extractor');

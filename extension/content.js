@@ -1058,6 +1058,19 @@
           if (stash.fromMint !== data.mint) rekeyLiveState(stash.fromMint, data.mint);
         }
       }
+      // F-61 backstop: heal stand-in-keyed bags at the graduation boundary.
+      // A Pulse row buy that never resolved (row-feed fallback) commits under
+      // the click address — the PAIR stand-in on Axiom. When the coin bonds,
+      // the migration pool gets a NEW pair address; reopening the coin (from
+      // the bonded listing or any pool URL) resolves the REAL mint, a key this
+      // wallet never held: the card renders empty (jb, 8/17). Unlike the
+      // in-context stash bridge above, nothing links the two sessions. The
+      // resolver's own payload carries the proof for free: Dexscreener lists
+      // EVERY pool for the base mint — including the graduated bonding-era
+      // pair — so a position whose key appears among the pool list is the
+      // same coin under its old stand-in. Deterministic identity proof, one
+      // rekey, no network added.
+      healStandInPositions(data);
       // Rug verdicts read Solana holder state — a foreign chain has no
       // verdict, and the guard stays silent rather than pretending.
       if (!data.chain || data.chain === 'solana') refreshRugVerdict(data.mint);
@@ -1145,6 +1158,24 @@
    * the storage write rides the serialized CAS commit, re-applying itself on
    * contention like every other mutation (F-46).
    */
+  /**
+   * F-61: heal bags stranded under a stand-in key at the graduation boundary.
+   * `tokenRecord` is a resolver record carrying `poolAddresses` — every pool
+   * listed for the base mint. Any OPEN position keyed by one of those pool
+   * addresses (but not the mint itself) is the same coin bought under its
+   * bonding-era pair stand-in; rekey it onto the real mint so the card, the
+   * bar chip, and the batch quote poller all see one bag under one key.
+   * Idempotent; a no-op when no position matches.
+   */
+  function healStandInPositions(tokenRecord) {
+    if (!tokenRecord || !tokenRecord.mint || !Array.isArray(tokenRecord.poolAddresses)) return;
+    if (!state.positions) return;
+    const stranded = Object.keys(state.positions).filter(
+      (k) => k !== tokenRecord.mint && tokenRecord.poolAddresses.indexOf(k) !== -1
+    );
+    for (const standIn of stranded) rekeyLiveState(standIn, tokenRecord.mint);
+  }
+
   function rekeyLiveState(oldMint, newMint) {
     if (!oldMint || !newMint || oldMint === newMint) return;
     const cached = livePositionPrices[oldMint];
@@ -1375,6 +1406,14 @@
       if (!token || token.mint !== forMint) return;
       if (!fresh || !(fresh.priceNative > 0)) return;
       if (fresh.mint && fresh.mint !== token.mint) return;
+      // F-61: a refresh re-quotes /tokens/<mint> — EVERY pool for this base
+      // mint, including graduated bonding-era pairs. An initial resolve via
+      // /pairs/<addr> carried only that one pool; adopt the full list so the
+      // graduation backstop can see a stand-in-held bag.
+      if (Array.isArray(fresh.poolAddresses)) {
+        token.poolAddresses = fresh.poolAddresses;
+        healStandInPositions(token);
+      }
 
       // The resolver quote becomes the new anchor immediately. Live ticks
       // validate against this, so the anchor never lags behind real moves.
@@ -6591,6 +6630,25 @@
     // since moved past (entry MC 6k on a coin printing 20k). The row's own
     // print is the anchor instead (see rowPrintVouchesFirstBuy).
     if (!(await rowPrintVouchesFirstBuy(address, data, posAnchor))) return null;
+    // F-61: a row-fed candidate carries NO mint — the row feed keys its
+    // ticks by whatever the board prints (on Axiom Pulse that is the PAIR
+    // stand-in; F-59 saw the same keying). Committing under that key strands
+    // the bag at the graduation boundary: the coin bonds, the page reopens
+    // under the migration pool, and the resolver hands back the REAL mint —
+    // a key the wallet never held (jb, 8/17: "buy via final stretch, hold
+    // until bond, open from the bonding section: the buy does not show").
+    // The chain classifies the click address the same way prewatch does —
+    // one bounded read, never blocking the fill: a miss keeps the row's own
+    // address as the key, exactly the honest legacy behavior.
+    if (address && (!data.mint || data.mint === address)) {
+      try {
+        const found = await R.onchainPrewatch({ mint: address, pool: address }).catch(() => null);
+        if (found && found.mint && found.mint !== data.mint) {
+          data.mint = found.mint;
+          if (!data.pairAddress && found.pool) data.pairAddress = found.pool;
+        }
+      } catch (_) { /* identity stays the row's own key */ }
+    }
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }

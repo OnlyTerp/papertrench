@@ -216,7 +216,25 @@
     if (!payload || typeof payload !== 'object') return null;
     const chainId = chainIdFor(opts && opts.chain);
     const pair = payload.pair || pickBestPair(payload.pairs, fallbackAddress, chainId);
-    return normalizePair(pair, fallbackAddress, opts);
+    const token = normalizePair(pair, fallbackAddress, opts);
+    // F-61: surface EVERY pool the source lists for this base mint. A Pulse
+    // row buy can commit under a bonding-era PAIR stand-in (the row-feed
+    // fallback echoes the click address as the key); after graduation the
+    // coin resolves under its REAL mint and the bag strands. The pool list
+    // is the deterministic identity proof — graduated bonding pairs stay
+    // listed under the same base mint (verified on-chain 2026-08-20, P0-3) —
+    // so the chart page can rekey any position whose key is one of these
+    // pools. Additive: consumers that ignore it are unaffected.
+    if (token && Array.isArray(payload.pairs)) {
+      const seen = {};
+      const pools = [];
+      for (var i = 0; i < payload.pairs.length; i++) {
+        var p = payload.pairs[i] && payload.pairs[i].pairAddress;
+        if (p && !seen[p]) { seen[p] = 1; pools.push(p); }
+      }
+      if (pools.length) token.poolAddresses = pools;
+    }
+    return token;
   }
 
   /* ------------------------------------------------------------------ *
