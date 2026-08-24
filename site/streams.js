@@ -412,10 +412,33 @@
         </a>`;
   }
 
+  /* The order the grid is read in.
+   *
+   * Live first, so a visitor who came to watch something lands on something
+   * watchable; embeddable before link-out inside each band, because a card
+   * that plays here is a better first click than one that leaves the site;
+   * then name, so two loads of a quiet board never disagree about order.
+   *
+   * There is deliberately no viewer-count sort: the live signal comes from
+   * Twitch's public preview CDN, which reports whether a channel is up and
+   * nothing else. Ranking by a number we do not have would mean inventing
+   * one, and a made-up "top stream" is exactly the kind of claim this site
+   * refuses everywhere else.
+   */
+  function orderedRoster() {
+    const rank = (s) => {
+      if (live.get(s.login) === true) return 0;     // live now
+      if (platformOf(s).embeddable) return 1;       // playable, currently off
+      return 2;                                     // link-out
+    };
+    return [...roster].sort((a, b) =>
+      rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)));
+  }
+
   function renderGrid() {
     const grid = $('streamerGrid');
 
-    const cards = roster.map((s) => {
+    const cards = orderedRoster().map((s) => {
       const spec = platformOf(s);
       const href = channelHref(s);
       const status = spec.embeddable ? live.get(s.login) : undefined;
@@ -440,27 +463,41 @@
             ${s.blurb ? `<div class="s-blurb">${esc(s.blurb)}</div>` : ''}
           </div>`;
 
-      // Embeddable → a card that mounts the player.
+      // Embeddable → a card that mounts the player, with the channel line as
+      // its own link so reaching someone's actual channel does not mean
+      // promoting them into the player first (two clicks and a scroll for
+      // what is just a URL). stopPropagation keeps it from doing both.
       if (spec.embeddable && s.login) {
+        const handleLine = href
+          ? `<a class="s-handle" href="${esc(href)}" target="_blank" rel="noopener"
+               data-out title="Open ${esc(channelLabel(s))}">${esc(channelLabel(s))} ↗</a>`
+          : `<span class="s-handle">${esc(channelLabel(s))}</span>`;
         return `
         <div class="s-card" data-login="${esc(s.login)}" role="button" tabindex="0"
              title="Watch ${esc(s.name)} here">
           <div class="s-thumb">${thumb}${badge}${MARK_PLAY}</div>
-          ${body(`<span class="s-handle">${esc(channelLabel(s))}</span>`)}
+          ${body(handleLine)}
         </div>`;
       }
 
-      // Link-out → the whole card is the anchor.
+      // Link-out → the WHOLE card is the anchor, so the channel line must be
+      // a span. An <a> inside an <a> is not nestable markup: the parser closes
+      // the outer one early and splits a single card into two broken tiles.
       return `
         <a class="s-card link" href="${esc(href)}" target="_blank" rel="noopener"
            title="Open ${esc(s.name)} on ${esc(spec.label)}">
           <div class="s-thumb">${thumb}${badge}${MARK_OUT}</div>
-          ${body(`<span class="s-handle">${esc(channelLabel(s))}</span>`)}
+          ${body(`<span class="s-handle">${esc(channelLabel(s))} ↗</span>`)}
         </a>`;
     });
 
     while (cards.length < OPEN_SLOTS) cards.push(openSlot());
     grid.innerHTML = cards.join('');
+
+    // The channel link must not also trigger the card behind it.
+    grid.querySelectorAll('a[data-out]').forEach((a) => {
+      a.addEventListener('click', (e) => e.stopPropagation());
+    });
 
     grid.querySelectorAll('.s-card[data-login]').forEach((card) => {
       const open = () => setFeatured(card.dataset.login, { pinned: true, scroll: true });
@@ -488,8 +525,11 @@
     $('liveCount').classList.toggle('on', liveCount > 0);
 
     // Put a live channel in the player unless the viewer picked one themself.
+    // orderedRoster() already sorts live to the front, so its first entry IS
+    // the one to feature — and when exactly one channel is live, that is the
+    // channel, which is the behaviour a single streamer should get for free.
     if (!userPinned) {
-      const firstLive = roster.find((s) => live.get(s.login) === true);
+      const firstLive = orderedRoster().find((s) => live.get(s.login) === true);
       if (firstLive && live.get(featured) !== true) setFeatured(firstLive.login);
     }
     renderGrid();
@@ -506,7 +546,7 @@
       } else if (!featured) {
         // Only an embeddable entry can go in the player; a Kick card at the
         // top of the order must not blank the player out.
-        const first = roster.find((s) => platformOf(s).embeddable && s.login);
+        const first = orderedRoster().find((s) => platformOf(s).embeddable && s.login);
         if (first) featured = first.login;
       }
     };
