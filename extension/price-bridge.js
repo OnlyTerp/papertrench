@@ -3204,6 +3204,16 @@
    * itself — i.e. real content (text, stat, avatar) the chip would cover.
    * A hit outside the row entirely (page background, whitespace) is fine:
    * the anchor is in the gutter already.
+   *
+   * F-60: the chip is CLICKABLE (pointer-events:auto on .pt-rowbuy), so
+   * once it is painted at the anchor its own body tops the hit-test and
+   * elementFromPoint returns the chip — reading "clean" forever while it
+   * covers the MC a live format switch (or a late mount, or a row
+   * recycle) just moved under it. The probe therefore reads the STACK
+   * (elementsFromPoint) and skips chip-owned entries: the first element
+   * in the stack that is neither the chip, inside the chip, nor this
+   * layer's other chips, is the ground truth the chip is covering.
+   * Engines without elementsFromPoint keep the legacy top-hit read.
    */
   function rowAnchorHitsContent(anchor, rect, row, entry, pillRect) {
     const chipWidth = (entry && entry.el && entry.el.getBoundingClientRect)
@@ -3211,18 +3221,37 @@
       : 0;
     const bodyX = Math.max(1, Math.round(anchor.x - (chipWidth > 0 ? chipWidth / 2 : 14)));
     const bodyY = Math.min(Math.max(Math.round(anchor.y), 1), (window.innerHeight || 1) - 1);
-    let hit = null;
-    try { hit = document.elementFromPoint(bodyX, bodyY); } catch (_) { return false; }
-    if (!hit || hit === entry.el || entry.el.contains(hit)) return false;
-    if (hit === row) return false;
-    // Content INSIDE the row (or the pill the anchor belongs to): covered.
+    let hits = null;
     try {
-      if (row.contains(hit)) return true;
-    } catch (_) {}
-    if (pillRect && hit.getBoundingClientRect) {
-      const hr = hit.getBoundingClientRect();
-      if (hr.width > 0 && hr.right > pillRect.left && hr.left < pillRect.right
-          && hr.bottom > pillRect.top && hr.top < pillRect.bottom) return true;
+      if (typeof document.elementsFromPoint === 'function') {
+        hits = document.elementsFromPoint(bodyX, bodyY);
+      } else {
+        const one = document.elementFromPoint(bodyX, bodyY);
+        hits = one ? [one] : [];
+      }
+    } catch (_) { return false; }
+    if (!hits || !hits.length) return false;
+    for (let i = 0; i < hits.length; i += 1) {
+      const hit = hits[i];
+      if (!hit) continue;
+      // Skip everything the chip itself owns: its own body and anything
+      // inside it. The stack is painted front-to-back, so these lead.
+      if (hit === entry.el) continue;
+      try { if (entry.el && entry.el.contains(hit)) continue; } catch (_) {}
+      // Skip other chips from this same layer: a neighbouring row's chip
+      // can legitimately sit beneath this one on overlap-heavy layouts.
+      if (hit.dataset && hit.dataset.ptRowChip === '1') continue;
+      if (hit === row) return false;
+      // Content INSIDE the row (or the pill the anchor belongs to): covered.
+      try {
+        if (row.contains(hit)) return true;
+      } catch (_) {}
+      if (pillRect && hit.getBoundingClientRect) {
+        const hr = hit.getBoundingClientRect();
+        if (hr.width > 0 && hr.right > pillRect.left && hr.left < pillRect.right
+            && hr.bottom > pillRect.top && hr.top < pillRect.bottom) return true;
+      }
+      return false;
     }
     return false;
   }
@@ -3633,6 +3662,9 @@
 
       const button = document.createElement('button');
       button.className = 'pt-rowbuy';
+      // F-60: mark the chip so collision probes can recognise (and look
+      // through) their own paint in the elementsFromPoint stack.
+      try { button.dataset.ptRowChip = '1'; } catch (_) {}
       button.type = 'button';
       button.textContent = `P ${amount}`;
       button.title = `PaperTrench: paper-buy ${amount} SOL of this token right now`;

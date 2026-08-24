@@ -43,19 +43,22 @@ function makeNode(tag, rect) {
   };
 }
 
-function runHelper({ hit, chipWidth = 28, anchorX = 500, anchorY = 140, rowChildren = [] }) {
+function runHelper({ hit, stack, chip, chipWidth = 28, anchorX = 500, anchorY = 140, rowChildren = [] }) {
   const helper = extractHelper();
   const ctx = {
     window: { innerHeight: 900, innerWidth: 1200 },
     Math, Number, Boolean,
-    document: { elementFromPoint: () => hit },
+    document: {
+      elementFromPoint: () => hit,
+      elementsFromPoint: stack ? () => stack : undefined,
+    },
   };
   vm.createContext(ctx);
   vm.runInContext(helper, ctx);
   const row = makeNode('div', { top: 100, left: 10, right: 510, bottom: 180, width: 500, height: 80 });
   for (const c of rowChildren) row.children.push(c);
-  const chip = makeNode('span', { top: 130, left: 470, right: 498, bottom: 150, width: chipWidth, height: 20 });
-  const entry = { el: chip };
+  const ownChip = chip || makeNode('span', { top: 130, left: 470, right: 498, bottom: 150, width: chipWidth, height: 20 });
+  const entry = { el: ownChip };
   return ctx.rowAnchorHitsContent({ x: anchorX, y: anchorY }, row.getBoundingClientRect(), row, entry);
 }
 
@@ -96,6 +99,51 @@ test('F-53: a failed probe (elementFromPoint throws) never blocks placement', ()
     ctx.rowAnchorHitsContent({ x: 500, y: 140 }, row.getBoundingClientRect(), row, { el: chip }),
     false,
     'a broken probe must degrade to the old behaviour, never wedge the sweep');
+});
+
+/* ---------------- F-60: the chip must not shadow its own probe ---------------- */
+
+test('F-60: a chip painted over the MC still reads as a collision — elementsFromPoint looks THROUGH the chip', () => {
+  // The chip is already painted at the float anchor (live ultra-format
+  // switch, row recycle, late-mounting MC): the chip's own body tops the
+  // hit-test at the probe point, with the MC text directly beneath it.
+  // elementsFromPoint must be consulted and the chip skipped, so the sweep
+  // sees the MC it is covering and drops the chip to the gutter.
+  const mcText = makeNode('span', { top: 110, left: 420, right: 505, bottom: 130, width: 85, height: 20 });
+  const chip = makeNode('span', { top: 130, left: 470, right: 498, bottom: 150, width: 28, height: 20 });
+  const layer = makeNode('div', { top: 0, left: 0, right: 1200, bottom: 900, width: 1200, height: 900 });
+  assert.equal(
+    runHelper({ hit: chip, chip, stack: [chip, mcText, layer], rowChildren: [mcText] }),
+    true,
+    'the painted chip must not mask the MC underneath — that is the F-60 recurrence of the F-53 defect');
+});
+
+test('F-60: a chip over clean gutter stays clean — the stack below the chip is page background', () => {
+  const chip = makeNode('span', { top: 130, left: 470, right: 498, bottom: 150, width: 28, height: 20 });
+  const layer = makeNode('div', { top: 0, left: 0, right: 1200, bottom: 900, width: 1200, height: 900 });
+  const foreign = makeNode('div', { top: 0, left: 0, right: 1200, bottom: 900, width: 1200, height: 900 });
+  assert.equal(
+    runHelper({ hit: chip, chip, stack: [chip, foreign, layer] }),
+    false,
+    'skipping the chip must not invent a collision where the page background sits');
+});
+
+test('F-60: no elementsFromPoint (older engines) — elementFromPoint hit on the chip degrades to clean', () => {
+  // The legacy fallback keeps the pre-F-60 behaviour when the stack API is
+  // missing: never wedge the sweep on an engine without elementsFromPoint.
+  const chip = makeNode('span', { top: 130, left: 470, right: 498, bottom: 150, width: 28, height: 20 });
+  assert.equal(runHelper({ hit: chip }), false,
+    'without the stack API the chip self-hit still reads clean — the documented degradation');
+});
+
+test('F-60 source contract: the probe reads the stack and never writes styles', () => {
+  const helper = extractHelper();
+  assert.match(helper, /elementsFromPoint/,
+    'the probe must read the hit-test stack so a painted chip cannot shadow it');
+  assert.doesNotMatch(helper, /\.style\./,
+    'READ-phase only: the probe must never write styles');
+  assert.match(helper, /elementsFromPoint\(bodyX, bodyY\)/,
+    'the stack read uses the same body-midpoint point as the top-hit read');
 });
 
 /* ---------------- the anchor drop is actually applied ---------------- */

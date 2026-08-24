@@ -430,6 +430,50 @@ extension/test/rowfillaccuracy.test.js (identity lookups, cap rescale on
 both override sites, first-buy witness wiring, refusal voice, ancient-print
 exemption).
 
+**F-60 · S3 · The quick-buy chip could pin itself on top of the MC — once painted, its own body shadowed the collision probe and the overlap became undetectable**
+`price-bridge.js` rowAnchorHitsContent/scanScreenerRows · all screener-row
+sites, worst on ultra/compact terminal formats · found by audit of the F-53
+fix while verifying jb's 2026-08-18 report ("quick buy button is on top of
+the mc on terminal if ur format is ultra") · **fixed v3.13.6** (the probe
+reads the elementsFromPoint STACK and looks through its own chip)
+F-53 (v3.6.0) taught the sweep to probe the float anchor before painting:
+elementFromPoint at the chip-body midpoint, drop to the bottom-right gutter
+when the hit is row content. But `.pt-rowbuy` chips are CLICKABLE
+(pointer-events:auto, only the LAYER is pointer-events:none), so the moment
+a chip is painted at the float anchor its own body tops that hit-test:
+`hit === entry.el` → "clean", forever. Anything that moved the MC under an
+ALREADY-painted chip — a live normal→ultra format switch (no reload, React
+recycles the row nodes in place), a late-mounting MC cell losing the mount
+race, a row recycle re-rendering denser content — re-created jb's exact
+symptom, and the F-53 probe was structurally blind to it: in pill mode the
+probe point is the dead centre of the painted chip. The probe now reads the
+hit-test stack (document.elementsFromPoint) and skips every chip-owned
+entry (its own body, its descendants, sibling chips marked
+data-pt-row-chip); the first REAL element beneath decides, same
+inside-the-row / pill-overlap rules as before. READ-phase only, no style
+writes; engines without elementsFromPoint keep the legacy top-hit read
+(documented degradation, never wedges the sweep). Locked by
+extension/test/rowchipcollision.test.js: painted-chip-over-MC must read
+collision, chip-over-gutter must stay clean, legacy single-hit fallback,
+and a source contract pinning the stack read + no style writes.
+
+**F-53 · S3 · The quick-buy chip painted on top of the row's MC in ultra terminal format** *(retroactive entry — shipped in v3.6.0 without a ledger record; registered while auditing F-60)*
+`price-bridge.js` positionRowChip/scanScreenerRows · all screener-row sites
+(ultra/compact formats, Padre's pill row) · field report 2026-08-18
+(Discord #bug-reports, jb: "quick buy button is on top of the mc on
+terminal if ur format is ultra") · **fixed v3.6.0** (anchor probe + gutter
+fallback + placement setting)
+Dense formats leave no gutter at the row's top-right, so the float-anchored
+chip landed on the MC column. The sweep now probes the anchor before
+painting (elementFromPoint at the chip-body midpoint — the chip extends
+LEFT of its anchor, so the anchor point alone cleared while the body still
+covered content) and drops to the bottom-right gutter on a content hit;
+per-site defaults (`listQuickBuyPlacement`) and an explicit user setting
+(Quick-buy chip placement → Bottom-right / Auto) pin it. Probe blind spot
+once the chip itself is painted → F-60. Locked by
+extension/test/rowchipcollision.test.js (probe decisions, gutter fallback,
+placementPref plumbing, both anchor modes consult the probe).
+
 **F-41 · S1 · One buy drew TWO bubbles, and the average line never appeared — a dead self-write guard duplicated every fill, and a stale-ledger veto quietly relocated the line off-screen**
 `content.js` watchStorage/doBuy/doSellInner · `price-bridge.js`
 vettedMcapClose/paper-lines · fomo.family, maintainer field test ·
