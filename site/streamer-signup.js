@@ -27,6 +27,69 @@
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 
+  /* ---------- live preview of the published card ----------
+   *
+   * The form asks for personal details on the promise that only three of the
+   * answers are ever published. A promise is worth less than the artefact, so
+   * the sidebar renders the actual card from the actual public fields as they
+   * are typed. Anything absent from this preview does not go on the site.
+   *
+   * Every write below is textContent, never innerHTML: this is untrusted input
+   * being echoed back into the page, and the preview must not become the one
+   * place on the site where it executes.
+   */
+  const preview = {
+    initials: $('prevInitials'),
+    name: $('prevName'),
+    handle: $('prevHandle'),
+    blurb: $('prevBlurb'),
+  };
+  const blurbCount = $('blurbCount');
+
+  /** Same normalisation streams.js applies before it renders a roster card. */
+  function previewHandle(raw) {
+    const s = String(raw || '').trim().toLowerCase().replace(/^@/, '');
+    if (!s) return 'twitch.tv/you';
+    const m = s.match(/twitch\.tv\/([a-z0-9_]+)/);
+    if (m) return 'twitch.tv/' + m[1];
+    // A full URL to somewhere else is shown as typed — the card links out to
+    // whatever platform they gave, so inventing a twitch.tv/ prefix would
+    // preview a card that will never exist.
+    if (/^https?:\/\//.test(s) || s.includes('.')) return s.replace(/^https?:\/\//, '');
+    return /^[a-z0-9_]{3,25}$/.test(s) ? 'twitch.tv/' + s : s;
+  }
+
+  function initialsOf(name) {
+    return String(name).trim().split(/\s+/).map((w) => w[0] || '').join('').slice(0, 2).toUpperCase();
+  }
+
+  function renderPreview() {
+    if (!preview.name) return; // preview markup absent — form still works
+    const name = String(form.elements.name.value || '').trim();
+    const blurb = String(form.elements.blurb.value || '').trim();
+
+    preview.name.textContent = name || 'Your channel name';
+    preview.handle.textContent = previewHandle(form.elements.channelUrl.value);
+
+    // The initials tile keeps its OFFLINE chip child, so replace only the text
+    // node rather than clearing the element.
+    preview.initials.firstChild.nodeValue = initialsOf(name) || '?';
+
+    preview.blurb.textContent = blurb || 'Your one-liner appears here.';
+    preview.blurb.classList.toggle('empty', !blurb);
+
+    if (blurbCount) {
+      blurbCount.textContent = blurb.length + ' / 160';
+      blurbCount.classList.toggle('near', blurb.length > 140);
+    }
+  }
+
+  ['name', 'channelUrl', 'blurb'].forEach((field) => {
+    const el = form.elements[field];
+    if (el) el.addEventListener('input', renderPreview);
+  });
+  renderPreview();
+
   /**
    * Server reason code -> what the applicant should read.
    *
