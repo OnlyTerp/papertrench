@@ -1,18 +1,14 @@
 {
-  "version": "3.13.4",
+  "version": "3.13.5",
   "date": "2026-08-24",
   "entries": [
     {
-      "title": "Armed buys fire the moment the first quote lands — even when the launch feed takes minutes.",
-      "text": "Two field reports from 8/20 (CHENG, SoranaSokan):"
+      "title": "Pulse-page instant buys fill at the price the row printed — not a lagging aggregator snapshot.",
+      "text": "Field report 8/16 (Ski + sedna): quick research on the pulse page, instant buy, entry market cap flat wrong — the row showed a real 20k while the fill booked 6k. Three holes, one defect (F-59):"
     },
     {
       "title": null,
-      "text": "- **What broke:** on GMGN/Axiom a pre-index launch streams market-cap-only   chart ticks for minutes before the first real price exists. The armed   buy correctly kept waiting (the chart plainly trades) — but the internal   fire path still judged expiry on a bare 60-second clock. The first price   landed, the buy un-armed, nothing filled. Coin after coin, exactly when   it had become buyable. (F-58)"
-    },
-    {
-      "title": null,
-      "text": "- **The fix:** the fire path now uses the same quiet-aware expiry the   watchdog has used since v2.0 — while validated mcap ticks prove the coin   is trading the wait extends, hard-capped at 5 minutes. No armed intent   that should fire can be killed by the bare clock again, and no stale   intent can outlive the cap."
+      "text": "- **What broke (identity):** Axiom pulse frames key their price records by   pair address, but the row-tick override looked up `recentRowPrices` by the   resolver's mint — so the live print the trader just looked at was invisible   to the fill and a stale aggregator price won by default. - **What broke (the cap):** even when the override fired, `data.mcap` kept   the resolver's stale value — price corrected, cap never rode it. - **What broke (the witness):** a FIRST buy had no witness at all under   F-56 (which anchors on an existing position). Quick research → instant   buy → blind fill. - **The fix:** the override now tries every identity the token answers to   (mint, pair, chip address), the cap is rescaled to the corrected price,   and a first buy must be vouched by the row's own fresh print (or a   same-block chain quote) — otherwise it refuses with **“Price unvouched”**   instead of silently filling wrong."
     }
   ]
 }

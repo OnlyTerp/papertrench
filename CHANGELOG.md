@@ -21,6 +21,28 @@ feed takes minutes.** Two field reports from 8/20 (CHENG, SoranaSokan):
   that should fire can be killed by the bare clock again, and no stale
   intent can outlive the cap.
 
+## v3.13.5 — 2026-08-24
+
+**Pulse-page instant buys fill at the price the row printed — not a lagging
+aggregator snapshot.** Field report 8/16 (Ski + sedna): quick research on the
+pulse page, instant buy, entry market cap flat wrong — the row showed a real
+20k while the fill booked 6k. Three holes, one defect (F-59):
+
+- **What broke (identity):** Axiom pulse frames key their price records by
+  pair address, but the row-tick override looked up `recentRowPrices` by the
+  resolver's mint — so the live print the trader just looked at was invisible
+  to the fill and a stale aggregator price won by default.
+- **What broke (the cap):** even when the override fired, `data.mcap` kept
+  the resolver's stale value — price corrected, cap never rode it.
+- **What broke (the witness):** a FIRST buy had no witness at all under
+  F-56 (which anchors on an existing position). Quick research → instant
+  buy → blind fill.
+- **The fix:** the override now tries every identity the token answers to
+  (mint, pair, chip address), the cap is rescaled to the corrected price,
+  and a first buy must be vouched by the row's own fresh print (or a
+  same-block chain quote) — otherwise it refuses with **“Price unvouched”**
+  instead of silently filling wrong.
+
 ## v3.13.3 — 2026-08-22
 
 **Twelve quality-of-life upgrades from the community wave.** The overlay

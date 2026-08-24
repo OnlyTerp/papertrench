@@ -2842,11 +2842,14 @@
    * stand-in resolving to its real mint); a settled token is never renamed. */
   async function acquireClickQuote(addr, chain) {
     // D-39: the row that opened this chart already carried the site's own
-    // realtime price (noteRowPrice, mint-tagged). If it is still fresh, the
-    // click adopts it INSTANTLY — the chart is up, the board printed it, so
-    // no resolver or RPC round trip may gate the fill.
+    // realtime price (noteRowPrice). If it is still fresh, the click adopts
+    // it INSTANTLY — the chart is up, the board printed it, so no resolver
+    // or RPC round trip may gate the fill. F-59: the row's tick may be keyed
+    // by EITHER identity (pulse frames often key by pair); try both plus
+    // the raw address before deciding the board never printed this coin.
     let data = null;
-    const row = addr && recentRowPrices.get(addr);
+    const row = (addr && recentRowPrices.get(addr))
+      || null;
     if (row && row.usd > 0 && Date.now() - row.at < ROW_PRICE_TTL_MS) {
       const rate = await R.solUsd().catch(() => 0);
       if (rate > 0) {
@@ -6429,6 +6432,49 @@
    * flush so both paths commit identically (same guard, same engine call,
    * same attestation chain, same rail refresh). Returns the result object or
    * null (guard refusal toasts its own message). */
+  /**
+   * F-59: the first-buy witness. A FIRST buy has no position to anchor on,
+   * and the 8/16 pulse report showed exactly that hole: quick research,
+   * instant buy, and the fill booked a lagging aggregator snapshot the row
+   * on screen had long since moved past (entry MC 6k on a coin printing
+   * 20k). The row's own recent print is the anchor instead — it is the
+   * number the trader is LOOKING at. An aggregator candidate diverging >2x
+   * from it needs the CHAIN to vouch (the resolver cannot witness itself).
+   * Row-fed and chain-fed candidates are exempt: the row print IS their
+   * source, and the chain is the authority this family already defers to.
+   * Returns true when the fill may proceed; on refusal the toast is spoken
+   * here and false is returned.
+   */
+  async function rowPrintVouchesFirstBuy(address, data, posAnchor) {
+    if (posAnchor) return true; // an existing position anchors (F-56 above)
+    if (!(Number(data.priceNative) > 0) || !(Number(data.priceUsd) > 0)) return true;
+    if (data.priceSource === 'row-feed' || data.priceSource === 'row-onchain') return true;
+    const rowPrint = (data.mint && recentRowPrices.get(data.mint))
+      || (data.pairAddress && recentRowPrices.get(data.pairAddress))
+      || (address && recentRowPrices.get(address));
+    // A print this page made within the research window anchors; an ancient
+    // one (coin long gone from the board) says nothing about the price now,
+    // so it never gates.
+    const ROW_ANCHOR_MAX_AGE_MS = 120_000;
+    if (!rowPrint || !(rowPrint.usd > 0) || Date.now() - rowPrint.at > ROW_ANCHOR_MAX_AGE_MS) return true;
+    const rate = Number(data.priceUsd) / Number(data.priceNative);
+    const rowNative = rate > 0 ? rowPrint.usd / rate : 0;
+    if (!(rowNative > 0)) return true;
+    if (Math.max(rowNative / Number(data.priceNative), Number(data.priceNative) / rowNative) <= 2) return true;
+    let witnessNative = null;
+    try {
+      const obs = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
+      if (obs && Number(obs.priceNative) > 0) witnessNative = Number(obs.priceNative);
+    } catch (_) { /* witness lookup failed — treated as no witness */ }
+    const vouched = witnessNative > 0
+      && Math.max(witnessNative / Number(data.priceNative), Number(data.priceNative) / witnessNative) <= 1.6;
+    if (!vouched) {
+      toast('Price sources disagree — paper fill refused. Try again in a moment.');
+      return false;
+    }
+    return true;
+  }
+
   async function fillRowBuy(address, data, amount) {
     // F-56: a chip fill runs through the SAME honesty gates as a panel fill.
     // The row's own price used to price the trade blind — no witness, no
@@ -6455,7 +6501,9 @@
             const obs = await R.resolve(address, { maxAgeMs: 3000 }).catch(() => null);
             if (obs && Number(obs.priceNative) > 0) witnessNative = Number(obs.priceNative);
           } else {
-            const live = data.mint && recentRowPrices.get(data.mint);
+            const live = (data.mint && recentRowPrices.get(data.mint))
+              || (data.pairAddress && recentRowPrices.get(data.pairAddress))
+              || (address && recentRowPrices.get(address));
             if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceNative) > 0) {
               const rate = data.priceUsd / data.priceNative;
               witnessNative = live.usd / rate;
@@ -6470,6 +6518,12 @@
         }
       }
     }
+    // F-59: a FIRST buy has no position to anchor on — and the 8/16 pulse
+    // report showed exactly that hole: quick research, instant buy, and the
+    // fill booked a lagging aggregator snapshot the row on screen had long
+    // since moved past (entry MC 6k on a coin printing 20k). The row's own
+    // print is the anchor instead (see rowPrintVouchesFirstBuy).
+    if (!(await rowPrintVouchesFirstBuy(address, data, posAnchor))) return null;
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
