@@ -1562,19 +1562,35 @@ async function handleStreamerReview(request, env) {
  * notes answers "anything else you'd like us to know?" — a message to the
  * moderators. Serving notes here would publish something written in private.
  */
+/* The public roster: every approved application, whatever it streams on.
+ *
+ * This used to require `twitch_login IS NOT NULL`, because the streams page
+ * could only render an embeddable Twitch player — so an approved Kick or
+ * YouTube creator was accepted by a moderator and then silently never
+ * appeared anywhere, which is the worst of both answers. The page now renders
+ * a link-out card for the other platforms, so the roster serves them all and
+ * says which is which. `login` stays null off Twitch: it means "embeddable
+ * here", and inventing one for a platform we cannot embed would put a dead
+ * player on the page.
+ *
+ * Still only the three columns the applicant was told become a card — the
+ * private contact block is not in this SELECT and must never be.
+ */
 async function handleStreamerRoster(env) {
   const { results } = await env.DB.prepare(`
-    SELECT name, twitch_login, blurb
+    SELECT name, twitch_login, blurb, platform, channel_url
       FROM streamer_applications
-     WHERE status = 'approved' AND twitch_login IS NOT NULL
+     WHERE status = 'approved'
      ORDER BY created_at DESC
      LIMIT 60`).all();
   return json({
     ok: true,
     streamers: (results || []).map((r) => ({
-      login: r.twitch_login,
+      login: r.twitch_login || null,
       name: r.name,
       blurb: r.blurb || '',
+      platform: r.platform || 'other',
+      channelUrl: r.channel_url || null,
     })),
   });
 }
