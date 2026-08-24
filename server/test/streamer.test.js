@@ -55,6 +55,31 @@ test('the same scheme check guards the optional contact link', () => {
   assert.equal(S.applyProblem(withField({ contactLink: '' })), null);
 });
 
+test('a contact answer may be an address or a handle, not only a URL', () => {
+  // The form relabels this field per contact method: Email asks for an
+  // address and Other asks for whatever the applicant actually uses. Both
+  // used to be refused as `contact-link-invalid`, which stranded anyone who
+  // answered the question they were asked.
+  for (const answer of ['you@example.com', 'Telegram @me', 'IG: someone']) {
+    assert.equal(S.applyProblem(withField({ contactLink: answer })), null,
+      `${answer} is a legitimate answer to "how should we reach you?"`);
+  }
+
+  // An address is stored verbatim — never rewritten into a userinfo URL.
+  assert.equal(S.contactAnswer('you@example.com'), 'you@example.com');
+  assert.equal(S.contactAnswer('Telegram @me'), 'Telegram @me');
+
+  // A real link still normalizes, so the mod page can render it as an href.
+  assert.equal(new URL(S.contactAnswer('x.com/someone')).protocol, 'https:');
+
+  // And a hostile scheme is still refused at the door rather than stored as
+  // text — the render path would not linkify it, but there is no reason to
+  // keep it either.
+  assert.equal(S.contactProblem('javascript:alert(1)'), 'contact-link-invalid');
+  assert.equal(S.contactProblem('data:text/html,<script>'), 'contact-link-invalid');
+  assert.equal(S.contactProblem(''), null);
+});
+
 test('a bare host is assumed https rather than failed, and comes back normalized', () => {
   const url = S.safeUrl('twitch.tv/SomeName', 200);
   assert.equal(new URL(url).protocol, 'https:');
