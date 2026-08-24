@@ -16,6 +16,9 @@
 
   // Hand-maintained roster. Entries here always show, and they win over a
   // sheet row with the same login — useful for pinning or fixing a blurb.
+  // `login` is the Twitch login and means "embeddable inline". Kick and
+  // YouTube entries carry `platform` + `channelUrl` instead and render as
+  // link-out cards — there is no login to invent for a player we cannot mount.
   const STREAMERS = [
     {
       login: 'onlyterp',                 // twitch.tv/<login> — lowercase
@@ -91,6 +94,68 @@
     '<path d="M8 5.6v12.8a.7.7 0 0 0 1.07.6l10-6.4a.7.7 0 0 0 0-1.2l-10-6.4A.7.7 0 0 0 8 5.6z"/>' +
     '</svg></span>';
 
+  const MARK_OUT =
+    '<span class="s-play out" aria-hidden="true">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M14 4.5h5.5V10M19.5 4.5 11 13"/>' +
+    '<path d="M17.5 14v4.6a1.6 1.6 0 0 1-1.6 1.6H5.9a1.6 1.6 0 0 1-1.6-1.6V8.1A1.6 1.6 0 0 1 5.9 6.5h4.6"/>' +
+    '</svg></span>';
+
+  /* ---------- platforms ----------
+   *
+   * Only Twitch can be embedded, so only Twitch cards act as a player button.
+   * The rest are links, and are drawn as links — a card that looks identical
+   * to a playable one but silently opens a new tab teaches the visitor that
+   * the whole grid is unpredictable. Live/offline is a Twitch-only signal too
+   * (it comes from Twitch's preview CDN), so the other platforms show their
+   * platform name where the badge would be rather than a guessed status.
+   */
+  const PLATFORMS = {
+    twitch: {
+      label: 'Twitch', host: 'twitch.tv/', embeddable: true,
+      url: (s) => 'https://twitch.tv/' + encodeURIComponent(s.login),
+    },
+    kick: {
+      label: 'Kick', host: 'kick.com/', embeddable: false,
+      url: (s) => s.channelUrl,
+    },
+    youtube: {
+      label: 'YouTube', host: 'youtube.com/', embeddable: false,
+      url: (s) => s.channelUrl,
+    },
+    other: {
+      label: 'Stream', host: '', embeddable: false,
+      url: (s) => s.channelUrl,
+    },
+  };
+
+  const platformOf = (s) => PLATFORMS[s && s.platform] || PLATFORMS.twitch;
+
+  /** The href a card points at, or null when there is nothing safe to link. */
+  function channelHref(s) {
+    const spec = platformOf(s);
+    if (spec.embeddable) return s.login ? spec.url(s) : null;
+    const raw = spec.url(s);
+    if (!raw) return null;
+    // The roster is server-normalized, but this is the point where a string
+    // becomes an href a visitor clicks. Re-check the scheme rather than
+    // trusting the trip it took to get here.
+    try {
+      const url = new URL(String(raw));
+      return (url.protocol === 'https:' || url.protocol === 'http:') ? url.toString() : null;
+    } catch { return null; }
+  }
+
+  /** What to print under the name: "twitch.tv/name", or the bare host+path. */
+  function channelLabel(s) {
+    const spec = platformOf(s);
+    if (spec.embeddable && s.login) return spec.host + s.login;
+    const href = channelHref(s);
+    if (!href) return spec.label;
+    return href.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
+  }
+
   /* ---------- scroll reveal (same behaviour as main.js) ---------- */
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -102,6 +167,9 @@
   /* ---------- state ---------- */
   const live = new Map();       // login -> true | false | null (unknown)
   let roster = [...STREAMERS];  // manual entries + approved sheet rows
+
+  /** Identity for dedupe: a Twitch login, else the channel it points at. */
+  const keyOf = (s) => (s.login ? 'twitch:' + s.login : 'url:' + String(s.channelUrl || '').toLowerCase());
   let featured = null;          // login currently in the big player
   let userPinned = false;       // stop auto-promotion once the viewer chose
 
@@ -180,18 +248,28 @@
       const body = await res.json();
       if (!body || !body.ok || !Array.isArray(body.streamers)) return;
 
-      const seen = new Set(roster.map((s) => s.login));
+      const seen = new Set(roster.map((s) => keyOf(s)));
       for (const row of body.streamers) {
+        if (!row) continue;
         // The server normalizes these, but the page owns what it renders:
         // re-run the same login rule rather than trusting the shape.
-        const login = normalizeLogin(row && row.login);
-        if (!login || seen.has(login)) continue;
-        seen.add(login);
-        roster.push({
-          login,
-          name: String((row && row.name) || '').trim() || login,
-          blurb: String((row && row.blurb) || '').trim(),
-        });
+        const login = normalizeLogin(row.login);
+        const platform = PLATFORMS[row.platform] ? row.platform : (login ? 'twitch' : 'other');
+        const entry = {
+          login: login || null,
+          platform,
+          channelUrl: String(row.channelUrl || '').trim() || null,
+          name: String(row.name || '').trim() || login || '',
+          blurb: String(row.blurb || '').trim(),
+        };
+        // An entry we can neither embed nor link is not a card, it is a
+        // name with nowhere to go — drop it rather than render a dead tile.
+        if (!entry.login && !channelHref(entry)) continue;
+        if (!entry.name) continue;
+        const key = keyOf(entry);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        roster.push(entry);
       }
     } catch (err) {
       console.warn('PaperTrench: roster API unavailable —', err.message);
@@ -338,42 +416,70 @@
     const grid = $('streamerGrid');
 
     const cards = roster.map((s) => {
-      const status = live.get(s.login);
+      const spec = platformOf(s);
+      const href = channelHref(s);
+      const status = spec.embeddable ? live.get(s.login) : undefined;
       const isUp = status === true;
-      const badge = status === true
+
+      // Live/offline is a Twitch-only fact. Off Twitch the slot names the
+      // platform instead of guessing a status we cannot observe.
+      const badge = isUp
         ? '<span class="s-live on"><span class="dot"></span>LIVE</span>'
         : status === false
           ? '<span class="s-live off">OFFLINE</span>'
-          : '';
+          : `<span class="s-live plat ${esc(s.platform || 'twitch')}">${esc(spec.label)}</span>`;
+
       const thumb = isUp
         ? `<img src="${thumbUrl(s.login)}" alt="Live preview of ${esc(s.name)}" loading="lazy">`
         : `<div class="ph">${esc(initials(s.name))}</div>`;
-      return `
-        <button class="s-card" data-login="${esc(s.login)}" type="button" title="Watch ${esc(s.name)}">
-          <div class="s-thumb">${thumb}${badge}${MARK_PLAY}</div>
+
+      const body = (handleLine) => `
           <div class="s-body">
             <div class="s-name">${esc(s.name)}</div>
-            <div class="s-handle">twitch.tv/${esc(s.login)}</div>
+            ${handleLine}
             ${s.blurb ? `<div class="s-blurb">${esc(s.blurb)}</div>` : ''}
-          </div>
-        </button>`;
+          </div>`;
+
+      // Embeddable → a card that mounts the player.
+      if (spec.embeddable && s.login) {
+        return `
+        <div class="s-card" data-login="${esc(s.login)}" role="button" tabindex="0"
+             title="Watch ${esc(s.name)} here">
+          <div class="s-thumb">${thumb}${badge}${MARK_PLAY}</div>
+          ${body(`<span class="s-handle">${esc(channelLabel(s))}</span>`)}
+        </div>`;
+      }
+
+      // Link-out → the whole card is the anchor.
+      return `
+        <a class="s-card link" href="${esc(href)}" target="_blank" rel="noopener"
+           title="Open ${esc(s.name)} on ${esc(spec.label)}">
+          <div class="s-thumb">${thumb}${badge}${MARK_OUT}</div>
+          ${body(`<span class="s-handle">${esc(channelLabel(s))}</span>`)}
+        </a>`;
     });
 
     while (cards.length < OPEN_SLOTS) cards.push(openSlot());
     grid.innerHTML = cards.join('');
 
     grid.querySelectorAll('.s-card[data-login]').forEach((card) => {
-      card.addEventListener('click', () =>
-        setFeatured(card.dataset.login, { pinned: true, scroll: true }));
+      const open = () => setFeatured(card.dataset.login, { pinned: true, scroll: true });
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
     });
   }
 
   /* ---------- live badge refresh loop ---------- */
   async function refreshLive() {
     if (!roster.length) return;
-    await Promise.all(roster.map(async (s) => live.set(s.login, await isLive(s.login))));
+    // Only Twitch has a live signal; asking the preview CDN about a Kick
+    // login would answer about a Twitch channel of the same name.
+    const checkable = roster.filter((s) => platformOf(s).embeddable && s.login);
+    await Promise.all(checkable.map(async (s) => live.set(s.login, await isLive(s.login))));
 
-    const liveCount = roster.filter((s) => live.get(s.login) === true).length;
+    const liveCount = checkable.filter((s) => live.get(s.login) === true).length;
     $('liveCountLabel').textContent = liveCount > 0
       ? `${liveCount} streamer${liveCount === 1 ? '' : 's'} live right now`
       : 'The PaperTrench Challenge';
@@ -397,8 +503,11 @@
       if (requested && roster.some((s) => s.login === requested)) {
         userPinned = true;
         featured = requested;
-      } else if (!featured && roster.length) {
-        featured = roster[0].login;
+      } else if (!featured) {
+        // Only an embeddable entry can go in the player; a Kick card at the
+        // top of the order must not blank the player out.
+        const first = roster.find((s) => platformOf(s).embeddable && s.login);
+        if (first) featured = first.login;
       }
     };
 
