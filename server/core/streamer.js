@@ -107,6 +107,49 @@ function safeUrl(raw, max) {
   return url.toString();
 }
 
+/* The contact answer is not always a URL.
+ *
+ * The form asks "how should we reach you?" and relabels itself per method:
+ * Email wants an address, Twitter/X wants a profile link, and Other wants
+ * whatever the applicant actually uses ("Telegram @me"). Demanding a parseable
+ * URL for all three refused two of them — an applicant who picked Other and
+ * answered the question honestly got `contact-link-invalid` and no way to
+ * proceed.
+ *
+ * So the rule is about what we are willing to RENDER, not about shape: an
+ * answer carrying an explicit scheme has to be one we would put in an href,
+ * because that is the string a moderator clicks. Everything else is stored as
+ * text and rendered as text — site/admin.js only builds an <a> when the value
+ * re-parses as http(s), so a plain answer can never become a live link.
+ */
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Why a contact answer is unusable, or null. */
+function contactProblem(raw) {
+  const text = trim(raw);
+  if (!text) return null;
+  // Whitespace settles it: no URL contains a raw space, so "IG: someone" is
+  // prose, not a scheme claim. Checking the scheme first would read the "IG:"
+  // as one and refuse a perfectly good answer.
+  if (/\s/.test(text)) return null;
+  // An explicit scheme IS a claim to be a link; hold it to the href rule.
+  // Validate the untruncated original so an over-long URL still fails.
+  if (HAS_SCHEME.test(text) && !safeUrl(raw, LIMITS.contactLink)) return 'contact-link-invalid';
+  return null;
+}
+
+/** The contact answer to store: a normalized URL when it is one, else text. */
+function contactAnswer(raw) {
+  const text = clean(raw, LIMITS.contactLink);
+  if (!text) return null;
+  // An address is an address. Left alone, safeUrl would turn it into
+  // "https://you@example.com/" — a userinfo URL pointing at a host nobody meant.
+  if (LOOKS_LIKE_EMAIL.test(text)) return text;
+  if (/\s/.test(text)) return text;                       // free-text answer
+  return safeUrl(raw, LIMITS.contactLink) || text;
+}
+
 /** Which platform a channel URL points at — a label for the mod queue. */
 function platformOf(channelUrl) {
   let host = '';
@@ -167,9 +210,8 @@ function applyProblem(fields) {
   const method = trim(f.contactMethod);
   if (method && !CONTACT_METHODS.includes(method)) return 'contact-method-invalid';
 
-  if (trim(f.contactLink) && !safeUrl(f.contactLink, LIMITS.contactLink)) {
-    return 'contact-link-invalid';
-  }
+  const contact = contactProblem(f.contactLink);
+  if (contact) return contact;
   return null;
 }
 
@@ -192,7 +234,7 @@ function normalizeApplication(fields) {
     blurb: clean(f.blurb, LIMITS.blurb),
     notes: cleanMultiline(f.notes, LIMITS.notes),
     contactMethod: trim(f.contactMethod) || null,
-    contactLink: trim(f.contactLink) ? safeUrl(f.contactLink, LIMITS.contactLink) : null,
+    contactLink: contactAnswer(f.contactLink),
     bestTime: clean(f.bestTime, LIMITS.bestTime),
   };
 }
@@ -225,6 +267,8 @@ module.exports = {
   clean,
   cleanMultiline,
   safeUrl,
+  contactProblem,
+  contactAnswer,
   platformOf,
   twitchLogin,
   applyProblem,
