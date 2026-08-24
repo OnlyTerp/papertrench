@@ -399,6 +399,37 @@ the ONLY thing killing these intents. Locked by: behavioral regression
 bare-clock check may not reappear in content.js), in
 extension/test/freshlaunch.test.js.
 
+**F-59 · S1 · Pulse-page instant buys filled on prices the row never printed — the row-tick override missed pair-keyed ticks, the cap never rode the price, and a first buy had no witness at all**
+`content.js` doRowBuy/flushRowArmed/fillRowBuy · Axiom Pulse (`/pulse`,
+`rowBuy.kind: 'pair'`), GMGN/Trenches-class screener rows · field report
+2026-08-16 (Ski + sedna: "Entry market cap wrong: real 20k MC shown as 6k",
+worst on pulse-page instant buy after quick research, much less from the
+chart) · **fixed v3.13.5** — three holes, one family:
+(1) The post-cascade override looked the row's fresh print up by the
+resolver's MINT only. Pulse frames key their records by whichever
+mint-shaped key they carry — on Axiom Pulse that is usually the PAIR — so
+the fresh print missed the lookup and the resolver's lagging snapshot
+booked the fill instead of the number on screen (6k vs 20k, exactly the
+3.3x an aggregator sits behind a fast launch). The lookup now tries the
+mint, the resolver's pairAddress, and the click's own address, in that
+order, in doRowBuy, flushRowArmed, and the F-56 in-block witness alike.
+(2) Even when the override fired, `mcap` was left at the resolver's stale
+value while priceUsd/priceNative were rewritten — the toast and the
+position reported an entry MC the market never printed at fill time.
+Supply is constant across the two reads, so the cap now scales by exactly
+the price ratio.
+(3) F-56's witness anchors only on an EXISTING position; the quick-research
+flow (research the row, instant-buy, no position yet) filled blind on a
+lagging aggregator snapshot with nothing corroborating it. A first buy now
+anchors on the row's own recent print (≤120 s): an aggregator candidate
+diverging >2x from it must be vouched by the CHAIN probe (rowChainQuote —
+the resolver cannot witness itself) within 1.6x, or the fill is refused
+visibly in the family's voice. Row-fed and chain-fed candidates are exempt
+— the print IS their source. Locked by
+extension/test/rowfillaccuracy.test.js (identity lookups, cap rescale on
+both override sites, first-buy witness wiring, refusal voice, ancient-print
+exemption).
+
 **F-41 · S1 · One buy drew TWO bubbles, and the average line never appeared — a dead self-write guard duplicated every fill, and a stale-ledger veto quietly relocated the line off-screen**
 `content.js` watchStorage/doBuy/doSellInner · `price-bridge.js`
 vettedMcapClose/paper-lines · fomo.family, maintainer field test ·
