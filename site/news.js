@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.4', date: 'Aug 24, 2026', iso: '2026-08-24',
+        tags: ['fix'],
+        title: 'Armed buys: first quote lands, the buy fires',
+        body: 'Two live reports from the trenches. On fresh GMGN and Axiom launches the chart streams market-cap-only ticks for minutes before any real price exists — and an armed buy that had correctly kept waiting was being cancelled the instant the first price landed, killed by a bare 60-second clock that only the fire path still consulted. The fire path now uses the same quiet-aware expiry the watchdog has used all along: while validated mcap ticks prove the coin is trading the wait extends, hard-capped at 5 minutes. First quote lands, the buy fires — coin after coin, not never.',
+      },
+      {
         v: '3.13.3', date: 'Aug 22, 2026', iso: '2026-08-22',
         tags: ['feature'],
         title: 'Round ledger, sell-your-initial, a tabbed popup, balance in the header',

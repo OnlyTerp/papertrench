@@ -3,6 +3,24 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.4 — 2026-08-24
+
+**Armed buys fire the moment the first quote lands — even when the launch
+feed takes minutes.** Two field reports from 8/20 (CHENG, SoranaSokan):
+
+- **What broke:** on GMGN/Axiom a pre-index launch streams market-cap-only
+  chart ticks for minutes before the first real price exists. The armed
+  buy correctly kept waiting (the chart plainly trades) — but the internal
+  fire path still judged expiry on a bare 60-second clock. The first price
+  landed, the buy un-armed, nothing filled. Coin after coin, exactly when
+  it had become buyable. (F-58)
+
+- **The fix:** the fire path now uses the same quiet-aware expiry the
+  watchdog has used since v2.0 — while validated mcap ticks prove the coin
+  is trading the wait extends, hard-capped at 5 minutes. No armed intent
+  that should fire can be killed by the bare clock again, and no stale
+  intent can outlive the cap.
+
 ## v3.13.3 — 2026-08-22
 
 **Twelve quality-of-life upgrades from the community wave.** The overlay

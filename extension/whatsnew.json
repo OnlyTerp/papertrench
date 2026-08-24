@@ -1,38 +1,18 @@
 {
-  "version": "3.13.3",
-  "date": "2026-08-22",
+  "version": "3.13.4",
+  "date": "2026-08-24",
   "entries": [
     {
-      "title": "Twelve quality-of-life upgrades from the community wave.",
-      "text": "The overlay gains a round ledger, the popup gets real tabs, and the site puts your paper balance in its header:"
+      "title": "Armed buys fire the moment the first quote lands — even when the launch feed takes minutes.",
+      "text": "Two field reports from 8/20 (CHENG, SoranaSokan):"
     },
     {
       "title": null,
-      "text": "- **Round ledger** — the panel now shows what went in, what came back, and   what's still held for any position you've partially sold into, with the   change both ways and a green treatment once the bag has paid for itself."
+      "text": "- **What broke:** on GMGN/Axiom a pre-index launch streams market-cap-only   chart ticks for minutes before the first real price exists. The armed   buy correctly kept waiting (the chart plainly trades) — but the internal   fire path still judged expiry on a bare 60-second clock. The first price   landed, the buy un-armed, nothing filled. Coin after coin, exactly when   it had become buyable. (F-58)"
     },
     {
       "title": null,
-      "text": "- **Sell your initial, costed exactly** — one button computes the sell that   returns exactly what you invested (fees included), leaving the rest riding."
-    },
-    {
-      "title": null,
-      "text": "- **Compact panel declutter** — the custom-amount box is opt-in via settings,   and the market-cap alert is quiet while compact."
-    },
-    {
-      "title": null,
-      "text": "- **Popup: three panes** — Positions / Recent / Settings instead of one long   scroll."
-    },
-    {
-      "title": null,
-      "text": "- **Profile control in the site header**, and the **paper balance** (cash,   equity, open positions) rides the site bridge — visible only with Site   sync on, priced without any network calls."
-    },
-    {
-      "title": null,
-      "text": "- **Leaderboard tab leads with the board**, and onboarding now asks one   centred question at a time instead of three steps you can't act on yet."
-    },
-    {
-      "title": null,
-      "text": "- **Favicon** Google actually picks up; extensionless URLs finished across   the site; what's-new card surfaces release tips once per version."
+      "text": "- **The fix:** the fire path now uses the same quiet-aware expiry the   watchdog has used since v2.0 — while validated mcap ticks prove the coin   is trading the wait extends, hard-capped at 5 minutes. No armed intent   that should fire can be killed by the bare clock again, and no stale   intent can outlive the cap."
     }
   ]
 }
