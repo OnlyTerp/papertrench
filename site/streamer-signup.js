@@ -39,6 +39,7 @@
    * place on the site where it executes.
    */
   const preview = {
+    card: $('prevCard'),
     initials: $('prevInitials'),
     name: $('prevName'),
     handle: $('prevHandle'),
@@ -46,27 +47,184 @@
   };
   const blurbCount = $('blurbCount');
 
+  /* ---------- platform → channel URL ----------
+   *
+   * The domain is the part nobody should have to type and the part typos
+   * land in, so the platform picker supplies it and the input takes only the
+   * handle. The server still derives the real platform from the finished URL
+   * (streamer.js platformOf) — this selector is an input aid, never the
+   * authority, so a mismatched pair cannot mislabel anything downstream.
+   */
+  const PLATFORMS = {
+    twitch: {
+      prefix: 'twitch.tv/', placeholder: 'yourname',
+      hint: 'Just the part after the slash. Pasting the full link works too.',
+      note: 'Twitch channels can be played inline on the streams page — the other platforms get a card that links out.',
+    },
+    kick: {
+      prefix: 'kick.com/', placeholder: 'yourname',
+      hint: 'Just the part after the slash. Pasting the full link works too.',
+      note: 'Kick channels get a roster card that links straight to your channel.',
+    },
+    youtube: {
+      prefix: 'youtube.com/', placeholder: '@yourhandle',
+      hint: 'Your @handle, or the full link to your channel page.',
+      note: 'YouTube channels get a roster card that links straight to your channel.',
+    },
+    other: {
+      prefix: '', placeholder: 'https://your-channel-link',
+      hint: 'Paste the full link to your channel, including https://.',
+      note: 'Anywhere else works too — the card links out to whatever you paste.',
+    },
+  };
+
+  const platformSel = $('f-platform');
+  const channelInput = $('f-channel');
+  const urlGroup = $('urlGroup');
+  const urlPrefix = $('urlPrefix');
+
+  const platformKey = () =>
+    (platformSel && PLATFORMS[platformSel.value]) ? platformSel.value : 'twitch';
+
+  /** Strip a pasted full URL back to the handle for the selected platform. */
+  function unwrapForPlatform(raw, key) {
+    let s = String(raw || '').trim().replace(/^@(?=[^/]*$)/, (m) => (key === 'youtube' ? '@' : ''));
+    if (key === 'other') return s;
+    s = s.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    const host = { twitch: 'twitch.tv/', kick: 'kick.com/', youtube: 'youtube.com/' }[key];
+    if (host && s.toLowerCase().startsWith(host)) s = s.slice(host.length);
+    // youtu.be and /c//channel/ forms are left intact rather than guessed at.
+    return s.replace(/^\/+/, '');
+  }
+
+  /** The full URL the server is sent, composed from platform + handle. */
+  function composedUrl() {
+    const key = platformKey();
+    const raw = String(channelInput ? channelInput.value : '').trim();
+    if (!raw) return '';
+    if (key === 'other') return raw;
+    // Somebody pasted a link for a DIFFERENT platform than the one selected:
+    // send what they actually typed. The server reads the URL, not the picker,
+    // so honouring the paste is what keeps the two in agreement.
+    if (/^https?:\/\//i.test(raw) || /^[a-z0-9-]+\.[a-z]{2,}\//i.test(raw)) return raw;
+    return PLATFORMS[key].prefix + raw.replace(/^\/+/, '');
+  }
+
+  function applyPlatform() {
+    const key = platformKey();
+    const spec = PLATFORMS[key];
+    if (!urlGroup || !urlPrefix || !channelInput) return;
+
+    urlPrefix.textContent = spec.prefix;
+    urlPrefix.className = 'url-prefix ' + key;
+    urlGroup.classList.toggle('bare', !spec.prefix);
+    channelInput.placeholder = spec.placeholder;
+    channelInput.inputMode = key === 'other' ? 'url' : 'text';
+    const hint = $('channelHint');
+    if (hint) hint.textContent = spec.hint;
+    const note = $('platformHint');
+    if (note) note.textContent = spec.note;
+
+    // Re-unwrap what is already typed so switching platforms does not leave a
+    // handle sitting behind the wrong domain.
+    channelInput.value = unwrapForPlatform(channelInput.value, key);
+    renderPreview();
+  }
+
+  if (platformSel) platformSel.addEventListener('change', applyPlatform);
+
+  // Unwrap a pasted URL on the way out of the field, not while they type —
+  // rewriting the value mid-keystroke fights the cursor. Only a paste that
+  // matches the SELECTED platform collapses; a link to somewhere else is left
+  // whole, because composedUrl() forwards it verbatim.
+  if (channelInput) {
+    channelInput.addEventListener('blur', () => {
+      const key = platformKey();
+      if (key === 'other') return;
+      const host = { twitch: 'twitch.tv/', kick: 'kick.com/', youtube: 'youtube.com/' }[key];
+      const bare = channelInput.value.trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+      if (!host || !bare.toLowerCase().startsWith(host)) return;
+      channelInput.value = unwrapForPlatform(channelInput.value, key);
+      renderPreview();
+    });
+  }
+
+  /* ---------- contact method → what we still need ----------
+   * "Other" is the case that used to strand people: they picked it and the
+   * next field still said "Profile link", which is not what Other means. */
+  const CONTACT_ASK = {
+    '': null, // no preference — nothing more is needed
+    'Discord DM': null, // already answered by the Discord field above
+    'Email': {
+      label: 'Your email address',
+      placeholder: 'you@example.com',
+      hint: 'Where a moderator should email you about this application.',
+    },
+    'Twitter/X': {
+      label: 'Your X profile link',
+      placeholder: 'https://x.com/yourhandle',
+      hint: 'The account a moderator should DM.',
+    },
+    'Other': {
+      label: 'How should we reach you?',
+      placeholder: 'Telegram @you, Instagram link, anything…',
+      hint: 'Name the platform and the handle or link — a moderator has no other way to guess it.',
+    },
+  };
+
+  const methodSel = $('f-method');
+  const linkField = $('contactLinkField');
+
+  function applyContactMethod() {
+    if (!methodSel || !linkField) return;
+    const ask = CONTACT_ASK[methodSel.value] || null;
+    linkField.hidden = !ask;
+    if (!ask) return;
+    $('contactLinkLabel').textContent = ask.label;
+    $('contactLinkHint').textContent = ask.hint;
+    $('f-contactlink').placeholder = ask.placeholder;
+    // Email and free-text answers are not URLs, and the server only URL-checks
+    // contactLink when it looks like one — so the input type stays text.
+    $('f-contactlink').inputMode = methodSel.value === 'Email' ? 'email' : 'text';
+  }
+
+  if (methodSel) methodSel.addEventListener('change', applyContactMethod);
+
   /** Same normalisation streams.js applies before it renders a roster card. */
   function previewHandle(raw) {
-    const s = String(raw || '').trim().toLowerCase().replace(/^@/, '');
-    if (!s) return 'twitch.tv/you';
-    const m = s.match(/twitch\.tv\/([a-z0-9_]+)/);
-    if (m) return 'twitch.tv/' + m[1];
-    // A full URL to somewhere else is shown as typed — the card links out to
-    // whatever platform they gave, so inventing a twitch.tv/ prefix would
-    // preview a card that will never exist.
-    if (/^https?:\/\//.test(s) || s.includes('.')) return s.replace(/^https?:\/\//, '');
-    return /^[a-z0-9_]{3,25}$/.test(s) ? 'twitch.tv/' + s : s;
+    const url = composedUrl();
+    if (!url) return PLATFORMS[platformKey()].prefix + 'you' || 'your-channel-link';
+    return url.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
   }
 
   function initialsOf(name) {
     return String(name).trim().split(/\s+/).map((w) => w[0] || '').join('').slice(0, 2).toUpperCase();
   }
 
+  /**
+   * Which platform the card should be COLOURED as.
+   *
+   * Not simply the dropdown: composedUrl() forwards a pasted link for another
+   * platform verbatim, and the server derives the real platform from that URL.
+   * So the preview reads the finished URL the same way, and a Kick link pasted
+   * while "Twitch" is selected previews green — which is the card that would
+   * actually be built.
+   */
+  function previewPlatform() {
+    const url = composedUrl().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+    if (url.startsWith('twitch.tv/')) return 'twitch';
+    if (url.startsWith('kick.com/')) return 'kick';
+    if (url.startsWith('youtube.com/') || url.startsWith('youtu.be/')) return 'youtube';
+    if (url) return 'other';
+    return platformKey();   // nothing typed yet — follow the picker
+  }
+
   function renderPreview() {
     if (!preview.name) return; // preview markup absent — form still works
     const name = String(form.elements.name.value || '').trim();
     const blurb = String(form.elements.blurb.value || '').trim();
+
+    if (preview.card) preview.card.className = 'prev-card ' + previewPlatform();
 
     preview.name.textContent = name || 'Your channel name';
     preview.handle.textContent = previewHandle(form.elements.channelUrl.value);
@@ -88,6 +246,8 @@
     const el = form.elements[field];
     if (el) el.addEventListener('input', renderPreview);
   });
+  applyPlatform();
+  applyContactMethod();
   renderPreview();
 
   /**
@@ -141,6 +301,13 @@
     if (button.disabled) return;
 
     const data = Object.fromEntries(new FormData(form).entries());
+
+    // The input holds a handle; the server wants a URL. Compose it here so the
+    // stored channel_url is whole, and drop the picker itself — it is an input
+    // aid, and letting it ride along would invite a future reader to trust it
+    // over the URL that streamer.js actually derives the platform from.
+    data.channelUrl = composedUrl();
+    delete data.platform;
 
     // A cheap local pass on the three required text fields, so the obvious
     // omission does not cost a round trip. The server owns the real verdict.

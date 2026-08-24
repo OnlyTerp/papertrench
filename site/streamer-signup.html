@@ -36,7 +36,10 @@
    *     it is just a statement about where an answer can end up, not a
    *     warning that it is already on its way there.
    * ================================================================== */
-  :root { --twitch: #9146FF; --twitch2: #bf94ff; --twitch-dim: rgba(145,70,255,0.30); }
+  :root {
+    --twitch: #9146FF; --twitch2: #bf94ff; --twitch-dim: rgba(145,70,255,0.30);
+    --kick: #53fc18; --yt: #ff4e45;
+  }
   .k-twitch { color: var(--twitch2); background: rgba(145,70,255,0.10); border: 1px solid var(--twitch-dim); }
 
   .hero.compact { padding: 132px 0 22px; }
@@ -98,6 +101,23 @@
   .count { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
   .count.near { color: var(--orange2); }
 
+  /* ---------- channel URL, composed from the platform ----------
+   * The domain is not something anyone should have to type, and typing it
+   * is where the typos are. Pick the platform, fill in the handle. A full
+   * pasted URL still works — the JS unwraps it back to the handle. */
+  .url-group { display: flex; align-items: stretch; }
+  .url-prefix {
+    display: flex; align-items: center; flex: none;
+    font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--muted);
+    background: rgba(0,0,0,0.4); border: var(--edge); border-right: 0;
+    border-radius: 10px 0 0 10px; padding: 0 4px 0 12px; white-space: nowrap;
+  }
+  .url-group .ar-input { border-radius: 0 10px 10px 0; }
+  .url-group.bare .url-prefix { display: none; }
+  .url-group.bare .ar-input { border-radius: 10px; }
+  .url-prefix.twitch { color: var(--twitch2); }
+  .url-prefix.kick { color: var(--kick); }
+  .url-prefix.youtube { color: var(--yt); }
 
   /* ---------- the data statement ---------- */
   .data-note {
@@ -144,15 +164,35 @@
   .perk span { color: var(--muted); }
   .side-card.prep .perk .ico { color: var(--orange2); }
 
-  /* ---------- live card preview (green) ---------- */
+  /* ---------- live card preview ----------
+   *
+   * The card wears the colour of the platform it would live on: Twitch
+   * purple, Kick green, YouTube red — the same cue the streams page uses for
+   * its badges. A preview in a colour the real card never takes is a mock-up;
+   * matching it means what they are looking at is what gets built.
+   *
+   * Driven by two custom properties so the platform class sets the colour in
+   * one place and everything tinted follows. */
   .prev-card {
+    --prev: var(--twitch2);
+    --prev-soft: rgba(145,70,255,0.17);
     background: var(--panel2); border: 1px solid var(--line2);
     border-radius: 12px; overflow: hidden;
+    transition: border-color .25s;
   }
+  .prev-card.kick    { --prev: var(--kick); --prev-soft: rgba(83,252,24,0.15); }
+  .prev-card.youtube { --prev: var(--yt);   --prev-soft: rgba(255,78,69,0.15); }
+  .prev-card.other   { --prev: var(--muted); --prev-soft: rgba(255,255,255,0.07); }
+
+  /* No transition on either tinted property. A `transition` on a value that
+     comes from a custom property pins it to the START value when the property
+     changes — the handle stayed Twitch purple on a Kick card, reporting the
+     old colour indefinitely rather than for 250ms. (The gradient would not
+     have interpolated anyway; gradients are not interpolable.) */
   .prev-thumb {
     position: relative; aspect-ratio: 16 / 9;
     display: grid; place-items: center;
-    background: linear-gradient(145deg, rgba(52,211,153,0.17), rgba(52,211,153,0.02));
+    background: linear-gradient(145deg, var(--prev-soft), rgba(0,0,0,0));
     font-family: var(--mono); font-size: 26px; font-weight: 800;
     color: rgba(255,255,255,0.22); letter-spacing: 2px;
   }
@@ -164,7 +204,7 @@
   }
   .prev-body { padding: 12px 14px 14px; }
   .prev-name { font-size: 14px; font-weight: 800; letter-spacing: -0.2px; word-break: break-word; }
-  .prev-handle { font-family: var(--mono); font-size: 11px; color: var(--green2); margin-top: 3px; word-break: break-all; }
+  .prev-handle { font-family: var(--mono); font-size: 11px; color: var(--prev); margin-top: 3px; word-break: break-all; }
   .prev-blurb { margin-top: 8px; font-size: 12.5px; color: var(--muted); line-height: 1.5; word-break: break-word; }
   .prev-blurb.empty { color: var(--dim); font-style: italic; }
   .prev-foot { margin-top: 12px; font-size: 11.5px; color: var(--dim); line-height: 1.5; }
@@ -201,7 +241,7 @@
   <div class="wrap">
     <span class="sec-kicker k-twitch reveal">Streamer application</span>
     <h1 class="reveal d1">Get featured <span class="grad-twitch">in the trench.</span></h1>
-    <p class="hero-sub reveal d2">Any creator running the PaperTrench Challenge can apply. Approved streamers get a card on the <a href="/streams">streams page</a>, the Streamer role in Discord, and an automatic alert when they go live.</p>
+    <p class="hero-sub reveal d2">Any creator running the PaperTrench Challenge can apply — Twitch, Kick or YouTube. Approved streamers get a card on the <a href="/streams">streams page</a>, the Streamer role in Discord, and an automatic alert when they go live.</p>
   </div>
 </header>
 
@@ -231,11 +271,25 @@
               <input class="ar-input" type="text" name="name" id="f-name" maxlength="40" autocomplete="off" required>
             </label>
 
-            <label class="ar-field">
-              <span class="lbl">Main channel URL <span class="req">*</span></span>
-              <input class="ar-input" type="text" name="channelUrl" id="f-channel" maxlength="200" inputmode="url" placeholder="twitch.tv/yourname" autocomplete="off" required>
-              <span class="hint">Twitch, YouTube, Kick — whichever is your main. Twitch channels also play inline on the streams page.</span>
-            </label>
+            <div class="ar-field">
+              <label class="lbl" for="f-platform">Where do you stream? <span class="req">*</span></label>
+              <select class="ar-input" id="f-platform" name="platform">
+                <option value="twitch" selected>Twitch</option>
+                <option value="kick">Kick</option>
+                <option value="youtube">YouTube</option>
+                <option value="other">Somewhere else</option>
+              </select>
+              <span class="hint" id="platformHint">Twitch channels can be played inline on the streams page — the other platforms get a card that links out.</span>
+            </div>
+
+            <div class="ar-field">
+              <label class="lbl" for="f-channel">Channel <span class="req">*</span></label>
+              <div class="url-group" id="urlGroup">
+                <span class="url-prefix twitch" id="urlPrefix">twitch.tv/</span>
+                <input class="ar-input" type="text" name="channelUrl" id="f-channel" maxlength="200" inputmode="url" placeholder="yourname" autocomplete="off" required>
+              </div>
+              <span class="hint" id="channelHint">Just the part after the slash. Pasting the full link works too.</span>
+            </div>
 
             <label class="ar-field">
               <span class="lbl">One line about your stream <span class="count" id="blurbCount">0 / 160</span></span>
@@ -277,7 +331,7 @@
 
             <label class="ar-field">
               <span class="lbl">Preferred contact method</span>
-              <select class="ar-input" name="contactMethod">
+              <select class="ar-input" name="contactMethod" id="f-method">
                 <option value="" selected>No preference</option>
                 <option>Discord DM</option>
                 <option>Email</option>
@@ -286,10 +340,13 @@
               </select>
             </label>
 
-            <label class="ar-field">
-              <span class="lbl">Profile link</span>
-              <input class="ar-input" type="text" name="contactLink" id="f-contactlink" maxlength="200" inputmode="url" autocomplete="off" placeholder="https://…">
-              <span class="hint">If you picked Discord, Twitter/X or Other above, drop the profile link here.</span>
+            <!-- Relabels itself to match the method above; hidden entirely when
+                 the chosen method needs nothing extra (Discord DM is already
+                 answered by the Discord field). -->
+            <label class="ar-field" id="contactLinkField" hidden>
+              <span class="lbl" id="contactLinkLabel">Profile link</span>
+              <input class="ar-input" type="text" name="contactLink" id="f-contactlink" maxlength="200" autocomplete="off" placeholder="https://…">
+              <span class="hint" id="contactLinkHint">Where should we reach you?</span>
             </label>
 
             <label class="ar-field">
@@ -323,7 +380,7 @@
       <!-- The card as it would be built, shown before anyone else can see it. -->
       <div class="side-card">
         <h3>Your card, if approved</h3>
-        <div class="prev-card" aria-live="polite">
+        <div class="prev-card twitch" id="prevCard" aria-live="polite">
           <div class="prev-thumb" id="prevInitials">?<span class="chip">OFFLINE</span></div>
           <div class="prev-body">
             <div class="prev-name" id="prevName">Your channel name</div>
