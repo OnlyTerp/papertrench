@@ -137,18 +137,28 @@ test('a shortfall refuses instead of selling everything and calling it a recover
 
   const render = block('renderSellInitial');
   assert.match(render, /btn\.disabled = true/, 'and the control must show as unavailable');
-  assert.match(render, /Not enough to cover the initial yet/, 'saying why');
+  // The label is short now — the control sits in a compact row — so the
+  // reason moved to the title, where there is room for a sentence.
+  assert.match(render, /pt-short/, 'and it must be visibly distinct while refusing');
+  assert.match(render, /Selling the whole position would still return less than went in/,
+    'saying why, in the tooltip');
 });
 
 test('the label states the fraction it is about to sell', () => {
   // "Sell initial" alone asks the trader to trust an unstated number.
   const render = block('renderSellInitial');
   assert.match(render, /plan\.fraction \* 100/);
-  assert.match(render, /Sell initial \(\$\{/);
+  assert.match(render, /Sell init \$\{/, 'the compact label still carries the number');
 });
 
-test('nothing to recover means no button at all', () => {
+test('the control is never hidden, only made inert', () => {
+  // Requested: always show it. A button that comes and goes cannot be
+  // reached for, and its absence is indistinguishable from a broken panel.
   const render = block('renderSellInitial');
-  assert.match(render, /if \(!plan\) \{ btn\.classList\.add\('pt-hidden'\); return; \}/,
-    'a round already whole has no initial left to take off the table');
+  assert.ok(!/classList\.add\('pt-hidden'\)/.test(render),
+    'renderSellInitial must never hide the control');
+  assert.match(render, /btn\.classList\.remove\('pt-hidden'\)/,
+    'it un-hides it on every pass, so nothing else can leave it hidden');
+  assert.match(render, /Nothing left to recover/,
+    'and a round already whole says so rather than disappearing');
 });
