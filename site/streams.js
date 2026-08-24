@@ -69,6 +69,28 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
 
+  /* ---------- drawn marks ----------
+   * Emoji render as a different typeface per platform and carry an OS-level
+   * colour we cannot theme, which is exactly wrong for a page whose job is to
+   * look considered. These inherit currentColor and scale with the layout. */
+  const MARK_CAMERA =
+    '<svg class="mark" width="38" height="38" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="2" y="6" width="13" height="12" rx="2.5"/>' +
+    '<path d="M15 10.5 22 7v10l-7-3.5z"/></svg>';
+  const MARK_EXTERNAL =
+    '<svg class="mark" width="34" height="34" viewBox="0 0 24 24" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M14 4h6v6M20 4l-9 9"/>' +
+    '<path d="M18 14v5a1.8 1.8 0 0 1-1.8 1.8H5.2A1.8 1.8 0 0 1 3.4 19V7.8A1.8 1.8 0 0 1 5.2 6H10"/></svg>';
+  const MARK_PLAY =
+    '<span class="s-play" aria-hidden="true">' +
+    '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">' +
+    '<path d="M8 5.6v12.8a.7.7 0 0 0 1.07.6l10-6.4a.7.7 0 0 0 0-1.2l-10-6.4A.7.7 0 0 0 8 5.6z"/>' +
+    '</svg></span>';
+
   /* ---------- scroll reveal (same behaviour as main.js) ---------- */
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -245,10 +267,11 @@
       frame.innerHTML = `
         <div class="player-empty">
           <div class="inner">
-            <div class="big">🎥</div>
+            ${MARK_CAMERA}
             <h3>The roster is forming</h3>
-            <p>Streamer signups for the PaperTrench Challenge are open. The first
-            live runs land right here — and if you stream, that could be you.</p>
+            <p>Streamer applications for the PaperTrench Challenge are open. The
+            first live runs land right here — and if you stream, that could be
+            you. <a href="/streamer-signup">Apply for the roster</a>.</p>
           </div>
         </div>`;
       return;
@@ -267,10 +290,10 @@
       frame.innerHTML = `
         <div class="player-empty">
           <div class="inner">
-            <div class="big">↗</div>
+            ${MARK_EXTERNAL}
             <h3>Embeds need a web origin</h3>
             <p>Open this page from papertrench.com (or localhost) to watch inline,
-            or head straight to <a style="color:var(--twitch2)" href="https://twitch.tv/${login}" target="_blank" rel="noopener">twitch.tv/${login}</a>.</p>
+            or head straight to <a href="https://twitch.tv/${login}" target="_blank" rel="noopener">twitch.tv/${login}</a>.</p>
           </div>
         </div>`;
       return;
@@ -301,13 +324,12 @@
   const OPEN_SLOTS = 3;
   function openSlot() {
     return `
-        <a class="s-card" href="${esc(SIGNUP_URL)}"
-           style="display:block;border-style:dashed;border-color:rgba(145,70,255,0.35)">
-          <div class="s-thumb"><div class="ph">?</div></div>
+        <a class="s-card open" href="${esc(SIGNUP_URL)}">
+          <div class="s-thumb"><div class="ph">+</div></div>
           <div class="s-body">
             <div class="s-name">Your stream here</div>
             <div class="s-handle">twitch.tv/you</div>
-            <div class="s-blurb">Open slot on the challenge roster — sign up below and it's yours.</div>
+            <div class="s-blurb">An open slot on the challenge roster. Applications are reviewed by hand.</div>
           </div>
         </a>`;
   }
@@ -328,7 +350,7 @@
         : `<div class="ph">${esc(initials(s.name))}</div>`;
       return `
         <button class="s-card" data-login="${esc(s.login)}" type="button" title="Watch ${esc(s.name)}">
-          <div class="s-thumb">${thumb}${badge}</div>
+          <div class="s-thumb">${thumb}${badge}${MARK_PLAY}</div>
           <div class="s-body">
             <div class="s-name">${esc(s.name)}</div>
             <div class="s-handle">twitch.tv/${esc(s.login)}</div>
@@ -355,6 +377,9 @@
     $('liveCountLabel').textContent = liveCount > 0
       ? `${liveCount} streamer${liveCount === 1 ? '' : 's'} live right now`
       : 'The PaperTrench Challenge';
+    // The pill only goes red when something is genuinely live — a permanently
+    // red "LIVE" dot on an empty roster is the cheapest kind of lie.
+    $('liveCount').classList.toggle('on', liveCount > 0);
 
     // Put a live channel in the player unless the viewer picked one themself.
     if (!userPinned) {
