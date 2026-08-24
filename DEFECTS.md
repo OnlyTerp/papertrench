@@ -601,6 +601,25 @@ Close this defect only by reproducing it with the receipt in hand: whether
 THIS mechanism — and not suspects (2)/(3) — produced the WhiteBull fill is
 confirmed the day a receipt names the source.
 
+**F-48 field occurrence 2 — 2026-08-19, SoranaSokan (Discord 18:24 UTC):
+"buying low selling high doesnt count as profit, i made a minus 12% but
+should have been plus".** Reported without a screenshot or journal receipt,
+same session as "i cant buy alot of coins it says armed/waiting for first
+quotes" (18:25) — a degraded price-pipeline session. Engine sign verified
+NOT inverted by executing lock: `test/signlock.test.js` (shipped with this
+entry) drives buy()/sell() through the version the trader ran (v3.5.0) and
+HEAD, proving a +12% price move books +9.77%, and that booking exactly
+-12% at the default 1%/side fees requires the RECORDED exit to price at
+≈89.8% of the RECORDED entry — i.e. a genuine low-buy/high-sell can only
+log -12% if the exit fill priced ≥10% under the screen the trader watched.
+That is this defect's exact shape (first occurrence: a win rendered as
+-9.6% on lute). No fix under the F-45 rule: no receipt exists, and the
+quiet-screen guard + F-47 witness + provenance receipts are all present in
+v3.5.0. Occurrence registered against F-48 pending a receipt naming its
+priceSource; if a future occurrence's journal row shows priceSource
+'chart-export'/'fresh screen' with sane priceAgeMs, escalate as a NEW
+defect (suspect (2)/(3) family) instead of extending this one.
+
 **F-49 · S1 · Axiom mcap-mode: B/S bubbles drawn away from where the trader actually bought and sold**
 toshi100x, Discord screenshot 2026-08-07 (Axiom, "…/USD on Pump" pair,
 MCap axis, both markers displaced from the click points) · **open — needs
