@@ -46,11 +46,58 @@
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 20px 22px;
   }
-  .app-top { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-  .app-name { font-size: 16.5px; font-weight: 800; }
-  .app-chan { font-size: 12.5px; margin-top: 2px; }
+  .app { padding: 0; overflow: hidden; }
+
+  /* ---------- summary row ----------
+     Triage is who / where / how big / how old. Everything else is one click
+     away rather than stacked on the page sixty rows deep. */
+  .app-sum {
+    display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+    padding: 15px 20px; cursor: pointer; list-style: none;
+    transition: background .15s;
+  }
+  .app-sum::-webkit-details-marker { display: none; }
+  .app-sum:hover { background: rgba(255,255,255,0.025); }
+  .app-det[open] .app-sum { background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--line); }
+  .app-det[open] .chev { transform: rotate(90deg); }
+  .chev { flex: none; color: var(--dim); display: flex; transition: transform .18s; }
+  .sum-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .app-name { font-size: 15.5px; font-weight: 800; letter-spacing: -0.2px; }
+  .app-chan { font-size: 12px; margin-top: 2px; }
   .app-chan a { color: var(--orange2); word-break: break-all; }
-  .app-when { margin-left: auto; font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+  .sum-meta { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+  .app-when { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+
+  .app-full { padding: 18px 20px 4px; }
+  .det-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 22px; }
+  @media (max-width: 780px) { .det-grid { grid-template-columns: 1fr; } }
+
+  .cap { font-family: var(--mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.1px; text-transform: uppercase; margin-bottom: 9px; }
+  .cap.pub { color: var(--orange2); }
+  .cap.priv { color: var(--green2); }
+
+  /* The card as the streams page would build it — approving is then a
+     decision about something the moderator has actually looked at. */
+  .mini-card { margin-top: 14px; background: var(--panel2); border: 1px solid var(--line2);
+    border-radius: 10px; overflow: hidden; max-width: 300px; }
+  .mini-thumb { aspect-ratio: 16/9; display: grid; place-items: center;
+    font-family: var(--mono); font-size: 22px; font-weight: 800; color: rgba(255,255,255,0.22); }
+  .mini-thumb.twitch  { background: linear-gradient(145deg, rgba(145,70,255,0.18), transparent); }
+  .mini-thumb.kick    { background: linear-gradient(145deg, rgba(83,252,24,0.16), transparent); }
+  .mini-thumb.youtube { background: linear-gradient(145deg, rgba(255,78,69,0.16), transparent); }
+  .mini-thumb.other   { background: linear-gradient(145deg, rgba(255,255,255,0.07), transparent); }
+  .mini-body { padding: 10px 12px 12px; }
+  .mini-name { font-size: 13px; font-weight: 800; }
+  .mini-handle { font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 2px; word-break: break-all; }
+  .mini-blurb { margin-top: 6px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .mini-blurb.empty { color: var(--dim); font-style: italic; }
+  .plat-note { margin-top: 9px; font-size: 11.5px; color: var(--dim); }
+
+  .notes-box { margin-top: 14px; padding: 12px 14px; border-radius: 10px;
+    background: rgba(0,0,0,0.26); border: 1px solid var(--line); }
+  .notes { font-size: 13px; color: var(--text); line-height: 1.6; white-space: pre-wrap; }
+  .notes.empty { color: var(--dim); font-style: italic; }
 
   .plat {
     display: inline-block; font-size: 9.5px; font-weight: 800; letter-spacing: 0.9px;
@@ -75,8 +122,8 @@
   .private-note .cap { font-size: 10px; font-weight: 800; letter-spacing: 1.1px;
     text-transform: uppercase; color: var(--green2); margin-bottom: 7px; }
 
-  .app-acts { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin-top: 17px;
-    padding-top: 15px; border-top: 1px solid var(--line); }
+  .app-acts { display: flex; gap: 9px; flex-wrap: wrap; align-items: center;
+    padding: 14px 20px; border-top: 1px solid var(--line); background: rgba(0,0,0,0.18); }
   .ar-btn.good { background: rgba(52,211,153,0.13); border-color: rgba(52,211,153,0.35); color: var(--green2); }
   .ar-btn.bad { background: rgba(224,67,58,0.11); border-color: rgba(224,67,58,0.32); color: #ff8a80; }
   .act-msg { font-size: 12.5px; font-weight: 650; color: var(--muted); }
@@ -117,8 +164,8 @@
 
 <header class="admin-head">
   <div class="wrap">
-    <h1>Moderator queue</h1>
-    <p>Streamer applications from <a href="/streamer-signup" style="color:var(--orange2)">the signup form</a>. Approving a Twitch application puts a card on the streams page within a minute; everything on this page is visible to moderators only.</p>
+    <h1>Streamer queue</h1>
+    <p>Applications from <a href="/streamer-signup" style="color:var(--orange2)">the signup form</a>. Nothing here is public: an application becomes a card on the streams page only when a moderator approves it, and the contact details never appear anywhere. Twitch channels play inline; Kick and YouTube get a card that links out.</p>
   </div>
 </header>
 
