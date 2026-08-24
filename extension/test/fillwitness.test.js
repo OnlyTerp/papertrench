@@ -70,8 +70,13 @@ test('F-47: the fill path actually routes through the witness', () => {
     'accepted ticks are evidence');
   const fillEvidence = content.match(/lastAcceptedMarket = \{ priceNative: result\.trade\.priceNative, at: Date\.now\(\) \};/g) || [];
   assert.ok(fillEvidence.length >= 2, 'committed buys AND sells are money evidence');
-  assert.match(content, /Q\.needsFillWitness\(chosen\.priceNative, evidence && evidence\.priceNative, evidenceAge\)/,
-    'the divergence judgment is the pure, tested one');
+  // F-57 widened this contract: the judgment also carries WHERE the candidate
+  // came from, because an aggregator snapshot answers to a tighter band than
+  // a live feed does.
+  assert.match(content, /Q\.needsFillWitness\(chosen\.priceNative, evidence && evidence\.priceNative,\s*\n?\s*evidenceAge, chosen\.source\)/,
+    'the divergence judgment is the pure, tested one, and it knows the source');
+  assert.match(content, /if \(Q\.isAggregatorSource\(chosen\.source\)\) \{\s*\n\s*const obs = await R\.onchainQuote\(/,
+    'an aggregator candidate must be witnessed by the chain, never by the aggregator again');
   assert.match(content, /if \(Q\.witnessAgrees\(chosen\.priceNative, witnessNative\)\) return chosen;/,
     'only an agreeing witness lets a divergent candidate fill');
 });

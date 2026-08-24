@@ -585,6 +585,42 @@ arithmetic instead matches fills by sessionId (`tradeInRound`), which
 survives the rename — the stand-in buy still counts in the round's money,
 its tradeIds, and the chart's average-entry line.
 
+**F-57 · S1 · a buy filled at 35k while the coin traded at 25k — 1.4x, no wick**
+`content.js pickQuoteForTrade` fresh-screen fast path + `quote.js
+needsFillWitness` band · field report 2026-08-22 ("higher entry without
+wicks or anything. just filled me at 35k while the coin is moving around
+25k") · **fixed** (executed regression in `test/fillprovenance.test.js`,
+ladder contract in `test/load.test.js`, witness contract in
+`test/fillwitness.test.js`).
+Two independent holes, both required for the entry to land where it did.
+**Provenance.** The F-52 fast path returns the on-screen snapshot whenever
+`atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS` (600ms) — and that age is
+derived from `lastPriceAt`, which the poll loop (`feedLive` false branch)
+and `requote()` ALSO stamp when they adopt a resolver price into
+`token.priceNative`. So an aggregator quote that landed inside the window
+was handed back AS "the price the trader is looking at": the chain was
+never asked and the ladder was skipped entirely. The irony is on the
+record — the F-47 evidence stream carries a comment refusing to read
+`token.priceNative` for precisely this reason, while the fast path read it
+anyway. **Band.** The F-47 witness only wakes past `FILL_WITNESS_RATIO`
+(2x), a width calibrated for a live feed where memecoins genuinely 4x
+between honest reads. 1.4x sat under it, so nothing examined the candidate.
+And the witness for any candidate not sourced `'action-resolver'` was
+`R.refresh()` — the aggregator — so a lagging read was asked to vouch for
+itself and did. `fillSourcesAgree`/`ONSCREEN_AGREE_RATIO` (1.06), which
+would have caught this, had been dead code since F-52 removed the
+chain-first comparison: defined, exported and tested, called by nothing.
+Fix: `lastPageTickAt` records when the PAGE FEED last delivered an accepted
+tick, kept strictly apart from `lastPriceAt`, and the fast path requires it
+— a resolver adoption falls through to the chain read, which does answer to
+accepted evidence (F-48, 1.10). Aggregator-sourced candidates
+(`resolver`, `action-resolver`, `jupiter`, `gmgn`, `pumpfun`) additionally
+answer to `AGGREGATOR_WITNESS_RATIO` (1.15) instead of 2x, because a
+periodic snapshot of a market this tab is already watching tick-by-tick has
+no business disagreeing by 40%; and any such candidate is witnessed by the
+chain, never by the aggregator again. The live feed keeps its wide band, so
+real violent moves still fill.
+
 **F-52 · S1 · fills land up to 6% away from the number the trader clicked on**
 `content.js pickQuoteForTrade` chain-first ladder · superski, Discord
 2026-08-11 ("sometimes your average entry isn't calculated properly, it'll

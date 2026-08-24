@@ -49,6 +49,12 @@ function bootLadder(env) {
     E: { fmt: (v) => String(v) },
     token: env.token,
     lastPriceAt: env.lastPriceAt,
+    // F-57: the ladder now separates "the page's own feed ticked" from
+    // "token.priceNative was written by somebody". These tests all model a
+    // chart-fed token, so unless a case says otherwise the page feed IS what
+    // moved — which is what keeps them exercising the F-52 path they were
+    // written for.
+    lastPageTickAt: env.lastPageTickAt !== undefined ? env.lastPageTickAt : env.lastPriceAt,
     pageQuoteSeq: 0,
     pageQuoteWaiters: new Set(),
     site: env.site || { id: 'lute' },

@@ -95,6 +95,11 @@
   const ARMED_ROW_TTL_MS = 60_000;
   let lastRenderedPrice = null; // drives the tick flash
   let lastPriceAt = 0;
+  // F-57: when the page's OWN feed last delivered an accepted tick. Kept apart
+  // from lastPriceAt, which means "when token.priceNative was last written by
+  // anybody" — resolver adoptions included. Only the fill path needs the
+  // distinction, and it needs it absolutely (see pickQuoteForTrade).
+  let lastPageTickAt = 0;
   let pageQuoteSeq = 0;
   const pageQuoteWaiters = new Set();
   let resolving = false;
@@ -753,6 +758,8 @@
     }
 
     lastPriceAt = Date.now();
+    // This is the one write that means "the screen just moved" (F-57).
+    lastPageTickAt = lastPriceAt;
     pageQuoteSeq += 1;
     for (const resolve of pageQuoteWaiters) resolve();
     pageQuoteWaiters.clear();
@@ -1221,6 +1228,7 @@
       delete livePositionPrices[token.mint];
       series = []; marks = [];
       lastPriceAt = 0;
+      lastPageTickAt = 0;
       lastCmTickPrice = 0;
       chartAxisBasis = null;
       // C-01: the repost throttle is per token, like the spec it re-posts.
@@ -1817,12 +1825,22 @@
       ? { priceNative: posEvidence, at: Date.now() }
       : null);
     const evidenceAge = evidence ? Date.now() - evidence.at : Infinity;
-    if (!Q.needsFillWitness(chosen.priceNative, evidence && evidence.priceNative, evidenceAge)) {
+    // F-57: the band depends on where the candidate came from. A live feed
+    // keeps the wide 2x window (real memecoin moves are violent); an
+    // aggregator snapshot answers to a tight one, because its disagreements
+    // are lag far more often than they are news.
+    if (!Q.needsFillWitness(chosen.priceNative, evidence && evidence.priceNative,
+      evidenceAge, chosen.source)) {
       return chosen;
     }
-    // The witness must be INDEPENDENT of the candidate's own source.
+    // The witness must be INDEPENDENT of the candidate's own source. F-57:
+    // this used to name ONE aggregator path ('action-resolver') and send
+    // every other candidate to R.refresh() — which is the aggregator. So an
+    // adopted 'resolver' or 'jupiter' price was witnessed by asking the same
+    // service that served it, and a lagging read cheerfully confirmed
+    // itself. Any aggregator-sourced candidate is now witnessed by the chain.
     let witnessNative = null;
-    if (chosen.source === 'action-resolver') {
+    if (Q.isAggregatorSource(chosen.source)) {
       const obs = await R.onchainQuote(token && token.mint).catch(() => null);
       if (obs && obs.priceNative > 0) witnessNative = obs.priceNative;
     } else {
@@ -1870,7 +1888,27 @@
     // fresh-screen path into a fill — and skipping the chain round trip
     // here makes the common fill faster, which is exactly what a fresh
     // launch needs.
-    const screenFresh = atClick && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS;
+    //
+    // F-57 (field report, 8/22): "higher entry without wicks or anything, just
+    // filled me at 35k while the coin is moving around 25k" — a 1.4x worse
+    // entry on a chart that never printed that level. The F-52 fast path read
+    // `atClickAge`, which is derived from lastPriceAt — and lastPriceAt is
+    // bumped by RESOLVER ADOPTIONS too (the poll loop and requote both write
+    // token.priceNative and re-stamp it). So a lagging aggregator quote that
+    // landed inside the 600ms window was returned here AS the on-screen
+    // price: the ladder was skipped, the chain was never asked, and the F-47
+    // witness let it pass because 1.4x sits under the 2x ratio. The comment
+    // above already named the field the evidence stream refuses to trust for
+    // exactly this reason; the fast path was reading it anyway.
+    //
+    // The fix is provenance, not another ratio: this path exists because the
+    // trader is looking at a moving chart, so it may only fire when the PAGE
+    // FEED is what moved. A resolver adoption falls through to the chain read
+    // below, which does answer to accepted evidence (F-48, 1.10 band).
+    const screenFresh = atClick
+      && atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS
+      && lastPageTickAt > 0
+      && clickAt - lastPageTickAt <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS;
     if (screenFresh) return atClick;
 
     // The screen is quiet — chain state is the authority now. It is the only

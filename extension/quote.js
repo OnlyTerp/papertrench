@@ -990,14 +990,45 @@
   var FILL_WITNESS_RATIO = 2;
   var FILL_WITNESS_AGREE_RATIO = 1.6;
 
-  /** Does this candidate need a second, independent source to vouch for it? */
-  function needsFillWitness(candidateNative, evidenceNative, evidenceAgeMs) {
+  // F-57: the 2x ratio above was calibrated for the on-screen feed, where a
+  // genuine memecoin move really can 4x between two honest reads — so a wide
+  // band is the price of not refusing real moves. An AGGREGATOR quote has no
+  // such excuse. It is a periodic snapshot of a market this tab is already
+  // watching tick by tick, and when it disagrees with evidence the tab just
+  // accepted as money, the overwhelmingly likely explanation is that the
+  // snapshot is behind — not that the market moved 40% between two reads the
+  // page feed somehow both missed. Everything from ONSCREEN_AGREE_RATIO up to
+  // FILL_WITNESS_RATIO answered to nobody on this path; 1.4x is where the
+  // field report landed ("filled me at 35k while the coin is moving around
+  // 25k"). These sources now answer to a band that a lagging read fails and
+  // an honest one passes.
+  var AGGREGATOR_WITNESS_RATIO = 1.15;
+  var AGGREGATOR_SOURCES = {
+    resolver: 1, 'action-resolver': 1, jupiter: 1, gmgn: 1, pumpfun: 1,
+  };
+
+  /** True for a price that came from a periodic snapshot rather than the
+   *  page's own live feed or the chain. */
+  function isAggregatorSource(source) {
+    return Boolean(AGGREGATOR_SOURCES[String(source)]);
+  }
+
+  /** The divergence a candidate from this source may show before it must be
+   *  corroborated. Unknown sources keep the wide, permissive band. */
+  function witnessRatioFor(source) {
+    return isAggregatorSource(source) ? AGGREGATOR_WITNESS_RATIO : FILL_WITNESS_RATIO;
+  }
+
+  /** Does this candidate need a second, independent source to vouch for it?
+   *  `source` is optional — omitted, every candidate gets the wide band, which
+   *  is the pre-F-57 behavior. */
+  function needsFillWitness(candidateNative, evidenceNative, evidenceAgeMs, source) {
     if (!(candidateNative > 0) || !(evidenceNative > 0)) return false;
     if (!(evidenceAgeMs >= 0) || evidenceAgeMs > FILL_WITNESS_WINDOW_MS) return false;
     var ratio = candidateNative > evidenceNative
       ? candidateNative / evidenceNative
       : evidenceNative / candidateNative;
-    return ratio > FILL_WITNESS_RATIO;
+    return ratio > witnessRatioFor(source);
   }
 
   /** A missing witness never confirms: a violent divergence that no second
@@ -1508,12 +1539,15 @@
     isPriceStale,
     fillSourcesAgree,
     needsFillWitness,
+    witnessRatioFor,
+    isAggregatorSource,
     witnessAgrees,
     onchainContradictsEvidence,
     scaleStepVerdict,
     FILL_WITNESS_WINDOW_MS,
     FILL_WITNESS_RATIO,
     FILL_WITNESS_AGREE_RATIO,
+    AGGREGATOR_WITNESS_RATIO,
     ONCHAIN_EVIDENCE_WINDOW_MS,
     ONCHAIN_EVIDENCE_AGREE_RATIO,
     SCALE_STEP_RATIO,
