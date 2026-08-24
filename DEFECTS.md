@@ -473,6 +473,34 @@ per-site defaults (`listQuickBuyPlacement`) and an explicit user setting
 once the chip itself is painted → F-60. Locked by
 extension/test/rowchipcollision.test.js (probe decisions, gutter fallback,
 placementPref plumbing, both anchor modes consult the probe).
+**F-61 · S1 · a Pulse final-stretch buy committed under the pair stand-in vanished at the graduation boundary — the bonded reopen resolved a key the wallet never held**
+`content.js` fillRowBuy/detectLoop/requote/healStandInPositions ·
+`quote.js` tokenFromPayload · Axiom Pulse "Final Stretch" list rows (jb
+2026-08-17: "buy via final stretch, hold until bond, open from the bonding
+section: the buy does not show") · **fixed v3.13.7** — two holes, one
+identity family (F-51's stand-in stranding at a different lifecycle point):
+
+(1) *Commit-time.* The row-buy cascade ends in the row-feed fallback
+(`mint: address` — an ECHO, not a discovered identity). On a Pulse
+final-stretch row the click address is the PAIR/curve stand-in, so the fill
+keyed the stand-in: right while the page lived, dead the moment the coin
+graduated to a new AMM pool. `fillRowBuy` now probes the click address with
+ONE bounded `onchainPrewatch` when the candidate's mint is missing or the
+echo (`data.mint === address`); a discovered real mint re-keys the candidate
+BEFORE the engine buy. A silent probe keeps the honest legacy keying — the
+fill still books, never refuses.
+
+(2) *Recovery.* Wallets already carrying stand-in-keyed bags (the reported
+case: page closed between buy and graduation, so P0-3's in-context
+swapStash never ran — no loaded token, nothing stashed) heal at reopen:
+`tokenFromPayload` now carries `poolAddresses` (every pool Dexscreener
+lists for the base mint — graduated bonding-era pairs stay listed forever),
+and detectLoop/requote call `healStandInPositions`, which rekeys any OPEN
+position still keyed by one of those pools onto the real mint (via
+`E.rekeyMint`, both-keys merge-safe). An unrelated coin never matches —
+only pools provably listed under THIS base mint can donate their bag.
+Locked by extension/test/strandedbag.test.js (full-life report scenario,
+negative isolation, legacy silent-probe path) — red on pre-fix code.
 
 **F-41 · S1 · One buy drew TWO bubbles, and the average line never appeared — a dead self-write guard duplicated every fill, and a stale-ledger veto quietly relocated the line off-screen**
 `content.js` watchStorage/doBuy/doSellInner · `price-bridge.js`
