@@ -67,6 +67,9 @@ function normalizeTrade(item, candleByMinute) {
   const solLamports = num0(item.solLamports) || num0(item.solAmount) || 0;
   const ts = num(item.blockTime) || num(item.timestamp);
   if (!(ts > 0)) return null;
+  // Unify to MILLISECONDS. Indeix's blockTime is seconds; candles come in ms.
+  const tsMs = ts < 1e12 ? ts * 1000 : ts;
+  const minuteMs = Math.floor(tsMs / 60000) * 60000;
 
   const side = (baseAddress === mint)
     ? (String(item.side || '').toLowerCase() === 'sell' ? 'sell' : 'buy')
@@ -77,21 +80,19 @@ function normalizeTrade(item, candleByMinute) {
   const isTransfer = solLamports <= 0 && !(usd > 0);
   let priceUsd = usd > 0 && tokenRaw > 0 ? usd / tokenRaw : null;
   if (!(priceUsd > 0) && isTransfer) {
-    const minute = Math.floor(ts / 60) * 60;
-    const bar = candleByMinute && candleByMinute.get(minute);
+    const bar = candleByMinute && candleByMinute.get(minuteMs);
     if (bar && num0(bar.c) > 0) priceUsd = num(bar.c); // mark at the bar close
   }
   if (!(priceUsd > 0) && tokenRaw > 0) {
     // No USD and not a transfer we can mark — price from the bar close if known.
-    const minute = Math.floor(ts / 60) * 60;
-    const bar = candleByMinute && candleByMinute.get(minute);
+    const bar = candleByMinute && candleByMinute.get(minuteMs);
     if (bar && num0(bar.c) > 0) priceUsd = num(bar.c);
   }
   if (!(priceUsd > 0)) return null;
 
   const usdValue = tokenRaw * priceUsd;
   return {
-    ts, wallet, side, base: tokenRaw, usd: usdValue,
+    ts: tsMs, wallet, side, base: tokenRaw, usd: usdValue,
     solLamports, isTransfer, priceUsd, mint,
   };
 }
@@ -172,9 +173,12 @@ function pnlAt(p, price) {
  */
 function replayCurve(fills, candles) {
   const ordered = (fills || []).filter(Boolean).slice().sort((a, b) => a.ts - b.ts);
-  const minutes = (candles || []).map((c) => ({
-    ts: Math.floor(num(c.ts) / 60) * 60, c: num0(c.c), o: num0(c.o), h: num0(c.h), l: num0(c.l),
-  })).sort((a, b) => a.ts - b.ts);
+  const minutes = (candles || []).map((c) => {
+    const t = num(c.ts); const ts = t < 1e12 ? t * 1000 : t;
+    return {
+      ts: Math.floor(ts / 60000) * 60000, c: num0(c.c), o: num0(c.o), h: num0(c.h), l: num0(c.l),
+    };
+  }).sort((a, b) => a.ts - b.ts);
   if (!ordered.length || !minutes.length) return [];
 
   const points = [];
@@ -196,8 +200,13 @@ function replayCurve(fills, candles) {
   };
 
   for (const bar of minutes) {
-    // Fold every fill at or before this bar's minute.
-    while (fi < ordered.length && ordered[fi].ts <= bar.ts) {
+    // Fold every fill that belongs to this bar's window [bar.ts, bar.ts+60000)
+    // or was earlier — i.e. any fill strictly before the NEXT minute boundary.
+    // `<= bar.ts` was wrong: a fill seconds into the minute has ts > bar.ts
+    // (the minute's start), so it never matched its own bar and the position
+    // lagged one bar behind the price it traded at.
+    const windowEnd = bar.ts + 60000;
+    while (fi < ordered.length && ordered[fi].ts < windowEnd) {
       apply(ordered[fi], 1); fi++;
     }
     const pnl = pnlAt(position, bar.c);

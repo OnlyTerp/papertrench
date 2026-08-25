@@ -44,7 +44,9 @@ test('a transfer creates no cost basis and never ranks as a win', () => {
     side: 'buy', blockTime: 1700000000, baseTokenAmountRaw: '32000000',
     quoteTokenAmountRaw: '0', baseTokenAmountUSD: '0',
   });
-  const candle = new Map([[Math.floor(1700000000 / 60) * 60, { c: 0.145 }]]);
+  // The bar minute is an exact minute boundary in ms.
+  const minuteMs = Math.floor(1700000000000 / 60000) * 60000;
+  const candle = new Map([[minuteMs, { c: 0.145 }]]);
   const filled = R.normalizeTrade(gift, candle);
   assert.ok(filled, 'an unpriced transfer must be marked from the bar close');
   const p = R.foldFills([filled]);
@@ -58,9 +60,12 @@ test('a transfer creates no cost basis and never ranks as a win', () => {
 test('replayCurve steps realized vs unrealized per bar', () => {
   const buy = trade({ side: 'buy', blockTime: 1700000000, baseTokenAmountRaw: '1000', quoteTokenAmountRaw: '100', baseTokenAmountUSD: '1' });
   const sell = trade({ side: 'sell', blockTime: 1700000060, baseTokenAmountRaw: '1000', quoteTokenAmountRaw: '200', baseTokenAmountUSD: '2' });
+  // Minute-aligned candle boundaries (ms). The buy/sell ts fall inside their bar.
+  const m0 = Math.floor(1700000000000 / 60000) * 60000;
+  const m1 = Math.floor(1700000060000 / 60000) * 60000;
   const candles = [
-    { ts: 1700000000000, o: 0.001, h: 0.001, l: 0.001, c: 0.001 },
-    { ts: 1700000060000, o: 0.002, h: 0.002, l: 0.002, c: 0.002 },
+    { ts: m0, o: 0.001, h: 0.001, l: 0.001, c: 0.001 },
+    { ts: m1, o: 0.002, h: 0.002, l: 0.002, c: 0.002 },
   ];
   const fills = [R.normalizeTrade(buy), R.normalizeTrade(sell)].filter(Boolean);
   const pts = R.replayCurve(fills, candles);

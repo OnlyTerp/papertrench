@@ -24,6 +24,8 @@ import * as streamer from '../core/streamer.js';
 import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
 import { makeGetCandles } from './candles.js';
+import * as indeix from './indeix.js';
+import * as replay from '../core/replay.js';
 // Default-imported for the same CJS-lexer reason as core/chain.js above.
 import xfeed from './xfeed.js';
 
@@ -1865,6 +1867,97 @@ async function handleAdminLog(request, env) {
 
 /* ---------------- entry ---------------- */
 
+/* ---------------- real-trade replay (Indeix) ---------------- */
+
+/** Chain id for the replay endpoints. Only Solana is supported. */
+function replayChain(url) {
+  const chain = (url.searchParams.get('chain') || 'solana').toLowerCase();
+  return chain === 'solana' ? 'solana' : null;
+}
+
+/** GET /api/replay/history?mint=...&chain=solana — candles + wallet leaderboard. */
+async function handleReplayHistory(request, env) {
+  const url = new URL(request.url);
+  const chain = replayChain(url);
+  const mint = (url.searchParams.get('mint') || '').trim();
+  if (!chain) return json({ ok: false, reason: 'unsupported-chain' }, 400);
+  if (!replay.isAddress(mint)) return json({ ok: false, reason: 'bad-mint' }, 400);
+  const budget = { used: 0, max: 8 };
+  try {
+    const [candles, rawTrades] = await Promise.all([
+      indeix.ohlcv(env, chain, mint, 0, budget),
+      indeix.trades(env, chain, mint, budget, 50),
+    ]);
+    if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
+    const byMinute = indeix.candlesByMinute(candles);
+    const fills = rawTrades
+      .map((t) => replay.normalizeTrade(t, byMinute))
+      .filter(Boolean);
+    const byWallet = replay.groupByWallet(fills);
+    const finalPrice = candles.length ? candles[candles.length - 1].c : 0;
+    const lb = replay.leaderboard(byWallet, finalPrice, 10);
+    // Latest candle close is the mark price for the board's unrealized figure.
+    return json({
+      ok: true, mint,
+      candles: candles.slice(-720),
+      leaderboard: lb,
+    });
+  } catch (err) {
+    return replayError(err);
+  }
+}
+
+/** GET /api/replay/wallet?mint=...&wallet=...&chain=solana — one wallet's replay. */
+async function handleReplayWallet(request, env) {
+  const url = new URL(request.url);
+  const chain = replayChain(url);
+  const mint = (url.searchParams.get('mint') || '').trim();
+  const wallet = (url.searchParams.get('wallet') || '').trim();
+  if (!chain) return json({ ok: false, reason: 'unsupported-chain' }, 400);
+  if (!replay.isAddress(mint) || !replay.isAddress(wallet)) {
+    return json({ ok: false, reason: 'bad-address' }, 400);
+  }
+  const budget = { used: 0, max: 12 };
+  try {
+    const [candles, rawTrades] = await Promise.all([
+      indeix.ohlcv(env, chain, mint, 0, budget),
+      indeix.trades(env, chain, mint, budget, 50),
+    ]);
+    if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
+    const byMinute = indeix.candlesByMinute(candles);
+    const fills = rawTrades
+      .map((t) => replay.normalizeTrade(t, byMinute))
+      .filter((f) => f && f.wallet === wallet);
+    const position = replay.foldFills(fills);
+    const curve = replay.replayCurve(fills, candles);
+    const finalPrice = candles.length ? candles[candles.length - 1].c : 0;
+    const pnl = replay.pnlAt(position, finalPrice);
+    return json({
+      ok: true, mint, wallet,
+      candles: candles.slice(-720),
+      fills: fills.slice(-60),
+      curve,
+      position: {
+        qty: position.qty, buys: position.buys, sells: position.sells,
+        boughtUsd: position.boughtUsd, soldUsd: position.soldUsd,
+      },
+      pnl,
+    });
+  } catch (err) {
+    return replayError(err);
+  }
+}
+
+/** Map Indeix/replay errors to honest HTTP statuses (never leak the key). */
+function replayError(err) {
+  const code = err && err.code;
+  if (code === 'indeix-not-configured') return json({ ok: false, reason: 'replay-unconfigured' }, 503);
+  if (code === 'indeix-budget-exhausted') return json({ ok: false, reason: 'busy' }, 429);
+  if (code === 'indeix-rate-limited') return json({ ok: false, reason: 'rate-limited' }, 429);
+  if (code === 'indeix-auth-failed') return json({ ok: false, reason: 'replay-auth' }, 502);
+  return json({ ok: false, reason: 'server-error' }, 500);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1986,6 +2079,14 @@ export default {
       }
       else if (path === '/api/streamer/roster') {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
+      }
+      // Real-trade replay (Indeix). Cached at the edge — a token's candle +
+      // trade history is effectively immutable for a closed window.
+      else if (path === '/api/replay/history') {
+        response = await edgeCached(request, ctx, 60, () => handleReplayHistory(request, env));
+      }
+      else if (path === '/api/replay/wallet') {
+        response = await edgeCached(request, ctx, 60, () => handleReplayWallet(request, env));
       }
       // Moderation. Every one of these re-checks `moderator()` itself — the
       // routing table is not the gate, the handler is.
