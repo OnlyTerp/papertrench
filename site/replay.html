@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Replay</title>
+<meta name="description" content="Rebuild any Solana memecoin from the chain and replay what a wallet did on it — candles, fills, and PnL stepping bar by bar, ready to record.">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
+<link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+  /* Replay surface — self-contained, no chart lib. Clean + fast. */
+  :root {
+    --up: #34d399; --down: #e0433a; --text: #eaeff7; --muted: #8d97a9;
+    --panel: #0e121a; --bg: #07090e; --line: rgba(141,151,169,.14);
+    --fill-buy: #34d399; --fill-sell: #e0433a; --pnl: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
+  .replay { max-width: 1280px; margin: 28px auto 60px; padding: 0 22px; }
+  .replay h1 { font-size: 1.5rem; font-weight: 800; margin: 0 0 4px; letter-spacing: -.02em; }
+  .replay .sub { color: var(--muted); font-size: .9rem; margin-bottom: 22px; }
+  .inputs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .inputs input {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font: 500 .85rem 'JetBrains Mono', monospace; width: 320px;
+  }
+  .inputs input:focus { outline: none; border-color: var(--pnl); }
+  .inputs .wallet-in { width: 280px; }
+  .btn {
+    background: var(--pnl); color: #0a0716; border: 0; border-radius: 8px;
+    padding: 10px 18px; font: 700 .85rem 'Inter'; cursor: pointer; transition: .15s;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  .hint { color: var(--muted); font-size: .8rem; margin: -8px 0 18px; }
+  .layout { display: grid; grid-template-columns: 1fr 300px; gap: 18px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card-title { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 10px; }
+  #chartWrap { position: relative; width: 100%; height: 460px; }
+  canvas { display: block; width: 100%; height: 100%; background: var(--bg); }
+  /* Replay playhead + time scrubber */
+  .scrub { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .scrub button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: 700 .8rem 'Inter'; cursor: pointer; }
+  .scrub input[type=range] { flex: 1; accent-color: var(--pnl); }
+  .scrub .t { font: 700 .78rem 'JetBrains Mono'; color: var(--muted); min-width: 90px; text-align: right; }
+  .pnl-panel { margin-top: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .pnl-cell { background: rgba(141,151,169,.06); border-radius: 8px; padding: 10px 12px; }
+  .pnl-cell .l { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .pnl-cell .v { font: 800 1.1rem 'JetBrains Mono'; margin-top: 3px; }
+  .pos-positive { color: var(--up); } .pos-negative { color: var(--down); }
+  .fills { margin-top: 14px; max-height: 200px; overflow-y: auto; }
+  .fill-row { display: flex; justify-content: space-between; padding: 7px 4px; border-bottom: 1px solid var(--line); font: 500 .78rem 'JetBrains Mono'; }
+  .fill-row .buy { color: var(--up); } .fill-row .sell { color: var(--down); }
+  .board table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .board th, .board td { text-align: right; padding: 6px 4px; border-bottom: 1px solid var(--line); font: 500 .78rem 'JetBrains Mono'; }
+  .board th:first-child, .board td:first-child { text-align: left; }
+  .board th { color: var(--muted); font-weight: 600; }
+  .board .addr { font-family: 'JetBrains Mono'; color: var(--muted); font-size: .72rem; }
+  .empty { color: var(--muted); font-size: .85rem; padding: 30px 0; text-align: center; }
+  .tag { display: inline-block; font: 700 .65rem 'JetBrains Mono'; padding: 2px 7px; border-radius: 5px; margin-right: 6px; }
+  .tag.buy { background: rgba(52,211,153,.15); color: var(--up); }
+  .tag.sell { background: rgba(224,67,58,.15); color: var(--down); }
+  .legend { display: flex; gap: 16px; font-size: .76rem; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+  .error { color: var(--down); font: 500 .85rem 'JetBrains Mono'; margin-top: 10px; }
+  .loading { color: var(--muted); font-size: .85rem; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="bg-glow" aria-hidden="true"></div>
+<nav aria-label="Primary">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/news">News</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+    </div>
+  </div>
+</nav>
+
+<main class="replay" id="main">
+  <h1>Replay</h1>
+  <p class="sub">Rebuild any Solana memecoin from the chain and replay what a wallet did on it — candles, fills, and PnL stepping bar by bar, ready to record.</p>
+
+  <div class="inputs">
+    <input id="mint" class="mint-in" placeholder="Token mint address or pump.fun link" autocomplete="off">
+    <input id="wallet" class="wallet-in" placeholder="Wallet address (optional — replay a specific wallet)" autocomplete="off">
+    <button id="build" class="btn">Build replay</button>
+  </div>
+  <div class="hint">Paste a mint (or a pump.fun link). Add a wallet to replay its buys/sells on the candles. Leave the wallet blank to see the token's top/bottom traders.</div>
+  <div id="status" class="loading"></div>
+
+  <div class="layout">
+    <div class="card">
+      <div class="card-title">Price &amp; wallet fills</div>
+      <div id="chartWrap"><canvas id="chart"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--fill-buy)"></i>Buy</span>
+        <span><i style="background:var(--fill-sell)"></i>Sell</span>
+        <span><i style="background:var(--pnl)"></i>PnL (rhs)</span>
+      </div>
+      <div class="scrub">
+        <button id="play">▶ Play</button>
+        <input id="scrub" type="range" min="0" max="1" step="1" value="0">
+        <span class="t" id="tlabel">0 / 0</span>
+        <button id="record" class="secondary">● Record</button>
+      </div>
+      <div class="pnl-panel" id="pnl"></div>
+      <div class="fills" id="fills"></div>
+      <div id="chartMsg" class="empty">Enter a mint and press Build to reconstruct the chain history.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Trader board</div>
+      <div class="board" id="board"><div class="empty">No data yet.</div></div>
+    </div>
+  </div>
+</main>
+
+<script src="replay.js"></script>
+</body>
+</html>
