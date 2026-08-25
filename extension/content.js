@@ -9164,6 +9164,52 @@
     await enableOverlay();
   }
 
+  /* -------------------- global error capture (page) --------------------
+   * content.js has ~124 catch blocks that swallow silently. These listeners
+   * catch what nothing else did. Guarded three ways because this runs inside
+   * somebody else's page and must never break it:
+   *   - the whole registration is wrapped,
+   *   - the handler body is wrapped,
+   *   - the listeners are PASSIVE observers: they never preventDefault and
+   *     never stopPropagation, so the page's own error handling is untouched.
+   * The recorder is same-world (ISOLATED), so nothing here is reachable from
+   * page script. */
+  try {
+    const EL = window.PTErrors || null;
+    if (EL && typeof window.addEventListener === 'function') {
+      window.addEventListener('error', (event) => {
+        try {
+          EL.record((event && (event.error || event.message)) || 'unknown page error', {
+            scope: 'content',
+            kind: 'error',
+            filename: (event && event.filename) || null,
+            lineno: (event && event.lineno) || null,
+          });
+        } catch (_) { /* never break the host page */ }
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        try {
+          EL.record((event && event.reason) || 'unknown rejection', {
+            scope: 'content',
+            kind: 'unhandledrejection',
+          });
+        } catch (_) { /* never break the host page */ }
+      });
+      // Support pull: the worker asks, the page half answers with its own
+      // already-redacted entries. Pull-only, no UI.
+      if (chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+          try {
+            if (msg && msg.type === 'pt_errors_snapshot_content') {
+              respond({ ok: true, scope: 'content', entries: EL.snapshot() });
+            }
+          } catch (_) { respond && respond({ ok: false, entries: [] }); }
+          return undefined;
+        });
+      }
+    }
+  } catch (_) { /* error capture is best-effort and never load-bearing */ }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => init().catch(() => {}));
   else init().catch(() => {});
 })();

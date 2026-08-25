@@ -24,6 +24,19 @@
     || (typeof window !== 'undefined' && window.PTRpcPool)
     || (typeof require === 'function' ? require('./rpc-pool.js') : null);
 
+  /* The error black box. Resolved LAZILY on each call rather than captured
+   * here, because module load order is not guaranteed and a null captured at
+   * definition time would silently disable recording for the whole session.
+   * Never throws: an RPC failure path must not gain a second failure mode. */
+  function noteFeedError(error, context) {
+    try {
+      const EL = (typeof self !== 'undefined' && self.PTErrors)
+        || (typeof window !== 'undefined' && window.PTErrors)
+        || null;
+      if (EL && typeof EL.record === 'function') EL.record(error, context);
+    } catch (_) { /* recording is best-effort, never load-bearing */ }
+  }
+
   // A missing dependency previously surfaced as watch() quietly returning
   // false, which looked identical to "this pool has no decoder" and hid the
   // real fault for an entire release. Fail loudly instead.
@@ -843,6 +856,7 @@
       };
     } catch (error) {
       try { console.debug('PaperTrench: prewatch failed:', error && error.message); } catch (_) {}
+      noteFeedError(error, { fn: 'prewatch', pool: address || null });
       return null;
     }
   }
@@ -876,6 +890,7 @@
       desc = await describePool(poolAddress, mint);
     } catch (error) {
       try { console.error('PaperTrench: on-chain watch failed:', error && error.message); } catch (_) {}
+      noteFeedError(error, { fn: 'watch', mint, pool: poolAddress });
       return false;
     }
     if (!desc) return false;

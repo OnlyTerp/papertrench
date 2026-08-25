@@ -9,7 +9,7 @@
 
 
 if (typeof importScripts === 'function') {
-  importScripts('replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js', 'sites.js');
+  importScripts('errors.js', 'replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js', 'sites.js', 'fees.js');
 }
 const RP = self.PTReplay;
 const AT = self.PTAttest;
@@ -18,6 +18,38 @@ const FEED = self.PTOnchainFeed;
 const XL = self.PTXLinks;
 const XR = self.PTXRay;
 const FG = self.PTForge;
+const ERRLOG = self.PTErrors || null;
+
+/* -------------------- global error capture (worker) --------------------
+ * 114 catch blocks in this file swallow silently, which is correct for the
+ * product and useless for triage. These two listeners catch what nothing
+ * else did, so a "it stopped working" report has a black box to read.
+ * Every call is guarded: the recorder must never be the thing that breaks
+ * the service worker. */
+function noteError(err, context) {
+  try {
+    if (ERRLOG) ERRLOG.record(err, context);
+  } catch (_) { /* a recorder that throws is worse than no recorder */ }
+}
+
+if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
+  try {
+    self.addEventListener('error', (event) => {
+      noteError((event && (event.error || event.message)) || 'unknown worker error', {
+        scope: 'background',
+        kind: 'error',
+        filename: (event && event.filename) || null,
+        lineno: (event && event.lineno) || null,
+      });
+    });
+    self.addEventListener('unhandledrejection', (event) => {
+      noteError((event && event.reason) || 'unknown rejection', {
+        scope: 'background',
+        kind: 'unhandledrejection',
+      });
+    });
+  } catch (_) { /* listener registration must never abort worker startup */ }
+}
 
 /* -------------------- rug guard (holder concentration) --------------------
  * Two chain reads per coin per minute at most: the 20 largest token accounts
@@ -2512,6 +2544,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         openDashboard();
         sendResponse({ ok: true });
         break;
+
+      /* Support export: pull the error black box for a bug report. The
+       * content script records into its OWN buffer (separate world), so a
+       * report can carry both halves. No UI — this is a pull-only channel. */
+      case 'pt_errors_snapshot': {
+        let entries = [];
+        try { entries = ERRLOG ? ERRLOG.snapshot() : []; } catch (_) { entries = []; }
+        if (Array.isArray(message.entries) && message.entries.length) {
+          // Entries forwarded from a content script, already redacted there.
+          try { entries = entries.concat(message.entries); } catch (_) { /* keep worker half */ }
+        }
+        sendResponse({ ok: true, scope: 'background', entries });
+        break;
+      }
+      case 'pt_errors_clear': {
+        try { if (ERRLOG) ERRLOG.clear(); } catch (_) { /* nothing to clear */ }
+        sendResponse({ ok: true });
+        break;
+      }
+      /* Content scripts have no importScripts and live in a separate world;
+       * this lets them push a page-side error into the worker's buffer. */
+      case 'pt_errors_record': {
+        noteError(message.message || 'content error', message.context || { scope: 'content' });
+        sendResponse({ ok: true });
+        break;
+      }
 
       // D-42: armed row snipe persistence (see writeArmedRowIntent above).
       case 'pt_armed_row_arm': {

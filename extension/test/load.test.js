@@ -135,6 +135,8 @@ function makeBrowserSandbox() {
 
 /** Scripts Chrome evaluates in a page/extension context. */
 const BROWSER_SCRIPTS = [
+  { file: 'fees.js', global: 'PTFees' },
+  { file: 'slippage.js', global: 'PTSlippage' },
   { file: 'engine.js', global: 'PaperEngine' },
   { file: 'attest.js', global: 'PTAttest' },
   { file: 'pnlcard.js', global: 'PTPnlCard' },

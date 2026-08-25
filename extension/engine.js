@@ -354,12 +354,175 @@
 
   /* ---------------- price helpers ---------------- */
 
-  function applyBps(x, bps) { return x * (bps || 0) / 10000; }
+  function applyBps(x, bps) { return x * (Number(bps) || 0) / 10000; }
 
-  /** Effective buy price including simulated slippage. */
-  function buyPrice(px, settings) { return px * (1 + applyBps(1, settings.slippageBps)); }
-  /** Effective sell price including simulated slippage. */
-  function sellPrice(px, settings) { return px * (1 - applyBps(1, settings.slippageBps)); }
+  /* ---------------- pump.fun's real fee schedule ---------------- */
+
+  /**
+   * fees.js is loaded as a sibling global in the page and the worker, and as
+   * a CommonJS module under Node. Resolved LAZILY, per call, because engine.js
+   * loads BEFORE fees.js in the manifest's script list — capturing the global
+   * at module-evaluation time would pin it to undefined forever and silently
+   * demote every fill back to the flat configured fee.
+   */
+  function feesApi() {
+    if (typeof window !== 'undefined' && window.PTFees) return window.PTFees;
+    if (typeof self !== 'undefined' && self.PTFees) return self.PTFees;
+    if (typeof globalThis !== 'undefined' && globalThis.PTFees) return globalThis.PTFees;
+    if (typeof require === 'function') {
+      try { return require('./fees.js'); } catch (e) { /* not available */ }
+    }
+    return null;
+  }
+
+  /**
+   * The fee bps a fill actually pays.
+   *
+   * pump.fun charges 1.25% on the bonding curve and a market-cap-TIERED fee
+   * (1.25% down to 0.30%) once a coin graduates, so a flat `settings.feeBps`
+   * misprices nearly every fill. When the caller knows the token's state it
+   * passes it through and the real schedule applies.
+   *
+   * When it does NOT — off-pump.fun venues (Axiom pairs, EVM chains), replays
+   * of older fills, and every existing caller — there is no honest way to
+   * pick a tier, so the user's configured `settings.feeBps` still rules. That
+   * fallback is why the flat setting stays: it is the answer for tokens this
+   * schedule does not describe, not dead weight.
+   *
+   * `o.mcap` is deliberately NOT consulted: it is a USD market cap, and the
+   * tier table is denominated in SOL. Feeding dollars to a SOL table would
+   * put almost every coin in the cheapest band.
+   */
+  function feeContext(o) {
+    if (!o) return null;
+    const known = o.graduated !== undefined
+      || o.canonical !== undefined
+      || o.marketCapSol !== undefined;
+    if (!known) return null;
+    return {
+      graduated: o.graduated === true,
+      canonical: o.canonical !== false,
+      marketCapSol: o.marketCapSol,
+    };
+  }
+
+  function effectiveFeeBps(settings, o) {
+    const ctx = feeContext(o);
+    if (!ctx) return settings ? settings.feeBps : 0;
+    const F = feesApi();
+    if (!F || typeof F.resolveFeeBps !== 'function') return settings ? settings.feeBps : 0;
+    return F.resolveFeeBps(ctx);
+  }
+
+  /* ---------------- constant-product price impact ---------------- */
+
+  /**
+   * slippage.js, resolved lazily for the same reason feesApi() is: engine.js
+   * is evaluated before its siblings in the manifest's script list, so a
+   * global captured at module-evaluation time would be pinned to undefined.
+   */
+  function slippageApi() {
+    if (typeof window !== 'undefined' && window.PTSlippage) return window.PTSlippage;
+    if (typeof self !== 'undefined' && self.PTSlippage) return self.PTSlippage;
+    if (typeof globalThis !== 'undefined' && globalThis.PTSlippage) return globalThis.PTSlippage;
+    if (typeof require === 'function') {
+      try { return require('./slippage.js'); } catch (e) { /* not available */ }
+    }
+    return null;
+  }
+
+  /**
+   * The pool reserves a fill can be priced against, if the caller knows them.
+   *
+   * Accepted either flat on the order (`o.baseReserve` / `o.quoteReserve`) or
+   * nested (`o.reserves`), because the on-chain feed hands the pool around as
+   * one object. Both must be present and positive — a half-known pool is not
+   * a pool, and guessing the missing side would invent the exact number this
+   * product refuses to invent. Returns null when the fill has no pool context,
+   * which is the signal to fall back to the flat `settings.slippageBps`.
+   */
+  function reserveContext(o) {
+    const src = (o && o.reserves && typeof o.reserves === 'object') ? o.reserves : o;
+    if (!src) return null;
+    const baseReserve = Number(src.baseReserve);
+    const quoteReserve = Number(src.quoteReserve);
+    if (!Number.isFinite(baseReserve) || !(baseReserve > 0)) return null;
+    if (!Number.isFinite(quoteReserve) || !(quoteReserve > 0)) return null;
+    return { baseReserve, quoteReserve };
+  }
+
+  /**
+   * Turn a constant-product quote into a multiplier on the LIVE tick.
+   *
+   * WHY a ratio rather than the pool's own avgPrice: the reserve snapshot and
+   * the tick the trader is looking at are two different observations, seconds
+   * apart and often in different unit scales (raw lamports vs UI SOL). Using
+   * the pool's absolute avgPrice would silently re-price the fill to whatever
+   * the stale snapshot thought the coin was worth. The RATIO avgPrice/spot is
+   * unit-free and staleness-free — it is purely "how far into the curve this
+   * size pushes" — so it can be applied to the price actually on screen.
+   */
+  function impactRatio(quote, pool) {
+    if (!quote) return null;
+    const S = slippageApi();
+    const spot = S && typeof S.spotPrice === 'function' ? S.spotPrice(pool) : null;
+    if (!(spot > 0)) return null;
+    const ratio = quote.avgPrice / spot;
+    if (!Number.isFinite(ratio) || !(ratio > 0)) return null;
+    return ratio;
+  }
+
+  /**
+   * Effective buy price.
+   *
+   * With pool reserves AND a trade size, the fill walks the constant-product
+   * curve: size moves the price, exactly as it does on chain. A 50 SOL buy
+   * into a 12 SOL pool no longer fills at the same price as a 0.01 SOL buy.
+   *
+   * Without them — off-pump.fun venues, replays, every pre-existing caller —
+   * there is no curve to walk, so the user's configured `settings.slippageBps`
+   * still rules. That fallback is why the flat setting stays: it is the answer
+   * for fills whose pool we cannot see, not dead weight.
+   *
+   * `ctx.solIn` must already be NET OF FEES — fees are fees.js's concern and
+   * folding them in here would double-charge them.
+   */
+  function buyPrice(px, settings, ctx) {
+    const pool = reserveContext(ctx);
+    const S = slippageApi();
+    if (pool && S && typeof S.quoteBuy === 'function') {
+      const solIn = Number(ctx && ctx.solIn);
+      if (Number.isFinite(solIn) && solIn > 0) {
+        const ratio = impactRatio(S.quoteBuy({
+          solIn, baseReserve: pool.baseReserve, quoteReserve: pool.quoteReserve,
+        }), pool);
+        // The curve REPLACES the flat cushion rather than stacking on it:
+        // slippageBps is a stand-in for impact we could not measure, and we
+        // just measured it.
+        if (ratio !== null) return px * ratio;
+      }
+    }
+    return px * (1 + applyBps(1, settings.slippageBps));
+  }
+
+  /**
+   * Effective sell price. Mirror of buyPrice: `ctx.tokensIn` is the quantity
+   * being sold, already net of fees.
+   */
+  function sellPrice(px, settings, ctx) {
+    const pool = reserveContext(ctx);
+    const S = slippageApi();
+    if (pool && S && typeof S.quoteSell === 'function') {
+      const tokensIn = Number(ctx && ctx.tokensIn);
+      if (Number.isFinite(tokensIn) && tokensIn > 0) {
+        const ratio = impactRatio(S.quoteSell({
+          tokensIn, baseReserve: pool.baseReserve, quoteReserve: pool.quoteReserve,
+        }), pool);
+        if (ratio !== null) return px * ratio;
+      }
+    }
+    return px * (1 - applyBps(1, settings.slippageBps));
+  }
   /** Flat per-transaction cost (priority fee + tip), sanity-bounded. */
   function txCostSol(settings) {
     const gas = clamp(Number(settings && settings.gasSolPerTx) || 0, 0, 0.5);
@@ -378,9 +541,23 @@
    */
   function buy(state, settings, o) {
     const sol = Number(o.solAmount);
-    const px = buyPrice(Number(o.priceNative), settings);
     const flat = txCostSol(settings);
     if (!(sol > 0)) throw new Error('Buy amount must be > 0 SOL');
+
+    // Fee FIRST, price second. The constant-product curve must be walked with
+    // the SOL that actually reaches the pool, not the gross order: the fee is
+    // skimmed before the swap, so charging impact on it would invent size that
+    // never touched the reserves.
+    const feeBps = effectiveFeeBps(settings, o);
+    const fee = applyBps(sol, feeBps);
+    const net = sol - fee;
+
+    const px = buyPrice(Number(o.priceNative), settings, {
+      baseReserve: o.baseReserve,
+      quoteReserve: o.quoteReserve,
+      reserves: o.reserves,
+      solIn: net,
+    });
     if (!(px > 0)) throw new Error('No live price available');
     if (sol + flat > state.cashSol + EPS) {
       throw new Error(flat > 0
@@ -388,8 +565,6 @@
         : `Insufficient paper balance (${fmt(state.cashSol)} SOL left)`);
     }
 
-    const fee = applyBps(sol, settings.feeBps);
-    const net = sol - fee;
     const qty = net / px;
 
     let pos = state.positions[o.mint];
@@ -502,11 +677,20 @@
     qty = Math.min(qty, pos.qty);
     if (qty <= EPS) throw new Error('Sell quantity is zero');
 
-    const px = sellPrice(Number(o.priceNative), settings);
+    const px = sellPrice(Number(o.priceNative), settings, {
+      baseReserve: o.baseReserve,
+      quoteReserve: o.quoteReserve,
+      reserves: o.reserves,
+      // The whole clip hits the pool at once, so the whole clip walks the
+      // curve. Fees are taken from the PROCEEDS below (fees.js's concern),
+      // which is why the gross quantity is the honest curve input here.
+      tokensIn: qty,
+    });
     if (!(px > 0)) throw new Error('No live price available');
 
     const gross = qty * px;
-    const fee = applyBps(gross, settings.feeBps);
+    const feeBps = effectiveFeeBps(settings, o);
+    const fee = applyBps(gross, feeBps);
     const flat = txCostSol(settings);
     // Net proceeds pay the platform fee AND the flat tx costs. A dust sell
     // can genuinely net negative — you paid gas to exit a worthless bag,
@@ -2276,6 +2460,15 @@
     // fill will charge. Re-deriving it there would be a second copy of the
     // clamp, free to drift from this one.
     txCostSol,
+    // Exported for the same reason: the panel and the sell planner must quote
+    // the fee the fill will ACTUALLY charge (tiered when the token's state is
+    // known, the configured flat bps otherwise), not a second guess at it.
+    effectiveFeeBps,
+    // Exported so the panel/ticket can PREVIEW the fill a given size would
+    // actually get — quoting the flat tick while the engine walks the curve
+    // would put a number on screen that the fill then contradicts.
+    buyPrice,
+    sellPrice,
     getPosition,
     rekeyMint,
     markPosition,
