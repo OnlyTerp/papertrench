@@ -234,6 +234,7 @@ function runFreshLaunch(opts) {
   const nodesById = {};
   const messages = [];       // postMessage traffic to the MAIN-world bridge
   let resolveCalls = 0;
+  let prewatchCalls = 0;
   let jupiterCalls = 0;
   let attempts = 0;
   let lastAttemptAt = -1;
@@ -368,6 +369,15 @@ function runFreshLaunch(opts) {
           if (msg.type === 'pt_refresh') return R.refresh(msg.token);
           if (msg.type === 'pt_sol_usd') return R.solUsd();
           if (msg.type === 'pt_batch_prices') return R.batchPrices(msg.mints);
+          if (msg.type === 'pt_onchain_prewatch') {
+            // The chain probe. Tests drive it with options.onchainPrewatch so
+            // they can model a throttled/failing RPC (D-60) as distinct from
+            // "this coin genuinely has no pool".
+            prewatchCalls += 1;
+            const h = options.onchainPrewatch;
+            if (typeof h === 'function') return Promise.resolve(h(msg, prewatchCalls));
+            return Promise.resolve(null);
+          }
           return Promise.resolve({});
         },
         onMessage: { addListener: () => {} },
@@ -419,6 +429,7 @@ function runFreshLaunch(opts) {
     // Each teardown clears the chart — this is the flashing signal.
     teardowns: () => messages.filter((m) => m === 'paper-marker-clear').length,
     resolveCalls: () => resolveCalls,
+    prewatchCalls: () => prewatchCalls,
     jupiterCalls: () => jupiterCalls,
     attempts: () => attempts,
     priceText: () => (nodesById['pt-price'] || {}).textContent,
@@ -1003,4 +1014,85 @@ test('D-39: the click acquisition leads with the board row price, and arming is 
   assert.doesNotMatch(content, /Buy armed — fires the instant the first quote lands/,
     'the arming narration toast must be gone forever');
   assert.doesNotMatch(content, /Buy armed/, 'no arming narration may exist in any form');
+});
+
+test('D-60: a failed chain probe does not permanently strand the coin', async () => {
+  // newws300, 2026-08-24: "'Fetching live price' 100% of the time ... can
+  // only buy once coin has aged like 20-30 seconds."
+  //
+  // The chain knows a launch instantly (a live probe prices an 8-second-old
+  // coin in ~150ms), so a panel still waiting 20-30s is not waiting on the
+  // chain — it is waiting on an AGGREGATOR to index the coin, which is what
+  // happens when the chain probe has been switched off. prewatchPending
+  // latched `prewatchedAddress` before the probe resolved and never cleared
+  // it on failure, so ONE throttled RPC read disabled the fast path for the
+  // whole life of that token.
+  let calls = 0;
+  const ov = runFreshLaunch({
+    // No aggregator ever answers — this coin is younger than every indexer,
+    // which is the whole point. The chain is the only source that knows it.
+    resolvePrice: null,
+    onchainPrewatch: (msg, n) => {
+      calls = n;
+      // First probe fails the way a throttled public endpoint does: no answer.
+      if (n === 1) return null;
+      // The chain was fine all along.
+      return {
+        mint: msg.mint || 'So1anaFreshMint111111111111111111111111111',
+        pool: 'Poo1Fresh1111111111111111111111111111111111',
+        poolKind: 'pump-curve',
+        priceNative: 3.2e-8,
+        decimals: 6,
+      };
+    },
+  });
+  await ov.settle();
+  // Step the clock in detect-loop increments and record WHEN the price lands.
+  let pricedAfterMs = null;
+  for (let elapsed = 0; elapsed < 8000 && pricedAfterMs === null; elapsed += 400) {
+    await ov.advance(400);
+    const shown = String(ov.priceText() || '');
+    if (shown && !/Fetching|^—$/.test(shown)) pricedAfterMs = elapsed + 400;
+  }
+
+  // The property that matters is not "the probe ran again" — the harness
+  // re-navigates and that would pass by accident. It is HOW LONG the coin
+  // sits unpriced after a transient failure.
+  //
+  // There is a slow safety-net re-probe at `pendingAttempts % 5` on the
+  // 800ms detect loop: a retry only every ~4s, first firing on the 5th
+  // attempt. That net is why a stranded coin eventually recovered at all,
+  // and its cadence is the reported "20-30 seconds". Releasing the latch on
+  // failure lets the very next detect pass re-probe instead, so the coin is
+  // priced within a pass or two rather than several seconds later.
+  assert.ok(calls >= 2, `the probe must be retried after a failure; ran ${calls}x`);
+  assert.ok(pricedAfterMs !== null,
+    'the coin must end up priced once the chain answers');
+  assert.ok(pricedAfterMs <= 800,
+    `the retry must be prompt, not the ~4s safety net; took ${pricedAfterMs}ms`);
+});
+
+test('D-60: the click asks the chain whenever no source priced it', () => {
+  // The chain probe inside acquireClickQuote was gated on `token.pending`,
+  // which means "the panel has never had a price". But the block it guards
+  // already knows the stronger fact: NO source produced a usable price for
+  // this click. A token whose pending flag was cleared without a live price
+  // could therefore never reach the chain — the one source that always knows.
+  const content = fsMod.readFileSync(pathMod.join(__dirname, '..', 'content.js'), 'utf8');
+  const fnStart = content.indexOf('async function acquireClickQuote');
+  assert.ok(fnStart !== -1, 'acquireClickQuote must exist');
+  const fnEnd = content.indexOf('\n  async function', fnStart + 10);
+  const fn = content.slice(fnStart, fnEnd === -1 ? fnStart + 4000 : fnEnd);
+
+  const probeIdx = fn.indexOf("R.onchainPrewatch({ pool: addr })");
+  assert.ok(probeIdx !== -1, 'the click must be able to probe the chain');
+
+  // The guard immediately above the probe must not require token.pending.
+  const guard = fn.slice(0, probeIdx);
+  const lastIf = guard.lastIndexOf('if (');
+  const condition = guard.slice(lastIf, guard.indexOf('{', lastIf));
+  assert.doesNotMatch(condition, /token\.pending/,
+    'the chain probe must not be gated on token.pending (D-60)');
+  assert.match(condition, /priceNative/,
+    'it stays gated on "no source produced a price", which is the real condition');
 });

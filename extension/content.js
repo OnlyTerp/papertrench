@@ -875,7 +875,19 @@
       ? { pool: candidate.address }
       : { mint: candidate.address };
     R.onchainPrewatch(ids).then((found) => {
-      if (!found || !found.mint) return;
+      // D-60: a probe that answered NOTHING must not latch. The chain read
+      // can fail for reasons that have nothing to do with this coin — a
+      // throttled public RPC, a dropped socket, a slot the endpoint had not
+      // caught up to. Leaving prewatchedAddress set meant that single blip
+      // permanently disabled the one path that prices a brand-new launch,
+      // and the coin then waited on an aggregator to index it: the
+      // "'Fetching live price' 100% of the time, can only buy once the coin
+      // has aged 20-30 seconds" report. Releasing the latch lets the detect
+      // loop probe again on its next pass.
+      if (!found || !found.mint) {
+        if (prewatchedAddress === candidate.address) prewatchedAddress = null;
+        return;
+      }
       if (!token || !token.pending) return;
       if (token.srcAddress !== candidate.address && token.mint !== candidate.address) return;
 
@@ -930,7 +942,12 @@
           candidates: [{ value: Number(found.priceNative), unit: 'native' }],
         });
       }
-    }).catch(() => {});
+    }).catch(() => {
+      // Same rule as the empty answer above: a thrown probe is a failure of
+      // the READ, never proof about the coin. Release the latch so the next
+      // detect pass can try again instead of stranding the token.
+      if (prewatchedAddress === candidate.address) prewatchedAddress = null;
+    });
   }
 
   async function detectLoop() {
@@ -1024,7 +1041,16 @@
         // aggregators — the exact window prewatch exists for. Re-probe on a
         // slow cadence while still unresolved; the address dedup makes each
         // retry one RPC read, and it stops the moment anything resolves.
-        if (token && token.pending && pendingAttempts % 5 === 0
+        // D-60: two cadences, not one. If the last probe FAILED it released
+        // the latch (prewatchedAddress === null), and there is no reason to
+        // wait — retry on this very pass, because the failure was about the
+        // read, not the coin. Only when a probe is still outstanding or
+        // already answered do we fall back to the slow every-5th-attempt
+        // net. Waiting ~4s to re-ask after a throttled RPC is what left
+        // fresh coins on "Fetching live price" for 20-30 seconds.
+        const probeFailed = prewatchedAddress === null;
+        if (token && token.pending
+          && (probeFailed || pendingAttempts % 5 === 0)
           && (!candidate.chain || candidate.chain === 'solana')) {
           prewatchedAddress = null;
           prewatchPending(candidate);
@@ -2998,11 +3024,20 @@
     if (!data || !(Number(data.priceNative) > 0)) {
       data = await R.resolve(addr, { maxAgeMs: 0, chain });
     }
-    if ((!data || !(Number(data.priceNative) > 0)) && token && token.pending) {
+    if (!data || !(Number(data.priceNative) > 0)) {
       // D-38: the aggregators and venue APIs still do not know a one-second-
       // old coin, but its pool / bonding curve is ALREADY on chain. Probe it
       // directly (prewatch does exactly this for the panel at detection) so
       // the buy never waits on an indexer. Price is chain state.
+      //
+      // D-60: this used to also require `token.pending`. That flag means "the
+      // panel has never had a price", but the condition guarding this block
+      // is already the stronger, more direct fact: no source produced a
+      // usable price for THIS click. A token whose pending flag had been
+      // cleared without a live price — a resolver answering with identity
+      // but no number, a coin whose feed went quiet — could therefore never
+      // reach the chain at all, which is the one source that always knows.
+      // The chain is the authority on price; asking it is never wrong here.
       let found = await R.onchainPrewatch({ pool: addr }).catch(() => null);
       if (!found || !(Number(found.priceNative) > 0)) {
         found = await R.onchainPrewatch({ mint: addr }).catch(() => null);

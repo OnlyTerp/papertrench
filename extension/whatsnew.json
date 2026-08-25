@@ -1,22 +1,18 @@
 {
-  "version": "3.13.10",
+  "version": "3.13.11",
   "date": "2026-08-25",
   "entries": [
     {
-      "title": "Migrated coins have a live price again.",
-      "text": "When a pump.fun coin graduates, its bonding curve stops carrying a price — and PaperTrench never looked for the pool it had just migrated *into*. So for the minutes right after migration, the window where the coin is most tradable, the panel sat on \"Fetching live price…\" waiting for an aggregator to catch up."
+      "title": "Brand-new coins are buyable immediately.",
+      "text": "If you installed the extension and every coin sat on \"Fetching live price…\" — only becoming buyable once it had aged 20-30 seconds — that was one throttled RPC read poisoning the whole token."
     },
     {
       "title": null,
-      "text": "It now asks the chain which PumpSwap pool holds the coin and prices it directly. Against live mainnet, 4/4 freshly migrated coins price in about two seconds where all 4 previously showed nothing."
+      "text": "The extension probes the chain directly for coins too new for any aggregator to know. That probe marked the address as \"already probed\" *before* the read came back, and never un-marked it if the read failed. A single blip — a rate-limited public endpoint, a dropped socket — therefore switched off the only source that can price a fresh launch, leaving the coin waiting on an indexer to catch up."
     },
     {
       "title": null,
-      "text": "- Only a SOL-quoted pool from a program we have a verified decoder for is ever   adopted, and where a coin has several, the deepest one wins — a dust pool   quotes a price nobody could fill against. No pool on chain still means no   price shown, never a guessed one. - Covers non-pump.fun launchpads too (Bags, Believe, moonshot), which reach   the same code path."
-    },
-    {
-      "title": null,
-      "text": "Thanks to **cheng.4848** and **ark_trades13**, who reported this independently and pinned it to migrated tokens specifically — that detail is what made it findable."
+      "text": "A failed read is never evidence about the coin. Now a failed probe retries on the very next pass (~400ms) instead of waiting on a ~4-second safety net, and clicking Buy asks the chain whenever nothing else produced a price, rather than only when the panel had never had one."
     }
   ]
 }

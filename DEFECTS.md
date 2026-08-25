@@ -1753,6 +1753,47 @@ invisible one. Fixed by adding 'game' to SECTIONS; locked GENERICALLY: every
 nav data-section id must appear in SECTIONS, proven failing against the
 v2.11.0 tag in a temp worktree.
 
+**D-60 · S1 · One throttled RPC read left a brand-new coin on "Fetching live price…" — buys only became possible once the coin aged 20-30 seconds**
+`content.js` (prewatchPending, detectLoop, acquireClickQuote)
+
+newws300, 2026-08-24: *"i just downloaded the extension and i cant buy any
+coins its just saying fetching live price 100% of the time … can only buy
+once coin has aged like 20-30 seconds."* Also cheng.4848 on migrated coins,
+and a duplicate report in #general.
+
+`prewatchPending` latched `prewatchedAddress = candidate.address` BEFORE
+awaiting the chain probe, and the failure paths — an empty answer, and a
+`.catch(() => {})` — both left that latch set. The latch is the dedup that
+stops the 800ms detect loop re-probing the same address, so a single failed
+read disabled the one source that can price a coin younger than every
+aggregator. The probe fails for reasons that have nothing to do with the
+coin: a throttled public RPC, a dropped socket, a slot the endpoint has not
+caught up to.
+
+A slow safety net existed (`pendingAttempts % 5` on the 800ms loop) which is
+why coins recovered *eventually* rather than never — and its cadence IS the
+reported number: a retry only every ~4s, first firing on the 5th attempt,
+plus the aggregator wait behind it.
+
+Three changes, one rule — **a failed READ is never evidence about the coin**:
+1. both failure paths release the latch instead of holding it;
+2. the detect loop retries on the very next pass when the last probe failed
+   (`probeFailed || pendingAttempts % 5 === 0`), keeping the slow net only
+   for a probe still outstanding;
+3. `acquireClickQuote` no longer additionally requires `token.pending` before
+   asking the chain — the guarding condition is already the stronger fact
+   (no source priced THIS click), so a token whose pending flag was cleared
+   without a live price could never reach the chain at all.
+
+Measured in the harness: recovery after a transient failure went from
+**2000ms to 400ms** (one detect pass). Test asserts the timing, not the call
+count — the harness re-navigates, so counting probes passes by accident.
+
+**fixed v3.13.11** (`test/freshlaunch.test.js` — "a failed chain probe does
+not permanently strand the coin" drives the real detect loop and fails at
+2000ms when the prompt cadence is reverted; "the click asks the chain
+whenever no source priced it" fails when the `token.pending` gate returns)
+
 **D-59 · S1 · A graduated (migrated) coin had NO on-chain price — the panel sat on "Fetching live price…" through the whole post-migration window**
 `onchain-feed.js` (prewatch, findGraduatedPool), `onchain.js` (decodePumpSwapPool)
 

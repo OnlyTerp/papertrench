@@ -3,6 +3,25 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.11 — 2026-08-25
+
+**Brand-new coins are buyable immediately.** If you installed the extension
+and every coin sat on "Fetching live price…" — only becoming buyable once it
+had aged 20-30 seconds — that was one throttled RPC read poisoning the whole
+token.
+
+The extension probes the chain directly for coins too new for any
+aggregator to know. That probe marked the address as "already probed"
+*before* the read came back, and never un-marked it if the read failed. A
+single blip — a rate-limited public endpoint, a dropped socket — therefore
+switched off the only source that can price a fresh launch, leaving the coin
+waiting on an indexer to catch up.
+
+A failed read is never evidence about the coin. Now a failed probe retries on
+the very next pass (~400ms) instead of waiting on a ~4-second safety net, and
+clicking Buy asks the chain whenever nothing else produced a price, rather
+than only when the panel had never had one.
+
 ## v3.13.10 — 2026-08-25
 
 **Migrated coins have a live price again.** When a pump.fun coin graduates,
