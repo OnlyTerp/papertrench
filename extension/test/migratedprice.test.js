@@ -196,3 +196,23 @@ test('the deepest SOL pool wins when a coin has more than one (D-59)', async () 
   assert.equal(await feed._findGraduatedPool(MINT), POOL,
     'the pool with real depth is the one a fill would touch, not the first one listed');
 });
+
+test('one lookup never pays for two program scans (Devin review, PR #77)', async () => {
+  // getProgramAccounts is the heaviest read this module makes and the public
+  // endpoint is keyless. A pump-suffixed mint whose curve is NOT live used to
+  // run the scan in the pump branch AND again in the mint-facts branch.
+  //
+  // The case the review found: the scan comes back EMPTY (no pool indexed
+  // yet) but the mint account IS visible, so execution reaches the
+  // mint-facts branch carrying the same address.
+  const MINT_B64 = 'AQAAAAaJgY9K1B/CG8UcLbCKrDdHDVpXpDDmMBqLLnJPPRT6AICWmAsAAAAGAQEAAAAGiYGPStQfwhvFHC2wiqw3Rw1aV6Qw5jAaiy5yTz0U+g==';
+  const { pool, seen } = fakePool(
+    { [MINT]: { owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', data: [MINT_B64, 'base64'] } },
+    { gpa: [] },                   // no pool on chain yet
+  );
+  const feed = loadFeedWith(pool);
+
+  await feed.prewatch({ mint: MINT });
+
+  assert.equal(seen.gpa, 1, `the program scan must run once; ran ${seen.gpa}x`);
+});

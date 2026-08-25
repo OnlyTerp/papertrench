@@ -757,6 +757,9 @@
   async function prewatch({ pool, mint }) {
     if (!O || !POOL) return null;
     try {
+      // Which address (if any) has already paid for the heavy PumpSwap
+      // program scan on this lookup, so it is never run twice.
+      let scannedFor = null;
       // A pump-suffixed mint: the derived curve is the strongest answer (a
       // live PRICE, not just supply facts), so try it first.
       if (!pool && typeof mint === 'string' && /pump$/.test(mint)) {
@@ -770,6 +773,7 @@
         // — the PumpSwap AMM it migrated into — and that pool is exactly
         // where the volume is in the minutes after migration. Ask the chain
         // for it rather than waiting on an aggregator to index it.
+        scannedFor = mint;
         const graduated = await findGraduatedPool(mint);
         if (graduated) {
           const found = await prewatchPool(graduated, mint);
@@ -796,7 +800,12 @@
         // is a live price; supply facts alone are not. Worth one lookup
         // before settling for the weaker answer, and this is the path
         // non-"pump"-suffixed launchpads (Bags, Believe, moonshot) take.
-        const graduated = await findGraduatedPool(address);
+        //
+        // A pump-suffixed mint may already have paid for this scan in the
+        // branch above; `getProgramAccounts` is the heaviest read the module
+        // makes and the public endpoint is keyless, so never run it twice
+        // for one lookup.
+        const graduated = scannedFor === address ? null : await findGraduatedPool(address);
         if (graduated) {
           const found = await prewatchPool(graduated, address);
           if (found) return found;
