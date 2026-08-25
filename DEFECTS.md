@@ -1753,6 +1753,63 @@ invisible one. Fixed by adding 'game' to SECTIONS; locked GENERICALLY: every
 nav data-section id must appear in SECTIONS, proven failing against the
 v2.11.0 tag in a temp worktree.
 
+**D-59 · S1 · A graduated (migrated) coin had NO on-chain price — the panel sat on "Fetching live price…" through the whole post-migration window**
+`onchain-feed.js` (prewatch, findGraduatedPool), `onchain.js` (decodePumpSwapPool)
+
+Reported independently by two users on 2026-08-24. cheng.4848: *"it is
+difficult to make purchases in time after the currency migration."*
+ark_trades13: *"the 'Fetching live price…' thing happens to me too, but only
+on migrated tokens."* Both are the same defect.
+
+A pump.fun bonding curve sets `complete: true` at graduation and stops
+carrying a price — that is what graduation means, and `prewatchPool` correctly
+refuses it (`// migrated: the resolver path owns it`). But the resolver path
+it handed off to only ever read the **mint account**, which yields identity
+and supply and no price at all. Nothing ever looked for the pool the coin had
+just migrated *into*. So on-chain pricing was silently unavailable for exactly
+the minutes after migration — the most tradable window a memecoin has — and
+the panel waited on an aggregator to index the new pool.
+
+The coin was never unpriceable. It had migrated into a PumpSwap AMM pool
+(program `pAMMBay6…`), which `poolKindForOwner` **already** classifies as
+`cp-vaults`: a pool kind PaperTrench already watches, decodes and prices. The
+lookup simply did not exist.
+
+Fix: `findGraduatedPool()` asks the chain which pool holds the mint —
+`getProgramAccounts` on the PumpSwap program with an indexed memcmp on the
+base-mint offset — rather than guessing a PDA whose seeds (creator, index) we
+do not know. It is wired into both paths that could dead-end: the
+`pump`-suffixed branch after the curve refuses, and the mint-facts branch
+(which is how non-`pump` launchpads — Bags, Believe, moonshot — arrive).
+
+Honesty guards, each with a test: only a **WSOL-quoted** pool is adopted (the
+feed prices in SOL end to end; a USDC-quoted pool decodes perfectly and means
+a different number), only a pool owned by a **verified** program is adopted,
+and where several qualify the **deepest** wins — a dust pool quotes a price
+nobody can fill against. No pool on chain still means no price, never an
+invented one.
+
+Layout verified against live mainnet, not a spec: pool account 301 bytes,
+base mint @43, quote mint @75, base vault @139, quote vault @171. The base
+vault is frequently Token-2022 (170 bytes) where the quote vault is classic
+SPL (165) — `decodeTokenAccount`'s shared prefix reads both, and assuming 165
+everywhere would drop the base leg and the price with it.
+
+Proof: driving the real `FEED.prewatch()` against live mainnet, 4/4 freshly
+migrated coins now return a price with the pool address matching pump.fun's
+own `pump_swap_pool` field exactly (~2s). With both hooks removed, the same
+4/4 return no price — the pre-fix behaviour users reported. A separate
+9/9 pool-match run confirmed the discovery before the public RPC throttled.
+Fixtures in `test/migratedprice.test.js` are real captured mainnet bytes, so
+the production decoders run against production data.
+
+**fixed v3.13.10** (`findGraduatedPool` in onchain-feed.js asks the chain via
+an indexed memcmp on the PumpSwap base-mint offset and is wired into both
+dead-end paths; `decodePumpSwapPool` + verified offsets in onchain.js, layout
+transcript in `docs/POOL-LAYOUTS.md`; locked by `test/migratedprice.test.js`,
+whose WSOL, verified-owner and pool-depth guards each fail when the
+corresponding check is removed)
+
 **D-57 · S1 · An armed stop or take-profit was only ever judged on a price CHANGE — a level armed after the last move never fired on a flat or rugging tape**
 `content.js` (handlePageTick, startPriceLoop) · every trader running a stop or
 TP, worst on exactly the coins a stop exists for · confirmed by test

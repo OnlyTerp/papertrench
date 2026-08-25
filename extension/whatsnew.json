@@ -1,26 +1,22 @@
 {
-  "version": "3.13.9",
+  "version": "3.13.10",
   "date": "2026-08-25",
   "entries": [
     {
-      "title": "Your stop fires now.",
-      "text": "Two separate bugs behind the same family of reports — \"my stop never went off while it rugged\", \"I made a minus 12% but should have been plus\", \"my paper equity shows +9.109 when it should be +0.091\"."
+      "title": "Migrated coins have a live price again.",
+      "text": "When a pump.fun coin graduates, its bonding curve stops carrying a price — and PaperTrench never looked for the pool it had just migrated *into*. So for the minutes right after migration, the window where the coin is most tradable, the panel sat on \"Fetching live price…\" waiting for an aggregator to catch up."
     },
     {
       "title": null,
-      "text": "- **An armed stop or take-profit was only judged when the price   CHANGED.** The level check lived in one place: the tick path, below the   \"this price is the same as the last one, nothing to redraw\" shortcut.   That shortcut is right about redrawing and wrong about levels — because   a level can be armed *after* the last price move. Reload a chart and   your wallet loads a beat after the first ticks land; drag a stop on   while the tape is quiet; arm one from another tab. In every case the   level was already crossed by the price on screen, and PaperTrench was   waiting for a *different* number before it would look."
+      "text": "It now asks the chain which PumpSwap pool holds the coin and prices it directly. Against live mainnet, 4/4 freshly migrated coins price in about two seconds where all 4 previously showed nothing."
     },
     {
       "title": null,
-      "text": "The books where a different number never comes are exactly the ones a   stop exists for: a dead market, or a rug printing the same number all   the way down. So the stop sat there while the position bled out.   Levels are now judged before that shortcut, and the 100 ms heartbeat   re-asks the question every beat — the same watchdog armed buys have   had since F-16. It cannot double-fire: one function decides every   fill, and asking it twice about a level it already spent is a no-op.   (D-57)"
+      "text": "- Only a SOL-quoted pool from a program we have a verified decoder for is ever   adopted, and where a coin has several, the deepest one wins — a dust pool   quotes a price nobody could fill against. No pool on chain still means no   price shown, never a guessed one. - Covers non-pump.fun launchpads too (Bags, Believe, moonshot), which reach   the same code path."
     },
     {
       "title": null,
-      "text": "- **A take-profit clip could be booked twice.** With two chart tabs open   on the same coin — routine, since every quick-buy chip tap opens one —   both tabs see the trigger. The one that loses the write race re-applies   its fill onto the winner's wallet, and it only checked that the   position was still open. A 50% clip doesn't close the position, so the   loser sold again: proceeds credited twice, and paper equity inflated by   a whole extra set of clips. It now re-checks that the order itself is   still live, exactly as armed buys already did. (D-58)"
-    },
-    {
-      "title": null,
-      "text": "This is the *second* mechanism behind jb's \"+9.109 vs +0.091\" report —   v3.13.8 fixed the starting-balance half. Both were live at once."
+      "text": "Thanks to **cheng.4848** and **ark_trades13**, who reported this independently and pinned it to migrated tokens specifically — that detail is what made it findable."
     }
   ]
 }

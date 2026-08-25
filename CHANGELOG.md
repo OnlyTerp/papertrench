@@ -3,6 +3,29 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.10 — 2026-08-25
+
+**Migrated coins have a live price again.** When a pump.fun coin graduates,
+its bonding curve stops carrying a price — and PaperTrench never looked for
+the pool it had just migrated *into*. So for the minutes right after
+migration, the window where the coin is most tradable, the panel sat on
+"Fetching live price…" waiting for an aggregator to catch up.
+
+It now asks the chain which PumpSwap pool holds the coin and prices it
+directly. Against live mainnet, 4/4 freshly migrated coins price in about two
+seconds where all 4 previously showed nothing.
+
+- Only a SOL-quoted pool from a program we have a verified decoder for is ever
+  adopted, and where a coin has several, the deepest one wins — a dust pool
+  quotes a price nobody could fill against. No pool on chain still means no
+  price shown, never a guessed one.
+- Covers non-pump.fun launchpads too (Bags, Believe, moonshot), which reach
+  the same code path.
+
+Thanks to **cheng.4848** and **ark_trades13**, who reported this independently
+and pinned it to migrated tokens specifically — that detail is what made it
+findable.
+
 ## v3.13.9 — 2026-08-25
 
 **Your stop fires now.** Two separate bugs behind the same family of

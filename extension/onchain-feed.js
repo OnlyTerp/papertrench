@@ -676,6 +676,78 @@
     };
   }
 
+  /** A plausible base58 account address. Local to the feed so the module
+   * stays standalone (background.js has its own copy for message validation). */
+  function isAddress(s) {
+    return typeof s === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(s);
+  }
+
+  /**
+   * The PumpSwap pool a graduated pump.fun coin trades in, or null.
+   *
+   * A completed bonding curve stops carrying a price — that is what
+   * graduation MEANS — so `prewatchPool` refuses it and the coin used to fall
+   * through to the mint-facts path, which yields supply and identity but no
+   * price. On a just-migrated coin no aggregator has indexed the new pool
+   * yet either, so the panel sat on "Fetching live price…" for the exact
+   * minutes the coin was most tradable (cheng.4848 2026-08-24 "difficult to
+   * make purchases in time after the currency migration"; ark_trades13
+   * "only on migrated tokens").
+   *
+   * getProgramAccounts filtered on the base-mint offset is the authoritative
+   * lookup — it asks the chain which pool holds this coin rather than
+   * guessing a PDA whose seeds (creator, index) we do not know. The filter is
+   * an indexed memcmp on a single program, so it is cheap.
+   *
+   * Only a WSOL-quoted pool is usable: the whole feed prices in SOL, and a
+   * USDC-quoted pool would silently be a different unit. Where several
+   * qualify, the deepest one wins — that is the pool the router fills
+   * against, and a dust pool would quote a price nobody can trade.
+   */
+  async function findGraduatedPool(mint) {
+    if (!O || !isAddress(mint)) return null;
+    let found;
+    try {
+      found = await rpc('getProgramAccounts', [O.PUMP_AMM_PROGRAM, {
+        encoding: 'base64',
+        commitment: COMMITMENT,
+        filters: [{ memcmp: { offset: O.PUMPSWAP_BASE_MINT, bytes: mint } }],
+      }]);
+    } catch (_) { return null; }
+    // Some providers answer gPA with the payload stripped; re-read by address
+    // rather than trusting a shape we did not get.
+    const entries = Array.isArray(found) ? found : (found && found.value) || [];
+    if (!entries.length) return null;
+    const addresses = entries.map((e) => e && e.pubkey).filter(isAddress).slice(0, 12);
+    if (!addresses.length) return null;
+
+    const accounts = await getAccounts(addresses);
+    const candidates = [];
+    for (let i = 0; i < addresses.length; i++) {
+      const account = accounts[i];
+      if (!account || O.poolKindForOwner(account.owner) !== 'cp-vaults') continue;
+      const decoded = O.decodePumpSwapPool(O.bytesFromBase64(account.data[0]));
+      if (!decoded) continue;
+      if (decoded.baseMint !== mint) continue;
+      if (decoded.quoteMint !== O.WSOL_MINT) continue;
+      candidates.push({ pool: addresses[i], decoded });
+    }
+    if (!candidates.length) return null;
+    if (candidates.length === 1) return candidates[0].pool;
+
+    // Depth decides. One read for every quote vault at once.
+    const vaults = await getAccounts(candidates.map((c) => c.decoded.quoteVault));
+    let best = null;
+    for (let i = 0; i < candidates.length; i++) {
+      const account = vaults[i];
+      if (!account) continue;
+      const token = O.decodeTokenAccount(O.bytesFromBase64(account.data[0]));
+      if (!token || !(token.amount > 0)) continue;
+      if (!best || token.amount > best.amount) best = { pool: candidates[i].pool, amount: token.amount };
+    }
+    return best ? best.pool : candidates[0].pool;
+  }
+
   /**
    * Turn whichever single address the page has into the best instant answer
    * it supports. Returns { mint, pool, poolKind, priceNative } for a live
@@ -694,7 +766,16 @@
           if (found) return found;
         }
         // Not a live curve (migrated, or a non-pump.fun coin that merely
-        // ends in "pump") — the mint account itself may still hold supply.
+        // ends in "pump"). A GRADUATED coin still has a real, priceable pool
+        // — the PumpSwap AMM it migrated into — and that pool is exactly
+        // where the volume is in the minutes after migration. Ask the chain
+        // for it rather than waiting on an aggregator to index it.
+        const graduated = await findGraduatedPool(mint);
+        if (graduated) {
+          const found = await prewatchPool(graduated, mint);
+          if (found) return found;
+        }
+        // Still nothing priceable — the mint account may hold supply facts.
       }
 
       const address = pool || mint;
@@ -709,7 +790,19 @@
         return await prewatchPool(address, hint, account, slot);
       }
       const facts = mintFactsFromAccount(account, address);
-      if (facts) return facts;
+      if (facts) {
+        // The address IS a mint, and no curve answered for it — either it
+        // never had one, or it graduated. A PumpSwap pool holding this mint
+        // is a live price; supply facts alone are not. Worth one lookup
+        // before settling for the weaker answer, and this is the path
+        // non-"pump"-suffixed launchpads (Bags, Believe, moonshot) take.
+        const graduated = await findGraduatedPool(address);
+        if (graduated) {
+          const found = await prewatchPool(graduated, address);
+          if (found) return found;
+        }
+        return facts;
+      }
 
       // A pool whose owner program has NO verified decoder (a launchpad we
       // have not verified — LaunchLab, DBC, whatever ships next week) used
@@ -829,6 +922,7 @@
     _mintFactsFromAccount: mintFactsFromAccount,
     _discoverPoolMint: discoverPoolMint,
     _primeEntry: primeEntry,
+    _findGraduatedPool: findGraduatedPool,
   };
 
   if (typeof self !== 'undefined') self.PTOnchainFeed = api;

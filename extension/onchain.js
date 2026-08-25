@@ -39,6 +39,18 @@
   const WHIRLPOOL_MINT_B = 181;
   const SPL_AMOUNT = 64;             // u64 LE, 165-byte token account
   const SPL_MINT = 0;
+
+  // PumpSwap AMM pool layout (program pAMMBay6…), verified against live
+  // mainnet accounts — see docs/POOL-LAYOUTS.md for the transcript. The pool
+  // account is 301 bytes; these four are all the price needs. The base vault
+  // is frequently a Token-2022 account (170 bytes) while the quote vault is
+  // classic SPL (165), which is why decodeTokenAccount's shared prefix is
+  // what reads them both.
+  const PUMPSWAP_BASE_MINT = 43;
+  const PUMPSWAP_QUOTE_MINT = 75;
+  const PUMPSWAP_BASE_VAULT = 139;
+  const PUMPSWAP_QUOTE_VAULT = 171;
+  const PUMP_AMM_PROGRAM = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
   const MINT_SUPPLY = 36;            // u64 LE
   const MINT_DECIMALS = 44;          // u8
   const CURVE_VIRTUAL_TOKEN = 8;     // u64 LE, after Anchor discriminator
@@ -239,6 +251,28 @@
   }
 
   /**
+   * PumpSwap AMM pool (program pAMMBay6…) — where a pump.fun coin LIVES after
+   * it graduates. Offsets verified against live mainnet pools (see
+   * docs/POOL-LAYOUTS.md): the account is 301 bytes, and the four fields we
+   * need sit at fixed offsets after the 8-byte anchor discriminator.
+   *
+   * This is the migrated half of the fresh-launch story. The bonding curve
+   * goes `complete: true` at graduation and stops carrying a price, so a coin
+   * that just migrated had NO on-chain price source at all until the
+   * aggregators indexed the new pool — the "Fetching live price…" wall that
+   * cheng.4848 and ark_trades13 reported on exactly these coins.
+   */
+  function decodePumpSwapPool(bytes) {
+    if (!bytes || bytes.length < PUMPSWAP_QUOTE_VAULT + 32) return null;
+    return {
+      baseMint: readPubkey(bytes, PUMPSWAP_BASE_MINT),
+      quoteMint: readPubkey(bytes, PUMPSWAP_QUOTE_MINT),
+      baseVault: readPubkey(bytes, PUMPSWAP_BASE_VAULT),
+      quoteVault: readPubkey(bytes, PUMPSWAP_QUOTE_VAULT),
+    };
+  }
+
+  /**
    * Orca Whirlpool / Raydium CLMM.
    *
    * price(B per A) = (sqrtPrice / 2^64)^2, then scaled by the decimal delta.
@@ -332,6 +366,9 @@
     PUMP_TOKEN_DECIMALS,
     bytesFromBase64, readU64, readU128, readPubkey, b58decode,
     decodeMint, decodeTokenAccount, decodeWhirlpool, decodePumpCurve,
+    decodePumpSwapPool,
+    PUMP_AMM_PROGRAM, PUMPSWAP_BASE_MINT, PUMPSWAP_QUOTE_MINT,
+    PUMPSWAP_BASE_VAULT, PUMPSWAP_QUOTE_VAULT,
     priceFromSqrtPrice, priceFromPumpCurve, priceFromVaults,
     marketCapFrom, poolKindForOwner, isNewerObservation,
     isOnCurve, derivePumpCurve,
