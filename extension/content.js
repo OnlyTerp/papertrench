@@ -2554,6 +2554,7 @@
             priceNative: observedPrice,
             priceUsd,
             mcap,
+            ...(feeContextForOrder() || {}),
             order,
           });
           // The order is spent whether or not it closed the round.
@@ -2643,6 +2644,7 @@
               symbol: token.symbol, name: token.name, site: site && site.id,
               solAmount: armed.solAmount,
               priceNative: observedPrice, priceUsd, mcap,
+              ...(feeContextForOrder() || {}),
             });
           } catch (err) {
             // Cash could not cover it (something else spent first): the
@@ -3195,6 +3197,7 @@
             ts: Date.now(), mint: token.mint, pairAddress: token.pairAddress,
             symbol: token.symbol, name: token.name, site: site.id,
             priceNative: fillQuote.priceNative, priceUsd: fillQuote.priceUsd, mcap: fillQuote.mcap,
+            ...(feeContextForOrder() || {}),
             // F-48: which source priced this fill and how old that price was
             // at commit — the receipt that turns the next wrong-price field
             // report into a journal lookup instead of a screenshot forensic.
@@ -3433,6 +3436,7 @@
           filled = E.sell(state, settings, {
             ts: Date.now(), mint: token.mint, site: site.id,
             qtyFraction: fraction, priceNative: fillQuote.priceNative, priceUsd: fillQuote.priceUsd, mcap: fillQuote.mcap,
+            ...(feeContextForOrder() || {}),
             // F-48: fill price provenance — see doBuy.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
@@ -5686,6 +5690,47 @@
     return rate > 0 ? rate : null;
   }
 
+  /** The fee context an order carries so the engine can charge pump.fun's
+   * real tiered schedule instead of the flat setting.
+   *
+   * Everything here comes from signals the resolver ALREADY establishes; no
+   * new plumbing and nothing guessed:
+   *
+   *   graduated    — `token.pumpCurve` is true only while the coin sits on a
+   *                  live pump bonding curve (poolKind 'pump-curve'; the feed
+   *                  refuses a completed curve outright). A pump coin that is
+   *                  NOT on a live curve has graduated to PumpSwap. Non-pump
+   *                  venues are not pump.fun coins at all, so we stay silent
+   *                  rather than claim a schedule that does not apply.
+   *   canonical    — a graduated pump.fun coin trades in its canonical
+   *                  PumpSwap pool, which is what findGraduatedPool locates.
+   *   marketCapSol — the tier lookup is denominated in SOL but `token.mcap` is
+   *                  USD. Converting needs the RECORDED rate
+   *                  (solUsdAtResolve), never a guessed one. No rate means no
+   *                  market cap, and fees.js then charges the most expensive
+   *                  tier rather than flattering the trade.
+   *
+   * Returns null when the coin is not identifiably a pump.fun coin — the
+   * engine then falls back to settings.feeBps exactly as before. */
+  function feeContextForOrder() {
+    if (!token) return null;
+    // Only pump.fun coins follow this schedule. `pumpCurve` is set from the
+    // chain's own pool classification, so an undefined value means the
+    // resolver never reached the chain and we know nothing.
+    if (token.pumpCurve === undefined || token.pumpCurve === null) return null;
+    if (token.kind !== 'pump' && !String(token.mint || '').endsWith('pump')) return null;
+
+    const graduated = token.pumpCurve !== true;
+    const ctx = { graduated };
+    if (graduated) {
+      ctx.canonical = true;
+      const rate = Number(token.solUsdAtResolve);
+      const mcapUsd = Number(token.mcap);
+      if (rate > 0 && mcapUsd > 0) ctx.marketCapSol = mcapUsd / rate;
+    }
+    return ctx;
+  }
+
   /** The Buy label doubles as the balance line in compact focus mode — the
    * balance card is hidden there ("the less information in the tab the
    * better"), but cash on hand is execution information, not decoration. */
@@ -6750,6 +6795,7 @@
           symbol: data.symbol, name: data.name, site: site.id,
           solAmount: amount,
           priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
+          ...(feeContextForOrder() || {}),
         });
         filled.opened = opened;
       };
