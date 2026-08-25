@@ -3,6 +3,44 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.9 — 2026-08-25
+
+**Your stop fires now.** Two separate bugs behind the same family of
+reports — "my stop never went off while it rugged", "I made a minus 12%
+but should have been plus", "my paper equity shows +9.109 when it should
+be +0.091".
+
+- **An armed stop or take-profit was only judged when the price
+  CHANGED.** The level check lived in one place: the tick path, below the
+  "this price is the same as the last one, nothing to redraw" shortcut.
+  That shortcut is right about redrawing and wrong about levels — because
+  a level can be armed *after* the last price move. Reload a chart and
+  your wallet loads a beat after the first ticks land; drag a stop on
+  while the tape is quiet; arm one from another tab. In every case the
+  level was already crossed by the price on screen, and PaperTrench was
+  waiting for a *different* number before it would look.
+
+  The books where a different number never comes are exactly the ones a
+  stop exists for: a dead market, or a rug printing the same number all
+  the way down. So the stop sat there while the position bled out.
+  Levels are now judged before that shortcut, and the 100 ms heartbeat
+  re-asks the question every beat — the same watchdog armed buys have
+  had since F-16. It cannot double-fire: one function decides every
+  fill, and asking it twice about a level it already spent is a no-op.
+  (D-57)
+
+- **A take-profit clip could be booked twice.** With two chart tabs open
+  on the same coin — routine, since every quick-buy chip tap opens one —
+  both tabs see the trigger. The one that loses the write race re-applies
+  its fill onto the winner's wallet, and it only checked that the
+  position was still open. A 50% clip doesn't close the position, so the
+  loser sold again: proceeds credited twice, and paper equity inflated by
+  a whole extra set of clips. It now re-checks that the order itself is
+  still live, exactly as armed buys already did. (D-58)
+
+  This is the *second* mechanism behind jb's "+9.109 vs +0.091" report —
+  v3.13.8 fixed the starting-balance half. Both were live at once.
+
 ## v3.13.8 — 2026-08-24
 
 **"Paper equity showed +9.109 SOL, should be +0.091 — exactly 100×."** jb's

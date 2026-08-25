@@ -80,6 +80,10 @@ function runOrderRace(opts) {
       },
       get innerHTML() { return this._h || ''; },
       appendChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); if (c._parent && c._parent !== this) c._parent.removeChild(c); c._parent = this; this.children.push(c); this.childNodes = this.children; return c; },
+      // renderOrderList() builds each row with the variadic ParentNode.append();
+      // a stub carrying only appendChild threw mid-render, so the order list
+      // never painted and the clip never fired under test.
+      append(...cs) { cs.forEach((c) => this.appendChild(c)); return undefined; },
       removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); if (c._parent === this) c._parent = null; },
       remove() { if (this._parent) this._parent.removeChild(this); },
       setAttribute() {}, getAttribute() { return null; },
@@ -138,6 +142,8 @@ function runOrderRace(opts) {
   let staleReplies = options.staleReplies || [];
 
   const storage = { pt_settings: E.defaultSettings() };
+  // Listeners registered on chrome.storage.onChanged by the content script.
+  const storeListeners = [];
 
   const sandbox = {
     window: win, self: win, document: doc, location: win.location, console,
@@ -198,7 +204,11 @@ function runOrderRace(opts) {
           get: (keys, cb) => { const out = {}; for (const k of (Array.isArray(keys) ? keys : [keys])) if (k in storage) out[k] = storage[k]; if (cb) cb(out); return Promise.resolve(out); },
           set: (obj, cb) => { Object.assign(storage, obj); if (cb) cb(); return Promise.resolve(); },
         },
-        onChanged: { addListener: () => {} },
+        // Faithful to the real extension: an external write reaches the panel
+        // ONLY through this listener (content.js adoptState). A stub that
+        // registers nothing means seed() can never be observed, so a test
+        // seeding a wallet after mount silently exercises an empty wallet.
+        onChanged: { addListener: (fn) => storeListeners.push(fn), removeListener: () => {} },
       },
       tabs: { query: () => Promise.resolve([{ id: 1 }]), sendMessage: () => Promise.resolve() },
     },
@@ -240,8 +250,16 @@ function runOrderRace(opts) {
       }
     },
     seed: (s) => {
+      const oldValue = storage[E.STORAGE_KEYS.state];
       storage[E.STORAGE_KEYS.state] = JSON.parse(JSON.stringify(s));
       workerState = JSON.parse(JSON.stringify(s));
+      // Chrome delivers a STRUCTURED CLONE to onChanged (F-41) — clone here
+      // too, or the panel's identity check treats the seed as its own write
+      // and never adopts it.
+      const newValue = JSON.parse(JSON.stringify(s));
+      for (const fn of storeListeners) {
+        fn({ [E.STORAGE_KEYS.state]: { oldValue, newValue } }, 'local');
+      }
     },
     workerState: () => workerState,
     commitLog: () => commitLog,
@@ -310,4 +328,57 @@ test('control: with no race the clip books once (sanity)', async () => {
   const st = ov.workerState();
   const tpSells = (st.journal || []).filter((t) => t.side === 'sell' && t.orderKind === 'tp');
   assert.equal(tpSells.length, 1, `control: one fire, one clip; got ${tpSells.length}`);
+}, { timeout: 30000 });
+
+/* ---------------- D-57: the flat-feed stop ---------------- */
+
+/* Field class: "my stop never fired while the coin bled out" — bloodfortea
+ * 2026-08-19 ("buying low selling high doesnt count as profit, i made a
+ * minus 12% but should have been plus"), jb 2026-08-19 ("my buy just
+ * randomly disappears"), and the rug reports in #papertrench-reviews.
+ *
+ * Mechanism: evaluateChartOrders() ran ONLY from handlePageTick, and only
+ * AFTER the duplicate-price early-return. The armed SET, though, changes
+ * independently of the price — wallet state finishes loading after the
+ * first ticks land, or a level is dragged onto the chart between two
+ * identical prints. A feed repeating one number (a dead book, a rug where
+ * every tick is the same) then never produced a "new" price, so nothing
+ * ever asked whether the level had been crossed.
+ *
+ * This test seeds the wallet AFTER the crossing price is already on screen
+ * and then only ever repeats that same price. Under the old code the stop
+ * sits armed forever; the level must fire.
+ */
+test('a stop armed after the last price move still fires on a flat feed (D-57)', async () => {
+  const ov = runOrderRace({});
+  await ov.settle();
+  await ov.advance(1000);
+
+  // The panel is already holding a price: the resolver quote for this token
+  // (jupiterPayload, 0.0000021 USD at SOL=200 -> 1.05e-8 native). Nothing
+  // further will move it — this models the dead book / rug tape where every
+  // subsequent print repeats one number.
+  const SCREEN_NATIVE = 0.0000021 / SOL_USD;
+
+  const base = E.resetState(E.defaultSettings());
+  E.buy(base, E.defaultSettings(), {
+    ts: 4_000_000, mint: NEW_MINT, site: 'padre',
+    solAmount: 1, priceNative: SCREEN_NATIVE * 4, priceUsd: SCREEN_NATIVE * 4 * SOL_USD,
+  });
+  // Stop at half the entry — ALREADY crossed by the price on screen, and
+  // armed after the last price move, which is the whole defect.
+  E.addOrder(base, NEW_MINT, { kind: 'sl', triggerPrice: SCREEN_NATIVE * 2, sizePct: 100 },
+    SCREEN_NATIVE * 4, 4_100_000);
+  ov.seed(base);
+  await ov.settle();
+
+  // No new price ever arrives. Only the heartbeat runs.
+  await ov.advance(3000);
+
+  const st = ov.workerState();
+  const slSells = (st.journal || []).filter((t) => t.side === 'sell' && t.orderKind === 'sl');
+  assert.equal(slSells.length, 1,
+    `the stop must fire against the price already on screen; got ${slSells.length}`);
+  assert.ok(!st.positions[NEW_MINT],
+    'a 100% stop must close the position, not leave the bag open');
 }, { timeout: 30000 });

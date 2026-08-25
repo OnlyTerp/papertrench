@@ -1,22 +1,26 @@
 {
-  "version": "3.13.8",
-  "date": "2026-08-24",
+  "version": "3.13.9",
+  "date": "2026-08-25",
   "entries": [
     {
-      "title": "\"Paper equity showed +9.109 SOL, should be +0.091 — exactly 100×.\"",
-      "text": "jb's 8/18 report, after a full exit: the wallet's session return was welded to the \"Starting paper balance\" setting. Change the form 10 → 1 SOL and a wallet that really started at 10 re-denominates its whole history overnight."
+      "title": "Your stop fires now.",
+      "text": "Two separate bugs behind the same family of reports — \"my stop never went off while it rugged\", \"I made a minus 12% but should have been plus\", \"my paper equity shows +9.109 when it should be +0.091\"."
     },
     {
       "title": null,
-      "text": "- **Who was hit:** every wallet created before v3.9.5 (the D-06 birth   snapshot). Newer wallets froze their starting balance at reset; older ones   never got the field, so every \"vs start\" number — popup, overlay,   dashboard, even the leaderboard bridge — read the *live* form value."
+      "text": "- **An armed stop or take-profit was only judged when the price   CHANGED.** The level check lived in one place: the tick path, below the   \"this price is the same as the last one, nothing to redraw\" shortcut.   That shortcut is right about redrawing and wrong about levels — because   a level can be armed *after* the last price move. Reload a chart and   your wallet loads a beat after the first ticks land; drag a stop on   while the tape is quiet; arm one from another tab. In every case the   level was already crossed by the price on screen, and PaperTrench was   waiting for a *different* number before it would look."
     },
     {
       "title": null,
-      "text": "- **The fix:** the wallet's own fill history now re-derives its birth   balance (equity − open P&L − the sum of every fill's effect), and the   first load after this update freezes that number onto the wallet. Marks   moving or another tab trading in between can't shift it — it's the same   arithmetic the equity curve already uses. Until the frozen number lands,   every surface falls back to the derived value before the form, so the   right number shows on the very first paint. jb's wallet: +0.091 SOL stays   +0.091 SOL, whatever the form says. (D-56)"
+      "text": "The books where a different number never comes are exactly the ones a   stop exists for: a dead market, or a rug printing the same number all   the way down. So the stop sat there while the position bled out.   Levels are now judged before that shortcut, and the 100 ms heartbeat   re-asks the question every beat — the same watchdog armed buys have   had since F-16. It cannot double-fire: one function decides every   fill, and asking it twice about a level it already spent is a no-op.   (D-57)"
     },
     {
       "title": null,
-      "text": "- **Also closed:** a wallet reset from the popup now snapshots its starting   balance too — previously a popup-born wallet would have lived its whole   life as a \"legacy\" wallet with the same hole."
+      "text": "- **A take-profit clip could be booked twice.** With two chart tabs open   on the same coin — routine, since every quick-buy chip tap opens one —   both tabs see the trigger. The one that loses the write race re-applies   its fill onto the winner's wallet, and it only checked that the   position was still open. A 50% clip doesn't close the position, so the   loser sold again: proceeds credited twice, and paper equity inflated by   a whole extra set of clips. It now re-checks that the order itself is   still live, exactly as armed buys already did. (D-58)"
+    },
+    {
+      "title": null,
+      "text": "This is the *second* mechanism behind jb's \"+9.109 vs +0.091\" report —   v3.13.8 fixed the starting-balance half. Both were live at once."
     }
   ]
 }

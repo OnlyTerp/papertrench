@@ -11,6 +11,19 @@ fail() { echo "PREFLIGHT FAIL: $*" >&2; exit 1; }
 # ("-P supports only unibyte and UTF-8 locales"). A release check that only
 # runs on one machine is a release check nobody runs.
 version_of() { sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9.]*\)".*/\1/p' "$1" | head -1; }
+
+# Same portability rule, for the interpreter itself: Windows (git-bash / MSYS)
+# ships `python` with no `python3` on PATH, and the Microsoft Store alias stub
+# that answers `python3` there PRINTS AN ADVERT AND EXITS 0 — so a bare
+# `python3 - <<PY` silently ran nothing and the gate below it passed without
+# ever executing a check. Resolve once, fail loudly if neither exists.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1 && python -c 'import sys' >/dev/null 2>&1; then
+  PY=python
+else
+  fail "no working python3/python on PATH — preflight needs one for the manifest-scope and site-count gates"
+fi
 MANIFEST_V=$(version_of extension/manifest.json)
 PACKAGE_V=$(version_of extension/package.json)
 
@@ -160,7 +173,7 @@ echo "sitemap OK ($(grep -c '<loc>' site/sitemap.xml) urls, all resolve to a pag
 if grep -q '"<all_urls>"' extension/manifest.json; then
   # host_permissions may legitimately stay broad (user-configured AI/RPC
   # endpoints are fetched by the service worker) — content_scripts must not.
-  python3 - <<'PY' || exit 1
+  "$PY" - <<'PY' || exit 1
 import json, sys
 m = json.load(open('extension/manifest.json'))
 for cs in m.get('content_scripts', []):
@@ -238,7 +251,7 @@ done
 # actually supports — over-claiming advertises a capability the user does not
 # have. Under-claiming is tolerated on purpose: between a commit and its tag,
 # the manifest legitimately runs ahead of what anyone can install.
-SITES_REAL=$(python3 - <<'PY'
+SITES_REAL=$("$PY" - <<'PY'
 import json
 m = json.load(open('extension/manifest.json'))
 hosts = set()

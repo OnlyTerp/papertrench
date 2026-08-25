@@ -423,10 +423,32 @@ test('alert mints ride the batch request the positions bar already sends', () =>
 test('the chart on screen is judged too, not only the ones in the batch', () => {
   // The on-screen token is deliberately excluded from the batch poller, so
   // without this the one chart you are actually watching is the one that
-  // never pings. (N2's evaluatePendingBuys sits between them — both are
-  // tick-path judges; the order among them is not the property.)
-  assert.match(CONTENT, /evaluateChartOrders\(\);\s*\n\s*\/\/[^\n]*\n\s*evaluatePendingBuys\(\);\s*\n\s*\/\/[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*evaluateMcAlerts\(token\.mint, token\);/,
-    'the tick path must judge the on-screen token');
+  // never pings.
+  //
+  // Asserted as a PROPERTY of handlePageTick, not as source adjacency: the
+  // three tick-path judges must all be reachable on the tick that carries a
+  // price. The previous form pinned them to consecutive lines in one fixed
+  // order, which made a correct fix look like a regression — D-57 had to
+  // hoist evaluateChartOrders()/evaluatePendingBuys() ABOVE the duplicate-
+  // price early-return so a level armed between two identical prints is
+  // still judged, and the old regex failed purely on the reordering while
+  // the property it names held.
+  const tick = sliceFunction(CONTENT, 'handlePageTick');
+  for (const judge of ['evaluateChartOrders()', 'evaluatePendingBuys()', 'evaluateMcAlerts(token.mint, token)']) {
+    assert.ok(tick.includes(judge),
+      `the tick path must judge the on-screen token: ${judge} missing from handlePageTick`);
+  }
+  // The alert judge is the one that must survive the duplicate-price return,
+  // because a repeat print is not a new market-cap level. The order judges
+  // must NOT: see D-57.
+  const bail = tick.indexOf('if (token.priceNative === oldNative) return;');
+  assert.notEqual(bail, -1, 'the duplicate-tick early-return must still exist');
+  assert.ok(tick.indexOf('evaluateChartOrders()') < bail,
+    'armed levels must be judged BEFORE the duplicate-price early-return (D-57) — '
+    + 'a stop armed between two identical prints must not wait for the next distinct price');
+  assert.ok(tick.indexOf('evaluatePendingBuys()') < bail,
+    'armed limit buys ride the same rule as armed levels (D-57)');
+
   assert.match(CONTENT, /evaluateMcAlerts\(token\.mint, token\);\s*\n\s*\/\/ C-01/,
     'an adopted resolver quote must judge it too');
 });

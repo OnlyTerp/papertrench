@@ -1753,6 +1753,63 @@ invisible one. Fixed by adding 'game' to SECTIONS; locked GENERICALLY: every
 nav data-section id must appear in SECTIONS, proven failing against the
 v2.11.0 tag in a temp worktree.
 
+**D-57 · S1 · An armed stop or take-profit was only ever judged on a price CHANGE — a level armed after the last move never fired on a flat or rugging tape**
+`content.js` (handlePageTick, startPriceLoop) · every trader running a stop or
+TP, worst on exactly the coins a stop exists for · confirmed by test
+(`test/orderrace.test.js`, D-57 case) · field class: bloodfortea 2026-08-19
+("buying low selling high doesnt count as profit, i made a minus 12% but should
+have been plus"), the rug reports in #papertrench-reviews, jb 2026-08-19 ·
+**fixed v3.13.9** (the tick path judges armed levels BEFORE the duplicate-price
+early-return, and the 100 ms heartbeat gained the armed-LEVEL watchdog that
+already existed for armed buys; locked by `test/orderrace.test.js`)
+`evaluateChartOrders()` was reachable from exactly one place: the page-tick
+path, *below* `if (token.priceNative === oldNative) return;`. That return is
+correct for what it was written for — a repeat print needs no re-render, no
+mark, no storage write. But the armed SET changes independently of the price,
+and the level is judged nowhere else. Two everyday sequences leave a stop armed
+against a price that already crossed it:
+  - wallet state finishes loading AFTER the first ticks arrive — the common
+    case on a reload, where the tick that could have fired the level ran while
+    `state.orders` was still empty (this is the sequence the regression test
+    reproduces);
+  - the level is dragged onto the chart, or armed by another tab, between two
+    identical prints.
+The tape then has to produce a *different* number before anything asks the
+question — and the books where it does not are precisely the dangerous ones: a
+dead-quiet market, or a rug where every tick repeats one number on the way
+down. The stop sat armed while the position bled out, which reads to the trader
+as "PaperTrench ignored my stop". `triggeredOrders()` is the sole authority on
+whether a level fires and is idempotent, so asking it on a repeat tick and on
+each heartbeat costs one comparison and cannot double-book — it only closes the
+window in which nothing asked at all. The armed-buy watchdog in `startPriceLoop`
+was the existing precedent for the same class of bug (F-16); levels now carry
+the symmetric one. Negative control run both ways: with either half reverted the
+D-57 case fails, restored byte-identical it passes.
+
+**D-58 · S1 · A lost CAS race re-booked an order clip — the re-applied mutation re-checked the position but not whether the order was already spent (jb's +9.109 equity, second mechanism)**
+`content.js` fireChartOrder · anyone with two chart tabs open on the same
+token, which the quick-buy chip makes routine (each tap opens a tab) ·
+confirmed by test (`test/orderrace.test.js`, the CAS-race case, which shipped
+red) · **fixed v3.13.9** (the remutate re-checks the order id is still live
+before re-applying, matching firePendingBuy's precedent; locked by the same
+test)
+`persistStateNow` hands a `remutate` closure the winner's adopted state and
+re-applies this tab's own mutation onto it — the design that stops a heartbeat
+eating a fill. `fireChartOrder`'s closure re-checked `state.positions[mint]`
+and nothing else. When the tab that WON the race had already fired this very
+order, the position is still open (a 50% clip does not close it), so the loser
+re-ran `E.sell` on the winner's base and booked the clip a second time: cash
+credited twice, the round's `returnedSol` double-counting, paper equity
+inflated by a whole extra set of clip proceeds. `firePendingBuy` already
+re-checked that its armed buy still existed before re-applying; the order fire
+did not. The order id is the thing that must still be live, and `E.removeOrder`
+in the same mutation is what makes the check meaningful on the retry. Note this
+is a SECOND, independent mechanism behind jb's 8/18 "+9.109 SOL where it should
+be +0.091" report — D-56 (the starting-balance anchor) was the first, and both
+were live at once, which is why the number reproduced so exactly. Negative
+control: reverting the id check alone reproduces 2 clips in the race case and 5
+in the control.
+
 **D-56 · S1 · Legacy wallets anchor on the LIVE "Starting paper balance" setting — editing the form retroactively rewrote the session (jb's 100× equity report)**
 `engine.js` (anchorStartSol, defaultState), `content.js`, `dashboard.js`, `popup.js`, `overlay.js`, `background.js` (bridge replay) · wallets born before v3.9.5 (the D-06 birth snapshot) · jb report 2026-08-18: "after a full exit, paper equity showed +9.109 SOL where it should show +0.091 SOL — exactly 100×" · **fixed v3.13.8** (journal-derived birth-anchor backfill: `derivedBirthSol`/`backfillAnchor` in engine.js, `anchorFor`/`derivedAnchor` in popup+overlay, `derivedBirthAnchor` in the worker; locked by `test/d06_backfill.test.js`)
 D-06 (v3.9.5) froze the birth balance onto `state.startSol` — but only for

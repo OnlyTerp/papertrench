@@ -770,6 +770,25 @@
       persistSoon();
     }
     flushArmedBuy();
+    // Armed levels are judged against THIS observed price — the honest fill
+    // rule depends on it being the tick that first crossed the level, so this
+    // sits in the tick path and nowhere else.
+    //
+    // D-57: this MUST run before the duplicate-price early-return below. The
+    // armed SET changes independently of the price: a stop dragged onto the
+    // chart, an order restored when wallet state finished loading, or a level
+    // added from another tab all arm against a price the feed has already
+    // printed. Gating the evaluation on "the price moved" meant a level armed
+    // after the last move waited for the NEXT distinct price to be judged —
+    // and a feed printing a flat quote (a dead-quiet book, a rug where every
+    // tick repeats the same number) never produces one. The stop sat armed
+    // while the position bled out. triggeredOrders() is the only thing that
+    // decides a fire, and it is idempotent, so running it on a repeat tick
+    // costs one comparison and cannot double-book.
+    evaluateChartOrders();
+    // N2: armed limit buys fire on the SAME tick path, same honest-fill rule.
+    evaluatePendingBuys();
+
     // A duplicate tick still proves the feed is alive, but it does not need a
     // position mark, storage write, or DOM render.
     if (token.priceNative === oldNative) return;
@@ -782,12 +801,6 @@
     // maybeRepostAverageLines) — a spec frozen at fill time made mcap lines
     // ride the candle at ratio ≈ 1 instead of holding the entry level.
     maybeRepostAverageLines();
-    // Armed levels are judged against THIS observed price — the honest fill
-    // rule depends on it being the tick that first crossed the level, so this
-    // sits in the tick path and nowhere else.
-    evaluateChartOrders();
-    // N2: armed limit buys fire on the SAME tick path, same honest-fill rule.
-    evaluatePendingBuys();
     // The token ON SCREEN is excluded from the batch poller (its price comes
     // from the page's own feed), so its alerts are judged here — otherwise
     // the one chart you are actually watching is the one that never pings.
@@ -1374,6 +1387,24 @@
           renderBuyButton();
           toast('Armed buy expired — no fillable quote arrived in time');
         }
+      }
+      // D-57: the same watchdog, for armed LEVELS. evaluateChartOrders() only
+      // ran from the page-tick path, so an order that became armed while the
+      // price stood still was never judged against a price already on screen.
+      // Two ways that happens in the field, both reported as "my stop/TP
+      // never fired":
+      //   - wallet state finishes loading AFTER the first ticks arrive (the
+      //     common one on a reload — the tick that could have fired the level
+      //     ran while state.orders was still empty);
+      //   - the level is armed from the chart, or by another tab, between two
+      //     identical prints on a quiet or rugging book.
+      // Both leave a level armed against a price that already crossed it.
+      // triggeredOrders() decides every fire and is idempotent, so re-asking
+      // each beat cannot double-book — it only closes the window where
+      // nothing asked at all.
+      if (token && Number(token.priceNative) > 0) {
+        evaluateChartOrders();
+        evaluatePendingBuys();
       }
       renderHeader();
       renderPosition();
@@ -2481,6 +2512,16 @@
         const mutate = () => {
           filled = null;
           if (!state.positions[mint]) return;
+          // D-58 / jb 2026-08-18: the position is NOT enough to decide this
+          // is still ours to fire. A lost CAS race re-runs this mutation on
+          // the winner's adopted state — and if the winning context already
+          // spent this very order, re-applying the sell books the clip a
+          // SECOND time: cash credited twice, the round's returnedSol
+          // double-counts, paper equity inflates by a whole extra set of clip
+          // proceeds (jb: +0.091 true, +9.109 shown). The order id is the
+          // thing that must still be live, exactly as firePendingBuy
+          // re-checks its armed buy still exists before re-applying.
+          if (!E.ordersFor(state, mint).some((o) => o.id === order.id)) return;
           filled = E.sell(state, settings, {
             ts: Date.now(), mint, site: site && site.id,
             qtyFraction: order.sizePct / 100,
