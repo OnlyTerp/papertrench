@@ -19,11 +19,13 @@
 const BASE_URL = 'https://api.indeix.com';
 
 /**
- * Fetch a path from Indeix. 401/403 (bad/absent key) returns a typed error so
- * the route can say "not configured" rather than a bare 500. 429 is surfaced
- * as rate-limited so the edge cache can back off.
+ * Fetch a path from Indeix with one retry on the transient 5xx family that
+ * their history endpoints are prone to (504 measured 100%-flaky during a
+ * provider outage — TrenchBrain treats {429,500,502,503,504} as retryable and
+ * retries). A 5xx that survives the retry is typed `indeix-degraded` so the
+ * route can say "temporarily unavailable" rather than lying "no data".
  */
-async function indeixJson(env, method, path, params, budget) {
+async function indeixJson(env, method, path, params, budget, retries = 1) {
   const key = env && env.INDEIX_API_KEY;
   if (!key) {
     const err = new Error('indeix-not-configured');
@@ -39,28 +41,49 @@ async function indeixJson(env, method, path, params, budget) {
   for (const [k, v] of Object.entries(params || {})) {
     if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
   }
-  const res = await fetch(url.toString(), {
-    method,
-    headers: {
-      Authorization: `Bearer ${key}`,
-      Accept: 'application/json',
-      'User-Agent': 'PaperTrench/Replay-1.0',
-    },
-  });
-  if (budget) budget.used++;
-  if (res.status === 401 || res.status === 403) {
-    const err = new Error('indeix-auth-failed');
-    err.code = 'indeix-auth-failed';
-    throw err;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url.toString(), {
+      method,
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+        'User-Agent': 'PaperTrench/Replay-1.0',
+      },
+    });
+    if (budget) budget.used++;
+    lastStatus = res.status;
+    if (res.status === 401 || res.status === 403) {
+      const err = new Error('indeix-auth-failed');
+      err.code = 'indeix-auth-failed';
+      throw err;
+    }
+    if (res.status === 429) {
+      const err = new Error('indeix-rate-limited');
+      err.code = 'indeix-rate-limited';
+      err.rateLimited = true;
+      throw err;
+    }
+    // A 5xx is the provider's own backend timing out (504) or being briefly
+    // down — retry once before concluding it's degraded.
+    if (res.status >= 500 && res.status < 600) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+        continue;
+      }
+      const err = new Error('indeix-degraded');
+      err.code = 'indeix-degraded';
+      err.status = res.status;
+      throw err;
+    }
+    if (!res.ok) return null;
+    return res.json();
   }
-  if (res.status === 429) {
-    const err = new Error('indeix-rate-limited');
-    err.code = 'indeix-rate-limited';
-    err.rateLimited = true;
-    throw err;
-  }
-  if (!res.ok) return null;
-  return res.json();
+  // Unreachable: the loop either returns or throws on its final attempt.
+  const err = new Error('indeix-degraded');
+  err.code = 'indeix-degraded';
+  err.status = lastStatus;
+  throw err;
 }
 
 /**

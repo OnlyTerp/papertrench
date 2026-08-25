@@ -69,7 +69,14 @@
       draw(false);
       $('status').textContent = '';
     } catch (e) {
-      $('status').textContent = 'Build failed: ' + (typeof e === 'string' ? e : (e && e.message) || e);
+      const reason = typeof e === 'string' ? e : (e && e.message) || '';
+      $('status').textContent = {
+        'replay-degraded': 'Chain data provider is temporarily down — try again in a minute.',
+        'replay-unconfigured': 'Replay is not configured on this deployment yet.',
+        'replay-auth': 'Replay provider rejected our key — flag it in #bug-reports.',
+        'bad-address': 'That mint or wallet address is not a valid Solana address.',
+        'busy': 'Too many builds at once — try again in a moment.',
+      }[reason] || ('Build failed: ' + reason);
     } finally { $('build').disabled = false; }
   }
 

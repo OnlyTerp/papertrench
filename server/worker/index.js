@@ -1955,6 +1955,10 @@ function replayError(err) {
   if (code === 'indeix-budget-exhausted') return json({ ok: false, reason: 'busy' }, 429);
   if (code === 'indeix-rate-limited') return json({ ok: false, reason: 'rate-limited' }, 429);
   if (code === 'indeix-auth-failed') return json({ ok: false, reason: 'replay-auth' }, 502);
+  // The history endpoints (trades/ohlcv) 504 during a provider outage; after a
+  // retry this is "temporarily degraded", NOT "no data" — the difference is
+  // whether the user is told to retry vs shown a wrong empty chart.
+  if (code === 'indeix-degraded') return json({ ok: false, reason: 'replay-degraded' }, 503);
   return json({ ok: false, reason: 'server-error' }, 500);
 }
 
