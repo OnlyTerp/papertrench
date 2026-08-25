@@ -40,6 +40,20 @@
       name: 'plahstickk',                // display name on the card
       blurb: 'Weekend challenge runs — fresh eyes on the trenches.',
     },
+    {
+      login: 'zurp52',                   // twitch.tv/<login> — lowercase
+      name: 'Zurp52',                    // display name on the card
+      blurb: 'Streaming PaperTrench on a regular schedule.',
+    },
+    {
+      // Kick: no embeddable player, so this renders as a link-out card.
+      // `login` stays absent on purpose — inventing one would mount a dead
+      // Twitch player for a channel that does not exist there.
+      name: 'Ark1317',
+      platform: 'kick',
+      channelUrl: 'https://kick.com/ark1317',
+      blurb: 'PaperTrench streamer on Kick.',
+    },
   ];
 
   // Where "Sign up as a streamer" points — the on-site form, which posts to
