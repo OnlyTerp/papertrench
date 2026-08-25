@@ -9,7 +9,7 @@
 
 
 if (typeof importScripts === 'function') {
-  importScripts('errors.js', 'replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js', 'sites.js', 'fees.js');
+  importScripts('errors.js', 'replay.js', 'quote.js', 'resolver.js', 'onchain.js', 'rpc-pool.js', 'onchain-feed.js', 'recordings.js', 'attest.js', 'xlinks.js', 'warmdest.js', 'xray-core.js', 'pnlcard.js', 'forge-core.js', 'predict-engine.js', 'predict-score.js', 'predict-venues.js', 'sites.js');
 }
 const RP = self.PTReplay;
 const AT = self.PTAttest;
