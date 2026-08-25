@@ -110,29 +110,66 @@ test('flow stats: two tokens hold independently', () => {
 
 /* ---------------- popup helper ---------------- */
 
-test('popup journalFlow derives bought/held/sold from a legacy state alone', () => {
-  // A wallet from BEFORE the feature: journal rows + positions, nothing else.
+/** Load the popup's journal-derived helpers into a bare context. The slice
+ * starts at the cost-basis helper because journalFlow depends on it. */
+function loadPopupFlow() {
   const popupSrc = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   const ctx = { console, Math, Number, Object, parseFloat };
   vm.createContext(ctx);
-  const start = popupSrc.indexOf('function journalFlow(');
+  const start = popupSrc.indexOf('function grossOpenCostSol(');
   const end = popupSrc.indexOf('/** Equity = cash');
-  assert.ok(start !== -1 && end > start, 'journalFlow must exist in popup.js');
+  assert.ok(start !== -1 && end > start,
+    'journalFlow and its cost-basis helper must exist in popup.js');
   vm.runInContext(popupSrc.slice(start, end), ctx);
+  return ctx;
+}
 
+test('popup journalFlow agrees with the engine on a REAL engine state', () => {
+  // The fixture is a state the ENGINE built, never a hand-written shape.
+  // A position's open cost basis is DERIVED (from costSol / investedSol /
+  // netInvestedSol), never stored as a `grossOpenCostSol` field — so a
+  // fabricated `{ grossOpenCostSol: n }` fixture proves nothing about the
+  // popup that ships. It passed for exactly that reason while the real popup
+  // rendered "holding 0.00" for every user with an open position.
+  const settings = freshSettings({ balanceStartSol: 10 });
+  const state = E.defaultState(settings);
+  buyAt(state, settings, MINT_A, 2, 0.001);
+  buyAt(state, settings, MINT_B, 1, 0.002);
+  sellPct(state, settings, MINT_A, 50, 0.0012);   // partial exit: cost basis shrinks
+
+  const ctx = loadPopupFlow();
+  const flow = ctx.journalFlow(state.journal, state.positions);
+  const engine = E.sessionStats(state, settings);
+
+  // Expectations come from the engine, which owns these definitions — the
+  // popup duplicates the rule and must not drift from it.
+  assert.ok(engine.heldSol > 0, 'the scenario must leave something held');
+  assert.ok(Math.abs(flow.heldSol - engine.heldSol) < 1e-9,
+    `held must match the engine (${flow.heldSol} vs ${engine.heldSol})`);
+  assert.ok(Math.abs(flow.boughtSol - engine.boughtSol) < 1e-9,
+    `bought must match the engine (${flow.boughtSol} vs ${engine.boughtSol})`);
+  assert.ok(Math.abs(flow.soldSol - engine.soldSol) < 1e-9,
+    `sold must match the engine (${flow.soldSol} vs ${engine.soldSol})`);
+});
+
+test('popup journalFlow reads a legacy position that predates netInvestedSol', () => {
+  // Real historical shape: positions written before netInvestedSol existed
+  // carry investedSol + costSol only. Without partial sells costSol === net
+  // invested, so the full investedSol is the exact gross basis.
+  const ctx = loadPopupFlow();
   const journal = [
     { side: 'buy', solGross: 1.0, solNet: -0.99 },
     { side: 'buy', solGross: 2.0, solNet: -1.98 },
     { side: 'sell', solGross: 1.25, solNet: 1.2375 },
   ];
   const positions = {
-    M1: { grossOpenCostSol: 1.5 },
-    M2: { grossOpenCostSol: 0.25 },
+    M1: { investedSol: 1.5, costSol: 1.485 },
+    M2: { investedSol: 0.25, costSol: 0.2475 },
   };
   const flow = ctx.journalFlow(journal, positions);
   assert.equal(flow.boughtSol, 3, 'bought = sum of buy solGross (order size)');
   assert.equal(flow.soldSol, 1.25, 'sold = sum of sell solGross (order size)');
-  assert.equal(flow.heldSol, 1.75, 'held = surviving open cost basis');
+  assert.equal(flow.heldSol, 1.75, 'held = gross invested for legacy positions');
 });
 
 test('dashboard surfaces the flow KPI', () => {
