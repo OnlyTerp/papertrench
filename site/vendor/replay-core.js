@@ -208,20 +208,16 @@ function replayCurve(fills, candles) {
 
   const points = [];
   let fi = 0;
-  const position = {
+  // Fold CUMULATIVELY. The previous shape folded each fill in isolation
+  // (foldFills([f]) summed member-by-member) - but realized PnL only exists
+  // ACROSS fills: a sell computes profit against the buys' running cost
+  // basis, and a lone sell has none. Folding one-at-a-time left realized
+  // permanently $0 on every curve point (the exact HUD bug seen live 8/26).
+  // Refolding the prefix on each new fill is O(fills^2) worst case, with
+  // fills capped at ~60 - trivial next to being wrong.
+  let position = {
     qty: 0, cash: 0, costBasis: 0, realized: 0, buys: 0, sells: 0,
     boughtUsd: 0, soldUsd: 0, unknownHeld: 0, unknownUsd: 0,
-  };
-  const apply = (f, sign) => {
-    // sign +1 to fold onto the running position, -1 to unfold (used when a
-    // fill is replayed as of a later minute — not needed here since we walk
-    // forward, but kept for parity/clarity of the fold model).
-    if (sign < 0) return;
-    const r = foldFills([f]);
-    position.qty += r.qty; position.cash += r.cash; position.costBasis += r.costBasis;
-    position.realized += r.realized; position.buys += r.buys; position.sells += r.sells;
-    position.boughtUsd += r.boughtUsd; position.soldUsd += r.soldUsd;
-    position.unknownHeld += r.unknownHeld; position.unknownUsd += r.unknownUsd;
   };
 
   for (const bar of minutes) {
@@ -231,9 +227,9 @@ function replayCurve(fills, candles) {
     // (the minute's start), so it never matched its own bar and the position
     // lagged one bar behind the price it traded at.
     const windowEnd = bar.ts + 60000;
-    while (fi < ordered.length && ordered[fi].ts < windowEnd) {
-      apply(ordered[fi], 1); fi++;
-    }
+    let folded = false;
+    while (fi < ordered.length && ordered[fi].ts < windowEnd) { fi++; folded = true; }
+    if (folded) position = foldFills(ordered.slice(0, fi));
     const pnl = pnlAt(position, bar.c);
     points.push({
       ts: bar.ts, price: bar.c,

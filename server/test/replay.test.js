@@ -72,6 +72,13 @@ test('replayCurve steps realized vs unrealized per bar', () => {
   assert.ok(pts.length >= 2, `expect points per bar, got ${pts.length}`);
   const first = pts[0];
   assert.ok(Math.abs(first.qty - 1000) < 1e-9, `first bar qty 1000, got ${first.qty}`);
+  // Realized PnL exists only ACROSS fills: the sell must book profit against
+  // the buy's cost basis. Folding fills one-at-a-time loses the basis and
+  // pins realized at $0 forever - the live HUD bug of 8/26. Bought 1000 for
+  // $1, sold 1000 for $2 (fixture USD legs) => realized +$1 on the sell bar.
+  const last = pts[pts.length - 1];
+  assert.ok(Math.abs(last.realized - 1) < 1e-6,
+    `sell bar realized +1 against basis, got ${last.realized}`);
 });
 
 test('leaderboard ranks by cash-flow total, transfers excluded from the mark', () => {
