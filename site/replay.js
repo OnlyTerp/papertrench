@@ -21,7 +21,11 @@
   let speedIdx = 0; const SPEEDS = [1, 2, 4, 8];
   let recording = false, recorder = null, chunks = [];
 
-  const API_BASE = '';
+  /* The site is static GitHub Pages - there is no /api on this origin. All
+   * API traffic goes to the worker, same origin arena.js uses. Local dev
+   * (127.0.0.1 harness) keeps same-origin so mocks can intercept. */
+  const API_BASE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
+    ? '' : 'https://papertrench-api.onerobby.workers.dev';
 
   function parseMint(v) {
     const s = String(v || '').trim();
