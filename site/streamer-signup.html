@@ -43,30 +43,31 @@
   }
   .k-twitch { color: var(--twitch2); background: rgba(145,70,255,0.10); border: 1px solid var(--twitch-dim); }
 
-  .apply-wrap { display: grid; grid-template-columns: minmax(0,1fr) 330px; gap: 26px; align-items: start; padding-bottom: 88px; }
-  @media (max-width: 940px) { .apply-wrap { grid-template-columns: 1fr; } }
-
-  .apply-card {
-    background: var(--panel); border: 1px solid var(--line2);
-    border-radius: var(--radius); padding: 0; overflow: hidden;
-  }
+  /* One column, one scene. No sidebar cards. */
+  .apply-scene { padding: 12px 0 96px; }
+  .apply-col { max-width: 40rem; }
 
   /* ---------- the review promise, stated first ---------- */
   .review-note {
     display: flex; gap: 13px; align-items: flex-start;
-    padding: 17px 28px; border-bottom: 1px solid var(--line);
-    background: rgba(52,211,153,0.05);
+    padding: 0 0 1.5rem; margin: 0 0 1.5rem;
+    border-bottom: 1px solid var(--line);
+    background: none;
   }
   .review-note .mark { flex: none; color: var(--green2); margin-top: 2px; }
-  .review-note p { font-size: 13px; color: var(--muted); line-height: 1.65; }
+  .review-note p { font-size: 13.5px; color: var(--muted); line-height: 1.65; }
   .review-note b { color: var(--text); font-weight: 700; }
 
-  /* ---------- form sections ---------- */
-  .fs { padding: 24px 28px 4px; }
-  .fs + .fs { border-top: 1px solid var(--line); }
+  /* ---------- form scenes ---------- */
+  .fs { padding: 0 0 2rem; }
+  .fs + .fs { border-top: 1px solid var(--line); padding-top: 2rem; }
   .fs-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-  .fs-head h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
-  .fs-rule { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; max-width: 56ch; }
+  .fs-head .idx {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 1.4px; color: var(--dim); width: 100%; margin-bottom: 6px;
+  }
+  .fs-head h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 800; letter-spacing: -0.04em; }
+  .fs-rule { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; max-width: 56ch; }
   .fs-rule b { color: var(--text); font-weight: 700; }
 
   .req { color: var(--orange2); font-weight: 800; }
@@ -127,34 +128,25 @@
   /* ---------- actions ---------- */
   .apply-actions {
     display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
-    padding: 20px 28px 26px; border-top: 1px solid var(--line);
-    background: rgba(0,0,0,0.16);
+    padding: 1.5rem 0 0; border-top: 1px solid var(--line);
+    background: none;
   }
   .form-msg { font-size: 13px; font-weight: 650; line-height: 1.55; }
   .form-msg.err { color: #ff8a80; }
   .form-msg.ok { color: var(--green2); }
   .ar-btn.primary[disabled] { opacity: .55; cursor: progress; }
 
-  .done { text-align: center; padding: 44px 26px 40px; }
-  .done .mark { margin: 0 auto 16px; color: var(--green2); }
-  .done h2 { font-size: 21px; margin-bottom: 8px; letter-spacing: -0.3px; }
-  .done p { font-size: 14px; color: var(--muted); line-height: 1.65; max-width: 430px; margin: 0 auto 22px; }
+  .done { padding: 8px 0 12px; }
+  .done .mark { color: var(--green2); margin-bottom: 16px; }
+  .done h2 { font-size: clamp(1.6rem, 3.4vw, 2.1rem); margin-bottom: 8px; letter-spacing: -0.04em; }
+  .done p { font-size: 14px; color: var(--muted); line-height: 1.65; max-width: 46ch; margin: 0 0 22px; }
 
-  /* ---------- sidebar ---------- */
-  .side { display: grid; gap: 15px; position: sticky; top: 92px; }
-  @media (max-width: 940px) { .side { position: static; } }
-  .side-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 19px 21px; }
-  .side-card h3 {
-    font-family: var(--mono);
-    font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase;
-    color: var(--dim); margin-bottom: 14px;
+  .apply-preview { margin: 8px 0 4px; }
+  .apply-preview .lbl {
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 1.3px; text-transform: uppercase; color: var(--dim);
+    margin-bottom: 10px; display: block;
   }
-  .perk { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; font-size: 13px; line-height: 1.55; }
-  .perk:last-child { margin-bottom: 0; }
-  .perk .ico { flex: none; margin-top: 2px; color: var(--green2); }
-  .perk b { font-weight: 700; }
-  .perk span { color: var(--muted); }
-  .side-card.prep .perk .ico { color: var(--orange2); }
 
   /* ---------- live card preview ----------
    *
@@ -199,7 +191,7 @@
   .prev-handle { font-family: var(--mono); font-size: 11px; color: var(--prev); margin-top: 3px; word-break: break-all; }
   .prev-blurb { margin-top: 8px; font-size: 12.5px; color: var(--muted); line-height: 1.5; word-break: break-word; }
   .prev-blurb.empty { color: var(--dim); font-style: italic; }
-  .prev-foot { margin-top: 12px; font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+  .prev-foot { margin-top: 12px; font-size: 12px; color: var(--dim); line-height: 1.5; max-width: 46ch; }
 </style>
 </head>
 <body>
@@ -236,13 +228,17 @@
   <div class="film-mast-veil" aria-hidden="true"></div>
   <div class="film-mast-copy">
     <h1>Get featured<br>in the trench.</h1>
-    <p class="lede">Running the PaperTrench Challenge? Apply. Approved streamers get a card on the <a href="/streams">streams page</a>, the Streamer role in Discord, and a live alert. Sending this does not publish anything.</p>
+    <p class="lede">Running the PaperTrench Challenge? Apply. A card on the <a href="/streams">streams page</a>, the Streamer role in Discord, a live alert. Sending this does not publish anything.</p>
+    <div class="ed-line apply-prep">
+      <span>Install first</span>
+      <span>Overlay on OBS</span>
+      <span>Same paper wallet</span>
+    </div>
   </div>
 </header>
 
-<section style="padding-top:14px">
-  <div class="wrap apply-wrap">
-    <div class="apply-card reveal">
+<section class="apply-scene">
+  <div class="wrap apply-col">
       <!-- The form and the thank-you state swap in place; JS toggles them. -->
       <div id="formPane">
 
@@ -256,10 +252,11 @@
           <!-- ============ CHANNEL ============ -->
           <div class="fs">
             <div class="fs-head">
+              <span class="idx">SCENE 01</span>
               <h2>Your channel</h2>
               <span class="vis card">Goes on your card</span>
             </div>
-            <p class="fs-rule">If a moderator approves you, these three answers are what your roster card is built from. There's a live preview of it in the sidebar so you can see the card before anyone else does.</p>
+            <p class="fs-rule">If a moderator approves you, these three answers are what your roster card is built from. The preview below is the whole of what a card can show.</p>
 
             <label class="ar-field">
               <span class="lbl">Creator / channel name <span class="req">*</span></span>
@@ -291,11 +288,25 @@
               <input class="ar-input" type="text" name="blurb" id="f-blurb" maxlength="160" autocomplete="off" placeholder="Weekend challenge runs — fresh eyes on the trenches.">
               <span class="hint">Optional. Leave it blank and the card just shows your name and channel.</span>
             </label>
+
+            <div class="apply-preview">
+              <span class="lbl">Your card, if approved</span>
+              <div class="prev-card twitch" id="prevCard" aria-live="polite">
+                <div class="prev-thumb" id="prevInitials">?<span class="chip">OFFLINE</span></div>
+                <div class="prev-body">
+                  <div class="prev-name" id="prevName">Your channel name</div>
+                  <div class="prev-handle" id="prevHandle">twitch.tv/you</div>
+                  <div class="prev-blurb empty" id="prevBlurb">Your one-liner appears here.</div>
+                </div>
+              </div>
+              <p class="prev-foot">This is the whole of what a card can show. Nothing from the next scene can appear on it.</p>
+            </div>
           </div>
 
           <!-- ============ CONTACT ============ -->
           <div class="fs">
             <div class="fs-head">
+              <span class="idx">SCENE 02</span>
               <h2>How we reach you</h2>
               <span class="vis mods">Moderators only</span>
             </div>
@@ -366,41 +377,9 @@
       <div class="done" id="donePane" hidden>
         <svg class="mark" width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="m8 12.3 2.8 2.8L16.3 9.6"/></svg>
         <h2>Application received</h2>
-        <p>It is sitting in the moderator queue now — not on the site. A moderator will read it and reach out on Discord. If they approve you, your card goes up on the streams page automatically.</p>
+        <p>It is sitting in the moderator queue now, not on the site. A moderator will read it and reach out on Discord. If they approve you, your card goes up on the streams page automatically.</p>
         <a class="btn btn-primary" href="/streams">Back to the streams page</a>
       </div>
-    </div>
-
-    <aside class="side reveal d1">
-      <!-- The card as it would be built, shown before anyone else can see it. -->
-      <div class="side-card">
-        <h3>Your card, if approved</h3>
-        <div class="prev-card twitch" id="prevCard" aria-live="polite">
-          <div class="prev-thumb" id="prevInitials">?<span class="chip">OFFLINE</span></div>
-          <div class="prev-body">
-            <div class="prev-name" id="prevName">Your channel name</div>
-            <div class="prev-handle" id="prevHandle">twitch.tv/you</div>
-            <div class="prev-blurb empty" id="prevBlurb">Your one-liner appears here.</div>
-          </div>
-        </div>
-        <p class="prev-foot">This is the whole of what a card can show. Nothing from the contact section can appear on it.</p>
-      </div>
-
-      <div class="side-card">
-        <h3>What approved streamers get</h3>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9-5.3-2.9-5.3 2.9 1.1-5.9L3.5 9.7l5.9-.8z"/></svg><span><b>Streamer role</b> in the PaperTrench Discord.</span></div>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5v3a1.5 1.5 0 0 0 1.5 1.5H7l5 4V6.5l-5 4H4.5A1.5 1.5 0 0 0 3 12z"/><path d="M17 9.2a4 4 0 0 1 0 5.6"/></svg><span><b>An announcement</b> introducing you to the community.</span></div>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8.5a6 6 0 1 0-12 0c0 5.3-2.2 6.8-2.2 6.8h16.4S18 13.8 18 8.5"/><path d="M10.4 19.2a2 2 0 0 0 3.2 0"/></svg><span><b>Automatic live alerts</b> when you go live.</span></div>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="12" height="12" rx="2"/><path d="m14.5 10.5 7-3.5v10l-7-3.5z"/></svg><span><b>A card on the streams page</b> — Twitch channels play inline.</span></div>
-      </div>
-
-      <div class="side-card prep">
-        <h3>Before you apply</h3>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v12"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 19.5h15"/></svg><span>Install the extension from the <a href="/#install" style="color:var(--orange2)">install guide</a> — free, open source, no signup.</span></div>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17.5V21"/></svg><span>Open <code>Stream overlay</code> from the popup and add it to OBS with a chroma key.</span></div>
-        <div class="perk"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7l-1.3 1.3"/><path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 1 0 5.7 5.7l1.3-1.3"/></svg><span>Your record is a <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener" style="color:var(--orange2)">hash-chained</a> paper wallet — same rules as everyone.</span></div>
-      </div>
-    </aside>
   </div>
 </section>
 </main>

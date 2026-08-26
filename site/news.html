@@ -62,11 +62,13 @@
   </div>
 </header>
 
-<section class="ed-sec" id="just-shipped">
+<section class="ed-sec ed-now" id="just-shipped">
   <div class="wrap">
     <h2>Just shipped</h2>
-    <p class="ed-sub">The newest releases, pulled from the archive below by the page itself. This strip cannot go stale.</p>
-    <div class="ed-list" id="latestGrid"></div>
+    <p class="ed-sub">The newest five, pulled from the archive below by the page itself. This strip cannot go stale.</p>
+    <div class="ed-list" id="latestGrid">
+      <p class="ed-now-wait">Reading the archive.</p>
+    </div>
   </div>
 </section>
 
@@ -85,8 +87,17 @@
       </div>
     </a>
 
+    <a class="ed-lead a-green" href="/news-chain">
+      <img src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+      <div>
+        <span class="ver-chip">v2.8.1</span>
+        <h3>We shipped a build that broke the chain, and said so</h3>
+        <p>v2.8.0 carried half an in-flight migration. Every paper fill failed to append to the attestation chain. Wallet, balances and P&amp;L were never touched. The gap is disclosed; the chain records again.</p>
+        <span class="go">Read the story</span>
+      </div>
+    </a>
+
     <div class="ed-list">
-      <a class="ed-row" href="/news-chain"><span class="ed-ver">v2.8.1</span><span class="ed-ttl">We shipped a build that broke the chain, and said so</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
       <a class="ed-row" href="/news-rugguard"><span class="ed-ver">v2.8.0</span><span class="ed-ttl">Fresh launches are snipeable, and the rug guard</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
       <a class="ed-row" href="/news-quickedit"><span class="ed-ver">v2.9.0</span><span class="ed-ttl">The quick fixes live on the trading tab</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
       <a class="ed-row" href="/news-turbo"><span class="ed-ver">v2.7.0</span><span class="ed-ttl">Terminal Turbo: every terminal, warm</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
@@ -101,7 +112,7 @@
   </div>
 </section>
 
-<section class="archive-sec" id="archive">
+<section class="archive-sec ed-archive" id="archive">
   <div class="wrap">
     <h2>Every release, newest first</h2>
     <p class="ed-sub">The same patch notes that ship in CHANGELOG.md with the extension. Filter by what you care about.</p>
@@ -111,9 +122,7 @@
 
     <div class="timeline" id="timeline"></div>
 
-    <p class="reveal" style="margin-top:8px;padding:16px 20px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:14px;color:var(--muted)">
-      Earlier than this: armed snipes surviving pair to mint resolution on Axiom/Photon/BullX, overlay auto-hide when no token is detected, the master overlay toggle, resizable trade tab, draggable positions bar, average fill/exit price lines, GMGN support, and the paper fill attest chain.
-    </p>
+    <p class="ed-earlier">Earlier than the archive: armed snipes surviving pair to mint resolution on Axiom/Photon/BullX, overlay auto-hide when no token is detected, the master overlay toggle, a resizable trade tab, a draggable positions bar, average fill/exit price lines, GMGN support, and the paper fill attest chain.</p>
   </div>
 </section>
 
@@ -122,8 +131,14 @@
     <h2>Every one of these is already in the build.</h2>
     <p>Unzip the latest release over the folder you already loaded, then hit Reload on the extension card. Wallet, journal and attest chain survive. Then open a terminal.</p>
     <div class="hero-ctas">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
-      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">
+        <svg viewBox="0 0 256 256" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>
+        Download for Chrome
+      </a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">
+        <span>Open Axiom</span>
+        <svg viewBox="0 0 256 256" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
+      </a>
     </div>
   </div>
 </section>

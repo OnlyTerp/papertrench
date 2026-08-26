@@ -111,7 +111,6 @@
   .player-empty a { color: var(--twitch2); }
 
   /* ---------- roster ---------- */
-  .streamers-sec { padding: 8px 0 76px; }
   .streamer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 34px; }
   @media (max-width: 980px) { .streamer-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 640px) { .streamer-grid { grid-template-columns: 1fr; } }
@@ -122,7 +121,7 @@
     font: inherit; color: inherit; display: block; width: 100%;
     transition: transform .22s cubic-bezier(.2,.8,.2,1), border-color .22s, box-shadow .22s;
   }
-  .s-card:hover { transform: translateY(-4px); border-color: rgba(145,70,255,0.42); box-shadow: 0 22px 54px rgba(0,0,0,0.5); }
+  .s-card:hover { border-color: rgba(255,157,69,0.42); }
   .s-card:hover .s-play { opacity: 1; transform: scale(1); }
 
   .s-thumb { position: relative; aspect-ratio: 16 / 9; background: var(--panel2); overflow: hidden; }
@@ -186,18 +185,17 @@
   .s-card.open .s-thumb { background: transparent; }
   .s-card.open .ph { background: linear-gradient(145deg, rgba(145,70,255,0.09), transparent); color: rgba(191,148,255,0.3); }
 
-  .signup-strip {
-    margin-top: 40px; padding: 22px 26px;
-    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-    background: linear-gradient(120deg, rgba(145,70,255,0.10), rgba(255,157,69,0.06));
-    border: 1px solid var(--twitch-dim); border-radius: var(--radius);
+  .signup-rail {
+    margin-top: 2.25rem; padding: 1.25rem 0 0;
+    display: flex; align-items: baseline; gap: 18px 28px; flex-wrap: wrap;
+    background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0;
   }
-  .signup-strip .txt { flex: 1; min-width: 260px; }
-  .signup-strip h3 { font-size: 17.5px; font-weight: 800; margin-bottom: 5px; letter-spacing: -0.3px; }
-  .signup-strip p { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
+  .signup-rail .txt { flex: 1; min-width: 220px; }
+  .signup-rail h3 { font-size: 1.15rem; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.03em; }
+  .signup-rail p { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
 
   /* ---------- how a record is checked ---------- */
-  .proof-sec { padding: 20px 0 30px; background: linear-gradient(180deg, transparent, rgba(145,70,255,0.035), transparent); }
+  .proof-sec { padding: 20px 0 30px; background: none; }
   .proof-head { max-width: 640px; }
 
   .proof-step .idx {
@@ -231,16 +229,13 @@
   .final-cta { padding: 96px 0 110px; }
 
   /* Brand over Twitch purple leftovers. Player stays. */
-  .signup-strip {
-    background: rgba(255,157,69,0.06);
-    border-color: rgba(255,157,69,0.28);
-  }
-  .s-card:hover { border-color: rgba(255,157,69,0.42); }
   .s-card.open { border-color: rgba(255,157,69,0.3); background: rgba(255,157,69,0.02); }
-  .watch-sec { padding: 18px 0 48px; }
-  .streamers-sec { padding: 8px 0 56px; }
-  .proof-sec { padding: 12px 0 24px; background: none; }
-  .obs-sec { padding: 40px 0 8px; }
+  .watch-sec { padding: 18px 0 36px; }
+  .roster-sec { padding: 8px 0 48px; }
+  .proof-sec { padding: 12px 0 8px; }
+  .obs-sec { padding: 28px 0 8px; }
+  .obs-lead { margin-bottom: 8px; }
+  .obs-lead h2 { margin: 0 0 0.4rem; }
 </style>
 </head>
 <body>
@@ -308,28 +303,28 @@
 </section>
 
 <!-- ============ ROSTER ============ -->
-<section class="streamers-sec" id="streamers">
+<section class="ed-sec roster-sec" id="streamers">
   <div class="wrap">
-    <h2>The streamers in the trench</h2>
-    <p class="ed-sub">Every one of them trades a paper wallet under the same protocol as everyone else. No house accounts, no seeded balances. Pick a card to watch them here.</p>
+    <h2>Who's on the board</h2>
+    <p class="ed-sub">Same paper wallet. Same hash chain. Pick a card to watch them here.</p>
     <div class="streamer-grid" id="streamerGrid"></div>
 
-    <div class="signup-strip reveal" id="signupStrip">
+    <div class="signup-rail reveal" id="signupStrip">
       <div class="txt">
-        <h3>Streaming the challenge? Get on the roster.</h3>
-        <p>Any Twitch streamer running PaperTrench can apply. Approved channels get a card on this page, the Streamer role in Discord, and an automatic alert when they go live.</p>
+        <h3>Streaming it?</h3>
+        <p>Apply. A moderator reads it first. Nothing goes live on send.</p>
       </div>
-      <a class="btn btn-primary" id="signupBtn" href="/streamer-signup">Apply as a streamer</a>
+      <a class="btn btn-primary" id="signupBtn" href="/streamer-signup">Apply</a>
     </div>
   </div>
 </section>
 
 <!-- ============ HOW A RECORD IS CHECKED ============ -->
-<section class="proof-sec" id="challenge">
+<section class="ed-sec proof-sec" id="challenge">
   <div class="wrap">
     <div class="proof-head">
-      <h2>Standings come from the fills, not the screenshots</h2>
-      <p class="ed-sub">Nobody on this page reports their own numbers. A record is rebuilt from the raw fills by a server that runs three checks in order, and the code that runs them is public.</p>
+      <h2>How a record is checked</h2>
+      <p class="ed-sub">Nobody on this page reports their own numbers. Three checks, in order. The code is public.</p>
     </div>
 
     <div class="proof-rail">
@@ -367,17 +362,36 @@
 </section>
 
 <!-- ============ STREAM IT YOURSELF ============ -->
-<section class="obs-sec" id="stream-yourself">
+<section class="ed-sec obs-sec" id="stream-yourself">
   <div class="wrap">
-    <div style="max-width:700px">
-      <h2>Put your paper P&amp;L on stream</h2>
-      <p class="ed-sub">PaperTrench ships a built-in stream overlay: a chroma-key window with live equity, session P&amp;L, win rate and open positions. It updates the instant you trade, and it is permanently marked PAPER so chat is never in doubt.</p>
+    <div class="ed-lead obs-lead">
+      <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720">
+      <div>
+        <h2>The overlay is a green screen</h2>
+        <p class="ed-sub">Live equity, session P&amp;L, win rate, open positions. Permanently marked PAPER so chat is never in doubt.</p>
+      </div>
     </div>
-    <div class="install-steps">
-      <div class="step reveal"><div class="n">01</div><h4>Install PaperTrench</h4><p>Grab the extension from the <a href="/#install" style="color:var(--orange2)">install guide</a>. Free, open source, no signup.</p></div>
-      <div class="step reveal d1"><div class="n">02</div><h4>Open the overlay</h4><p>Click the PaperTrench icon, then <code>Stream overlay</code>. A capture-ready window opens on a green screen.</p></div>
-      <div class="step reveal d2"><div class="n">03</div><h4>Add it to OBS</h4><p>Sources → <code>Window Capture</code> → pick the overlay → add a <code>Chroma Key</code> filter. Defaults just work.</p></div>
-      <div class="step reveal d3"><div class="n">04</div><h4>Go live &amp; apply</h4><p>Trade with the overlay on screen, then <a href="/streamer-signup" style="color:var(--orange2)">apply for the roster</a> to get featured here.</p></div>
+    <div class="proof-rail obs-rail">
+      <div class="proof-step reveal">
+        <div class="idx">STEP 01</div>
+        <h3>Install PaperTrench</h3>
+        <p>Grab the zip from the <a href="/#install">install guide</a>. Free, open source, no signup.</p>
+      </div>
+      <div class="proof-step reveal d1">
+        <div class="idx">STEP 02</div>
+        <h3>Open the overlay</h3>
+        <p>Click the PaperTrench icon, then <code>Stream overlay</code>. A capture-ready window opens on a green screen.</p>
+      </div>
+      <div class="proof-step reveal d2">
+        <div class="idx">STEP 03</div>
+        <h3>Add it to OBS</h3>
+        <p>Sources → <code>Window Capture</code> → pick the overlay → add a <code>Chroma Key</code> filter. Defaults just work.</p>
+      </div>
+      <div class="proof-step reveal d3">
+        <div class="idx">STEP 04</div>
+        <h3>Go live and apply</h3>
+        <p>Trade with the overlay on screen, then <a href="/streamer-signup">apply for the roster</a> to get featured here.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -385,8 +399,8 @@
 <!-- ============ FINAL CTA ============ -->
 <section class="film-end">
   <div class="wrap">
-    <h2>Think you can out-trade them?</h2>
-    <p>Install the overlay, open a terminal, then prove it on the board.</p>
+    <h2>Watch, or get in.</h2>
+    <p>Same overlay. Same paper wallet. Same board.</p>
     <div class="hero-ctas">
       <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
       <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>

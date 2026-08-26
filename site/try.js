@@ -22,10 +22,33 @@
   const chainEl = root ? root.querySelector('.try-chain') : null;
   const links = chainEl ? Array.from(chainEl.querySelectorAll('.try-link')) : [];
   const fillEl = root ? root.querySelector('.try-fill') : null;
+  const sizeEls = root ? Array.from(root.querySelectorAll('.try-size')) : [];
   const copyEl = document.getElementById('copyExtensions');
 
   let quoted = null;
   let cheated = false;
+  let sizeSol = '0.5';
+  const markedSize = sizeEls.find((el) => el.classList.contains('is-on'));
+  if (markedSize && markedSize.getAttribute('data-sol')) {
+    sizeSol = markedSize.getAttribute('data-sol');
+  }
+
+  function setSizesOpen(on) {
+    sizeEls.forEach((el) => {
+      el.disabled = !on;
+    });
+  }
+
+  function markSize(btn) {
+    const next = btn && btn.getAttribute('data-sol');
+    if (!next) return;
+    sizeSol = next;
+    sizeEls.forEach((el) => {
+      const on = el === btn;
+      el.classList.toggle('is-on', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
 
   function shortMint(mint) {
     if (!mint || mint.length < 8) return mint || '';
@@ -42,6 +65,7 @@
   function shutTicket() {
     quoted = null;
     if (buyEl) buyEl.disabled = true;
+    setSizesOpen(false);
     if (reasonEl) {
       reasonEl.hidden = false;
       reasonEl.textContent = SHUT;
@@ -54,6 +78,7 @@
   function openTicket(priceText) {
     quoted = { text: priceText };
     if (buyEl) buyEl.disabled = false;
+    setSizesOpen(true);
     if (reasonEl) {
       reasonEl.hidden = true;
       reasonEl.textContent = '';
@@ -109,16 +134,24 @@
     buyEl.addEventListener('click', () => {
       if (!quoted || buyEl.disabled) return;
       buyEl.disabled = true;
+      const sol = sizeSol || '0.5';
       if (noteEl) {
         noteEl.hidden = false;
-        noteEl.textContent = 'PAPER fill at $' + quoted.text + '. Dexscreener · $PT.';
+        noteEl.textContent = 'PAPER fill · ' + sol + ' SOL at $' + quoted.text + '. Dexscreener · $PT.';
       }
       if (fillEl) {
         fillEl.hidden = false;
-        fillEl.textContent = 'PAPER $' + quoted.text;
+        fillEl.textContent = 'PAPER · ' + sol + ' SOL at $' + quoted.text;
       }
     });
   }
+
+  sizeEls.forEach((el) => {
+    el.addEventListener('click', () => {
+      if (!quoted || el.disabled) return;
+      markSize(el);
+    });
+  });
 
   if (cheatEl) {
     cheatEl.addEventListener('click', async () => {

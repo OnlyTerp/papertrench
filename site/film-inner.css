@@ -60,6 +60,14 @@
   gap: 28px; align-items: stretch;
   margin-bottom: 28px;
 }
+.ed-lead + .ed-lead { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+.ed-lead + .ed-lead img { order: 2; }
+.ed-now-wait, .ed-earlier {
+  margin: 0; padding: 18px 0;
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  color: var(--dim);
+}
+.ed-earlier { border-top: 1px solid var(--line); max-width: 72ch; }
 .ed-lead img {
   width: 100%; height: 100%; min-height: 240px; object-fit: cover;
   border-radius: 4px; filter: saturate(.9) brightness(.82);
@@ -234,7 +242,8 @@
 }
 
 @media (max-width: 880px) {
-  .ed-lead { grid-template-columns: 1fr; }
+  .ed-lead, .ed-lead + .ed-lead { grid-template-columns: 1fr; }
+  .ed-lead + .ed-lead img { order: 0; }
   .ed-lead img { min-height: 180px; max-height: 220px; }
   .ed-row, .latest-card { grid-template-columns: 4.6rem minmax(0, 1fr); align-items: start; }
   .ed-when, .latest-card .feat-date { grid-column: 2; }

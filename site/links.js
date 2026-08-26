@@ -103,7 +103,6 @@
 
   if (!reduced && window.gsap) {
     var gsap = window.gsap;
-    if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
     var tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
     if (!still) {
       tl.from('.lt-film.is-on', { scale: 1.08, duration: 1.7, ease: 'power2.out', clearProps: 'transform' }, 0);
@@ -112,15 +111,34 @@
     if (hoverFine) {
       tl.from('.lt-door', { y: 36, duration: 0.7, stagger: 0.06, clearProps: 'transform' }, 0.22);
     }
-    if (window.ScrollTrigger) {
-      gsap.timeline({
-        scrollTrigger: { trigger: '.lt-proof', start: 'top 82%' }
-      }).from('.lt-proof h2, .lt-proof p, .lt-proof-dl', {
-        y: 36,
-        duration: 0.85,
-        stagger: 0.08,
-        ease: 'power3.out',
-        clearProps: 'transform'
+    if ('IntersectionObserver' in window) {
+      var cutIo = new IntersectionObserver(function (entries) {
+        var i;
+        var entry;
+        var bits;
+        for (i = 0; i < entries.length; i += 1) {
+          entry = entries[i];
+          if (!entry.isIntersecting) continue;
+          cutIo.unobserve(entry.target);
+          if (entry.target.classList.contains('lt-follow')) {
+            bits = entry.target.querySelectorAll('.lt-cut-kicker, h2, .lt-follow a');
+          } else if (entry.target.classList.contains('lt-ca')) {
+            bits = entry.target.querySelectorAll('.lt-cut-kicker, h2, .lt-ca-stamp, .lt-ca-out');
+          } else {
+            bits = entry.target.querySelectorAll('.lt-cut-kicker, h2, .lt-cut-copy > p:not(.lt-cut-kicker), .lt-proof-dl');
+          }
+          if (!bits.length) continue;
+          gsap.from(bits, {
+            y: 36,
+            duration: 0.85,
+            stagger: 0.07,
+            ease: 'power3.out',
+            clearProps: 'transform'
+          });
+        }
+      }, { threshold: 0.16, root: null });
+      Array.prototype.forEach.call(document.querySelectorAll('.lt-cut'), function (cut) {
+        cutIo.observe(cut);
       });
     }
   }

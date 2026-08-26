@@ -14,6 +14,16 @@
 
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="film-inner.css">
+<style>
+  /* Legal page closer: same Download + Open Axiom beat, not a 72dvh moodboard. */
+  .film-end-compact { min-height: 42dvh; }
+  .film-end-compact .wrap { padding: 3.25rem 4vw 3rem; }
+  .film-end-compact h2 { font-size: clamp(1.8rem, 4.2vw, 2.8rem); max-width: 18ch; }
+  @media (max-width: 767px) {
+    .film-end-compact { min-height: 36dvh; }
+    .film-end-compact .wrap { padding: 2.5rem 16px 2rem; }
+  }
+</style>
 </head>
 <body class="a-green">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -100,7 +110,7 @@
   </div>
 </article>
 
-<section class="film-end">
+<section class="film-end film-end-compact">
   <div class="wrap">
     <h2>Install once. Open a terminal.</h2>
     <p>The overlay sits on the chart you already grind.</p>

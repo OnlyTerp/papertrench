@@ -25,7 +25,107 @@
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/film-inner.css">
 <style>
-  .lost-doors { grid-template-columns: 1fr 1fr; max-width: 36rem; }
+  /* Film doors at the foot of the stage, same beat as homepage terminals.
+     Page-local because film-inner still paints .lost-doors as text tiles. */
+  .lost-stage {
+    grid-template-rows: 1fr auto;
+    align-items: stretch;
+  }
+  .lost-copy {
+    display: grid;
+    align-items: end;
+  }
+  .lost-doors {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    height: 22vh;
+    min-height: 132px;
+    max-height: 220px;
+    max-width: none;
+    gap: 0;
+    margin: 0;
+    grid-template-columns: unset;
+  }
+  .lost-doors .lost-door {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    isolation: isolate;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    display: block;
+    transition: flex-grow .55s cubic-bezier(.22,1,.36,1);
+  }
+  .lost-doors .lost-door:hover,
+  .lost-doors .lost-door:focus-visible {
+    flex-grow: 2.7;
+    border-color: transparent;
+    background: none;
+  }
+  .lost-doors .lost-door:focus-visible { outline: 2px solid var(--orange); outline-offset: -3px; }
+  .lost-doors .lost-door img {
+    width: 100%; height: 100%; object-fit: cover;
+    transform: scale(1.04);
+    filter: saturate(.85) brightness(.78);
+    transition: filter .4s, transform .6s;
+  }
+  .lost-doors .lost-door:hover img,
+  .lost-doors .lost-door:focus-visible img { filter: none; transform: scale(1); }
+  .lost-doors .lost-door-shade {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(180deg, transparent 35%, rgba(7,9,14,.82) 100%);
+    margin: 0; font-size: 0; color: transparent;
+  }
+  .lost-doors .lost-door-meta {
+    position: absolute; left: 16px; right: 16px; bottom: 18px;
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 8px;
+    margin: 0; font-size: inherit; color: inherit;
+  }
+  .lost-doors .lost-door-meta b {
+    font-size: clamp(1rem, 1.6vw, 1.3rem); font-weight: 800;
+    letter-spacing: -0.04em; line-height: 1;
+    text-shadow: 0 1px 10px rgba(7,9,14,.85);
+    margin: 0;
+  }
+  .lost-doors .lost-door-go {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 28px; padding: 0 10px; border-radius: 999px;
+    background: var(--orange); color: #1a0c00;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .25s ease, transform .25s ease;
+    margin: 0;
+  }
+  .lost-doors .lost-door:hover .lost-door-go,
+  .lost-doors .lost-door:focus-visible .lost-door-go { opacity: 1; transform: none; }
+  @media (max-width: 767px) {
+    .lost-doors {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      height: auto;
+      min-height: 0;
+      max-height: none;
+      gap: 6px;
+      padding: 0 10px 14px;
+    }
+    .lost-doors .lost-door { flex: none; border-radius: 10px; }
+    .lost-doors .lost-door:hover,
+    .lost-doors .lost-door:focus-visible { flex-grow: 0; }
+    .lost-doors .lost-door-meta { left: 10px; right: 10px; bottom: 10px; }
+    .lost-doors .lost-door-meta b { font-size: 1.1rem; }
+    .lost-doors .lost-door-go { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lost-doors .lost-door,
+    .lost-doors .lost-door img,
+    .lost-doors .lost-door-go { transition: none; }
+  }
 </style>
 </head>
 <body>
@@ -66,13 +166,41 @@
     <p>
       Nothing lives at <span class="path" id="badPath">that address</span>. Home, a terminal, or the overlay will get you back in.
     </p>
-    <nav class="lost-doors" aria-label="Get back in">
-      <a href="/"><b>Home</b><span>Paper the trench</span></a>
-      <a href="/links"><b>Links</b><span>Pick a platform</span></a>
-      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener"><b>Axiom</b><span>Open with the ref</span></a>
-      <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener"><b>Download</b><span>Chrome overlay</span></a>
-    </nav>
   </div>
+  <nav class="lost-doors" aria-label="Get back in">
+    <a class="lost-door" href="/" aria-label="Home">
+      <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720">
+      <span class="lost-door-shade" aria-hidden="true"></span>
+      <span class="lost-door-meta">
+        <b>Home</b>
+        <span class="lost-door-go">Open</span>
+      </span>
+    </a>
+    <a class="lost-door" href="/links" aria-label="Links">
+      <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720">
+      <span class="lost-door-shade" aria-hidden="true"></span>
+      <span class="lost-door-meta">
+        <b>Links</b>
+        <span class="lost-door-go">Open</span>
+      </span>
+    </a>
+    <a class="lost-door" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" aria-label="Open Axiom with the PaperTrench referral">
+      <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+      <span class="lost-door-shade" aria-hidden="true"></span>
+      <span class="lost-door-meta">
+        <b>Axiom</b>
+        <span class="lost-door-go">Open</span>
+      </span>
+    </a>
+    <a class="lost-door" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener" aria-label="Download for Chrome">
+      <img src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+      <span class="lost-door-shade" aria-hidden="true"></span>
+      <span class="lost-door-meta">
+        <b>Download</b>
+        <span class="lost-door-go">Open</span>
+      </span>
+    </a>
+  </nav>
 </header>
 </main>
 

@@ -841,9 +841,10 @@
   // reads the same array the timeline does, so it can never go stale.
   const latestGrid = document.getElementById('latestGrid');
   if (latestGrid) {
+    latestGrid.replaceChildren();
     for (const r of RELEASES.slice(0, 5)) {
       const a = document.createElement('a');
-      a.className = 'ed-row reveal';
+      a.className = 'ed-row ed-now-row reveal';
       a.href = '#' + (r.site ? 'site-' + r.iso : 'v' + r.v.replace(/\./g, '-'));
       a.innerHTML = `
         <span class="ed-ver">${r.site ? 'Website' : 'v' + r.v}</span>
