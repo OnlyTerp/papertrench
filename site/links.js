@@ -65,6 +65,26 @@
     setOpen(door.getAttribute('href'), door.getAttribute('data-open') || idle.open);
   }
 
+  var doorTrack = document.querySelector('.lt-doors');
+
+  function nearestDoor() {
+    if (!doorTrack || !doors.length) return doors[0];
+    var root = doorTrack.getBoundingClientRect();
+    var mid = root.left + root.width * 0.38;
+    var best = doors[0];
+    var bestDist = Infinity;
+    var i;
+    for (i = 0; i < doors.length; i += 1) {
+      var box = doors[i].getBoundingClientRect();
+      var dist = Math.abs(box.left + box.width * 0.5 - mid);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = doors[i];
+      }
+    }
+    return best;
+  }
+
   if (still) {
     films.forEach(function (node) {
       node.pause();
@@ -77,6 +97,17 @@
     });
     if (stage && hoverFine) {
       stage.addEventListener('pointerleave', function () { showDoor(null); });
+    }
+    if (!hoverFine && doorTrack) {
+      showDoor(doors[0]);
+      var doorTick = 0;
+      doorTrack.addEventListener('scroll', function () {
+        if (doorTick) return;
+        doorTick = window.requestAnimationFrame(function () {
+          doorTick = 0;
+          showDoor(nearestDoor());
+        });
+      }, { passive: true });
     }
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
@@ -98,8 +129,10 @@
     var gsap = window.gsap;
     var tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
     tl.from('.lt-film.is-on', { scale: 1.08, duration: 1.7, ease: 'power2.out', clearProps: 'transform' }, 0)
-      .from('.lt-hero > *', { y: 28, duration: 0.85, stagger: 0.08, clearProps: 'transform' }, 0.08)
-      .from('.lt-door', { y: 36, duration: 0.7, stagger: 0.06, clearProps: 'transform' }, 0.22);
+      .from('.lt-hero > *', { y: 28, duration: 0.85, stagger: 0.08, clearProps: 'transform' }, 0.08);
+    if (hoverFine) {
+      tl.from('.lt-door', { y: 36, duration: 0.7, stagger: 0.06, clearProps: 'transform' }, 0.22);
+    }
   }
 
   var root = document.querySelector('.lt-ca');
