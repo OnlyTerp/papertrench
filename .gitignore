@@ -27,3 +27,7 @@ server/.wrangler/
 
 # Local screenshot captures and headless Chrome profiles. Never publish.
 site/_shots/
+
+# Local showcase film factory (captures, licensed-or-not audio, renders)
+showcase-film/
+

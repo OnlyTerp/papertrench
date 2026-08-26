@@ -25,6 +25,7 @@ import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
 import { makeGetCandles } from './candles.js';
 import * as indeix from './indeix.js';
+import * as solana from './solana.js';
 import * as replay from '../core/replay.js';
 // Default-imported for the same CJS-lexer reason as core/chain.js above.
 import xfeed from './xfeed.js';
@@ -2024,16 +2025,48 @@ async function handleReplayWallet(request, env) {
     return json({ ok: false, reason: 'bad-address' }, 400);
   }
   const budget = { used: 0, max: 12 };
+  // The chain lane has its own budget: Workers allow 50 subrequests circa
+  // 1000 with bindings; RPC pagination + tx parses stay well inside it.
+  const rpcBudget = { used: 0, max: 30 };
   try {
-    const [candles, rawTrades] = await Promise.all([
+    // SOL/USD spot for pricing the counter leg of on-chain fills. One cheap
+    // public call; a miss degrades to bar-mark pricing, never to a fabrication.
+    const solSpotP = fetch('https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => Number((((j || {}).So11111111111111111111111111111111111111112) || {}).usdPrice) || 0)
+      .catch(() => 0);
+    const [candles, chainLane] = await Promise.all([
       indeix.ohlcv(env, chain, mint, 0, budget),
-      indeix.trades(env, chain, mint, budget, 50),
+      solana.walletFills(wallet, mint, rpcBudget, null).catch((err) => ({ fills: [], truncated: false, txSeen: 0, error: String((err && err.message) || err) })),
     ]);
-    if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
+    if (!candles) return json({ ok: false, reason: 'no-data' }, 404);
     const byMinute = indeix.candlesByMinute(candles);
-    const fills = rawTrades
-      .map((t) => replay.normalizeTrade(t, byMinute, mint))
-      .filter((f) => f && f.wallet === wallet);
+    const solUsd = await solSpotP;
+
+    // Price each on-chain fill. The contemporaneous bar mark (token candle at
+    // the fill's minute) is preferred - it is of the fill's ERA. The SOL
+    // counter-leg x today's spot is only honest for recent fills (SOL moves
+    // slowly day-to-day but not month-to-month), so it prices only fills less
+    // than 48h old, and covers fills outside the candle window entirely.
+    const SPOT_HONEST_MS = 48 * 3600 * 1000;
+    const now = Date.now();
+    const fills = [];
+    for (const f of chainLane.fills || []) {
+      let usd = 0;
+      const bar = byMinute.get(Math.floor(f.ts / 60000) * 60000);
+      if (bar && bar.c > 0) usd = f.base * bar.c;
+      if (!(usd > 0) && f.solLamports > 0 && solUsd > 0 && (now - f.ts) < SPOT_HONEST_MS) {
+        usd = Math.abs(f.solLamports / 1e9) * solUsd;
+      }
+      if (!(usd > 0) && !f.isTransfer) continue; // unpriceable trade: drop honestly
+      fills.push({
+        ts: f.ts, wallet: f.wallet, side: f.side, base: f.base,
+        usd, solLamports: f.solLamports, isTransfer: f.isTransfer,
+        priceUsd: usd > 0 && f.base > 0 ? usd / f.base : null, mint, sig: f.sig,
+      });
+    }
+    fills.sort((a, b) => a.ts - b.ts);
+
     const position = replay.foldFills(fills);
     const curve = replay.replayCurve(fills, candles);
     const finalPrice = candles.length ? candles[candles.length - 1].c : 0;
@@ -2048,6 +2081,7 @@ async function handleReplayWallet(request, env) {
         boughtUsd: position.boughtUsd, soldUsd: position.soldUsd,
       },
       pnl,
+      chain: { txSeen: chainLane.txSeen || 0, truncated: !!chainLane.truncated, error: chainLane.error || null, rpcUsed: rpcBudget.used },
     });
   } catch (err) {
     return replayError(err);

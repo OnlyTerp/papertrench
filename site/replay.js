@@ -485,6 +485,23 @@
         state.fills = wd.fills || [];
         state.curve = wd.curve || [];
         state.pnl = wd.pnl || {};
+        // The worker's chain lane runs from datacenter IPs that public Solana
+        // RPCs 403. When it comes back empty, THIS browser retries the same
+        // rebuild from the user's own IP - and folds the fills with the same
+        // shipped accounting core the server tests prove (vendor/replay-core).
+        if (!state.fills.length && window.ReplayChain && window.ReplayCore) {
+          setStatus('Reading the wallet\u2019s history from the chain\u2026', 'busy');
+          try {
+            const lane = await ReplayChain.walletFills(wallet, mint, state.candles, {});
+            if (lane.fills.length) {
+              state.fills = lane.fills;
+              state.curve = ReplayCore.replayCurve(lane.fills, state.candles);
+              const pos = ReplayCore.foldFills(lane.fills);
+              const last = state.candles[state.candles.length - 1];
+              state.pnl = ReplayCore.pnlAt(pos, last ? Number(last.c) : 0);
+            }
+          } catch (err) { /* chain lane is best-effort; the page stays honest */ }
+        }
       } else { state.fills = []; state.curve = []; state.pnl = {}; }
 
       stopPlay(); clearFlashes();

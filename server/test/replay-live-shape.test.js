@@ -63,11 +63,14 @@ test('the full pipeline builds a leaderboard from real trades', () => {
   const fills = items.map((t) => replay.normalizeTrade(t, null, MINT)).filter(Boolean);
   const byWallet = replay.groupByWallet(fills);
   const walletCount = byWallet instanceof Map ? byWallet.size : Object.keys(byWallet).length;
-  assert.strictEqual(walletCount, 9, 'the capture has exactly 9 distinct senders');
+  // 41 distinct SWAP senders in the pinned capture (was 9 when attribution
+  // keyed on transactionSenderAddress - that undercount was routers/fee-payers
+  // swallowing many real wallets, the exact bug that zeroed wallet replays).
+  assert.strictEqual(walletCount, 41, 'the capture has exactly 41 distinct swap senders');
   const lastPrice = fills[0].priceUsd; // newest-first capture
   const lb = replay.leaderboard(byWallet, lastPrice, 10);
   const rows = Array.isArray(lb) ? lb : lb.top;
-  assert.ok(Array.isArray(rows) && rows.length > 0 && rows.length <= 9,
+  assert.ok(Array.isArray(rows) && rows.length > 0 && rows.length <= 10,
     `leaderboard rows out of range: ${rows && rows.length}`);
   for (const row of rows) {
     assert.ok(replay.isAddress(row.wallet));
