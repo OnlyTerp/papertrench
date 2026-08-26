@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fresh launches are snipeable, and the rug guard · PaperTrench news</title>
-<meta name="description" content="v2.8.0: PaperTrench reads a pump.fun bonding curve straight off chain so an armed buy fires seconds after launch, and refuses a paper buy when the float sits in a handful of wallets — naming the number.">
+<meta name="description" content="v2.8.0: PaperTrench reads a pump.fun bonding curve straight off chain so an armed buy fires seconds after launch, and refuses a paper buy when the float sits in a handful of wallets - naming the number.">
 <meta property="og:title" content="Fresh launches are snipeable, and the rug guard">
-<meta property="og:description" content="A 39-second-old coin no aggregator has indexed used to strand an armed buy forever. Now the bonding curve is read directly — and a buy into a concentrated float gets refused out loud.">
+<meta property="og:description" content="A 39-second-old coin no aggregator has indexed used to strand an armed buy forever. Now the bonding curve is read directly - and a buy into a concentrated float gets refused out loud.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- rug warning toast mock ---------- */
   .toast {
@@ -52,15 +53,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -82,7 +82,7 @@
         <span class="post-read">· 6 min read</span>
       </div>
       <h1 class="post-title">Fresh launches are snipeable, and the rug guard</h1>
-      <p class="post-stand">Two fixes from the maintainer's own trench session, off the same screenshot. A 39-second-old coin used to strand an armed buy forever, because <strong>no aggregator had heard of it yet</strong>. And a paper buy into a float held by ten wallets went through without comment — which is not what practice should teach.</p>
+      <p class="post-stand">Two fixes from the maintainer's own trench session, off the same screenshot. A 39-second-old coin used to strand an armed buy forever, because <strong>no aggregator had heard of it yet</strong>. And a paper buy into a float held by ten wallets went through without comment - which is not what practice should teach.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -91,7 +91,7 @@
 
     <div class="callout" style="border-left-color:#ff8a80">
       <span class="co-label" style="color:#ff8a80">Do not run the v2.8.0 build</span>
-      <p>These features are real and they work — but the v2.8.0 <em>zip</em> shipped with attestation-chain recording broken and has been superseded. Everything described here is in the current release. <a href="/news-chain">What happened, in full →</a></p>
+      <p>These features are real and they work - but the v2.8.0 <em>zip</em> shipped with attestation-chain recording broken and has been superseded. Everything described here is in the current release. <a href="/news-chain">What happened, in full →</a></p>
     </div>
 
     <h2>The armed buy that never fired (F-34)</h2>
@@ -101,7 +101,7 @@
     <p>Except on a coin 39 seconds old, the first trusted price never landed. Two independent reasons, stacked:</p>
 
     <ul>
-      <li><b>No aggregator had indexed it.</b> Dexscreener and Jupiter cannot quote a coin they have not seen. PaperTrench <a href="/news-v2">refuses to invent a price</a>, so it correctly refused — and kept refusing, forever.</li>
+      <li><b>No aggregator had indexed it.</b> Dexscreener and Jupiter cannot quote a coin they have not seen. PaperTrench <a href="/news-v2">refuses to invent a price</a>, so it correctly refused - and kept refusing, forever.</li>
       <li><b>The chart was in MCap mode.</b> Every close was rejected as "no implied supply", because turning a market-cap value into a price needs a supply figure nobody had published yet.</li>
     </ul>
 
@@ -109,7 +109,7 @@
 
     <h3>Fix one: read the bonding curve directly</h3>
 
-    <p>The price was never actually unknowable. It was sitting on chain the whole time — in the coin's own bonding curve.</p>
+    <p>The price was never actually unknowable. It was sitting on chain the whole time - in the coin's own bonding curve.</p>
 
     <div class="tl reveal">
       <div class="tl-step on">
@@ -123,7 +123,7 @@
         <div class="tl-rail"><span class="tl-dot"></span><span class="tl-line"></span></div>
         <div class="tl-body">
           <div class="tl-t">Find the bonding curve on chain</div>
-          <div class="tl-d">Derived from the mint via the program-address rules — verified against five live mainnet curves, not assumed.</div>
+          <div class="tl-d">Derived from the mint via the program-address rules - verified against five live mainnet curves, not assumed.</div>
         </div>
       </div>
       <div class="tl-step on">
@@ -137,7 +137,7 @@
         <div class="tl-rail"><span class="tl-dot"></span></div>
         <div class="tl-body">
           <div class="tl-t">Stream it as a live CHAIN ⚡ feed</div>
-          <div class="tl-d">Immediate first quote. The armed buy fires seconds after launch — and <b>the fill is chain state, not a guess</b>.</div>
+          <div class="tl-d">Immediate first quote. The armed buy fires seconds after launch - and <b>the fill is chain state, not a guess</b>.</div>
         </div>
       </div>
     </div>
@@ -146,9 +146,9 @@
 
     <h3>Fix two: MCap-mode charts can price pump coins</h3>
 
-    <p>Pump supply is a protocol constant — one billion, always. So on a pump coin, an mcap-scale close <em>is</em> a price, once you divide.</p>
+    <p>Pump supply is a protocol constant - one billion, always. So on a pump coin, an mcap-scale close <em>is</em> a price, once you divide.</p>
 
-    <p>The trap is knowing which scale you are looking at. An unlabelled number on a chart could be price or cap, in USD or SOL — four readings. PaperTrench judges all four against sane bands and uses the tick <b>only when exactly one fits</b>.</p>
+    <p>The trap is knowing which scale you are looking at. An unlabelled number on a chart could be price or cap, in USD or SOL - four readings. PaperTrench judges all four against sane bands and uses the tick <b>only when exactly one fits</b>.</p>
 
     <p class="post-pull">Ambiguity still refuses. Two plausible readings means no number at all.</p>
 
@@ -159,12 +159,12 @@
     <p>Requested with a LOL. Built with a straight face.</p>
 
     <div class="toast reveal">
-      <div class="t"><span aria-hidden="true">🚩</span>RUG WARNING — top 10 wallets hold 47% of supply</div>
+      <div class="t"><span aria-hidden="true">🚩</span>RUG WARNING - top 10 wallets hold 47% of supply</div>
       <div class="d">Paper buy refused. Exiting is always allowed.</div>
     </div>
-    <p class="toast-cap">Simulated toast. The percentage is always named — never just "risky".</p>
+    <p class="toast-cap">Simulated toast. The percentage is always named - never just "risky".</p>
 
-    <p>When chain state says the float is concentrated in a handful of wallets, a paper BUY is refused with a toast <b>that names the number</b>. Not a vague risk badge, not a colour — the actual figure, so you can disagree with it.</p>
+    <p>When chain state says the float is concentrated in a handful of wallets, a paper BUY is refused with a toast <b>that names the number</b>. Not a vague risk badge, not a colour - the actual figure, so you can disagree with it.</p>
 
     <h3>How it reads the float</h3>
 
@@ -172,7 +172,7 @@
 
     <div class="callout">
       <span class="co-label">It admits what it guessed</span>
-      <p>Identifying which account is the reserve is not always unambiguous — and when the guard had to <strong>assume</strong> which account that was, it says so.</p>
+      <p>Identifying which account is the reserve is not always unambiguous - and when the guard had to <strong>assume</strong> which account that was, it says so.</p>
       <p>A concentration figure that silently depends on a guess is a number pretending to be a measurement. This one shows its working.</p>
     </div>
 
@@ -180,12 +180,12 @@
 
     <ul>
       <li><b>It never blocks a SELL.</b> Exiting a rug is the right move, and a guard that traps you in a position is worse than no guard.</li>
-      <li><b>A failed chain read blocks nothing.</b> If the guard cannot see, it steps aside — it is not allowed to invent a verdict from missing data.</li>
+      <li><b>A failed chain read blocks nothing.</b> If the guard cannot see, it steps aside - it is not allowed to invent a verdict from missing data.</li>
       <li><b>The panel footer is flagged the moment the verdict lands</b>, so the signal is on screen even if you never tried to buy.</li>
       <li><b>Threshold and off-switch live in Settings → Guardrails.</b></li>
     </ul>
 
-    <p>This is the one guardrail that ships <b>ON</b> — every other <a href="/news-the-after">Guardrail</a> is opt-in — because the maintainer asked for exactly that. Practising the reflex of checking concentration before you buy is worth more than the friction costs.</p>
+    <p>This is the one guardrail that ships <b>ON</b> - every other <a href="/news-the-after">Guardrail</a> is opt-in - because the maintainer asked for exactly that. Practising the reflex of checking concentration before you buy is worth more than the friction costs.</p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -196,14 +196,14 @@
       </div>
       <div class="pn-body">
         <div class="pn-item">
-          <h4>Fresh launches are snipeable — "ARMED … ON FIRST QUOTE" actually fires now (F-34)</h4>
+          <h4>Fresh launches are snipeable - "ARMED … ON FIRST QUOTE" actually fires now (F-34)</h4>
           <p>A 39-second-old pump.fun coin used to strand the armed buy forever: no aggregator had indexed it, and with the chart in MCap mode every close was refused as "no implied supply". Two fixes, layered:</p>
-          <p><b>The bonding curve is read directly.</b> The moment a pending coin looks like pump.fun — the pair address on an Axiom page, or a mint ending in "pump" anywhere — PaperTrench finds its bonding curve on chain (derived from the mint via the program-address rules, verified against five live mainnet curves), identifies the real mint from the curve's reserve account, and streams the curve as a live CHAIN ⚡ feed with an immediate first quote. The armed buy fires seconds after launch, and the fill is chain state, not a guess.</p>
-          <p><b>MCap-mode charts can price pump coins.</b> Pump supply is a protocol constant (1e9), so an mcap-scale close IS a price. All four readings of an unlabelled chart value (price vs cap, USD vs SOL) are judged against sane bands and the tick is used only when exactly one fits — ambiguity still refuses, per the F-25 discipline.</p>
+          <p><b>The bonding curve is read directly.</b> The moment a pending coin looks like pump.fun - the pair address on an Axiom page, or a mint ending in "pump" anywhere - PaperTrench finds its bonding curve on chain (derived from the mint via the program-address rules, verified against five live mainnet curves), identifies the real mint from the curve's reserve account, and streams the curve as a live CHAIN ⚡ feed with an immediate first quote. The armed buy fires seconds after launch, and the fill is chain state, not a guess.</p>
+          <p><b>MCap-mode charts can price pump coins.</b> Pump supply is a protocol constant (1e9), so an mcap-scale close IS a price. All four readings of an unlabelled chart value (price vs cap, USD vs SOL) are judged against sane bands and the tick is used only when exactly one fits - ambiguity still refuses, per the F-25 discipline.</p>
         </div>
         <div class="pn-item">
           <h4>Rug guard (on by default)</h4>
-          <p>Requested with a LOL, built with a straight face: when chain state says the float is in a handful of wallets, a paper BUY is refused with a toast that names the number — "🚩 RUG WARNING — top 10 wallets hold 47% of supply". The check reads the 20 largest token accounts plus the mint supply, excludes the pool/curve reserve (and SAYS when it had to assume which account that was), flags the panel footer the moment the verdict lands, and never blocks a SELL — exiting a rug is the right move. A failed chain read blocks nothing: a guard that cannot see is not allowed to invent. Threshold and off-switch live in Settings → Guardrails; this is the one guardrail that ships ON, because the maintainer asked for exactly that.</p>
+          <p>Requested with a LOL, built with a straight face: when chain state says the float is in a handful of wallets, a paper BUY is refused with a toast that names the number - "🚩 RUG WARNING - top 10 wallets hold 47% of supply". The check reads the 20 largest token accounts plus the mint supply, excludes the pool/curve reserve (and SAYS when it had to assume which account that was), flags the panel footer the moment the verdict lands, and never blocks a SELL - exiting a rug is the right move. A failed chain read blocks nothing: a guard that cannot see is not allowed to invent. Threshold and off-switch live in Settings → Guardrails; this is the one guardrail that ships ON, because the maintainer asked for exactly that.</p>
         </div>
         <div class="pn-item">
           <h4>Also aboard, unmentioned at the time</h4>
@@ -231,6 +231,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

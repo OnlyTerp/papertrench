@@ -822,6 +822,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   position: relative; min-height: 100dvh;
   display: grid; grid-template-rows: 1fr auto;
   overflow: hidden;
+  padding: 0;
 }
 .home-films { position: absolute; inset: 0; background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat; }
 .home-films video {
@@ -884,6 +885,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   display: grid;
   align-items: end;
   overflow: hidden;
+  padding: 0;
 }
 .home-ch-bg {
   position: absolute; inset: 0;
@@ -980,6 +982,131 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   .home-door { flex: none; border-radius: 10px; min-height: 0; }
   .home-door:hover, .home-door.is-on { flex-grow: 0; }
   .home-door > span:not(.home-door-shade) { left: 10px; bottom: 10px; font-size: 1.1rem; }
+}
+
+/* Below-fold close. Different families from the film chapters:
+   ledger (typographic standings), numbered rail (install), manifesto (end).
+   Visible without JS - no opacity-0 reveal death. */
+.home-ledger, .home-install, .home-end {
+  padding: 5.5rem 0 4.75rem;
+}
+.home-ledger h2, .home-install h2, .home-end h2 {
+  margin: 0;
+  font-size: clamp(2.2rem, 5.4vw, 4.2rem);
+  letter-spacing: -0.05em;
+  line-height: 0.94;
+  max-width: 16ch;
+}
+.home-ledger > .wrap > p, .home-install > .wrap > p {
+  margin-top: 1rem;
+  max-width: 42ch;
+  color: var(--muted);
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+}
+.home-ledger .home-ctas, .home-end .home-ctas { margin-top: 1.6rem; }
+.home-install .term-dock, .home-end .term-dock { margin-top: 2rem; }
+
+.ledger { margin-top: 2.75rem; max-width: 52rem; }
+.ledger-head {
+  display: flex; align-items: baseline; gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 12px; color: var(--dim);
+}
+.ledger-live {
+  color: var(--green);
+  letter-spacing: 0.08em;
+}
+.ledger-all {
+  margin-left: auto;
+  color: var(--orange);
+  font-weight: 700;
+}
+.ledger-all:hover { color: var(--orange2); }
+.ledger .lb-row {
+  grid-template-columns: 3rem minmax(0, 1fr) auto auto;
+  gap: 10px 14px;
+  padding: 14px 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+}
+.ledger .lb-row:hover { background: none; border-color: var(--line); color: var(--text); }
+.ledger-empty {
+  padding: 1.4rem 0;
+  color: var(--dim);
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 48ch;
+}
+.ledger-empty strong { color: var(--orange2); font-weight: 700; }
+.ledger-tick {
+  margin-top: 1rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--dim);
+  min-height: 1.4em;
+}
+.ledger-tick .h { color: var(--green); }
+.ledger-tick .arrow { color: var(--orange); }
+
+.home-rail {
+  list-style: none;
+  margin: 2.4rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+  max-width: 46rem;
+}
+.home-rail li {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  gap: 8px 16px;
+  padding: 1.35rem 0 1.45rem;
+  border-bottom: 1px solid var(--line);
+}
+.home-rail .n {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--orange);
+  padding-top: 0.35rem;
+}
+.home-rail h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.home-rail p {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.98rem;
+  max-width: 46ch;
+}
+.home-rail a { color: var(--orange); font-weight: 700; }
+.home-rail a:hover { color: var(--orange2); }
+.home-rail code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--orange2);
+}
+
+.home-end {
+  padding-top: 5.75rem;
+  padding-bottom: 6.5rem;
+  border-top: 1px solid var(--line);
+}
+.home-end h2 { max-width: 18ch; }
+
+@media (max-width: 767px) {
+  .home-ledger, .home-install, .home-end { padding: 3.5rem 0 3.25rem; }
+  .home-ledger h2, .home-install h2, .home-end h2 {
+    font-size: clamp(2rem, 9.5vw, 2.55rem);
+    max-width: none;
+  }
+  .ledger .lb-row { grid-template-columns: 2.4rem minmax(0, 1fr) auto; }
+  .ledger .lb-row .win { display: none; }
+  .home-rail li { grid-template-columns: 2.4rem minmax(0, 1fr); gap: 8px 10px; }
+  .home-end { padding-bottom: 4.5rem; }
 }
 
 /* ---------- reveal animations ---------- */

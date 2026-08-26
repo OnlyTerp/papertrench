@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Out of alpha — 139 defects published, 116 closed · PaperTrench news</title>
+<title>Out of alpha - 139 defects published, 116 closed · PaperTrench news</title>
 <meta name="description" content="v2.0.0: a four-track audit of our own code produced a public, ranked defect register of 139 findings. 116 closed, each with a regression test that fails on the old code. Suite: 553 green.">
 <meta property="og:title" content="Out of alpha: we published 139 defects in our own code, then closed 116">
 <meta property="og:description" content="Ranked by how badly each one could lie to a user. Published before any of it was fixed. Every fix carries a test that failed before the fix.">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- severity ladder ---------- */
   .sev { margin: 30px 0; display: flex; flex-direction: column; gap: 10px; }
@@ -41,15 +42,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -71,7 +71,7 @@
         <span class="post-read">· 7 min read</span>
       </div>
       <h1 class="post-title">Out of alpha: we published 139 defects in our own code, then closed 116</h1>
-      <p class="post-stand">Up to this point, our release history was reactive — the community found a break, we patched it. Good responsiveness, wrong posture: <strong>our users were our QA.</strong> So we audited ourselves in four parallel tracks, ranked every finding by how badly it could lie to a user, and published the whole register before fixing any of it.</p>
+      <p class="post-stand">Up to this point, our release history was reactive - the community found a break, we patched it. Good responsiveness, wrong posture: <strong>our users were our QA.</strong> So we audited ourselves in four parallel tracks, ranked every finding by how badly it could lie to a user, and published the whole register before fixing any of it.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -85,18 +85,18 @@
       <div class="post-stat"><div class="n">9</div><div class="l">SITES IN THE QA MATRIX</div></div>
     </div>
 
-    <p class="post-lede">Publishing a list of everything wrong with your own product, in public, before you have fixed it, is not a normal marketing decision. It is the right one for this product specifically — because PaperTrench's entire value proposition is that its numbers are true, and a claim like that is worthless from anyone who has not shown you their failures.</p>
+    <p class="post-lede">Publishing a list of everything wrong with your own product, in public, before you have fixed it, is not a normal marketing decision. It is the right one for this product specifically - because PaperTrench's entire value proposition is that its numbers are true, and a claim like that is worthless from anyone who has not shown you their failures.</p>
 
     <p>The register is <code>DEFECTS.md</code>. It sits in the repository, linked from the README, one entry per defect: severity, affected sites, reproduction, root-cause hypothesis, and the exact <code>file:line</code>.</p>
 
     <h2>Ranked by how badly it can lie to you</h2>
 
-    <p>Standard severity scales rank by crash impact. Ours ranks by <em>dishonesty</em>, because in a trainer a wrong number is more dangerous than a crash — a crash tells you something is broken, and a wrong number teaches you a lesson you will act on with real money later.</p>
+    <p>Standard severity scales rank by crash impact. Ours ranks by <em>dishonesty</em>, because in a trainer a wrong number is more dangerous than a crash - a crash tells you something is broken, and a wrong number teaches you a lesson you will act on with real money later.</p>
 
     <div class="sev reveal">
       <div class="sev-row s1">
         <span class="code">S1</span>
-        <div><div class="t">Lies</div><div class="d">A number displayed wrong — P&amp;L, average fill, balance, marker position. The class that does real damage.</div></div>
+        <div><div class="t">Lies</div><div class="d">A number displayed wrong - P&amp;L, average fill, balance, marker position. The class that does real damage.</div></div>
       </div>
       <div class="sev-row s2">
         <span class="code">S2</span>
@@ -120,31 +120,31 @@
 
     <h2>Numbers you can trust (the S1 class)</h2>
 
-    <p>The headline one: <b>fills could no longer execute at stale prices.</b> The order of preference is now chain state, then the click-time snapshot, then a fresh page tick, then one resolver refresh — with a 3-second last resort for every source, aligned with the header's own staleness mark. Beyond that the trade is <em>refused with a visible reason</em>. The old default path filled at prices up to ten seconds old.</p>
+    <p>The headline one: <b>fills could no longer execute at stale prices.</b> The order of preference is now chain state, then the click-time snapshot, then a fresh page tick, then one resolver refresh - with a 3-second last resort for every source, aligned with the header's own staleness mark. Beyond that the trade is <em>refused with a visible reason</em>. The old default path filled at prices up to ten seconds old.</p>
 
     <ul>
       <li><b>Price collection is per-token.</b> A batched frame can never attribute one coin's price to another, and trade arrays are read newest-first.</li>
       <li><b>The average-entry line finally holds your entry.</b> It used to ride the candle on market-cap charts. Unit toggles redraw it immediately, and before any chart evidence exists there is no line rather than a wrong-unit line.</li>
       <li><b>GMGN markers and lines are corrected against the chart's own candle scale.</b> A fill without a genuine USD price waits for one instead of drawing ~150× low. Markers survive chart remounts and resolution changes.</li>
-      <li><b>Sites without a native chart hook get an honest marker rail</b> — real fills, real levels, no fabricated Y positions pretending to be chart-accurate.</li>
+      <li><b>Sites without a native chart hook get an honest marker rail</b> - real fills, real levels, no fabricated Y positions pretending to be chart-accurate.</li>
       <li><b>Dashboard accounting is unified.</b> The equity curve converges exactly to equity, realized P&amp;L includes partial exits everywhere, the verification chain agrees with an honest wallet by construction, and open/closed percentages share one basis.</li>
     </ul>
 
     <h2>Feeds that survive volume (the S2 class)</h2>
 
-    <p>The GMGN high-volume fix from v1.2.14 turned out to be one instance of a <em>class</em>: frame-size guards, tick budgets and parse assumptions that break exactly when volume peaks — which is exactly when you need them.</p>
+    <p>The GMGN high-volume fix from v1.2.14 turned out to be one instance of a <em>class</em>: frame-size guards, tick budgets and parse assumptions that break exactly when volume peaks - which is exactly when you need them.</p>
 
     <p>Those fixes are now the contract for every site: a bigger parse guard with a bounded collector walk, per-mint throttling, and a <b>10× stress harness in CI</b> that replays recorded real frames at ten times observed peak rate. The contract per adapter: never silently die, always recover, and the watched mint always ticks.</p>
 
     <ul>
-      <li>A fast runner no longer freezes the feed — sustained out-of-band ticks force an immediate re-anchor, and armed buys wait while the market is visibly trading instead of expiring on a bare clock.</li>
+      <li>A fast runner no longer freezes the feed - sustained out-of-band ticks force an immediate re-anchor, and armed buys wait while the market is visibly trading instead of expiring on a bare clock.</li>
       <li>The RPC pool stops eating itself: vault discovery costs one round trip and is cached, and a fully benched pool cools down instead of hammering dead endpoints.</li>
       <li>Screener quick-buy chips fill on the first tap, price from fresh quotes only, never stick busy, and step aside when the panel covers them.</li>
     </ul>
 
     <h2>An overlay that behaves (S3 / S4)</h2>
 
-    <p><b>PaperTrench now runs ONLY on the nine supported trading sites</b> — never anywhere else. Wallet, portfolio and EVM routes never mount the panel. Pump.fun became a first-class site with its own adapter.</p>
+    <p><b>PaperTrench now runs ONLY on the nine supported trading sites</b> - never anywhere else. Wallet, portfolio and EVM routes never mount the panel. Pump.fun became a first-class site with its own adapter.</p>
 
     <p>Navigation is instant (SPA route hooks instead of an 800ms poll) and can never trade the previous token on a new page. There is now <b>one drag system</b>: panel, positions bar, minimized pill and collapsed tab all drag with touch support, both-bounds clamps, and positions that can never be lost off-screen. Disabling the overlay removes everything, including chart drawings; reloading the extension leaves nothing behind.</p>
 
@@ -152,13 +152,13 @@
 
     <h2>New in the same release: the graduation bar</h2>
 
-    <p>The coach view evaluates a seven-criterion bar — expectancy that survives removing your best round, loss sizing, hold symmetry, revenge re-entries, thesis coverage, cold-streak discipline — against your own journal.</p>
+    <p>The coach view evaluates a seven-criterion bar - expectancy that survives removing your best round, loss sizing, hold symmetry, revenge re-entries, thesis coverage, cold-streak discipline - against your own journal.</p>
 
     <p><b>Missing evidence never counts as a pass.</b> That single rule is what separates a graduation bar from a participation trophy. Paper failure is definitive; clearing the bar earns a small, careful start.</p>
 
     <div class="callout">
       <span class="co-label">What did not get fixed</span>
-      <p>23 of the 139 did not close in v2.0.0. Four carry explicit engineering dispositions — reasoned decisions not to fix, written down — and the rest sat on an enumerated v2.1 backlog of friction and polish only.</p>
+      <p>23 of the 139 did not close in v2.0.0. Four carry explicit engineering dispositions - reasoned decisions not to fix, written down - and the rest sat on an enumerated v2.1 backlog of friction and polish only.</p>
       <p>They stayed in the public register the whole time. An open defect you can read beats a closed one you were never told about.</p>
     </div>
 
@@ -166,7 +166,7 @@
 
     <p>A structured bug-report form, a nine-site release QA matrix, a preflight script that gates every tag, a full permissions audit (<code>docs/PERMISSIONS.md</code>), and the public roadmap plus defect register linked from the README.</p>
 
-    <p>Everything since — <a href="/news-the-after">The After</a>, <a href="/news-fees">fees</a>, <a href="/news-flex">the Flex Pack</a>, <a href="/news-xray">X-Ray</a>, <a href="/news-fills">the vault-feed fix</a> — has shipped through that path.</p>
+    <p>Everything since - <a href="/news-the-after">The After</a>, <a href="/news-fees">fees</a>, <a href="/news-flex">the Flex Pack</a>, <a href="/news-xray">X-Ray</a>, <a href="/news-fills">the vault-feed fix</a> - has shipped through that path.</p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -178,12 +178,12 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The production release</h4>
-          <p>A full four-track code audit produced a public, ranked defect register (<code>DEFECTS.md</code>, 139 findings); v2.0.0 closes 116 of them — every wrong number, every silent death, every wrong presence — each with a regression test that fails on the old code. The rest carry explicit engineering dispositions or sit on an enumerated v2.1 backlog (friction and polish only). Suite: 553 tests, green.</p>
+          <p>A full four-track code audit produced a public, ranked defect register (<code>DEFECTS.md</code>, 139 findings); v2.0.0 closes 116 of them - every wrong number, every silent death, every wrong presence - each with a regression test that fails on the old code. The rest carry explicit engineering dispositions or sit on an enumerated v2.1 backlog (friction and polish only). Suite: 553 tests, green.</p>
         </div>
         <div class="pn-item">
           <h4>Numbers you can trust (the S1 class)</h4>
-          <p>Fills can no longer execute at stale prices: chain state first, then the click-time snapshot, then a fresh page tick, then one resolver refresh — and a 3-second last resort for every source, aligned with the header's own staleness mark. Beyond that, the trade is refused with a visible reason. The old default path filled at prices up to 10 seconds old.</p>
-          <p>Price collection is per-token: a batched frame can never attribute one coin's price to another, and trade arrays are read newest-first. The average-entry line finally HOLDS YOUR ENTRY — it used to ride the candle on market-cap charts. GMGN markers and lines are corrected against the chart's own candle scale; a fill without a genuine USD price waits for one instead of drawing ~150× low. Sites without a native chart hook get an honest marker rail. Dashboard accounting is unified: the equity curve converges exactly to equity, realized P&amp;L includes partial exits everywhere, the verification chain agrees with an honest wallet by construction, and open/closed % share one basis.</p>
+          <p>Fills can no longer execute at stale prices: chain state first, then the click-time snapshot, then a fresh page tick, then one resolver refresh - and a 3-second last resort for every source, aligned with the header's own staleness mark. Beyond that, the trade is refused with a visible reason. The old default path filled at prices up to 10 seconds old.</p>
+          <p>Price collection is per-token: a batched frame can never attribute one coin's price to another, and trade arrays are read newest-first. The average-entry line finally HOLDS YOUR ENTRY - it used to ride the candle on market-cap charts. GMGN markers and lines are corrected against the chart's own candle scale; a fill without a genuine USD price waits for one instead of drawing ~150× low. Sites without a native chart hook get an honest marker rail. Dashboard accounting is unified: the equity curve converges exactly to equity, realized P&amp;L includes partial exits everywhere, the verification chain agrees with an honest wallet by construction, and open/closed % share one basis.</p>
         </div>
         <div class="pn-item">
           <h4>Feeds that survive volume (the S2 class)</h4>
@@ -191,11 +191,11 @@
         </div>
         <div class="pn-item">
           <h4>An overlay that behaves (the S3/S4 classes)</h4>
-          <p>PaperTrench now runs ONLY on the nine supported trading sites — never anywhere else. Wallet, portfolio, and EVM routes never mount the panel. Pump.fun is a first-class site with its own adapter. Navigation is instant (SPA route hooks instead of an 800 ms poll) and can never trade the previous token on a new page. One drag system: panel, positions bar, minimized pill, and the collapsed tab all drag with touch support, both-bounds clamps, and positions that can never be lost off-screen. The dashboard stops fighting you: tables keep their scroll position, async results survive refreshes, settings saves can't clobber your layout, and every failure says so out loud.</p>
+          <p>PaperTrench now runs ONLY on the nine supported trading sites - never anywhere else. Wallet, portfolio, and EVM routes never mount the panel. Pump.fun is a first-class site with its own adapter. Navigation is instant (SPA route hooks instead of an 800 ms poll) and can never trade the previous token on a new page. One drag system: panel, positions bar, minimized pill, and the collapsed tab all drag with touch support, both-bounds clamps, and positions that can never be lost off-screen. The dashboard stops fighting you: tables keep their scroll position, async results survive refreshes, settings saves can't clobber your layout, and every failure says so out loud.</p>
         </div>
         <div class="pn-item">
           <h4>New: the graduation bar</h4>
-          <p>The coach view now evaluates the seven-criterion bar from <code>docs/GRADUATION.md</code> against your own journal — expectancy that survives removing your best round, loss sizing, hold symmetry, revenge re-entries, thesis coverage, cold-streak discipline — and missing evidence never counts as a pass. Paper failure is definitive; clearing the bar earns a small, careful start.</p>
+          <p>The coach view now evaluates the seven-criterion bar from <code>docs/GRADUATION.md</code> against your own journal - expectancy that survives removing your best round, loss sizing, hold symmetry, revenge re-entries, thesis coverage, cold-streak discipline - and missing evidence never counts as a pass. Paper failure is definitive; clearing the bar earns a small, careful start.</p>
         </div>
         <div class="pn-item">
           <h4>Also</h4>
@@ -223,6 +223,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

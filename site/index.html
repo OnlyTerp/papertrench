@@ -113,58 +113,64 @@
   </div>
 </section>
 
-<section id="leaderboard" style="padding: 2rem 0 6rem">
+<section class="home-ledger" id="leaderboard">
   <div class="wrap">
-    <div class="split rev">
-      <div>
-        <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,3.8rem);letter-spacing:-0.045em;line-height:.95">A board that cannot be faked.</h2>
-        <p class="sec-sub reveal d1">Every fill is committed to a SHA-256 hash chain the moment it happens. The dashboard re-derives your record. Standings are recomputed server-side from the raw fills.</p>
-        <div class="home-ctas reveal d2" style="margin-top:28px">
-          <a class="btn btn-primary" href="/leaderboard">Enter the Arena</a>
-          <a class="btn btn-ghost" href="/sprint">Sprint</a>
-          <a class="btn btn-ghost" href="/duels">Duels</a>
-        </div>
+    <h2>A board that cannot be faked.</h2>
+    <p>Every fill is committed to a SHA-256 hash chain the moment it happens. Standings are recomputed server-side from the raw fills.</p>
+    <div class="home-ctas">
+      <a class="btn btn-primary" href="/leaderboard">Enter the Arena</a>
+      <a class="btn btn-ghost" href="/sprint">Sprint</a>
+      <a class="btn btn-ghost" href="/duels">Duels</a>
+    </div>
+    <div class="ledger">
+      <div class="ledger-head">
+        <span>Season standings</span>
+        <span class="ledger-live">LIVE</span>
+        <a class="ledger-all" href="/leaderboard">Full Arena</a>
       </div>
-      <div class="split-visual reveal d1">
-        <div class="visual-card lb-mock">
-          <div class="lb-title">Season standings
-            <span style="margin-left:auto;font-size:11px;font-weight:800;letter-spacing:1px;color:var(--green);border:1px solid rgba(52,211,153,.35);border-radius:999px;padding:4px 10px;background:rgba(52,211,153,.08)">LIVE</span></div>
-          <div id="homeBoard" aria-live="polite">
-            <div style="padding:26px 4px;color:var(--dim);font-size:13px">Loading the board…</div>
-          </div>
-          <div class="lb-chain" id="chainTicker"></div>
-          <div style="font-size:11.5px;margin-top:12px;text-align:right">
-            <a href="/leaderboard" style="color:var(--green);font-weight:700">Open the full Arena</a>
-          </div>
-        </div>
+      <div id="homeBoard" aria-live="polite">
+        <p class="ledger-empty">Loading the board…</p>
       </div>
+      <p class="ledger-tick" id="chainTicker"></p>
     </div>
   </div>
 </section>
 
-<section style="padding: 0 0 5rem">
+<section class="home-install" id="install">
   <div class="wrap">
-    <p class="reveal" style="font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:1.2rem">Sits on the terminals you already use</p>
-    <div class="site-index reveal">
-      <b>Axiom</b> <b>Padre</b> <b>Photon</b> <b>GMGN</b> <b>BullX</b>
-      <span>Dexscreener</span> <span>Birdeye</span> <span>Jupiter</span>
-      <span>Pump.fun</span> <span>Fomo</span> <b>Lute</b>
-      <span>Hyperliquid</span> <span>Kalshi</span> <span>Polymarket</span> <span>Limitless</span>
-    </div>
-  </div>
-</section>
-
-<section id="install">
-  <div class="wrap">
-    <h2 class="reveal" style="font-size:clamp(2.4rem,6vw,4.4rem);letter-spacing:-0.045em;line-height:.95">In the trench in half a minute.</h2>
-    <p class="sec-sub reveal d1">Not on the Chrome Web Store yet. Load it unpacked.</p>
-    <div class="install-steps">
-      <div class="step reveal"><div class="n">1</div><h4>Download</h4><p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener" style="color:var(--orange)">latest release</a>, grab the zip under Assets, and unzip it.</p></div>
-      <div class="step reveal d1"><div class="n">2</div><h4>Extensions</h4><p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p></div>
-      <div class="step reveal d2"><div class="n">3</div><h4>Load unpacked</h4><p>Select the folder that contains <code>manifest.json</code>.</p></div>
-      <div class="step reveal d3"><div class="n">4</div><h4>Open a terminal</h4><p>Use a PaperTrench link below. The overlay lands on the chart.</p></div>
-    </div>
-    <nav class="term-dock reveal" aria-label="Paper terminals" style="margin-top:28px;justify-content:center">
+    <h2>In the trench in half a minute.</h2>
+    <p>Not on the Chrome Web Store yet. Load it unpacked, then open a terminal with a PaperTrench link.</p>
+    <ol class="home-rail">
+      <li>
+        <span class="n" aria-hidden="true">01</span>
+        <div>
+          <h3>Download</h3>
+          <p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">latest release</a>, grab the zip under Assets, and unzip it.</p>
+        </div>
+      </li>
+      <li>
+        <span class="n" aria-hidden="true">02</span>
+        <div>
+          <h3>Extensions</h3>
+          <p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p>
+        </div>
+      </li>
+      <li>
+        <span class="n" aria-hidden="true">03</span>
+        <div>
+          <h3>Load unpacked</h3>
+          <p>Select the folder that contains <code>manifest.json</code>.</p>
+        </div>
+      </li>
+      <li>
+        <span class="n" aria-hidden="true">04</span>
+        <div>
+          <h3>Open a terminal</h3>
+          <p>Use a PaperTrench link. The overlay lands on the chart you already grind.</p>
+        </div>
+      </li>
+    </ol>
+    <nav class="term-dock" aria-label="Paper terminals">
       <span class="term-lbl">Pick a platform</span>
       <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
       <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
@@ -174,13 +180,20 @@
   </div>
 </section>
 
-<section class="final-cta">
+<section class="home-end">
   <div class="wrap">
-    <h2 class="reveal">Blow up a fake account before you blow up a real one.</h2>
-    <div class="home-ctas reveal d1" style="justify-content:center;margin-top:32px">
+    <h2>Blow up a fake account before you blow up a real one.</h2>
+    <div class="home-ctas">
       <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download PaperTrench</a>
       <a class="btn btn-ghost" href="/links">All links</a>
     </div>
+    <nav class="term-dock" aria-label="Paper terminals">
+      <span class="term-lbl">Or open a terminal now</span>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
+      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
+      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
+      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
+    </nav>
   </div>
 </section>
 </main>
@@ -213,8 +226,6 @@
   </div>
 </footer>
 
-<script src="/vendor/gsap.min.js"></script>
-<script src="/vendor/ScrollTrigger.min.js"></script>
 <script src="/vendor/gsap.min.js"></script>
 <script src="/vendor/ScrollTrigger.min.js"></script>
 <script src="arena.js"></script>
@@ -265,6 +276,17 @@
         });
       });
     }
+    if (window.ScrollTrigger) {
+      gsap.utils.toArray('.home-ledger h2, .home-install h2, .home-end h2').forEach((el) => {
+        gsap.from(el, {
+          y: 32,
+          duration: 0.85,
+          ease: 'power3.out',
+          scrollTrigger: { trigger: el, start: 'top 88%' },
+          clearProps: 'transform'
+        });
+      });
+    }
   }
 })();
 </script>
@@ -275,8 +297,7 @@
   const boardEl = document.getElementById('homeBoard');
   const tickerEl = document.getElementById('chainTicker');
   if (!A || !boardEl) return;
-  const note = (text) =>
-    `<div style="padding:24px 4px;color:var(--dim);font-size:13px;line-height:1.6">${text}</div>`;
+  const note = (text) => `<p class="ledger-empty">${text}</p>`;
   (async () => {
     let entries;
     try {
@@ -284,7 +305,7 @@
     } catch {
       boardEl.innerHTML = note(A.API_LIVE
         ? 'The verifier is unreachable right now, so no standings are shown.'
-        : '<strong style="color:var(--orange2)">Opening soon.</strong> The verifier is not deployed yet, so there are no standings to show.');
+        : '<strong>Opening soon.</strong> The verifier is not deployed yet, so there are no standings to show.');
       return;
     }
     if (!entries.length) {

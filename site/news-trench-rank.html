@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trench Rank — discipline is now the game · PaperTrench news</title>
-<meta name="description" content="v2.10.0: every closed round gets a process grade, S to F — graded on plan, exit, sizing and revenge, never on P&L. A disciplined red grades S. A lucky win grades F, and gets called lucky.">
+<title>Trench Rank - discipline is now the game · PaperTrench news</title>
+<meta name="description" content="v2.10.0: every closed round gets a process grade, S to F - graded on plan, exit, sizing and revenge, never on P&L. A disciplined red grades S. A lucky win grades F, and gets called lucky.">
 <meta property="og:title" content="Trench Rank: discipline is now the game">
-<meta property="og:description" content="A disciplined red round grades S. A lucky win grades F — and gets called lucky. The game ends at graduation, on purpose.">
+<meta property="og:description" content="A disciplined red round grades S. A lucky win grades F - and gets called lucky. The game ends at graduation, on purpose.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- grade ladder mock ---------- */
   .grades { margin: 34px 0 12px; overflow: hidden; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); }
@@ -44,15 +45,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -73,7 +73,7 @@
         <span class="post-read">· 4 min read</span>
       </div>
       <h1 class="post-title">Trench Rank: discipline is now the game</h1>
-      <p class="post-stand">The trenches already run on a dopamine loop — it's just wired to the wrong thing. Green candles feel like skill, lucky exits feel like a system, and the habit that finally empties an account got reinforced a hundred times on the way there. <strong>PaperTrench now runs a loop of its own, and it pays out on discipline.</strong></p>
+      <p class="post-stand">The trenches already run on a dopamine loop - it's just wired to the wrong thing. Green candles feel like skill, lucky exits feel like a system, and the habit that finally empties an account got reinforced a hundred times on the way there. <strong>PaperTrench now runs a loop of its own, and it pays out on discipline.</strong></p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -85,14 +85,14 @@
 
     <div class="grades reveal">
       <div class="grades-head">The point, in three rows</div>
-      <div class="grade-row"><span class="g g-s">S</span><span class="k">Wrote the plan, took the stop, size normal — closed red.</span><span class="why">The loss followed the plan. That's the job.</span></div>
+      <div class="grade-row"><span class="g g-s">S</span><span class="k">Wrote the plan, took the stop, size normal - closed red.</span><span class="why">The loss followed the plan. That's the job.</span></div>
       <div class="grade-row"><span class="g g-a">A</span><span class="k">Target hit, banked most of the move.</span><span class="why">Clean process, clean exit.</span></div>
-      <div class="grade-row"><span class="g g-f">F</span><span class="k">No thesis, re-entered bigger minutes after a loss — closed green.</span><span class="why">Labelled <b>lucky</b>. That habit pays until it doesn't.</span></div>
+      <div class="grade-row"><span class="g g-f">F</span><span class="k">No thesis, re-entered bigger minutes after a loss - closed green.</span><span class="why">Labelled <b>lucky</b>. That habit pays until it doesn't.</span></div>
     </div>
-    <p>A red round can grade S. A lucky win can grade F — called lucky in the rounds table and on the card, while the close toast names the habit out loud. If that stings, good — it stings a lot less here than it does with a real bag.</p>
+    <p>A red round can grade S. A lucky win can grade F - called lucky in the rounds table and on the card, while the close toast names the habit out loud. If that stings, good - it stings a lot less here than it does with a real bag.</p>
 
     <h2>The ladder</h2>
-    <p>Six tiers, staged over the same graduation criteria the dashboard has always measured — now with visible progress bars, so there is always a next gate instead of one distant wall.</p>
+    <p>Six tiers, staged over the same graduation criteria the dashboard has always measured - now with visible progress bars, so there is always a next gate instead of one distant wall.</p>
 
     <div class="rank-list reveal">
       <div class="rank-row"><span class="tier">TIER 0</span><span class="name">Fresh Meat</span><span class="gate">everyone starts here</span></div>
@@ -103,18 +103,29 @@
       <div class="rank-row"><span class="tier">TIER 5</span><span class="name">Graduated</span><span class="gate">the full graduation bar</span></div>
     </div>
 
-    <p><strong>The game ends on purpose.</strong> Tier 5 is the graduation bar — the evidence-based "a small, careful real start is now rational" from <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/GRADUATION.md" target="_blank" rel="noopener">GRADUATION.md</a>. An engagement loop with a designed exit is the entire ethical difference between this and the loop the trenches already run on you.</p>
+    <p><strong>The game ends on purpose.</strong> Tier 5 is the graduation bar - the evidence-based "a small, careful real start is now rational" from <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/GRADUATION.md" target="_blank" rel="noopener">GRADUATION.md</a>. An engagement loop with a designed exit is the entire ethical difference between this and the loop the trenches already run on you.</p>
 
     <h2>Streaks, drills, reps, badges</h2>
-    <p><b>Streaks</b> count consecutive rounds of journaling, clean exits, and no revenge — flames from 3 up, on the dashboard and the positions bar. They break honestly, and the break message tells you why.</p>
-    <p><b>One drill a day</b>, measured from your actual rounds: capture day, journal day, flat-size day, stop-respect day. <b>Reps</b> weight by grade and diminish after ten a day — tired reps don't count, which is itself the lesson the trenches never teach.</p>
-    <p><b>Badges</b> exist for first thesis, surviving a losing streak without sizing up, 80%+ captures, 25 rounds clean of revenge. There are deliberately none for profit, win streaks, or volume — those train the exact habits this product exists to break.</p>
+    <p><b>Streaks</b> count consecutive rounds of journaling, clean exits, and no revenge - flames from 3 up, on the dashboard and the positions bar. They break honestly, and the break message tells you why.</p>
+    <p><b>One drill a day</b>, measured from your actual rounds: capture day, journal day, flat-size day, stop-respect day. <b>Reps</b> weight by grade and diminish after ten a day - tired reps don't count, which is itself the lesson the trenches never teach.</p>
+    <p><b>Badges</b> exist for first thesis, surviving a losing streak without sizing up, 80%+ captures, 25 rounds clean of revenge. There are deliberately none for profit, win streaks, or volume - those train the exact habits this product exists to break.</p>
 
     <h2>What didn't change</h2>
-    <p>Your numbers. Every grade, rank, streak and badge is derived live from the journal you already have — zero new stored data, nothing to migrate, nothing to cheat that the verification chain doesn't already cover. The PAPER watermark still ships on every card, and the card now points at papertrench.com. This update changes what gets celebrated, not what gets counted.</p>
+    <p>Your numbers. Every grade, rank, streak and badge is derived live from the journal you already have - zero new stored data, nothing to migrate, nothing to cheat that the verification chain doesn't already cover. The PAPER watermark still ships on every card, and the card now points at papertrench.com. This update changes what gets celebrated, not what gets counted.</p>
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

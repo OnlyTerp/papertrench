@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Instant X links — 3.5 seconds down to about half a second · PaperTrench news</title>
+<title>Instant X links - 3.5 seconds down to about half a second · PaperTrench news</title>
 <meta name="description" content="v2.4.0 onwards: X posts and profiles clicked on a trading site open in a kept-warm viewer tab via an in-page navigation. Hover prefetch, hover preview cards, and the honest costs of keeping a tab warm.">
 <meta property="og:title" content="Instant X links: 3.5 seconds down to about half a second">
-<meta property="og:description" content="Vetting a coin means clicking its X link — and then watching a cold tab boot the whole X app. PaperTrench keeps one warm viewer and routes clicks into it.">
+<meta property="og:description" content="Vetting a coin means clicking its X link - and then watching a cold tab boot the whole X app. PaperTrench keeps one warm viewer and routes clicks into it.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- the race mock: cold tab vs warm viewer ---------- */
   .race { margin: 34px 0 12px; padding: 24px 26px; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); }
@@ -48,15 +49,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -80,7 +80,7 @@
         <span class="post-read">· 6 min read</span>
       </div>
       <h1 class="post-title">Instant X links: 3.5 seconds down to about half a second</h1>
-      <p class="post-stand">Traders vet a coin by clicking its X link. Then they wait, every single time, while a brand-new tab downloads and boots the entire X application. <strong>PaperTrench keeps one viewer tab warm and routes your clicks into it</strong> — so the click reveals a post instead of starting a page load.</p>
+      <p class="post-stand">Traders vet a coin by clicking its X link. Then they wait, every single time, while a brand-new tab downloads and boots the entire X application. <strong>PaperTrench keeps one viewer tab warm and routes your clicks into it</strong> - so the click reveals a post instead of starting a page load.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -89,11 +89,11 @@
 
     <div class="race reveal">
       <div class="race-row cold">
-        <div class="race-head"><span class="who">Cold tab — a normal middle-click</span><span class="t">~3.5s</span></div>
+        <div class="race-head"><span class="who">Cold tab - a normal middle-click</span><span class="t">~3.5s</span></div>
         <div class="race-track"><div class="race-fill"></div></div>
       </div>
       <div class="race-row warm">
-        <div class="race-head"><span class="who">Warm viewer — Instant X links on</span><span class="t">~0.5s</span></div>
+        <div class="race-head"><span class="who">Warm viewer - Instant X links on</span><span class="t">~0.5s</span></div>
         <div class="race-track"><div class="race-fill"></div></div>
       </div>
       <div class="race-scale"><span>0s</span><span>1s</span><span>2s</span><span>3s</span><span>3.5s</span></div>
@@ -102,11 +102,11 @@
 
     <p class="post-lede">Three and a half seconds does not sound like much until you notice how many times you do it. Ten X links while you are picking through a screener is thirty-five seconds of watching a spinner, and in this market thirty-five seconds is an entry.</p>
 
-    <p>The cost is not the network. It is that every cold tab re-boots the whole X app from scratch: the framework, the session, the layout, the feed machinery — all of it, before it will show you one post.</p>
+    <p>The cost is not the network. It is that every cold tab re-boots the whole X app from scratch: the framework, the session, the layout, the feed machinery - all of it, before it will show you one post.</p>
 
     <h2>The trick: never start cold</h2>
 
-    <p>With the toggle on, PaperTrench keeps <b>one</b> muted background x.com tab as a viewer. It is already booted, already authenticated, already hydrated. When you click an X link on a supported trading site, PaperTrench does not open a tab — it tells that already-running app to navigate, in-page, to the URL you clicked.</p>
+    <p>With the toggle on, PaperTrench keeps <b>one</b> muted background x.com tab as a viewer. It is already booted, already authenticated, already hydrated. When you click an X link on a supported trading site, PaperTrench does not open a tab - it tells that already-running app to navigate, in-page, to the URL you clicked.</p>
 
     <p>That is the difference between launching an application and clicking a link inside one. About half a second, and every follow-up click lands in the same already-hydrated tab, so the second link is faster than the first.</p>
 
@@ -117,7 +117,7 @@
 
     <h2>Hover prefetch: start before the click</h2>
 
-    <p>Rest the cursor on an X link for a tenth of a second and the hidden viewer begins navigating there <em>before</em> you click — so the click itself often just reveals an already-loaded post.</p>
+    <p>Rest the cursor on an X link for a tenth of a second and the hidden viewer begins navigating there <em>before</em> you click - so the click itself often just reveals an already-loaded post.</p>
 
     <p>Hovers never create tabs and never move a tab you are reading. A hover that never becomes a click costs nothing.</p>
 
@@ -126,25 +126,25 @@
     <p>The first one was blunt: <em>"works on Padre, not the others."</em> That came down to link forms. Every terminal points at X differently, and two of them were falling straight through to a cold tab:</p>
 
     <ul>
-      <li><b>GMGN</b> trench rows link a token's X <em>community</em> — <code>x.com/i/communities/…</code> — not a profile or a post.</li>
+      <li><b>GMGN</b> trench rows link a token's X <em>community</em> - <code>x.com/i/communities/…</code> - not a profile or a post.</li>
       <li><b>Axiom's</b> X affordance is a <em>search</em> for the contract address.</li>
     </ul>
 
-    <p>Both warm-route now. Interception also moved to the earliest point in the event chain and finds anchors through shadow DOM, which is where terminals like to hide them. And any X link form still unrecognised logs its exact URL to the service-worker console — locally, on your machine — so the next gap names itself instead of waiting for someone to file it.</p>
+    <p>Both warm-route now. Interception also moved to the earliest point in the event chain and finds anchors through shadow DOM, which is where terminals like to hide them. And any X link form still unrecognised logs its exact URL to the service-worker console - locally, on your machine - so the next gap names itself instead of waiting for someone to file it.</p>
 
     <h3>Deleted tweets are fast now, too</h3>
 
     <p>A dead link used to trigger a pointless repair: X rendered "this post doesn't exist", the extension mistook that for a failed hop, and full-reloaded the same dead URL. Seconds spent to say the same thing twice.</p>
 
-    <p>The error page now counts as arrival — <b>a deleted launch tweet is signal, and you should see it instantly.</b> Only an error that was already on screen before the hop still falls through to the repair. Classification never rewrites a link either: path and query pass through byte-for-byte, pinned by test, so PaperTrench can never be the reason a tweet looks dead.</p>
+    <p>The error page now counts as arrival - <b>a deleted launch tweet is signal, and you should see it instantly.</b> Only an error that was already on screen before the hop still falls through to the repair. Classification never rewrites a link either: path and query pass through byte-for-byte, pinned by test, so PaperTrench can never be the reason a tweet looks dead.</p>
 
     <h2>Hover preview cards</h2>
 
-    <p>The terminals have their own tweet previews. They are small, and they demand you hit a 14-pixel icon. PaperTrench's card is big, readable, and <em>is</em> the click target — hover an X link and the post renders right on the page in about 200ms via X's public oEmbed endpoint. No login, do-not-track, cached. Click anywhere on the card to open it instantly in the warm viewer.</p>
+    <p>The terminals have their own tweet previews. They are small, and they demand you hit a 14-pixel icon. PaperTrench's card is big, readable, and <em>is</em> the click target - hover an X link and the post renders right on the page in about 200ms via X's public oEmbed endpoint. No login, do-not-track, cached. Click anywhere on the card to open it instantly in the warm viewer.</p>
 
     <p>A deleted post says "unavailable" on the card. That is the rug signal, before you spend a click on it. Communities and profiles get a slim click-through card.</p>
 
-    <p>A second opt-in goes further: rest the cursor anywhere on a token <em>row</em> for a third of a second and its preview appears — no aiming at all. Both settings live in the dashboard, both off by default.</p>
+    <p>A second opt-in goes further: rest the cursor anywhere on a token <em>row</em> for a third of a second and its preview appears - no aiming at all. Both settings live in the dashboard, both off by default.</p>
 
     <h2>What v2.7.0 fixed</h2>
 
@@ -165,7 +165,7 @@
       </div>
       <div class="ba after">
         <div class="ba-lbl">After</div>
-        <p>PaperTrench adopts your existing X tab as the viewer and routes into it, community links included — and adopted tabs stay yours.</p>
+        <p>PaperTrench adopts your existing X tab as the viewer and routes into it, community links included - and adopted tabs stay yours.</p>
       </div>
     </div>
 
@@ -176,7 +176,7 @@
     <p>This feature keeps a tab open on your behalf, so here is the whole bill:</p>
 
     <ul>
-      <li><b>One muted background x.com tab</b> while the feature is enabled — closed again if you turn the toggle off before using it.</li>
+      <li><b>One muted background x.com tab</b> while the feature is enabled - closed again if you turn the toggle off before using it.</li>
       <li><b>Two passive bridge scripts</b> load on x.com. They act only on PaperTrench's own messages, and a manifest test pins that they never include the trading engine or the overlay.</li>
       <li><b>Zero new extension permissions.</b> No telemetry. No remote switches.</li>
       <li><b>Ctrl / Cmd / middle-click always bypasses the feature</b> and opens a real background tab, exactly as it would without PaperTrench.</li>
@@ -187,9 +187,9 @@
 
     <h2>What happened next: it stopped being about X</h2>
 
-    <p>Traders used this and asked the obvious question — why only X? No good reason. In v2.7.0 the same mechanism was generalized to every destination you actually click from a terminal: <b>Axiom, Padre and GMGN</b> token links open in that terminal's kept-warm viewer, and <b>pump.fun and Solscan</b> get pre-warmed viewers of their own.</p>
+    <p>Traders used this and asked the obvious question - why only X? No good reason. In v2.7.0 the same mechanism was generalized to every destination you actually click from a terminal: <b>Axiom, Padre and GMGN</b> token links open in that terminal's kept-warm viewer, and <b>pump.fun and Solscan</b> get pre-warmed viewers of their own.</p>
 
-    <p>The same release also went after the work PaperTrench was making your terminal do — a feed-demand gate so that switching it off donates zero parsing to the host page, chips that stop thrashing layout at volume peaks, and a dashboard that stopped re-reading everything every four seconds. Plus receipts: the popup now counts your warm versus cold opens and shows your median routing time, measured locally.</p>
+    <p>The same release also went after the work PaperTrench was making your terminal do - a feed-demand gate so that switching it off donates zero parsing to the host page, chips that stop thrashing layout at volume peaks, and a dashboard that stopped re-reading everything every four seconds. Plus receipts: the popup now counts your warm versus cold opens and shows your median routing time, measured locally.</p>
 
     <p><a href="/news-turbo">The full Terminal Turbo story →</a></p>
 
@@ -203,15 +203,15 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Instant X links (opt-in)</h4>
-          <p>Traders vet a coin by clicking its X link — and then wait ~3.5 seconds for a cold tab to load. With the new toggle in the popup, X posts and profiles clicked on any supported trading site open in a kept-warm viewer tab via an in-page navigation: about half a second, and every follow-up click lands in the same already-hydrated tab. If the fast route ever fails, it silently falls back to a normal load of the same URL — worst case is exactly what you have today.</p>
+          <p>Traders vet a coin by clicking its X link - and then wait ~3.5 seconds for a cold tab to load. With the new toggle in the popup, X posts and profiles clicked on any supported trading site open in a kept-warm viewer tab via an in-page navigation: about half a second, and every follow-up click lands in the same already-hydrated tab. If the fast route ever fails, it silently falls back to a normal load of the same URL - worst case is exactly what you have today.</p>
         </div>
         <div class="pn-item">
           <h4>Hover prefetch</h4>
-          <p>Rest the cursor on an X link for a tenth of a second and the hidden viewer starts navigating there before you click — so the click itself often just reveals an already-loaded post. Hovers never create tabs, never move a tab you are reading, and a hover that never becomes a click costs nothing.</p>
+          <p>Rest the cursor on an X link for a tenth of a second and the hidden viewer starts navigating there before you click - so the click itself often just reveals an already-loaded post. Hovers never create tabs, never move a tab you are reading, and a hover that never becomes a click costs nothing.</p>
         </div>
         <div class="pn-item">
           <h4>Honest costs, stated up front</h4>
-          <p>While enabled, PaperTrench keeps ONE muted background x.com tab as the viewer (closed again if you turn the toggle off before using it). Two passive bridge scripts now load on x.com — they act only on PaperTrench's own messages and are pinned by a manifest test to never include the trading engine or overlay. Zero new extension permissions, no telemetry, no remote switches. Ctrl/Cmd/middle-click always bypasses the feature and opens a real background tab.</p>
+          <p>While enabled, PaperTrench keeps ONE muted background x.com tab as the viewer (closed again if you turn the toggle off before using it). Two passive bridge scripts now load on x.com - they act only on PaperTrench's own messages and are pinned by a manifest test to never include the trading engine or overlay. Zero new extension permissions, no telemetry, no remote switches. Ctrl/Cmd/middle-click always bypasses the feature and opens a real background tab.</p>
         </div>
       </div>
       <div class="pn-foot"><span>Also in v2.4.0:</span> <a href="/news#v2-4-0">a real off switch for the whole extension</a></div>
@@ -226,15 +226,15 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Instant X links now speak GMGN and Axiom</h4>
-          <p>The first field report — "works on Padre, not the others" — came down to link forms: GMGN trench rows link a token's X <em>community</em> (<code>x.com/i/communities/…</code>) and Axiom's X affordance is a <em>search</em> for the CA, and both used to fall through to a cold tab. Both warm-route now. Interception also moved to the earliest point in the event chain and finds anchors through shadow DOM, and any X link form still unrecognized logs its exact URL to the service-worker console (locally) so the next gap names itself.</p>
+          <p>The first field report - "works on Padre, not the others" - came down to link forms: GMGN trench rows link a token's X <em>community</em> (<code>x.com/i/communities/…</code>) and Axiom's X affordance is a <em>search</em> for the CA, and both used to fall through to a cold tab. Both warm-route now. Interception also moved to the earliest point in the event chain and finds anchors through shadow DOM, and any X link form still unrecognized logs its exact URL to the service-worker console (locally) so the next gap names itself.</p>
         </div>
         <div class="pn-item">
           <h4>Hover preview cards (opt-in)</h4>
-          <p>The terminals' own tweet previews are small and demand you hit a 14px icon. PaperTrench's card is big, readable, and IS the click target — hover an X link and the post renders right on the page (~200ms via X's public oEmbed endpoint, no login, do-not-track, cached); click anywhere on the card to open it instantly in the warm viewer. A deleted post says "unavailable" on the card — the rug signal before you spend a click. Communities and profiles get a slim click-through card. A second opt-in goes further: rest the cursor anywhere on a token ROW for a third of a second and its preview appears — no aiming at all. Both settings live in the dashboard, both off by default.</p>
+          <p>The terminals' own tweet previews are small and demand you hit a 14px icon. PaperTrench's card is big, readable, and IS the click target - hover an X link and the post renders right on the page (~200ms via X's public oEmbed endpoint, no login, do-not-track, cached); click anywhere on the card to open it instantly in the warm viewer. A deleted post says "unavailable" on the card - the rug signal before you spend a click. Communities and profiles get a slim click-through card. A second opt-in goes further: rest the cursor anywhere on a token ROW for a third of a second and its preview appears - no aiming at all. Both settings live in the dashboard, both off by default.</p>
         </div>
         <div class="pn-item">
           <h4>Deleted tweets are fast now</h4>
-          <p>A dead link used to trigger a pointless "repair": X rendered "this post doesn't exist", the extension mistook that for a failed hop, and full-reloaded the same dead URL — seconds to say the same thing. The error page now counts as arrival (a deleted launch tweet is signal — see it instantly); only an error that was already on screen before the hop still falls through to the repair. Also pinned by test: classification never rewrites a link — path and query pass through byte-for-byte, so PaperTrench can never be the reason a tweet looks dead.</p>
+          <p>A dead link used to trigger a pointless "repair": X rendered "this post doesn't exist", the extension mistook that for a failed hop, and full-reloaded the same dead URL - seconds to say the same thing. The error page now counts as arrival (a deleted launch tweet is signal - see it instantly); only an error that was already on screen before the hop still falls through to the repair. Also pinned by test: classification never rewrites a link - path and query pass through byte-for-byte, so PaperTrench can never be the reason a tweet looks dead.</p>
         </div>
       </div>
       <div class="pn-foot"><span>Also in v2.5.0:</span> <a href="/news-flex">the Flex Pack share card</a></div>
@@ -253,7 +253,7 @@
         </div>
         <div class="pn-item">
           <h4>Your own X tab IS the warm tab now</h4>
-          <p>With no registered viewer, a clicked X link — post, profile, or a token's community — used to open a separate tab right next to the x.com tab you already kept. Now PaperTrench adopts your existing X tab as the viewer and routes into it, community links included. It will never claim a tab you are looking at, a pinned tab, or one playing audio — and adopted tabs are yours: toggling the feature off never closes them.</p>
+          <p>With no registered viewer, a clicked X link - post, profile, or a token's community - used to open a separate tab right next to the x.com tab you already kept. Now PaperTrench adopts your existing X tab as the viewer and routes into it, community links included. It will never claim a tab you are looking at, a pinned tab, or one playing audio - and adopted tabs are yours: toggling the feature off never closes them.</p>
         </div>
       </div>
       <div class="pn-foot"><span>Also in v2.7.0:</span> <a href="/news-fills">fills land on the chart you are looking at</a></div>
@@ -272,6 +272,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>v3.0.0 — paper perps on Hyperliquid and Jupiter · PaperTrench news</title>
-<meta name="description" content="v3.0.0: leveraged paper trading on the venues you actually use, with the venue's own fees, funding and liquidation math — and a plain list of what is not modelled yet. Plus market-cap alerts, chart take-profit/stop orders, Forge, and Turbo II.">
-<meta property="og:title" content="Perps arrive — with the honest list of what they don't model">
-<meta property="og:description" content="Leverage on Hyperliquid and Jupiter, priced with the venue's own costs. A liquidation can take the whole position, which is a different lesson from spot — so the notes lead with what is NOT modelled yet.">
+<title>v3.0.0 - paper perps on Hyperliquid and Jupiter · PaperTrench news</title>
+<meta name="description" content="v3.0.0: leveraged paper trading on the venues you actually use, with the venue's own fees, funding and liquidation math - and a plain list of what is not modelled yet. Plus market-cap alerts, chart take-profit/stop orders, Forge, and Turbo II.">
+<meta property="og:title" content="Perps arrive - with the honest list of what they don't model">
+<meta property="og:description" content="Leverage on Hyperliquid and Jupiter, priced with the venue's own costs. A liquidation can take the whole position, which is a different lesson from spot - so the notes lead with what is NOT modelled yet.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- the not-modelled ledger ---------- */
   .nm { margin: 30px 0; display: flex; flex-direction: column; gap: 10px; }
@@ -35,15 +36,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -64,8 +64,8 @@
         <time class="feat-date" datetime="2026-08-06">August 6, 2026</time>
         <span class="post-read">· 6 min read</span>
       </div>
-      <h1 class="post-title">Perps arrive — with the honest list of what they don't model</h1>
-      <p class="post-stand">PaperTrench gained a second asset class. Perps can take your <strong>whole position in a single move</strong>, which is a different lesson from spot and deserves to be announced as one — so these notes lead with the costs, the liquidation math, and a plain list of what is <strong>not</strong> modelled yet. v3.0.0 also carries market-cap alerts, take-profit and stop orders you drag on the chart, Forge, and the Turbo II speed pass.</p>
+      <h1 class="post-title">Perps arrive, with the honest list of what they don't model</h1>
+      <p class="post-stand">PaperTrench gained a second asset class. Perps can take your <strong>whole position in a single move</strong>, which is a different lesson from spot and deserves to be announced as one - so these notes lead with the costs, the liquidation math, and a plain list of what is <strong>not</strong> modelled yet. v3.0.0 also carries market-cap alerts, take-profit and stop orders you drag on the chart, Forge, and the Turbo II speed pass.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -79,23 +79,23 @@
       <div class="post-stat"><div class="n">0</div><div class="l">COSTS INVENTED</div></div>
     </div>
 
-    <p class="post-lede">Open a paper long or short from a ticket that sits on the venue's own page, priced off the venue's own feed. $10 at 20x and $5 at 100x are both one slider away — and the ticket shows you what each actually costs before you click, because the entire point of practicing leverage is meeting the costs that make it dangerous.</p>
+    <p class="post-lede">Open a paper long or short from a ticket that sits on the venue's own page, priced off the venue's own feed. $10 at 20x and $5 at 100x are both one slider away - and the ticket shows you what each actually costs before you click, because the entire point of practicing leverage is meeting the costs that make it dangerous.</p>
 
     <h2>Four numbers before every entry</h2>
 
-    <p>Position size, the fee you'll pay to open, your liquidation price with how far away it is, and what the position costs you per hour to hold. On Hyperliquid the liquidation distance is also shown in ATRs — <em>"1.3 ATR away on the 5m"</em> tells you something a percentage can't: whether ordinary noise reaches it.</p>
+    <p>Position size, the fee you'll pay to open, your liquidation price with how far away it is, and what the position costs you per hour to hold. On Hyperliquid the liquidation distance is also shown in ATRs - <em>"1.3 ATR away on the 5m"</em> tells you something a percentage can't: whether ordinary noise reaches it.</p>
 
     <p><b>The costs are the venue's, not a house average.</b> Hyperliquid charges its own taker and maker fees and funds hourly at the venue's live rate; Jupiter charges its 6&nbsp;bps base fee, its own price-impact fee from the pool's published scalar, and borrow at the hourly rate the venue displays. Longs pay funding when the rate is positive and receive it when it's negative, exactly as the venue does it.</p>
 
-    <p class="post-pull">If the venue's live rate can't be read, the ticket won't open. A perp without funding isn't the instrument — it's a fantasy where leverage is free. The ticket stays closed and says why.</p>
+    <p class="post-pull">If the venue's live rate can't be read, the ticket won't open. A perp without funding isn't the instrument - it's a fantasy where leverage is free. The ticket stays closed and says why.</p>
 
     <h2>Liquidation is modelled, not simulated loosely</h2>
 
     <p>Isolated margin: the most a position can lose is the margin you put into it. Hyperliquid liquidations fill at the venue's trigger price and return whatever survives; on Jupiter, a liquidation forfeits all remaining collateral, which is what Jupiter does. The ticket says out loud that paper liquidations fill at the trigger and real ones usually fare worse.</p>
 
-    <p><b>Positions keep costing you while you're away.</b> Funding and borrow accrue while the tab is open, and when you come back after closing it, the position is settled against the venue's own funding history and candles. If the price crossed your liquidation while you were gone, the round is reconstructed from that data and labelled as reconstructed. If the venue's data doesn't cover the gap, nothing is invented — the time is recorded as unobserved and the row tells you your real cost would have been higher.</p>
+    <p><b>Positions keep costing you while you're away.</b> Funding and borrow accrue while the tab is open, and when you come back after closing it, the position is settled against the venue's own funding history and candles. If the price crossed your liquidation while you were gone, the round is reconstructed from that data and labelled as reconstructed. If the venue's data doesn't cover the gap, nothing is invented - the time is recorded as unobserved and the row tells you your real cost would have been higher.</p>
 
-    <p><b>Your fills appear on the venue's chart</b> — every entry, close and liquidation draws where it happened, with a line for your entry price and a line for your liquidation price: the number that actually decides a leveraged trade. And the dashboard gained <b>a perps tab, kept separate on purpose</b>. Nothing from the perps book is ever added to a spot figure: a lucky leveraged run must not flatter the spot record you're graduating against, and a liquidation must not damage it.</p>
+    <p><b>Your fills appear on the venue's chart</b> - every entry, close and liquidation draws where it happened, with a line for your entry price and a line for your liquidation price: the number that actually decides a leveraged trade. And the dashboard gained <b>a perps tab, kept separate on purpose</b>. Nothing from the perps book is ever added to a spot figure: a lucky leveraged run must not flatter the spot record you're graduating against, and a liquidation must not damage it.</p>
 
     <h2>What perps does not do yet</h2>
 
@@ -104,22 +104,22 @@
       <div class="nm-row"><span class="code">MARGIN</span><div><div class="t">Isolated only</div><div class="d">No cross-margin.</div></div></div>
       <div class="nm-row"><span class="code">TIERS</span><div><div class="t">Hyperliquid liquidations use base-tier maintenance margin</div><div class="d">Accurate at paper sizes; the tiers that apply to very large positions aren't modelled.</div></div></div>
       <div class="nm-row"><span class="code">FEES</span><div><div class="t">Jupiter fees cover the base and price-impact components</div><div class="d">The extra charge when the pool's open interest is heavily imbalanced isn't included, so Jupiter costs can read slightly low in those conditions.</div></div></div>
-      <div class="nm-row"><span class="code">TA</span><div><div class="t">The TA strip is Hyperliquid-only</div><div class="d">Jupiter has no candle source we've verified — on Jupiter it shows nothing rather than guessing.</div></div></div>
+      <div class="nm-row"><span class="code">TA</span><div><div class="t">The TA strip is Hyperliquid-only</div><div class="d">Jupiter has no candle source we've verified - on Jupiter it shows nothing rather than guessing.</div></div></div>
       <div class="nm-row"><span class="code">GRADES</span><div><div class="t">Perps rounds don't affect your grades, streaks, rank or graduation</div><div class="d">The spot record stays the spot record.</div></div></div>
       <div class="nm-row"><span class="code">OFFLINE</span><div><div class="t">A liquidation while your browser is closed is discovered when you next open the page</div><div class="d">Not at the moment it occurs.</div></div></div>
     </div>
 
     <h2>Also in v3.0.0</h2>
 
-    <p><b>Market cap alerts — "tell me when it hits 500K."</b> Requested by meestershrek. Arm an alert above or below any market cap from the panel — type it the way you say it, <code>500K</code>, <code>1.2M</code>, <code>850000</code> — and it fires once, as a real desktop notification, even while you're looking at something else. You don't have to own the coin, and the ping reports what actually happened: memecoins don't stop politely at your level, so it names the cap it actually saw.</p>
+    <p><b>Market cap alerts - "tell me when it hits 500K."</b> Requested by meestershrek. Arm an alert above or below any market cap from the panel - type it the way you say it, <code>500K</code>, <code>1.2M</code>, <code>850000</code> - and it fires once, as a real desktop notification, even while you're looking at something else. You don't have to own the coin, and the ping reports what actually happened: memecoins don't stop politely at your level, so it names the cap it actually saw.</p>
 
-    <p><b>Take profits and stops you drag on the chart.</b> The exit half of paper trading, on the chart where you already think. The level means the same thing on every axis — market cap, USD, native — and a stop that gaps fills where the market actually was, not at the level you wished for.</p>
+    <p><b>Take profits and stops you drag on the chart.</b> The exit half of paper trading, on the chart where you already think. The level means the same thing on every axis - market cap, USD, native - and a stop that gaps fills where the market actually was, not at the level you wished for.</p>
 
     <p><b>Fomo trades honestly now.</b> On a social trading site, every price-shaped number on the page is someone's <em>history</em> until proven market. The fomo adapter now refuses feed prices, other people's entries and holder averages as fill sources, your fills draw where they happened, and the panel says what it's doing instead of "connecting…" forever.</p>
 
-    <p><b>Forge — make the banner inside the dex's own checkout.</b> Bring your own key, two models doing different jobs (one reads the narrative, one draws), the required image size lifted from the upload box itself — and it never lies about what landed: if the file can't be set on the uploader, it says so and gives you the download. Off by default, no new permissions, and it never spends anything on its own.</p>
+    <p><b>Forge - make the banner inside the dex's own checkout.</b> Bring your own key, two models doing different jobs (one reads the narrative, one draws), the required image size lifted from the upload box itself - and it never lies about what landed: if the file can't be set on the uploader, it says so and gives you the download. Off by default, no new permissions, and it never spends anything on its own.</p>
 
-    <p><b>Turbo II — the speed pass, everywhere at once.</b> Every supported terminal is a warm destination now, prefetch starts at pointer-press (~60–120ms saved) and even on a fast, straight cursor trajectory before you arrive. Instant links on Discord, Telegram Web, or every site — each opt-in, off by default. Ask the Turbo receipts card whether any of this is real; that's what it's for.</p>
+    <p><b>Turbo II - the speed pass, everywhere at once.</b> Every supported terminal is a warm destination now, prefetch starts at pointer-press (~60-120ms saved) and even on a fast, straight cursor trajectory before you arrive. Instant links on Discord, Telegram Web, or every site - each opt-in, off by default. Ask the Turbo receipts card whether any of this is real; that's what it's for.</p>
 
     <p><b>Fixed, among others:</b> extension updates no longer leave open tabs half-dead; Birdeye pages work again after their address-format change; the entry line stopped teleporting on fomo charts; the Game tab actually shows up; and a fresh install keeps what your first save wrote.</p>
 
@@ -136,6 +136,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

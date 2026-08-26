@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>X-Ray — every coin an account has ever posted · PaperTrench news</title>
-<meta name="description" content="v2.6.0: open any X profile or post and PaperTrench already shows the account's contract-address history, bio and handle changes, and who big follows them — with the watch window printed on every counter.">
+<title>X-Ray - every coin an account has ever posted · PaperTrench news</title>
+<meta name="description" content="v2.6.0: open any X profile or post and PaperTrench already shows the account's contract-address history, bio and handle changes, and who big follows them - with the watch window printed on every counter.">
 <meta property="og:title" content="X-Ray: every coin an account has ever posted, before you click buy">
-<meta property="og:description" content="Contract-address history, bio and @handle changes, Smart Following — on the X page itself, in the same frame it routes. And every counter says how long we have been watching.">
+<meta property="og:description" content="Contract-address history, bio and @handle changes, Smart Following - on the X page itself, in the same frame it routes. And every counter says how long we have been watching.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- the X-Ray card mock ---------- */
   .xr-wrap { margin: 34px 0 10px; }
@@ -62,15 +63,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -91,7 +91,7 @@
         <span class="post-read">· 7 min read</span>
       </div>
       <h1 class="post-title">X-Ray: every coin an account has ever posted, before you click buy</h1>
-      <p class="post-stand">The tell is almost always in the history — the handle that was something else last week, the four contract addresses this account already posted, the bio that changed the day the chart started moving. <strong>X-Ray puts that history on the X page itself</strong>, the moment the page routes. No button, no "analyze", no waiting.</p>
+      <p class="post-stand">The tell is almost always in the history - the handle that was something else last week, the four contract addresses this account already posted, the bio that changed the day the chart started moving. <strong>X-Ray puts that history on the X page itself</strong>, the moment the page routes. No button, no "analyze", no waiting.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -146,12 +146,12 @@
           </div>
         </div>
       </div>
-      <p class="xr-cap">Simulated card — the layout is real, the account is not.</p>
+      <p class="xr-cap">Simulated card - the layout is real, the account is not.</p>
     </div>
 
     <p class="post-lede">You are looking at a coin. Someone is calling it. The only question that matters is <em>who is this</em>, and the honest answer lives in things X does not put in front of you: what this account was called before, what it has posted before, and who actually follows it.</p>
 
-    <p>Finding that out by hand takes minutes you do not have. Scroll their posts for old contract addresses. Squint at the follower list. Try to remember whether the bio said something different when you looked yesterday. By the time you have an answer, the entry you were considering is gone — or it was never worth taking and you spent five minutes learning that.</p>
+    <p>Finding that out by hand takes minutes you do not have. Scroll their posts for old contract addresses. Squint at the follower list. Try to remember whether the bio said something different when you looked yesterday. By the time you have an answer, the entry you were considering is gone - or it was never worth taking and you spent five minutes learning that.</p>
 
     <p>X-Ray does that reading for you, continuously, in the background, on the pages you already open.</p>
 
@@ -165,7 +165,7 @@
 
     <h3>Contract addresses posted</h3>
 
-    <p>Every CA the account has posted, dated by the post itself, newest first — click one to copy. This is the coin history: what else has this account put in front of people, and how recently. A CA sitting in the bio <em>right now</em> gets its own flag, because that is a different claim than one posted three weeks ago.</p>
+    <p>Every CA the account has posted, dated by the post itself, newest first - click one to copy. This is the coin history: what else has this account put in front of people, and how recently. A CA sitting in the bio <em>right now</em> gets its own flag, because that is a different claim than one posted three weeks ago.</p>
 
     <p>Long posts get read past the 280-character fold, which is exactly where the address usually is.</p>
 
@@ -175,7 +175,7 @@
 
     <h3>Name and @handle changes</h3>
 
-    <p>Counted separately, because a display-name swap and a rename are different tells. Case-only differences do not count as renames — a fake counter is worse than no counter.</p>
+    <p>Counted separately, because a display-name swap and a rename are different tells. Case-only differences do not count as renames - a fake counter is worse than no counter.</p>
 
     <h3>Smart Following</h3>
 
@@ -183,16 +183,16 @@
 
     <h2>The part other tools will not tell you</h2>
 
-    <p>Nobody can tell you a bio changed on a day they never saw the bio. A product that shows you a confident "12 bio changes" for an account you just discovered is reading someone else's surveillance database — a service that has been scraping X wholesale for years and selling the archive.</p>
+    <p>Nobody can tell you a bio changed on a day they never saw the bio. A product that shows you a confident "12 bio changes" for an account you just discovered is reading someone else's surveillance database - a service that has been scraping X wholesale for years and selling the archive.</p>
 
     <p class="post-pull">PaperTrench does not have one of those, and will not fake one.</p>
 
-    <p>So every change counter on the card carries the window it was observed over: <b>"no change seen · watching since Aug 5"</b>. CA history and Smart Following say which posts and lists they were built from. The watch window starts the first time <em>you</em> view an account, which means the card gets sharper the longer you use it — and it never pretends to know about the time before that.</p>
+    <p>So every change counter on the card carries the window it was observed over: <b>"no change seen · watching since Aug 5"</b>. CA history and Smart Following say which posts and lists they were built from. The watch window starts the first time <em>you</em> view an account, which means the card gets sharper the longer you use it - and it never pretends to know about the time before that.</p>
 
     <div class="callout">
       <span class="co-label">Why we did it this way</span>
       <p>A floor, labelled as a floor, is worth more than a confident number that is wrong. "2 changes seen since Aug 3" tells you what to do with it. "2 changes" invites you to conclude the account has been stable forever, and that conclusion can cost you money.</p>
-      <p>It is the same rule as the rest of the product: <strong>every number on screen is true or absent — never wrong.</strong></p>
+      <p>It is the same rule as the rest of the product: <strong>every number on screen is true or absent - never wrong.</strong></p>
     </div>
 
     <h2>Where the data comes from, exactly</h2>
@@ -200,8 +200,8 @@
     <p>X-Ray reads the X app's own responses, as your browser receives them, for a fixed allowlist of operations: the profile, that account's posts, and follower lists. That is the whole surface.</p>
 
     <ul>
-      <li><b>Home timeline, DMs and notifications are never parsed.</b> Not filtered out later — never read.</li>
-      <li><b>What leaves the page is a digest</b> — dates, ids, addresses, follower counts. Never the text of anyone's posts.</li>
+      <li><b>Home timeline, DMs and notifications are never parsed.</b> Not filtered out later - never read.</li>
+      <li><b>What leaves the page is a digest</b> - dates, ids, addresses, follower counts. Never the text of anyone's posts.</li>
       <li><b>The ledger is <code>chrome.storage.local</code> on your machine.</b> No server, no shared database, no upload, no account of yours used to follow or interact with anything.</li>
       <li><b>Zero new extension permissions.</b> X-Ray shipped inside the permissions PaperTrench already had.</li>
       <li><b>Opt-in.</b> Off until you turn it on, and off means off.</li>
@@ -209,33 +209,33 @@
 
     <h3>Deep scan</h3>
 
-    <p>On with X-Ray and separately switchable. Deep scan lets the page re-issue a request it has already made — the same one X fires when you scroll — to read a few more pages of posts or the follower list. It is throttled by minimum spacing, a per-minute cap and a per-account cooldown, runs only while you are on that account, and uses your existing X session against x.com itself. The service worker never contacts X.</p>
+    <p>On with X-Ray and separately switchable. Deep scan lets the page re-issue a request it has already made - the same one X fires when you scroll - to read a few more pages of posts or the follower list. It is throttled by minimum spacing, a per-minute cap and a per-account cooldown, runs only while you are on that account, and uses your existing X session against x.com itself. The service worker never contacts X.</p>
 
     <p>If X rotates its API, the deep scan quietly stops and the passive layer keeps working. <b>The card degrades; it does not break.</b></p>
 
-    <h2>Update — the dock that never ran (v2.7.0)</h2>
+    <h2>Update - the dock that never ran (v2.7.0)</h2>
 
     <p>A postscript worth telling, because it is the most instructive bug we have shipped a fix for.</p>
 
-    <p>The card is meant to <em>dock</em> into the profile header — take its own space in the page rather than float over your timeline. That code existed from day one. It had never run. Not once, on any profile.</p>
+    <p>The card is meant to <em>dock</em> into the profile header - take its own space in the page rather than float over your timeline. That code existed from day one. It had never run. Not once, on any profile.</p>
 
     <p>The reason: X renders the Posts / Replies bar as a <code>&lt;div role="tablist"&gt;</code>, and we were looking for <code>nav[role="tablist"]</code>. The selector returned <code>null</code> on every profile, the anchor lookup bailed, and the dock silently gave up and floated instead.</p>
 
     <p class="post-pull">Every piece of geometry tuning built on top of it was dead code, tuned against a path that never executed.</p>
 
-    <p>The fix is small — match the role alone, verified against real x.com markup rather than assumed. The interesting part is the second half:</p>
+    <p>The fix is small - match the role alone, verified against real x.com markup rather than assumed. The interesting part is the second half:</p>
 
     <div class="callout">
       <span class="co-label">Two changes so this cannot repeat quietly</span>
       <p><strong>The test fake now fails nav-shaped selectors the way the real page does.</strong> The old fake was more permissive than x.com, so the tests passed on a selector production could never match. A fixture that is kinder than reality is not a test.</p>
-      <p><strong>Every host now carries <code>data-pt-dock="docked"</code> or <code>float:&lt;reason&gt;</code>.</strong> If the card ever floats again, it says why, in devtools, in one word — instead of leaving someone to infer it from geometry.</p>
+      <p><strong>Every host now carries <code>data-pt-dock="docked"</code> or <code>float:&lt;reason&gt;</code>.</strong> If the card ever floats again, it says why, in devtools, in one word - instead of leaving someone to infer it from geometry.</p>
     </div>
 
     <p>Three attempted fixes went by before anyone checked the live markup. The lesson stuck: probe the real DOM first, and make failures name themselves.</p>
 
     <h2>What we tested</h2>
 
-    <p>The suite went to <b>749 passing</b> for this release, including a hand-built DOM that drives the card end to end — an intel card that throws is an intel card that is not there — plus tests pinning the three ways this feature could lie:</p>
+    <p>The suite went to <b>749 passing</b> for this release, including a hand-built DOM that drives the card end to end - an intel card that throws is an intel card that is not there - plus tests pinning the three ways this feature could lie:</p>
 
     <ul>
       <li>A first sighting can never be reported as a change.</li>
@@ -253,7 +253,7 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>X-Ray (opt-in)</h4>
-          <p>Open any X profile — or any post, where the card reads the author — and the intel is already on screen. No button, no "analyze", no waiting: PaperTrench remembers what it has seen about an account, so the card paints from local storage in the same frame the page routes, then fills in live as X's own data lands.</p>
+          <p>Open any X profile - or any post, where the card reads the author - and the intel is already on screen. No button, no "analyze", no waiting: PaperTrench remembers what it has seen about an account, so the card paints from local storage in the same frame the page routes, then fills in live as X's own data lands.</p>
         </div>
         <div class="pn-item">
           <h4>Bio changes</h4>
@@ -261,7 +261,7 @@
         </div>
         <div class="pn-item">
           <h4>Name and @handle changes</h4>
-          <p>Counted separately, because a display-name swap and a rename are different tells. Case-only differences are not renames — a fake counter is worse than no counter.</p>
+          <p>Counted separately, because a display-name swap and a rename are different tells. Case-only differences are not renames - a fake counter is worse than no counter.</p>
         </div>
         <div class="pn-item">
           <h4>Contract addresses posted</h4>
@@ -273,15 +273,15 @@
         </div>
         <div class="pn-item">
           <h4>Where the data comes from, exactly</h4>
-          <p>X-Ray reads the X app's own responses for a fixed allowlist of operations (profile, that account's posts, follower lists) as your browser receives them. Home timeline, DMs and notifications are never parsed. What leaves the page is a digest — dates, ids, addresses, follower counts — never the text of anyone's posts. The ledger is <code>chrome.storage.local</code> on your machine. No server, no shared database, no upload, no account of yours used to follow or interact with anything. Zero new extension permissions.</p>
+          <p>X-Ray reads the X app's own responses for a fixed allowlist of operations (profile, that account's posts, follower lists) as your browser receives them. Home timeline, DMs and notifications are never parsed. What leaves the page is a digest - dates, ids, addresses, follower counts - never the text of anyone's posts. The ledger is <code>chrome.storage.local</code> on your machine. No server, no shared database, no upload, no account of yours used to follow or interact with anything. Zero new extension permissions.</p>
         </div>
         <div class="pn-item">
           <h4>What it refuses to pretend</h4>
-          <p>Nobody can tell you a bio changed on a day they never saw the bio. Products that imply otherwise are reading someone else's surveillance database; PaperTrench does not have one and will not fake one. So every change counter on the card carries the window it was observed over — "no change seen · watching since Aug 5" — and CA history and Smart Following say which posts and lists they were built from. A floor, labeled as a floor, is worth more than a confident number that is wrong. The watch window starts the first time you view an account, so the card gets sharper the longer you use it.</p>
+          <p>Nobody can tell you a bio changed on a day they never saw the bio. Products that imply otherwise are reading someone else's surveillance database; PaperTrench does not have one and will not fake one. So every change counter on the card carries the window it was observed over - "no change seen · watching since Aug 5" - and CA history and Smart Following say which posts and lists they were built from. A floor, labeled as a floor, is worth more than a confident number that is wrong. The watch window starts the first time you view an account, so the card gets sharper the longer you use it.</p>
         </div>
         <div class="pn-item">
           <h4>Deep scan (on with X-Ray, separately switchable)</h4>
-          <p>Lets the page re-issue a request it already made — the same one X fires when you scroll — to read a few more pages of posts or the follower list. Throttled by minimum spacing, a per-minute cap and a per-account cooldown; runs only while you are on that account; uses your existing X session against x.com itself. The service worker never contacts X. If X rotates its API, the deep scan quietly stops and the passive layer keeps working — the card degrades, it does not break.</p>
+          <p>Lets the page re-issue a request it already made - the same one X fires when you scroll - to read a few more pages of posts or the follower list. Throttled by minimum spacing, a per-minute cap and a per-account cooldown; runs only while you are on that account; uses your existing X session against x.com itself. The service worker never contacts X. If X rotates its API, the deep scan quietly stops and the passive layer keeps working - the card degrades, it does not break.</p>
         </div>
         <div class="pn-item">
           <h4>Suite</h4>
@@ -306,11 +306,11 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The X-Ray dock fix</h4>
-          <p>X renders the Posts/Replies bar as a <code>div</code> with <code>role=tablist</code>, so a <code>nav[role=tablist]</code> lookup returned null and the header anchor bailed on every profile — the dock never ran, and all the geometry tuning built on it was dead code. The role is now matched on its own (verified against live x.com markup), the test fake fails nav-shaped selectors the way the real page does, and every host is stamped <code>data-pt-dock=docked</code> or <code>float:&lt;reason&gt;</code> so any future float is diagnosable from devtools instead of by geometry guesswork.</p>
+          <p>X renders the Posts/Replies bar as a <code>div</code> with <code>role=tablist</code>, so a <code>nav[role=tablist]</code> lookup returned null and the header anchor bailed on every profile - the dock never ran, and all the geometry tuning built on it was dead code. The role is now matched on its own (verified against live x.com markup), the test fake fails nav-shaped selectors the way the real page does, and every host is stamped <code>data-pt-dock=docked</code> or <code>float:&lt;reason&gt;</code> so any future float is diagnosable from devtools instead of by geometry guesswork.</p>
         </div>
         <div class="pn-item">
           <h4>Get the complete build</h4>
-          <p>The dock fix landed after v2.7.0 was tagged, so it is <b>not</b> in the 2.7.0 zip. <b>v2.7.1 is the complete batch</b> — if you downloaded 2.7.0, update.</p>
+          <p>The dock fix landed after v2.7.0 was tagged, so it is <b>not</b> in the 2.7.0 zip. <b>v2.7.1 is the complete batch</b> - if you downloaded 2.7.0, update.</p>
         </div>
       </div>
       <div class="pn-foot">
@@ -334,6 +334,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

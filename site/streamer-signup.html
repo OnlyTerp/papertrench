@@ -16,6 +16,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <link rel="stylesheet" href="arena.css">
 <style>
   /* ================================================================== *
@@ -219,8 +220,6 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
@@ -228,7 +227,7 @@
       <a href="/news">News</a>
       <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -238,11 +237,14 @@
 
 <main id="main">
 
-<header class="hero compact">
-  <div class="wrap">
-    <span class="sec-kicker k-twitch reveal">Streamer application</span>
-    <h1 class="reveal d1">Get featured <span class="grad-twitch">in the trench.</span></h1>
-    <p class="hero-sub reveal d2">Any creator running the PaperTrench Challenge can apply — Twitch, Kick or YouTube. Approved streamers get a card on the <a href="/streams">streams page</a>, the Streamer role in Discord, and an automatic alert when they go live.</p>
+<header class="film-mast" aria-label="Streamer application">
+  <div class="film-mast-bg" aria-hidden="true">
+    <video autoplay muted loop playsinline preload="metadata" poster="/assets/films/padre.jpg" src="/assets/films/padre.mp4"></video>
+  </div>
+  <div class="film-mast-veil" aria-hidden="true"></div>
+  <div class="film-mast-copy">
+    <h1>Get featured<br>in the trench.</h1>
+    <p class="lede">Any creator running the PaperTrench Challenge can apply. Approved streamers get a card on the <a href="/streams">streams page</a>, the Streamer role in Discord, and an automatic alert when they go live. Sending this does not publish anything.</p>
   </div>
 </header>
 

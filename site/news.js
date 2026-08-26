@@ -841,18 +841,14 @@
   // reads the same array the timeline does, so it can never go stale.
   const latestGrid = document.getElementById('latestGrid');
   if (latestGrid) {
-    for (const r of RELEASES.slice(0, 3)) {
+    for (const r of RELEASES.slice(0, 5)) {
       const a = document.createElement('a');
-      a.className = 'latest-card reveal';
+      a.className = 'ed-row reveal';
       a.href = '#' + (r.site ? 'site-' + r.iso : 'v' + r.v.replace(/\./g, '-'));
       a.innerHTML = `
-        <div class="feat-meta">
-          <span class="ver-chip${r.major ? ' major' : ''}">${r.site ? 'Website' : 'v' + r.v}</span>
-          <time class="feat-date" datetime="${r.iso}">${r.date}</time>
-        </div>
-        <h3>${r.title}</h3>
-        <p>${r.blurb || ''}</p>
-        <span class="go">Read the notes ↓</span>`;
+        <span class="ed-ver">${r.site ? 'Website' : 'v' + r.v}</span>
+        <span class="ed-ttl">${r.title}</span>
+        <time class="ed-when" datetime="${r.iso}">${r.date}</time>`;
       latestGrid.appendChild(a);
     }
   }

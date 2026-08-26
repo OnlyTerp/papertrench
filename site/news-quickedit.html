@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The quick fixes live on the trading tab · PaperTrench news</title>
-<meta name="description" content="v2.9.0: a ✎ inline editor on the trading panel for presets, fees, gas, tip and slippage — and a focus mode that is genuinely Axiom-compact, where the preset chips ARE the buttons and Enter buys.">
+<meta name="description" content="v2.9.0: a ✎ inline editor on the trading panel for presets, fees, gas, tip and slippage - and a focus mode that is genuinely Axiom-compact, where the preset chips ARE the buttons and Enter buys.">
 <meta property="og:title" content="The quick fixes live on the trading tab">
 <meta property="og:description" content="Retuning your presets mid-session should not mean leaving the chart. Lev round two, shipped where he meant it.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- compact focus-mode panel mock ---------- */
   .fm-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 32px 0 12px; align-items: start; }
@@ -52,15 +53,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -81,7 +81,7 @@
         <span class="post-read">· 4 min read</span>
       </div>
       <h1 class="post-title">The quick fixes live on the trading tab</h1>
-      <p class="post-stand">Lev round two. Both items had technically shipped already — the settings existed, focus mode existed — but <strong>in the wrong place and at the wrong size</strong>. Shipping a knob is not the same as shipping it where a hand can reach it mid-trade.</p>
+      <p class="post-stand">Lev round two. Both items had technically shipped already - the settings existed, focus mode existed - but <strong>in the wrong place and at the wrong size</strong>. Shipping a knob is not the same as shipping it where a hand can reach it mid-trade.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -126,26 +126,26 @@
 
     <h2>A pencil on the trading panel</h2>
 
-    <p class="post-lede">The settings that actually change mid-session are your buy presets, your sell percents, and your costs. Everything else you configure once and forget. Yet changing any of them meant leaving the chart — opening the dashboard, or at best the popup.</p>
+    <p class="post-lede">The settings that actually change mid-session are your buy presets, your sell percents, and your costs. Everything else you configure once and forget. Yet changing any of them meant leaving the chart - opening the dashboard, or at best the popup.</p>
 
     <p>The <b>✎</b> in the panel header now opens a compact inline editor right on the trading tab: buy presets, sell percents, and fee / gas / tip / slippage. You are still looking at the candle while you retune.</p>
 
-    <p>Your costs also ride visibly under the buy row as <b>Fee / Gas / Tip / Slip</b> chips, click-to-edit, in both modes. <a href="/news-fees">Costs only teach you something if you can see them</a> — a fee model buried three screens away is a fee model you forget is on.</p>
+    <p>Your costs also ride visibly under the buy row as <b>Fee / Gas / Tip / Slip</b> chips, click-to-edit, in both modes. <a href="/news-fees">Costs only teach you something if you can see them</a> - a fee model buried three screens away is a fee model you forget is on.</p>
 
     <div class="callout">
       <span class="co-label">One rulebook, three places</span>
-      <p>The inline editor uses <strong>the same validation rulebook</strong> as the dashboard and the popup. A bad value keeps your saved value and says so — identically, wherever you typed it.</p>
+      <p>The inline editor uses <strong>the same validation rulebook</strong> as the dashboard and the popup. A bad value keeps your saved value and says so - identically, wherever you typed it.</p>
       <p>Three surfaces editing the same settings is three chances to disagree about what a valid number is. They share one implementation instead.</p>
     </div>
 
     <h2>Focus mode is genuinely Axiom-compact now</h2>
 
-    <p>Focus mode has existed since v1.2.15, requested by someone who wanted the panel to feel like the terminals they already used. It stripped decoration — but it was still visibly a PaperTrench panel wearing a smaller coat, and it was still taller than the thing it was imitating.</p>
+    <p>Focus mode has existed since v1.2.15, requested by someone who wanted the panel to feel like the terminals they already used. It stripped decoration - but it was still visibly a PaperTrench panel wearing a smaller coat, and it was still taller than the thing it was imitating.</p>
 
     <p>Two changes close the gap:</p>
 
     <ul>
-      <li><b>No balance card.</b> Your cash rides inline on the Buy label, refreshed on every fill. It was never worth a whole card — you need the number, not a panel about the number.</li>
+      <li><b>No balance card.</b> Your cash rides inline on the Buy label, refreshed on every fill. It was never worth a whole card - you need the number, not a panel about the number.</li>
       <li><b>While one-tap presets are on, the big BUY button gets out of the way.</b> The preset chips <em>are</em> the buttons, and Enter in the amount box buys.</li>
     </ul>
 
@@ -155,7 +155,7 @@
 
     <h2>Why this is a release and not a tweak</h2>
 
-    <p>Neither of these is a new capability. Every setting was already editable and focus mode already existed. What changed is the distance between a decision and the control that acts on it — and in this market that distance is the feature.</p>
+    <p>Neither of these is a new capability. Every setting was already editable and focus mode already existed. What changed is the distance between a decision and the control that acts on it - and in this market that distance is the feature.</p>
 
     <p>It is also the second round of feedback from the same person, shipped the same day. <a href="/news">Most of the archive</a> looks like that.</p>
 
@@ -169,11 +169,11 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>A pencil on the trading panel</h4>
-          <p>The ✎ in the panel header opens a compact inline editor right on the trading tab — buy presets, sell percents, and fee/gas/tip/slippage — with the same validation rulebook the dashboard and popup use. Your costs ride as Fee/Gas/Tip/Slip chips under the buy row, click-to-edit, in both modes.</p>
+          <p>The ✎ in the panel header opens a compact inline editor right on the trading tab - buy presets, sell percents, and fee/gas/tip/slippage - with the same validation rulebook the dashboard and popup use. Your costs ride as Fee/Gas/Tip/Slip chips under the buy row, click-to-edit, in both modes.</p>
         </div>
         <div class="pn-item">
           <h4>Focus mode is genuinely Axiom-compact now</h4>
-          <p>No balance card (cash rides inline on the Buy label, refreshed per fill), and while one-tap presets are on the big BUY button gets out of the way — the preset chips ARE the buttons, and Enter in the amount box buys. Instant-buy off keeps the button.</p>
+          <p>No balance card (cash rides inline on the Buy label, refreshed per fill), and while one-tap presets are on the big BUY button gets out of the way - the preset chips ARE the buttons, and Enter in the amount box buys. Instant-buy off keeps the button.</p>
         </div>
       </div>
       <div class="pn-foot">
@@ -187,7 +187,7 @@
     <div class="post-nav">
       <a class="pnav" href="/news">
         <span class="dir">← Newer</span>
-        <span class="t">This is the latest — see all updates</span>
+        <span class="t">This is the latest - see all updates</span>
       </a>
       <a class="pnav next" href="/news-chain">
         <span class="dir">Older →</span>
@@ -197,6 +197,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

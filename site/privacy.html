@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy policy · PaperTrench</title>
-<meta name="description" content="The PaperTrench extension has no telemetry and no analytics — everything stays in your browser's local storage. The website's leaderboard is a separate, optional service that only receives what you submit. This page states both halves precisely.">
+<meta name="description" content="The PaperTrench extension has no telemetry and no analytics - everything stays in your browser's local storage. The website's leaderboard is a separate, optional service that only receives what you submit. This page states both halves precisely.">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
@@ -13,6 +13,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 </head>
 <body class="a-green">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -23,8 +24,6 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
@@ -32,7 +31,7 @@
       <a href="/news">News</a>
       <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -49,43 +48,45 @@
         <time class="feat-date" datetime="2026-08-05">Effective August 5, 2026</time>
       </div>
       <h1 class="post-title">Privacy policy</h1>
-      <p class="post-stand">The short version: the PaperTrench <strong>extension has no telemetry and no analytics</strong> — everything it records lives in your browser's local storage, on your machine, and it never phones home. The <strong>website's leaderboard is a separate, optional service</strong>: it receives your trading record only when you yourself submit it there, signed in with X. This page states both halves precisely.</p>
-      <p class="post-stand">One exception, and it is opt-in twice over: if you complete the Leaderboard tab's setup — link an X account <em>and</em> switch on Site sync — the dashboard will then read the public standings so it can show them to you. That request is a plain read of a public page. It sends no account, no cookie and nothing about your trading; it only happens on a dashboard belonging to someone who has opted into the leaderboard; and until you do both of those things, the extension makes no request to our servers at all.</p>
+      <p class="post-stand">The extension has no telemetry. The website leaderboard is a separate, optional service. This page states both halves precisely.</p>
       <div class="post-rule"></div>
     </div>
   </header>
 
   <div class="wrap-read post-body">
 
+    <p class="post-lede">The short version: the PaperTrench <strong>extension has no telemetry and no analytics</strong> - everything it records lives in your browser's local storage, on your machine, and it never phones home. The <strong>website's leaderboard is a separate, optional service</strong>: it receives your trading record only when you yourself submit it there, signed in with X.</p>
+    <p>One exception, and it is opt-in twice over: if you complete the Leaderboard tab's setup - link an X account <em>and</em> switch on Site sync - the dashboard will then read the public standings so it can show them to you. That request is a plain read of a public page. It sends no account, no cookie and nothing about your trading; it only happens on a dashboard belonging to someone who has opted into the leaderboard; and until you do both of those things, the extension makes no request to our servers at all.</p>
+
     <h2>What the extension stores, and where</h2>
-    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> — local storage inside your Chrome profile. Nothing is uploaded by the extension, ever. Using the extension requires no account and no sign-up.</p>
+    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> - local storage inside your Chrome profile. Nothing is uploaded by the extension, ever. Using the extension requires no account and no sign-up.</p>
     <p>If you add an AI API key for the optional coaching feature, it is stored locally and sent only to the endpoint you yourself configured.</p>
 
     <h2>Network requests the extension makes</h2>
     <p>Every network call the extension can make, exhaustively:</p>
     <ul>
-      <li><strong>Public price APIs</strong> (Dexscreener, Jupiter) — to price the coins you trade.</li>
-      <li><strong>Public Solana RPC</strong> — for on-chain price anchoring, or a private RPC if you configure one.</li>
-      <li><strong>An AI endpoint you configure</strong> (optional) — coaching prompts go only to the OpenAI-compatible endpoint you typed in, with your own key.</li>
-      <li><strong>X's public oEmbed endpoint</strong> (optional, only when hover preview cards are enabled) — called with <code>dnt=1</code>, no cookies and no login, only for post links you hover on a trading site.</li>
+      <li><strong>Public price APIs</strong> (Dexscreener, Jupiter) - to price the coins you trade.</li>
+      <li><strong>Public Solana RPC</strong> - for on-chain price anchoring, or a private RPC if you configure one.</li>
+      <li><strong>An AI endpoint you configure</strong> (optional) - coaching prompts go only to the OpenAI-compatible endpoint you typed in, with your own key.</li>
+      <li><strong>X's public oEmbed endpoint</strong> (optional, only when hover preview cards are enabled) - called with <code>dnt=1</code>, no cookies and no login, only for post links you hover on a trading site.</li>
     </ul>
-    <p>These requests carry only what the feature needs. None of them carry your journal, your trades, or anything identifying you to us. The extension never contacts the leaderboard server — see the next section for the one way your record can reach it, and it is not the extension sending it.</p>
+    <p>These requests carry only what the feature needs. None of them carry your journal, your trades, or anything identifying you to us. The extension never contacts the leaderboard server - see the next section for the one way your record can reach it, and it is not the extension sending it.</p>
 
     <h2>The leaderboard (optional, website-only)</h2>
     <p>papertrench.com offers an optional leaderboard operated on our own server. Nothing about it is automatic:</p>
     <ul>
       <li><strong>It only receives what you submit.</strong> Your record reaches the server in exactly two ways: you upload the file you exported from the dashboard, or you click <em>Sync</em> on the leaderboard page. Sync asks the extension for your record; the extension answers only if you enabled <em>Site sync</em> in the dashboard (off by default), only for papertrench.com, and it never initiates anything on its own.</li>
-      <li><strong>What a submission contains:</strong> your committed fill chain (token mints, sides, quantities, prices, timestamps, hashes), your declared starting bankroll, and your claimed summary stats. That is the whole payload — no journal text, no theses, no replays, no recordings, no browsing data.</li>
-      <li><strong>Signing in</strong> uses X (Twitter) OAuth. We store your X account id, handle, display name, and avatar URL — nothing else from your X account, and no posting rights are requested.</li>
+      <li><strong>What a submission contains:</strong> your committed fill chain (token mints, sides, quantities, prices, timestamps, hashes), your declared starting bankroll, and your claimed summary stats. That is the whole payload - no journal text, no theses, no replays, no recordings, no browsing data.</li>
+      <li><strong>Signing in</strong> uses X (Twitter) OAuth. We store your X account id, handle, display name, and avatar URL - nothing else from your X account, and no posting rights are requested.</li>
       <li><strong>What becomes public:</strong> your handle, avatar, verification status, and the statistics derived from your submitted chain appear on public standings and your public profile page.</li>
-      <li><strong>Deletion is self-serve:</strong> "delete my data" on the leaderboard page removes your account, record, submissions, and sprint history from the server immediately. Your local extension data is never touched by this — it was never on the server's side to begin with.</li>
+      <li><strong>Deletion is self-serve:</strong> "delete my data" on the leaderboard page removes your account, record, submissions, and sprint history from the server immediately. Your local extension data is never touched by this - it was never on the server's side to begin with.</li>
     </ul>
 
     <h2>The X-Ray and Instant X features</h2>
     <p>Both are opt-in and off by default. X-Ray builds its account-intel card from data the X page itself already loaded in your browser session; what it keeps is a local digest (account field snapshots, post ids and dates, contract addresses), stored on your machine. Raw post text never leaves the page context, and nothing is sent anywhere. Instant X links keep a muted background viewer tab and route your own clicks into it; they read nothing from your X session and send nothing anywhere. The full technical description is in the public <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/PERMISSIONS.md" target="_blank" rel="noopener">permissions audit</a>.</p>
 
     <h2>What we collect about you</h2>
-    <p>From the extension: nothing — no telemetry, no analytics, no way to receive it. From the website: only what the leaderboard section above describes, only if you choose to use it. We do not sell or share any of it, and there is no advertising or third-party analytics on either.</p>
+    <p>From the extension: nothing - no telemetry, no analytics, no way to receive it. From the website: only what the leaderboard section above describes, only if you choose to use it. We do not sell or share any of it, and there is no advertising or third-party analytics on either.</p>
 
     <h2>Deleting your data</h2>
     <p>Local data is yours and stays local: removing the extension deletes everything it stored, and you can export or reset from the dashboard at any time. Leaderboard data (if you ever submitted) is removed with the "delete my data" control on the leaderboard page.</p>
@@ -98,6 +99,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>
@@ -127,7 +139,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
       </a>
     </div>
-    <div class="foot-note">Paper trading only · not financial advice · the extension has no telemetry and never phones home — the leaderboard only ever receives what you submit.</div>
+    <div class="foot-note">Paper trading only · not financial advice · the extension has no telemetry and never phones home - the leaderboard only ever receives what you submit.</div>
   </div>
 </footer>
 

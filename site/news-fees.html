@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fees &amp; costs — make paper fills cost what real fills cost · PaperTrench news</title>
-<meta name="description" content="v2.2.0: PaperTrench models the full cost of a real fill — platform percentage, flat priority fee and bribe — through the cost basis, rounds, calendar, equity curve and verification chain. A dust exit can now genuinely net negative.">
+<title>Fees &amp; costs - make paper fills cost what real fills cost · PaperTrench news</title>
+<meta name="description" content="v2.2.0: PaperTrench models the full cost of a real fill - platform percentage, flat priority fee and bribe - through the cost basis, rounds, calendar, equity curve and verification chain. A dust exit can now genuinely net negative.">
 <meta property="og:title" content="Fees &amp; costs: make paper fills cost what real fills cost">
-<meta property="og:description" content="Zero-cost practice quietly teaches that small entries are free. They are not — gas and tips dominate them. Now the simulator charges you.">
+<meta property="og:description" content="Zero-cost practice quietly teaches that small entries are free. They are not - gas and tips dominate them. Now the simulator charges you.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- cost ladder mock ---------- */
   .cost { margin: 34px 0 12px; overflow: hidden; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); }
@@ -41,15 +42,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -84,10 +84,10 @@
       <div class="cost-row neg"><span class="k">Priority fee <span class="sub">· flat, per transaction</span></span><span class="v">−0.0012 ◎</span></div>
       <div class="cost-row neg"><span class="k">Bribe / tip <span class="sub">· flat, per transaction</span></span><span class="v">−0.0030 ◎</span></div>
       <div class="cost-row total"><span class="k">Cost basis on the buy</span><span class="v">0.1052 ◎</span></div>
-      <p class="cost-cap">Illustrative figures only. PaperTrench ships every cost at zero — these are yours to set from your own site settings.</p>
+      <p class="cost-cap">Illustrative figures only. PaperTrench ships every cost at zero - these are yours to set from your own site settings.</p>
     </div>
 
-    <p class="post-lede">Notice what just happened: before the price moved at all, that trade is down about 5%. The chart has to give you 5% just to get you to break even — and you would never have learned that from a simulator that fills for free.</p>
+    <p class="post-lede">Notice what just happened: before the price moved at all, that trade is down about 5%. The chart has to give you 5% just to get you to break even - and you would never have learned that from a simulator that fills for free.</p>
 
     <p>Now do it forty times in a session, which is what a real trench session looks like.</p>
 
@@ -96,9 +96,9 @@
     <p>The full cost of a real fill, not just the headline one:</p>
 
     <ul>
-      <li><b>The platform percentage</b> — as before.</li>
-      <li><b>A flat priority fee (gas)</b> — per transaction.</li>
-      <li><b>A bribe/tip</b> — per transaction.</li>
+      <li><b>The platform percentage</b> - as before.</li>
+      <li><b>A flat priority fee (gas)</b> - per transaction.</li>
+      <li><b>A bribe/tip</b> - per transaction.</li>
     </ul>
 
     <p>Quick fill-in presets give rough starting points, but they are starting points and nothing more: <b>your own site settings are the truth</b>. If you are running an aggressive sniper config on Axiom, the numbers to type in are the ones already in your Axiom settings.</p>
@@ -115,7 +115,7 @@
       <li>Per-sell P&amp;L</li>
       <li>Rounds</li>
       <li>The calendar</li>
-      <li>The equity curve — still exact to the SOL</li>
+      <li>The equity curve - still exact to the SOL</li>
       <li>The verification chain</li>
     </ul>
 
@@ -123,11 +123,11 @@
 
     <h2>The dust exit</h2>
 
-    <p class="post-pull">A dust exit can genuinely net negative — you paid gas to leave a worthless bag.</p>
+    <p class="post-pull">A dust exit can genuinely net negative - you paid gas to leave a worthless bag.</p>
 
     <p>That is not an edge case we tolerated; it is the lesson. Getting out of a dead position costs money. There is a size below which closing a bag is not worth the transaction, and the only way to internalise that is to watch it happen to your own balance.</p>
 
-    <p>The alternative — a simulator that lets you exit dust for free — trains you to accumulate positions you will pay real money to escape later.</p>
+    <p>The alternative - a simulator that lets you exit dust for free - trains you to accumulate positions you will pay real money to escape later.</p>
 
     <div class="callout">
       <span class="co-label">Nothing changes until you opt in</span>
@@ -144,11 +144,11 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Fees &amp; costs emulation</h4>
-          <p>A new settings card models the FULL cost of a real fill: the platform percentage (as before), plus a flat priority fee (gas) and a bribe/tip per transaction — the costs that dominate small entries and that zero-cost practice quietly ignores. Quick fill-in presets give rough starting points; your own site settings are the truth.</p>
+          <p>A new settings card models the FULL cost of a real fill: the platform percentage (as before), plus a flat priority fee (gas) and a bribe/tip per transaction - the costs that dominate small entries and that zero-cost practice quietly ignores. Quick fill-in presets give rough starting points; your own site settings are the truth.</p>
         </div>
         <div class="pn-item">
           <h4>Honest end to end</h4>
-          <p>Flat costs join the cost basis on buys and reduce net proceeds on sells, so per-sell P&amp;L, rounds, the calendar, the equity curve (still exact to the SOL), and the verification chain all include them. A dust exit can genuinely net negative — you paid gas to leave a worthless bag, which is precisely the lesson.</p>
+          <p>Flat costs join the cost basis on buys and reduce net proceeds on sells, so per-sell P&amp;L, rounds, the calendar, the equity curve (still exact to the SOL), and the verification chain all include them. A dust exit can genuinely net negative - you paid gas to leave a worthless bag, which is precisely the lesson.</p>
         </div>
         <div class="pn-item">
           <h4>Defaults are zero</h4>
@@ -174,6 +174,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

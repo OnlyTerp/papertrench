@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The "instant +14%" is dead — fills land on the chart you are looking at · PaperTrench news</title>
+<title>The "instant +14%" is dead - fills land on the chart you are looking at · PaperTrench news</title>
 <meta name="description" content="v2.7.0: on migrated AMM tokens the on-chain feed could silently lose one side of every trade it watched, filling paper trades up to ~13% away from the live chart. Two fixes, one of them belt-and-braces.">
 <meta property="og:title" content="The &quot;instant +14%&quot; is dead: fills land on the chart you are looking at">
-<meta property="og:description" content="A stale-frame guard was throwing away half of every same-slot vault update. Paper fills booked instant fake profit — the most expensive kind of wrong number a trainer can print.">
+<meta property="og:description" content="A stale-frame guard was throwing away half of every same-slot vault update. Paper fills booked instant fake profit - the most expensive kind of wrong number a trainer can print.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- divergence mock ---------- */
   .div-card { margin: 34px 0 12px; padding: 24px 26px; background: var(--panel); border: 1px solid rgba(224,67,58,0.28); border-radius: var(--radius); }
@@ -58,15 +59,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -88,7 +88,7 @@
         <span class="post-read">· 6 min read</span>
       </div>
       <h1 class="post-title">The "instant +14%" is dead: fills land on the chart you are looking at</h1>
-      <p class="post-stand">On migrated tokens, PaperTrench's on-chain price feed could silently lose one side of every trade it watched — and fill your paper buy <strong>up to ~13% away from the live chart</strong>, handing you instant profit you never earned. This is the worst class of bug this product can have, and it took two independent fixes to close.</p>
+      <p class="post-stand">On migrated tokens, PaperTrench's on-chain price feed could silently lose one side of every trade it watched - and fill your paper buy <strong>up to ~13% away from the live chart</strong>, handing you instant profit you never earned. This is the worst class of bug this product can have, and it took two independent fixes to close.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -109,19 +109,19 @@
           <div class="s">what the frozen vault implied</div>
         </div>
       </div>
-      <div class="div-verdict">Position opens already showing <b>+13% unrealised</b>. You did nothing. The market did nothing. The feed was wrong — and it taught you that your entry was good.</div>
+      <div class="div-verdict">Position opens already showing <b>+13% unrealised</b>. You did nothing. The market did nothing. The feed was wrong - and it taught you that your entry was good.</div>
       <p class="div-cap">Illustrative figures at the magnitude described in the defect (F-33).</p>
     </div>
 
     <p class="post-lede">A trading simulator that pays you profit you did not earn is not a broken feature. It is an anti-feature: it trains the exact instinct that empties a real wallet later. If PaperTrench tells you your entries are better than they are, the whole product is worse than useless.</p>
 
-    <p>So when this one surfaced — with video evidence doing the heavy lifting — it went straight to the top of the batch.</p>
+    <p>So when this one surfaced - with video evidence doing the heavy lifting - it went straight to the top of the batch.</p>
 
     <h2>What was actually happening</h2>
 
     <p>Once a memecoin migrates to an AMM pool, its price comes from two vaults: one holding the token, one holding the wrapped SOL. The price <em>is</em> the relationship between them. Read one without the other and you are not reading a price, you are reading half of one.</p>
 
-    <p>PaperTrench watches both. Every on-chain update carries the slot it happened in, and a stale-frame guard drops anything older than what we have already seen — a completely reasonable defence against out-of-order updates.</p>
+    <p>PaperTrench watches both. Every on-chain update carries the slot it happened in, and a stale-frame guard drops anything older than what we have already seen - a completely reasonable defence against out-of-order updates.</p>
 
     <p>Except: <b>a trade changes both vaults in the same slot.</b> The guard saw the first vault's update, recorded that slot, then looked at the second vault's update from the very same slot and discarded it as old.</p>
 
@@ -134,17 +134,17 @@
       <div class="vault frozen">
         <div class="vt">VAULT B · WRAPPED SOL</div>
         <div class="vs">Frozen at an old balance</div>
-        <div class="vd">Same slot, so the guard reads it as stale and throws it away — every single trade, forever.</div>
+        <div class="vd">Same slot, so the guard reads it as stale and throws it away - every single trade, forever.</div>
       </div>
     </div>
 
-    <p>One side of the ratio moved with the market. The other side stopped, permanently, at whatever it happened to hold when the feed started. The implied price drifted further from reality with every trade — and paper fills executed against that drift.</p>
+    <p>One side of the ratio moved with the market. The other side stopped, permanently, at whatever it happened to hold when the feed started. The implied price drifted further from reality with every trade - and paper fills executed against that drift.</p>
 
     <p class="post-pull">Not a rounding error. Double digits, in your favour, on a product whose entire job is to tell you the truth about your entries.</p>
 
     <h2>Fix one: the guard is per-vault now</h2>
 
-    <p>The staleness rule was never wrong — it was applied at the wrong granularity. A slot is only "already seen" <em>for a given vault</em>. Two accounts changing in the same slot is normal; it is what a trade looks like.</p>
+    <p>The staleness rule was never wrong - it was applied at the wrong granularity. A slot is only "already seen" <em>for a given vault</em>. Two accounts changing in the same slot is normal; it is what a trade looks like.</p>
 
     <p>The guard now tracks freshness per vault, so both sides of a same-slot pair land. It ships with a regression test that drives a real same-slot vault pair and fails on the old code.</p>
 
@@ -156,13 +156,13 @@
 
     <div class="callout">
       <span class="co-label">Why bother, if the bug is fixed?</span>
-      <p>Because the next upstream break will not be this one. Vault feeds, RPC endpoints, and site adapters all fail in ways nobody has enumerated yet — and every one of those failures ends the same way if it is unguarded: a fill at a price you never saw.</p>
+      <p>Because the next upstream break will not be this one. Vault feeds, RPC endpoints, and site adapters all fail in ways nobody has enumerated yet - and every one of those failures ends the same way if it is unguarded: a fill at a price you never saw.</p>
       <p><strong>A paper fill can no longer be double digits away from the chart you clicked, no matter what breaks upstream.</strong> That is a property of the system now, not a property of one fixed bug.</p>
     </div>
 
     <h2>Where this fits</h2>
 
-    <p>PaperTrench ranks its own defects by how badly they can lie to a user, and this is severity one: <em>a number displayed wrong</em>. The <a href="/news-v2">v2.0.0 audit</a> closed 116 of those. F-33 is what the class looks like when a new code path — the on-chain vault feed — reaches production and meets a case the register did not yet cover.</p>
+    <p>PaperTrench ranks its own defects by how badly they can lie to a user, and this is severity one: <em>a number displayed wrong</em>. The <a href="/news-v2">v2.0.0 audit</a> closed 116 of those. F-33 is what the class looks like when a new code path - the on-chain vault feed - reaches production and meets a case the register did not yet cover.</p>
 
     <p>The register is public. So is this write-up. If a wrong number ever reaches your screen, it should reach this page too.</p>
 
@@ -175,9 +175,9 @@
       </div>
       <div class="pn-body">
         <div class="pn-item">
-          <h4>Fills land on the chart you are looking at — the "instant +14%" is dead</h4>
-          <p>On migrated (AMM) tokens, the on-chain price feed could silently lose one side of every trade it watched: both pool vaults change in the same slot, and the stale-frame guard threw the second one away as "old". One vault tracked the market, the other froze, and paper fills executed up to ~13% away from the live chart — booking instant fake profit that taught exactly the wrong lesson (F-33).</p>
-          <p>The guard is now per-vault, with a regression test driving a real same-slot vault pair. And belt-and-braces: at fill time the chain price is reconciled against the price on your screen from the moment you clicked — if they ever disagree by more than any real sub-second move, the fill takes the on-screen price and logs the divergence. A paper fill can no longer be double digits away from the chart you clicked, no matter what breaks upstream.</p>
+          <h4>Fills land on the chart you are looking at - the "instant +14%" is dead</h4>
+          <p>On migrated (AMM) tokens, the on-chain price feed could silently lose one side of every trade it watched: both pool vaults change in the same slot, and the stale-frame guard threw the second one away as "old". One vault tracked the market, the other froze, and paper fills executed up to ~13% away from the live chart - booking instant fake profit that taught exactly the wrong lesson (F-33).</p>
+          <p>The guard is now per-vault, with a regression test driving a real same-slot vault pair. And belt-and-braces: at fill time the chain price is reconciled against the price on your screen from the moment you clicked - if they ever disagree by more than any real sub-second move, the fill takes the on-screen price and logs the divergence. A paper fill can no longer be double digits away from the chart you clicked, no matter what breaks upstream.</p>
         </div>
         <div class="pn-item">
           <h4>Close the hot X tab, it comes back</h4>
@@ -185,15 +185,15 @@
         </div>
         <div class="pn-item">
           <h4>Your own X tab IS the warm tab now</h4>
-          <p>With no registered viewer, a clicked X link — post, profile, or a token's community — used to open a separate tab right next to the x.com tab you already kept. Now PaperTrench adopts your existing X tab as the viewer and routes into it, community links included. It will never claim a tab you are looking at, a pinned tab, or one playing audio — and adopted tabs are yours: toggling the feature off never closes them.</p>
+          <p>With no registered viewer, a clicked X link - post, profile, or a token's community - used to open a separate tab right next to the x.com tab you already kept. Now PaperTrench adopts your existing X tab as the viewer and routes into it, community links included. It will never claim a tab you are looking at, a pinned tab, or one playing audio - and adopted tabs are yours: toggling the feature off never closes them.</p>
         </div>
         <div class="pn-item">
           <h4>Quick settings in the popup</h4>
-          <p>The knobs you actually re-tune mid-session — starting balance, quick-buy presets (SOL), quick-sell presets (%), and a fees profile (Axiom/Padre bot · aggressive sniper · no costs) — are now editable straight from the extension popup. Validation is the dashboard's, verbatim: a bad value keeps your saved value and says so; fee profile numbers are pinned by a test to match the dashboard's card. The full Fees &amp; costs form stays on the dashboard.</p>
+          <p>The knobs you actually re-tune mid-session - starting balance, quick-buy presets (SOL), quick-sell presets (%), and a fees profile (Axiom/Padre bot · aggressive sniper · no costs) - are now editable straight from the extension popup. Validation is the dashboard's, verbatim: a bad value keeps your saved value and says so; fee profile numbers are pinned by a test to match the dashboard's card. The full Fees &amp; costs form stays on the dashboard.</p>
         </div>
         <div class="pn-item">
           <h4>Flex without leaving the terminal</h4>
-          <p>The Flex button on the closed P&amp;L card now opens the share composer as a floating window centered over the page — no more bouncing to a dashboard tab. It is the SAME composer, and the card math now lives in one shared derivation used by both, so a card can never show different numbers depending on where you opened it. <a href="/news-flex">Full story →</a></p>
+          <p>The Flex button on the closed P&amp;L card now opens the share composer as a floating window centered over the page - no more bouncing to a dashboard tab. It is the SAME composer, and the card math now lives in one shared derivation used by both, so a card can never show different numbers depending on where you opened it. <a href="/news-flex">Full story →</a></p>
         </div>
         <div class="pn-item">
           <h4>Terminal Turbo</h4>
@@ -210,7 +210,7 @@
 
     <div class="callout">
       <span class="co-label">Get the complete build</span>
-      <p>v2.7.0 was tagged and published mid-batch, before the last five commits landed — so that zip is missing Instant terminal links, the dashboard refresh fix and an X-Ray dock fix. <strong>v2.7.1 is the complete batch</strong>, and nothing else changed between them. If you grabbed 2.7.0, update.</p>
+      <p>v2.7.0 was tagged and published mid-batch, before the last five commits landed - so that zip is missing Instant terminal links, the dashboard refresh fix and an X-Ray dock fix. <strong>v2.7.1 is the complete batch</strong>, and nothing else changed between them. If you grabbed 2.7.0, update.</p>
     </div>
 
     <div class="post-nav">
@@ -226,6 +226,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

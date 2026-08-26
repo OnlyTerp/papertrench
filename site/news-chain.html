@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- the "do not use" banner ---------- */
   .danger {
@@ -53,15 +54,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -83,7 +83,7 @@
         <span class="post-read">· 5 min read</span>
       </div>
       <h1 class="post-title">We shipped a build that broke the chain, and said so</h1>
-      <p class="post-stand">v2.8.0 went out carrying half of an in-flight migration. Every paper fill made on it <strong>failed to append to your local attestation chain</strong> — the tamper-evidence layer the leaderboard verifies against. Your money, balances and P&amp;L were never touched. Here is exactly what happened, who it affects, and what your verify panel will tell you.</p>
+      <p class="post-stand">v2.8.0 went out carrying half of an in-flight migration. Every paper fill made on it <strong>failed to append to your local attestation chain</strong> - the tamper-evidence layer the leaderboard verifies against. Your money, balances and P&amp;L were never touched. Here is exactly what happened, who it affects, and what your verify panel will tell you.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -94,7 +94,7 @@
       <span class="ic" aria-hidden="true">⚠</span>
       <div>
         <h3>If you are running v2.8.0, update now</h3>
-        <p>Do not trade on that build. <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Get the current release</a> and unzip it over the same folder — your wallet, journal and existing chain survive. The v2.8.0 zip is deliberately not linked anywhere on this site.</p>
+        <p>Do not trade on that build. <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Get the current release</a> and unzip it over the same folder - your wallet, journal and existing chain survive. The v2.8.0 zip is deliberately not linked anywhere on this site.</p>
       </div>
     </div>
 
@@ -110,7 +110,7 @@
 
     <div class="callout">
       <span class="co-label">The one thing that went right</span>
-      <p>It failed <strong>loudly</strong>. The honest "could not be added to the verification chain" toast fired on every single fill — the failure was visible on screen, every time, not swallowed.</p>
+      <p>It failed <strong>loudly</strong>. The honest "could not be added to the verification chain" toast fired on every single fill - the failure was visible on screen, every time, not swallowed.</p>
       <p>That toast exists because of an earlier rule: no silent death, ever. This is the release where that rule earned its keep. A user on v2.8.0 was told, at the moment of each fill, that the chain had not recorded it.</p>
     </div>
 
@@ -123,7 +123,7 @@
       </div>
       <div class="ba before">
         <div class="ba-lbl">Affected</div>
-        <p>The attestation chain only. Fills made during the v2.8.0 window are absent from it — they exist in your history, but carry no chain commitment.</p>
+        <p>The attestation chain only. Fills made during the v2.8.0 window are absent from it - they exist in your history, but carry no chain commitment.</p>
       </div>
     </div>
 
@@ -143,11 +143,11 @@
 
     <div class="chain reveal">
       <div class="chain-row">
-        <span class="chain-lbl">Before — one blob, rewritten on every fill</span>
+        <span class="chain-lbl">Before - one blob, rewritten on every fill</span>
         <span class="seg rw">entire chain · rewritten</span>
       </div>
       <div class="chain-row">
-        <span class="chain-lbl">After — append to the tail segment only</span>
+        <span class="chain-lbl">After - append to the tail segment only</span>
         <span class="seg">seg 001</span>
         <span class="seg">seg 002</span>
         <span class="seg">seg 003</span>
@@ -159,10 +159,10 @@
     <p>Four things fall out of that:</p>
 
     <ul>
-      <li><b>Multi-tab chain races are gone.</b> One writer, by construction — not by hoping two tabs never write at once.</li>
+      <li><b>Multi-tab chain races are gone.</b> One writer, by construction - not by hoping two tabs never write at once.</li>
       <li><b>No hash is ever truncated.</b> The old shape had a size ceiling that could clip history; heavy traders hit exactly this class of problem back in v1.2.8.</li>
       <li><b>Backups are downgrade-safe.</b> A backup taken on the new build restores intact on a pre-segmentation build. Upgrading should never strand your own data on the far side of a version bump.</li>
-      <li><b>Resets clear the chain atomically with the wallet</b> — no state where you have a fresh wallet and a stale chain.</li>
+      <li><b>Resets clear the chain atomically with the wallet</b> - no state where you have a fresh wallet and a stale chain.</li>
     </ul>
 
     <p>And the part that matters to anyone who has already submitted a record: <b>the leaderboard verifier format is unchanged.</b> This was an internal storage change, not a protocol change.</p>
@@ -175,7 +175,7 @@
 
     <div class="callout">
       <span class="co-label">One more thing v2.8.0 shipped without telling anyone</span>
-      <p>The <strong>Turbo receipts card</strong> — the Settings card counting warm vs cold opens, median routing latency and per-site main-thread stalls, all measured locally and never sent anywhere — was in v2.8.0 and went unmentioned in its release notes. It is described in both entries now, where it belongs. <a href="/news-turbo">More on Turbo →</a></p>
+      <p>The <strong>Turbo receipts card</strong> - the Settings card counting warm vs cold opens, median routing latency and per-site main-thread stalls, all measured locally and never sent anywhere - was in v2.8.0 and went unmentioned in its release notes. It is described in both entries now, where it belongs. <a href="/news-turbo">More on Turbo →</a></p>
     </div>
 
     <!-- ---------- patch notes ---------- -->
@@ -188,15 +188,15 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>v2.8.0 shipped with attestation-chain recording broken</h4>
-          <p>The release accidentally carried half of an in-flight migration: fills asked for the new segmented chain store, which was not aboard, so every paper fill made on v2.8.0 failed to append to your local attestation chain (the honest "could not be added to the verification chain" toast fired each time — the failure was visible, the chain simply could not record). Your wallet, balances and P&amp;L were never affected — the chain is the tamper-evidence layer used by leaderboard verification. On v2.8.1 the chain records again; fills made during the v2.8.0 window are simply absent from the chain, and the verify panel will honestly show that gap rather than pretend it is not there.</p>
+          <p>The release accidentally carried half of an in-flight migration: fills asked for the new segmented chain store, which was not aboard, so every paper fill made on v2.8.0 failed to append to your local attestation chain (the honest "could not be added to the verification chain" toast fired each time - the failure was visible, the chain simply could not record). Your wallet, balances and P&amp;L were never affected - the chain is the tamper-evidence layer used by leaderboard verification. On v2.8.1 the chain records again; fills made during the v2.8.0 window are simply absent from the chain, and the verify panel will honestly show that gap rather than pretend it is not there.</p>
         </div>
         <div class="pn-item">
           <h4>The attestation chain grew up (F-14)</h4>
-          <p>It moved out of the wallet state into a single-writer segmented store: a fill now rewrites one small tail segment instead of the whole history, multi-tab chain races are gone, and no hash is ever truncated. Backups are downgrade-safe — a new backup restores intact on a pre-segmentation build. Resets clear the chain atomically with the wallet, and the leaderboard verifier format is unchanged.</p>
+          <p>It moved out of the wallet state into a single-writer segmented store: a fill now rewrites one small tail segment instead of the whole history, multi-tab chain races are gone, and no hash is ever truncated. Backups are downgrade-safe - a new backup restores intact on a pre-segmentation build. Resets clear the chain atomically with the wallet, and the leaderboard verifier format is unchanged.</p>
         </div>
         <div class="pn-item">
           <h4>For the record: v2.8.0 also contained the Turbo receipts card</h4>
-          <p>The Settings card counting warm vs cold opens, median routing latency, and per-site main-thread stalls — measured locally, never sent anywhere. Its release notes did not mention it; the feature description now lives in both entries, where it belongs.</p>
+          <p>The Settings card counting warm vs cold opens, median routing latency, and per-site main-thread stalls - measured locally, never sent anywhere. Its release notes did not mention it; the feature description now lives in both entries, where it belongs.</p>
         </div>
       </div>
       <div class="pn-foot">
@@ -220,6 +220,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

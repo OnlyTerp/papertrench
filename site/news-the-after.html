@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The After — what actually happened once you sold · PaperTrench news</title>
-<meta name="description" content="v2.1.0: every closed round watches its coin for the following hour and records what really happened after your exit — observed extremes, sample counts, no interpolation. Plus Guardrails, CSV export and onboarding.">
+<title>The After - what actually happened once you sold · PaperTrench news</title>
+<meta name="description" content="v2.1.0: every closed round watches its coin for the following hour and records what really happened after your exit - observed extremes, sample counts, no interpolation. Plus Guardrails, CSV export and onboarding.">
 <meta property="og:title" content="The After: what actually happened once you sold">
-<meta property="og:description" content="The most expensive guesswork in this market — and the number one revenge-FOMO trigger — replaced with measured truth.">
+<meta property="og:description" content="The most expensive guesswork in this market - and the number one revenge-FOMO trigger - replaced with measured truth.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- rounds table mock with the After column ---------- */
   .rt { margin: 34px 0 12px; overflow: hidden; background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); }
@@ -48,15 +49,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -77,7 +77,7 @@
         <span class="post-read">· 6 min read</span>
       </div>
       <h1 class="post-title">The After: what actually happened once you sold</h1>
-      <p class="post-stand">You exit a position and immediately start guessing. Did it keep running? Did it dump the second you were out? The guess is always wrong, always flattering or always brutal — and it is <strong>the single biggest trigger for the revenge trade that follows.</strong> PaperTrench now measures it instead.</p>
+      <p class="post-stand">You exit a position and immediately start guessing. Did it keep running? Did it dump the second you were out? The guess is always wrong, always flattering or always brutal - and it is <strong>the single biggest trigger for the revenge trade that follows.</strong> PaperTrench now measures it instead.</p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -112,7 +112,7 @@
         <span class="num" style="color:var(--dim);font-size:11.5px">FLAT</span>
         <span class="rt-after"><span class="pill thin">not enough data</span><span class="why">9 samples · feed went quiet</span></span>
       </div>
-      <p class="rt-cap">Simulated rounds. The fourth row is the important one — see below.</p>
+      <p class="rt-cap">Simulated rounds. The fourth row is the important one - see below.</p>
     </div>
 
     <p class="post-lede">Everyone in this market has an imaginary ledger of what would have happened. It is the most expensive book you will ever keep, because it is written entirely from vibes, and it is what convinces you to jump back into a coin you already exited badly.</p>
@@ -125,12 +125,12 @@
 
     <ul>
       <li><b>No interpolation.</b> If the feed did not see a price, that price does not exist. We do not draw a smooth line between two observations and read a number off it.</li>
-      <li><b>No filling in the quiet parts.</b> A coin nobody traded for forty minutes has forty minutes of nothing, and the After says so — which is why the <code>$QUIET</code> row above reports its sample count instead of a confident percentage.</li>
+      <li><b>No filling in the quiet parts.</b> A coin nobody traded for forty minutes has forty minutes of nothing, and the After says so - which is why the <code>$QUIET</code> row above reports its sample count instead of a confident percentage.</li>
     </ul>
 
     <div class="callout">
       <span class="co-label">The rule that makes it worth reading</span>
-      <p>A "+340% after you sold" built from four ticks is not information — it is a mood. Every After figure carries the sample count it was built from, so you can tell the difference between <strong>a measured move and a rumour</strong>.</p>
+      <p>A "+340% after you sold" built from four ticks is not information - it is a mood. Every After figure carries the sample count it was built from, so you can tell the difference between <strong>a measured move and a rumour</strong>.</p>
     </div>
 
     <h2>Reading the column</h2>
@@ -139,16 +139,16 @@
 
     <div class="ba-grid">
       <div class="ba after">
-        <div class="ba-lbl">Green — you dodged it</div>
+        <div class="ba-lbl">Green - you dodged it</div>
         <p>A −30%+ dump after you sold reads green. You were out. That was a good exit, and the P&amp;L column alone would never have told you.</p>
       </div>
       <div class="ba before">
-        <div class="ba-lbl">Red — it ran without you</div>
+        <div class="ba-lbl">Red - it ran without you</div>
         <p>A big move up after your exit reads red. You sold into strength that kept going, and that is a sizing-and-patience lesson, not a win.</p>
       </div>
     </div>
 
-    <p>Note what this does to a "winning" trade. A round that closed +0.88 ◎ looks fine on its own. Next to <b>+126% after exit</b>, it is a round you got out of far too early — and next to <b>−38% after exit</b>, the same P&amp;L is a genuinely well-timed exit.</p>
+    <p>Note what this does to a "winning" trade. A round that closed +0.88 ◎ looks fine on its own. Next to <b>+126% after exit</b>, it is a round you got out of far too early - and next to <b>−38% after exit</b>, the same P&amp;L is a genuinely well-timed exit.</p>
 
     <p class="post-pull">P&amp;L tells you what you made. The After tells you whether you deserved it.</p>
 
@@ -160,7 +160,7 @@
 
     <h2>Also in v2.1.0</h2>
 
-    <h3>Guardrails — training wheels you can actually use</h3>
+    <h3>Guardrails - training wheels you can actually use</h3>
 
     <p>Opt-in, enforced at buy time, and modelled on the three rules every surviving trader eventually adopts: a <b>tilt breaker</b> (N straight losses triggers a cooldown), a <b>max position size</b> as a percentage of your live book, and a <b>daily loss limit</b>.</p>
 
@@ -168,7 +168,7 @@
 
     <h3>Your data, one click</h3>
 
-    <p>CSV export for the journal and rounds — RFC-4180-safe, After columns included. It is your record; you should be able to take it somewhere else.</p>
+    <p>CSV export for the journal and rounds - RFC-4180-safe, After columns included. It is your record; you should be able to take it somewhere else.</p>
 
     <h3>An onboarding checklist that knows when to leave</h3>
 
@@ -176,7 +176,7 @@
 
     <h3>And the community screenshot, fixed same day</h3>
 
-    <p>On market-cap charts, fill markers floated above the candles (raw resolver-implied cap versus the chart's own cap scale) and could park past the final bar on 1-second charts. Shapes now share the average line's close-corrected level math — supply cancels, the chart's scale wins — and clamp to the newest bar.</p>
+    <p>On market-cap charts, fill markers floated above the candles (raw resolver-implied cap versus the chart's own cap scale) and could park past the final bar on 1-second charts. Shapes now share the average line's close-corrected level math - supply cancels, the chart's scale wins - and clamp to the newest bar.</p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -188,7 +188,7 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The After</h4>
-          <p>Every closed round now watches its coin for the following hour and records what ACTUALLY happened after your exit — observed extremes, sample counts, no interpolation. The rounds table gains an "After (1h)" column (a −30%+ dump after you sold reads green: you dodged it; a big run without you reads red), and the discipline panel aggregates your median further-upside and dumps-dodged across the record. The most expensive guesswork in this market — and the #1 revenge-FOMO trigger — replaced with measured truth.</p>
+          <p>Every closed round now watches its coin for the following hour and records what ACTUALLY happened after your exit - observed extremes, sample counts, no interpolation. The rounds table gains an "After (1h)" column (a −30%+ dump after you sold reads green: you dodged it; a big run without you reads red), and the discipline panel aggregates your median further-upside and dumps-dodged across the record. The most expensive guesswork in this market - and the #1 revenge-FOMO trigger - replaced with measured truth.</p>
         </div>
         <div class="pn-item">
           <h4>Guardrails (training wheels)</h4>
@@ -196,11 +196,11 @@
         </div>
         <div class="pn-item">
           <h4>Fill bubbles land on the candles (community screenshot, fixed same day)</h4>
-          <p>On mcap charts the fill markers floated above the candles (raw resolver-implied cap vs the chart's own cap scale) and could park past the final bar (clock skew on 1s charts). Shapes now share the avg line close-corrected level math — supply cancels, the chart scale wins — and clamp to the newest bar. The mcap-headline sub-line also says "Price …" now instead of the ambiguous "MC · …".</p>
+          <p>On mcap charts the fill markers floated above the candles (raw resolver-implied cap vs the chart's own cap scale) and could park past the final bar (clock skew on 1s charts). Shapes now share the avg line close-corrected level math - supply cancels, the chart scale wins - and clamp to the newest bar. The mcap-headline sub-line also says "Price …" now instead of the ambiguous "MC · …".</p>
         </div>
         <div class="pn-item">
           <h4>CSV export</h4>
-          <p>For the journal and rounds — your data, one click, RFC-4180-safe, After columns included.</p>
+          <p>For the journal and rounds - your data, one click, RFC-4180-safe, After columns included.</p>
         </div>
         <div class="pn-item">
           <h4>Onboarding checklist</h4>
@@ -232,6 +232,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

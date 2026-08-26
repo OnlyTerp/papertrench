@@ -1,0 +1,220 @@
+/* Inner-page film language. Loaded after style.css.
+   Homepage /links already speak this; every other public URL must too. */
+
+.home-stage, .home-ch, .film-mast, .lost-stage, .film-end { padding: 0; }
+
+.film-mast {
+  position: relative;
+  min-height: 72dvh;
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+}
+.film-mast-bg {
+  position: absolute; inset: 0;
+  background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat;
+}
+.film-mast-bg video, .film-mast-bg img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.film-mast-bg video { position: absolute; inset: 0; }
+.film-mast-veil {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(7,9,14,.9) 0%, rgba(7,9,14,.45) 48%, rgba(7,9,14,.2) 100%),
+    linear-gradient(180deg, rgba(7,9,14,.5) 0%, transparent 28%, rgba(7,9,14,.92) 100%);
+}
+.film-mast-copy, .lost-copy { min-width: 0; max-width: 100%; }
+.film-mast-copy {
+  position: relative; z-index: 2;
+  padding: calc(64px + 2.5rem) 4vw 2.75rem;
+  max-width: 52rem;
+}
+.film-mast-copy h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 6.4vw, 5.2rem);
+  letter-spacing: -0.05em; line-height: 0.92;
+  overflow-wrap: break-word;
+}
+.film-mast-copy .lede {
+  margin-top: 1rem; max-width: 38ch;
+  color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.2rem);
+}
+
+.ed-line {
+  display: flex; flex-wrap: wrap; gap: 8px 22px;
+  margin-top: 1.5rem;
+  font-family: var(--mono); font-size: 12px; color: var(--dim);
+}
+.ed-line b { color: var(--muted); font-weight: 400; }
+
+.ed-sec { padding: 4.5rem 0 1rem; }
+.ed-sec h2 {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  letter-spacing: -0.04em; line-height: 0.95; margin: 0 0 0.4rem;
+}
+.ed-sec .ed-sub { max-width: 46ch; color: var(--muted); margin-bottom: 1.75rem; }
+
+.ed-lead {
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 28px; align-items: stretch;
+  margin-bottom: 28px;
+}
+.ed-lead img {
+  width: 100%; height: 100%; min-height: 240px; object-fit: cover;
+  border-radius: 4px; filter: saturate(.9) brightness(.82);
+}
+.ed-lead:hover img { filter: none; }
+.ed-lead h3 {
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  letter-spacing: -0.04em; line-height: 1.05; margin: 12px 0 10px;
+}
+.ed-lead p { color: var(--muted); max-width: 48ch; }
+.ed-lead .go { display: inline-block; margin-top: 14px; color: var(--orange); font-weight: 700; }
+
+.ed-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.ed-row, .latest-card {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  gap: 16px; align-items: baseline;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none; color: inherit;
+  min-width: 0;
+}
+.ed-row:hover .ed-ttl, .latest-card:hover h3 { color: var(--orange); }
+.ed-ver, .latest-card .ver-chip {
+  font-family: var(--mono); font-size: 12px; color: var(--orange2);
+}
+.ed-ttl, .latest-card h3 {
+  font-size: 1.05rem; font-weight: 800; letter-spacing: -0.03em; margin: 0;
+  overflow-wrap: break-word;
+}
+.ed-when, .latest-card .feat-date { font-size: 12px; color: var(--dim); white-space: nowrap; }
+.latest-card .feat-meta { margin: 0; }
+.latest-card p, .latest-card .go { display: none; }
+
+.film-end {
+  padding: 5.5rem 0 6.5rem;
+  border-top: 1px solid var(--line);
+}
+.film-end h2 {
+  font-size: clamp(2rem, 5vw, 3.6rem);
+  letter-spacing: -0.05em; line-height: 0.95; margin: 0 0 0.8rem;
+}
+.film-end p { max-width: 36ch; color: var(--muted); }
+.film-end .hero-ctas { margin-top: 1.5rem; }
+
+.lost-stage {
+  position: relative;
+  min-height: 100dvh;
+  display: grid; align-items: end;
+  overflow: hidden;
+}
+.lost-copy {
+  position: relative; z-index: 2;
+  padding: calc(64px + 2rem) 4vw 3rem;
+  max-width: 46rem;
+}
+.lost-copy .code {
+  font-family: var(--mono); font-size: clamp(4.5rem, 14vw, 9rem);
+  font-weight: 800; line-height: 0.85; letter-spacing: -0.06em;
+  color: var(--orange);
+}
+.lost-copy h1 {
+  margin: 0.6rem 0 0.8rem;
+  font-size: clamp(1.8rem, 4.4vw, 3.2rem);
+  letter-spacing: -0.04em; line-height: 0.95;
+}
+.lost-copy p { max-width: 36ch; color: var(--muted); }
+.lost-copy .path {
+  font-family: var(--mono); font-size: 13px; color: var(--orange2);
+  word-break: break-all;
+}
+.lost-doors {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 8px; margin-top: 2rem; max-width: 52rem;
+}
+.lost-doors a {
+  min-height: 88px; padding: 16px 14px;
+  border: 1px solid var(--line2); border-radius: 10px;
+  background: rgba(7,9,14,.55);
+  display: flex; flex-direction: column; justify-content: flex-end;
+  transition: border-color .18s, background .18s;
+}
+.lost-doors a:hover { border-color: var(--orange); background: rgba(7,9,14,.78); }
+.lost-doors b { font-size: 1.05rem; letter-spacing: -0.03em; }
+.lost-doors span { font-size: 12px; color: var(--dim); margin-top: 4px; }
+
+.post-hero {
+  min-height: 68dvh;
+  display: grid; align-items: end;
+  padding: 0;
+  overflow: visible;
+  position: relative;
+}
+.post-hero::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 0;
+  background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat;
+  filter: brightness(.42) saturate(.85);
+}
+.a-violet .post-hero::before { background-image: url("/assets/films/axiom.jpg"); }
+.a-green  .post-hero::before { background-image: url("/assets/films/padre.jpg"); }
+.a-red    .post-hero::before { background-image: url("/assets/films/gmgn.jpg"); }
+.a-orange .post-hero::before { background-image: url("/assets/films/overlay.jpg"); }
+.a-blue   .post-hero::before { background-image: url("/assets/films/axiom.jpg"); }
+.post-hero::after {
+  content: "";
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(7,9,14,.88) 0%, rgba(7,9,14,.4) 55%, rgba(7,9,14,.2) 100%),
+    linear-gradient(180deg, rgba(7,9,14,.45) 0%, transparent 30%, rgba(7,9,14,.92) 100%);
+}
+.post-hero .wrap-read {
+  position: relative; z-index: 1;
+  padding: 8.5rem 24px 2.75rem;
+  min-width: 0;
+  max-width: min(820px, 100%);
+}
+.post-title { text-shadow: 0 8px 40px rgba(7,9,14,.55); overflow-wrap: break-word; max-width: 100%; }
+
+.post-stats {
+  gap: 8px 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.post-stat .n { font-size: 15px; letter-spacing: 0; }
+.post-stat .l { font-size: 11px; letter-spacing: 0.04em; }
+
+.proof-rail { display: flex; flex-direction: column; margin-top: 2rem; border-top: 1px solid var(--line); }
+.proof-rail .proof-step {
+  background: none; border: 0; border-bottom: 1px solid var(--line);
+  border-radius: 0; padding: 22px 0 24px;
+}
+
+@media (max-width: 880px) {
+  .ed-lead { grid-template-columns: 1fr; }
+  .ed-lead img { min-height: 180px; max-height: 220px; }
+  .ed-row, .latest-card { grid-template-columns: 4.6rem minmax(0, 1fr); align-items: start; }
+  .ed-when, .latest-card .feat-date { grid-column: 2; }
+  .lost-doors { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 767px) {
+  .film-mast { min-height: 62dvh; }
+  .film-mast-copy { padding: calc(64px + 12px) 16px 1.5rem; }
+  .film-mast-copy h1 { font-size: clamp(1.9rem, 8.8vw, 2.25rem); }
+  .ed-ttl, .latest-card h3 { font-size: 0.95rem; }
+  .post-hero { min-height: 0; }
+  .post-hero .wrap-read { padding: 5.5rem 16px 1.5rem; }
+  .post-title { font-size: clamp(1.75rem, 8.4vw, 2.2rem); }
+  .post-stand { font-size: 15px; }
+  .lost-copy { padding: calc(64px + 12px) 16px 1.5rem; }
+  .lost-copy h1 { font-size: clamp(1.85rem, 9vw, 2.35rem); }
+  .post-stats { gap: 12px 18px; }
+  .post-stat .l { max-width: 16ch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .film-mast-bg video { display: none; }
+}

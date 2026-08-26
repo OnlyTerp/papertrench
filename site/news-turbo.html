@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Terminal Turbo — every terminal, warm · PaperTrench news</title>
+<title>Terminal Turbo - every terminal, warm · PaperTrench news</title>
 <meta name="description" content="v2.7.0: Instant terminal links for Axiom, Padre and GMGN, warm pump.fun and Solscan viewers, a feed-demand gate that donates zero parsing when PaperTrench is off, chips that stop thrashing layout, and receipts measured on your own machine.">
 <meta property="og:title" content="Terminal Turbo: every terminal, warm">
-<meta property="og:description" content="The warm-viewer idea generalized past X — plus the quieter half nobody demos: the work PaperTrench stopped doing to the page you are trading on.">
+<meta property="og:description" content="The warm-viewer idea generalized past X - plus the quieter half nobody demos: the work PaperTrench stopped doing to the page you are trading on.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <meta property="og:type" content="article">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- warm-families grid ---------- */
   .fam { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 30px 0; }
@@ -55,15 +56,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -85,14 +85,14 @@
         <span class="post-read">· 7 min read</span>
       </div>
       <h1 class="post-title">Terminal Turbo: every terminal, warm</h1>
-      <p class="post-stand">The warm-viewer trick was never really about X. It was about the fact that <strong>clicking a link in this market means booting an entire web application</strong>, over and over, while the candle you care about keeps moving. So we generalized it — and then went after the work PaperTrench itself was making your terminal do.</p>
+      <p class="post-stand">The warm-viewer trick was never really about X. It was about the fact that <strong>clicking a link in this market means booting an entire web application</strong>, over and over, while the candle you care about keeps moving. So we generalized it - and then went after the work PaperTrench itself was making your terminal do.</p>
       <div class="post-rule"></div>
     </div>
   </header>
 
   <div class="wrap-read post-body">
 
-    <p class="post-lede"><a href="/news-instant-x">Instant X links</a> proved the idea: keep one tab warm, route clicks into it as in-page navigations, and a 3.5-second cold boot becomes about half a second. Traders used it and immediately asked the obvious question — why only X?</p>
+    <p class="post-lede"><a href="/news-instant-x">Instant X links</a> proved the idea: keep one tab warm, route clicks into it as in-page navigations, and a 3.5-second cold boot becomes about half a second. Traders used it and immediately asked the obvious question - why only X?</p>
 
     <p>No good reason. So Turbo is that same mechanism applied to every destination you actually click from a terminal, plus a second, quieter half that nobody demos: making PaperTrench cost the host page less.</p>
 
@@ -135,7 +135,7 @@
 
     <p>Same deal, opt-in, with hover prefetch. These two pre-warm rather than waiting for first use, because checking a mint on Solscan is the click people make while a decision is still open.</p>
 
-    <p>Ctrl/click always bypasses the viewer and opens a normal tab — the same escape hatch Instant X links has always had.</p>
+    <p>Ctrl/click always bypasses the viewer and opens a normal tab - the same escape hatch Instant X links has always had.</p>
 
     <div class="callout">
       <span class="co-label">What it costs, in full</span>
@@ -145,13 +145,13 @@
 
     <h2>The half nobody demos</h2>
 
-    <p>An extension that overlays a trading terminal is a guest on someone else's page. Every frame it parses, every layout it forces, every millisecond it spends is taken from the site you are trying to read — and it is taken hardest exactly when volume peaks, which is exactly when you are trying to act.</p>
+    <p>An extension that overlays a trading terminal is a guest on someone else's page. Every frame it parses, every layout it forces, every millisecond it spends is taken from the site you are trying to read - and it is taken hardest exactly when volume peaks, which is exactly when you are trying to act.</p>
 
     <p>Three fixes, none of which you will ever see:</p>
 
     <h3>PaperTrench off costs the page nothing</h3>
 
-    <p>A feed-demand gate. When no consumer exists for price frames — overlay disabled, wrong page, chips off — the bridge drops them <b>before the body copy and before the JSON parse</b>.</p>
+    <p>A feed-demand gate. When no consumer exists for price frames - overlay disabled, wrong page, chips off - the bridge drops them <b>before the body copy and before the JSON parse</b>.</p>
 
     <p class="post-pull">Zero parsing donated to the host site when nothing is listening.</p>
 
@@ -161,7 +161,7 @@
 
     <p>Screener quick-buy chip positioning now runs in read/write phases with diffed style writes. Reads are batched, writes only happen when a value actually changed.</p>
 
-    <p>Before, every reposition interleaved measuring and mutating, so the browser had to recompute layout repeatedly — and it thrashed hardest at volume peaks, when rows are moving fastest.</p>
+    <p>Before, every reposition interleaved measuring and mutating, so the browser had to recompute layout repeatedly - and it thrashed hardest at volume peaks, when rows are moving fastest.</p>
 
     <h3>The dashboard stopped re-reading everything every 4 seconds</h3>
 
@@ -183,23 +183,23 @@
       </div>
       <div class="rcpt-foot">Stored locally · never sent anywhere</div>
     </div>
-    <p class="rcpt-cap">Simulated panel. Your own numbers will differ — that is the point of measuring them.</p>
+    <p class="rcpt-cap">Simulated panel. Your own numbers will differ - that is the point of measuring them.</p>
 
-    <p>Every speed claim in this write-up is the kind of thing a product can assert and never prove. So the popup counts your <b>warm versus cold opens</b> and shows your <b>median routing time</b> — measured on your machine, stored locally, never sent anywhere.</p>
+    <p>Every speed claim in this write-up is the kind of thing a product can assert and never prove. So the popup counts your <b>warm versus cold opens</b> and shows your <b>median routing time</b> - measured on your machine, stored locally, never sent anywhere.</p>
 
     <p>If Turbo is not helping you, your own receipts will say so. That is a strange thing to ship, and it is the same principle as everything else here: <a href="/news-xray">a number you can check</a> beats a number you are asked to believe.</p>
 
     <div class="callout">
       <span class="co-label">What we did not ship</span>
-      <p>Blocking trackers on terminal pages was on the table and got cut. We measured it, and on these sites it does not move the numbers that matter — it just breaks things and lets us claim a speedup we cannot demonstrate.</p>
+      <p>Blocking trackers on terminal pages was on the table and got cut. We measured it, and on these sites it does not move the numbers that matter - it just breaks things and lets us claim a speedup we cannot demonstrate.</p>
       <p><strong>A placebo with a progress bar is still a placebo.</strong></p>
     </div>
 
     <h2>Also in this release</h2>
 
-    <p>Turbo shipped inside the biggest batch so far. The headline item is a correctness fix, not a speed one — <a href="/news-fills">paper fills could land up to ~13% away from the chart you clicked</a> — and the batch also carried the <a href="/news-flex">floating Flex composer</a>, an <a href="/news-xray">X-Ray dock fix</a>, quick settings in the popup, and a positions bar that waits for slow-painting site headers to settle instead of ending up underneath them.</p>
+    <p>Turbo shipped inside the biggest batch so far. The headline item is a correctness fix, not a speed one - <a href="/news-fills">paper fills could land up to ~13% away from the chart you clicked</a> - and the batch also carried the <a href="/news-flex">floating Flex composer</a>, an <a href="/news-xray">X-Ray dock fix</a>, quick settings in the popup, and a positions bar that waits for slow-painting site headers to settle instead of ending up underneath them.</p>
 
-    <p><b>Note on versions:</b> v2.7.0 was tagged and published mid-batch, before the last five commits landed — so that build is missing Instant terminal links, the dashboard refresh fix, and the X-Ray dock fix. <b>v2.7.1 is the complete batch.</b> If you grabbed 2.7.0, update.</p>
+    <p><b>Note on versions:</b> v2.7.0 was tagged and published mid-batch, before the last five commits landed - so that build is missing Instant terminal links, the dashboard refresh fix, and the X-Ray dock fix. <b>v2.7.1 is the complete batch.</b> If you grabbed 2.7.0, update.</p>
 
     <!-- ---------- patch notes ---------- -->
     <div class="pn-panel reveal">
@@ -211,19 +211,19 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Instant terminal links (opt-in)</h4>
-          <p>Axiom, Padre and GMGN token links clicked on another terminal open in that terminal's kept-warm viewer, and a positions-bar hop to another terminal no longer replaces the tab you are on. Terminal viewers appear on first use (pump.fun and Solscan still pre-warm) — the cost stays up to two muted background tabs.</p>
+          <p>Axiom, Padre and GMGN token links clicked on another terminal open in that terminal's kept-warm viewer, and a positions-bar hop to another terminal no longer replaces the tab you are on. Terminal viewers appear on first use (pump.fun and Solscan still pre-warm) - the cost stays up to two muted background tabs.</p>
         </div>
         <div class="pn-item">
           <h4>Instant pump.fun &amp; Solscan links (opt-in)</h4>
-          <p>The Instant X viewer idea, generalized: with the new toggle on, pump.fun and Solscan links from your terminal open into up to two muted background viewer tabs — already warm when you get there, with hover prefetch. Ctrl/click bypasses the viewer and opens a normal tab. Off by default; the toggle says what it costs.</p>
+          <p>The Instant X viewer idea, generalized: with the new toggle on, pump.fun and Solscan links from your terminal open into up to two muted background viewer tabs - already warm when you get there, with hover prefetch. Ctrl/click bypasses the viewer and opens a normal tab. Off by default; the toggle says what it costs.</p>
         </div>
         <div class="pn-item">
           <h4>Turbo receipts</h4>
-          <p>The popup counts your warm vs cold opens and shows the median routing time — measured on your machine, stored locally, never sent anywhere.</p>
+          <p>The popup counts your warm vs cold opens and shows the median routing time - measured on your machine, stored locally, never sent anywhere.</p>
         </div>
         <div class="pn-item">
           <h4>PaperTrench off costs the page nothing</h4>
-          <p>The feed-demand gate: when no consumer exists for price frames (overlay disabled, wrong page, chips off), the bridge drops them before the body copy and the JSON parse — zero parsing donated to the host site.</p>
+          <p>The feed-demand gate: when no consumer exists for price frames (overlay disabled, wrong page, chips off), the bridge drops them before the body copy and the JSON parse - zero parsing donated to the host site.</p>
         </div>
         <div class="pn-item">
           <h4>Chips stopped fighting the page for layout</h4>
@@ -255,7 +255,7 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The complete v2.7.0 batch</h4>
-          <p>Housekeeping with a straight face: v2.7.0 was tagged and published mid-batch, before the last five commits landed. If you downloaded 2.7.0, update — it is missing the Instant terminal links, the dashboard refresh fix ("stopped re-reading everything every 4 seconds"), and an X-Ray dock fix, all described in the v2.7.0 notes. v2.7.1 is the complete batch; nothing else changed.</p>
+          <p>Housekeeping with a straight face: v2.7.0 was tagged and published mid-batch, before the last five commits landed. If you downloaded 2.7.0, update - it is missing the Instant terminal links, the dashboard refresh fix ("stopped re-reading everything every 4 seconds"), and an X-Ray dock fix, all described in the v2.7.0 notes. v2.7.1 is the complete batch; nothing else changed.</p>
         </div>
       </div>
     </div>
@@ -263,7 +263,7 @@
     <div class="post-nav">
       <a class="pnav" href="/news">
         <span class="dir">← Newer</span>
-        <span class="t">This is the latest — see all updates</span>
+        <span class="t">This is the latest - see all updates</span>
       </a>
       <a class="pnav next" href="/news-fills">
         <span class="dir">Older →</span>
@@ -273,6 +273,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>

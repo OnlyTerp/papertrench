@@ -23,35 +23,7 @@
 
 
 <link rel="stylesheet" href="/style.css">
-<style>
-  .lost { padding: 150px 0 90px; text-align: center; }
-  .lost .code {
-    font-family: var(--mono); font-size: clamp(72px, 15vw, 150px);
-    font-weight: 800; line-height: 1; letter-spacing: -2px;
-    color: var(--orange);
-  }
-  .lost h1 { font-size: clamp(24px, 3.6vw, 34px); margin: 18px 0 12px; }
-  .lost p { font-size: 15px; color: var(--muted); max-width: 520px; margin: 0 auto; line-height: 1.7; }
-  .lost .path {
-    font-family: var(--mono); font-size: 13px; color: var(--orange2);
-    background: rgba(0,0,0,0.3); border: 1px solid var(--line2); border-radius: 8px;
-    padding: 4px 9px; display: inline-block; margin-top: 4px;
-    max-width: 100%; overflow-wrap: break-word;
-  }
-
-  .go { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 34px; }
-  .go a {
-    display: inline-flex; align-items: center; gap: 9px;
-    background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius);
-    padding: 15px 20px; text-align: left; min-width: 208px;
-    transition: transform .2s, border-color .2s, background .2s;
-  }
-  .go a:hover { transform: translateY(-3px); border-color: rgba(255,157,69,0.45); background: var(--panel2); }
-  .go .ico { font-size: 20px; flex: none; }
-  .go b { display: block; font-size: 14px; font-weight: 750; }
-  .go span { display: block; font-size: 12.5px; color: var(--muted); }
-  @media (prefers-reduced-motion: reduce) { .go a:hover { transform: none; } }
-</style>
+<link rel="stylesheet" href="/film-inner.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -69,7 +41,7 @@
       <a href="/news">News</a>
       <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -79,19 +51,23 @@
 
 <main id="main">
 
-<header class="lost">
-  <div class="wrap">
+<header class="lost-stage film-mast" aria-label="Page not found">
+  <div class="film-mast-bg" aria-hidden="true">
+    <video autoplay muted loop playsinline preload="metadata" poster="/assets/films/overlay.jpg" src="/assets/films/overlay.mp4"></video>
+  </div>
+  <div class="film-mast-veil" aria-hidden="true"></div>
+  <div class="lost-copy">
     <div class="code">404</div>
-    <h1>This page rugged.</h1>
+    <h1>This page<br>rugged.</h1>
     <p>
       Nothing lives at <span class="path" id="badPath">that address</span>. Home, a terminal, or the overlay will get you back in.
     </p>
-    <div class="go">
-      <a href="/"><span><b>Home</b><span>Paper the trench</span></span></a>
-      <a href="/links"><span><b>Links</b><span>Pick a platform</span></span></a>
-      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener"><span><b>Axiom</b><span>Open with the ref</span></span></a>
-      <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener"><span><b>Download</b><span>Chrome overlay</span></span></a>
-    </div>
+    <nav class="lost-doors" aria-label="Get back in">
+      <a href="/"><b>Home</b><span>Paper the trench</span></a>
+      <a href="/links"><b>Links</b><span>Pick a platform</span></a>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener"><b>Axiom</b><span>Open with the ref</span></a>
+      <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener"><b>Download</b><span>Chrome overlay</span></a>
+    </nav>
   </div>
 </header>
 </main>
@@ -140,8 +116,17 @@
     if (path && path !== '/') document.getElementById('badPath').textContent = path;
   })();
 </script>
+<script src="/vendor/gsap.min.js"></script>
 <script src="/nav-wallet.js"></script>
 <script src="/nav-profile.js"></script>
+<script>
+(() => {
+  'use strict';
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!window.gsap) return;
+  window.gsap.from('.lost-copy > *', { y: 22, duration: 0.8, stagger: 0.07, ease: 'power3.out', clearProps: 'transform' });
+})();
+</script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
 </html>

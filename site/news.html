@@ -4,30 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench | News and patch notes</title>
-<meta name="description" content="Everything shipping in PaperTrench: X-Ray account intel, instant X links, fill accuracy, The After, the Flex Pack, fees emulation — plus the full release archive, newest first.">
+<meta name="description" content="Everything shipping in PaperTrench: X-Ray account intel, instant X links, fill accuracy, The After, the Flex Pack, fees emulation, plus the full release archive, newest first.">
 <meta property="og:title" content="PaperTrench | News and patch notes">
 <meta property="og:description" content="Every feature and every fix, written up in plain language. Deep-dives on the big ones, and the complete release archive.">
-<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
+<meta property="og:image" content="https://papertrench.com/assets/films/overlay.jpg">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="/assets/icon192.png">
-
-
-
 <link rel="stylesheet" href="style.css">
-<style>
-  .news-stats { display: flex; gap: 40px; flex-wrap: wrap; margin-top: 40px; }
-  .news-stats .num { font-family: var(--mono); font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
-  .news-stats .lbl { font-size: 12.5px; color: var(--dim); font-weight: 600; margin-top: 2px; }
-  .latest-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 28px; }
-  @media (max-width: 900px) { .latest-grid { grid-template-columns: 1fr; } }
-  .latest-card { display: block; padding: 18px 20px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); text-decoration: none; color: inherit; transition: border-color .16s; }
-  .latest-card:hover { border-color: rgba(255,157,69,0.45); }
-  .latest-card h3 { margin: 10px 0 8px; font-size: 16.5px; line-height: 1.35; }
-  .latest-card p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.55; }
-  .latest-card .go { display: inline-block; margin-top: 10px; font-size: 12.5px; font-weight: 700; color: var(--orange2); }
-</style>
+<link rel="stylesheet" href="film-inner.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -38,15 +24,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -56,212 +41,88 @@
 
 <main id="main">
 
-<!-- ============ HERO ============ -->
-<header class="mk-hero news-hero">
-  <div class="wrap">
-    <h1 class="reveal d1">What we just<br><span class="grad-orange">shipped.</span></h1>
-    <p class="hero-sub reveal d2">Every feature and every fix in plain language, including what it does not do. A trainer that oversells itself teaches the wrong lesson.</p>
-    <div class="news-stats reveal d3">
-      <!-- Filled by news.js from the archive itself — a hand-typed count here
-           drifts the moment a release is added, and a wrong number on this
-           page is the one thing the page is about. -->
-      <div><div class="num o" style="color:var(--orange)" id="relCount">—</div><div class="lbl">RELEASES LOGGED</div></div>
-      <!-- These two are hand-typed and therefore drift, which is exactly what
-           the comment above warns about — they sat at 872 and 116 for weeks
-           while the real figures moved to 1212 and 131. A page whose next stat
-           reads "0 NUMBERS INVENTED" cannot carry a stale one, so
-           scripts/preflight.sh now recomputes both and fails the release if
-           either disagrees. Update them together with that check, never alone.
-           2289 = 2072 extension + 201 server + 16 bot. -->
-      <div><div class="num g" style="color:var(--green)" data-check="tests">2289</div><div class="lbl">TESTS PASSING</div></div>
-      <div><div class="num b" style="color:var(--blue)" data-check="defects">180</div><div class="lbl">AUDITED DEFECTS CLOSED</div></div>
-      <div><div class="num o" style="color:var(--violet)">0</div><div class="lbl">NUMBERS INVENTED</div></div>
+<header class="film-mast" aria-label="News">
+  <div class="film-mast-bg" aria-hidden="true">
+    <video autoplay muted loop playsinline preload="metadata" poster="/assets/films/overlay.jpg" src="/assets/films/overlay.mp4"></video>
+  </div>
+  <div class="film-mast-veil" aria-hidden="true"></div>
+  <div class="film-mast-copy">
+    <h1>What we<br>just shipped.</h1>
+    <p class="lede">Every feature and every fix in plain language, including what it does not do.</p>
+    <div class="ed-line">
+      <span><b id="relCount">-</b> releases</span>
+      <!-- 2289 = 2072 extension + 201 server + 16 bot. Preflight recomputes
+           data-check="tests" and data-check="defects" and fails the release
+           if either disagrees. Update them together with that check. -->
+      <span><b data-check="tests">2289</b> tests passing</span>
+      <span><b data-check="defects">180</b> defects closed</span>
+      <span><b>0</b> numbers invented</span>
     </div>
   </div>
 </header>
 
-<!-- ============ JUST SHIPPED (auto-filled from the archive) ============ -->
-<section id="just-shipped" style="padding:48px 0 0">
+<section class="ed-sec" id="just-shipped">
   <div class="wrap">
-    <h2 class="reveal d1">Just shipped</h2>
-    <p class="sec-sub reveal d2">The newest releases, pulled from the archive below by the page itself. This strip cannot go stale.</p>
-    <div class="latest-grid" id="latestGrid"></div>
+    <h2>Just shipped</h2>
+    <p class="ed-sub">The newest releases, pulled from the archive below by the page itself. This strip cannot go stale.</p>
+    <div class="ed-list" id="latestGrid"></div>
   </div>
 </section>
 
-<!-- ============ FEATURED ARTICLES ============ -->
-<section id="features" style="padding:56px 0 0">
+<section class="ed-sec" id="features">
   <div class="wrap">
-    <h2 class="reveal d1">Features worth a proper read</h2>
-    <p class="sec-sub reveal d2">The releases that changed what PaperTrench is — each one with the story, the mechanism, and the honest limits.</p>
+    <h2>Worth a proper read</h2>
+    <p class="ed-sub">The releases that changed what PaperTrench is. Story, mechanism, and the honest limits.</p>
 
-    <div class="feat-grid">
+    <a class="ed-lead a-violet" href="/news-perps">
+      <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+      <div>
+        <span class="ver-chip major">v3.0.0</span>
+        <h3>Perps arrive, with the honest list of what they don't model</h3>
+        <p>Leveraged paper trading on Hyperliquid and Jupiter, priced with the venue's own fees, funding and liquidation math. A ticket that refuses to open when the live funding rate can't be read.</p>
+        <span class="go">Read the story</span>
+      </div>
+    </a>
 
-      <a class="feat-card lead a-violet reveal" href="/news-perps">
-        <div class="feat-meta">
-          <span class="ver-chip major">v3.0.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-06">Aug 6, 2026</time>
-        </div>
-        <h3>Perps arrive — with the honest list of what they don't model</h3>
-        <p>Leveraged paper trading on Hyperliquid and Jupiter, priced with the venue's own fees, funding and liquidation math — four numbers before every entry, and a ticket that refuses to open when the live funding rate can't be read. A liquidation can take your whole position, which is a different lesson from spot, so the notes lead with the seven things perps do <em>not</em> model yet. Plus market-cap alerts, chart take-profit/stop orders, Forge, and Turbo II.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-green reveal" href="/news-chain">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.8.1</span>
-          <span class="tag fix">Fix</span>
-          <span class="tag security">Integrity</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>We shipped a build that broke the chain, and said so</h3>
-        <p>v2.8.0 carried half an in-flight migration, and every paper fill on it failed to append to the attestation chain — the tamper-evidence layer the leaderboard verifies against. Wallets, balances and P&amp;L were never touched, the failure showed a toast on every fill, and the gap is disclosed rather than back-filled: a chain entry written after the outcome is known proves nothing. Here is what broke, who it affects, and how the chain was rebuilt.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-red reveal" href="/news-rugguard">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.8.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>Fresh launches are snipeable, and the rug guard</h3>
-        <p>A 39-second-old coin no aggregator had indexed used to strand an armed buy forever. Now the bonding curve is read straight off chain and the buy fires seconds after launch. And a buy into a float held by ten wallets gets refused out loud — with the percentage named, because a vague risk badge is not information.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-orange reveal d1" href="/news-quickedit">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.9.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>The quick fixes live on the trading tab</h3>
-        <p>A ✎ on the panel header opens presets, sell percents and your fee/gas/tip/slippage inline — without leaving the chart. And focus mode finally goes properly Axiom-compact: the preset chips <em>are</em> the buttons, and Enter buys.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-violet reveal" href="/news-turbo">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.7.0</span>
-          <span class="tag speed">Speed</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>Terminal Turbo: every terminal, warm</h3>
-        <p>Axiom, Padre, GMGN, pump.fun and Solscan all get kept-warm viewers — click through from one terminal and the next is already booted. Plus the half nobody demos: switched off, PaperTrench donates zero parsing to the page. With receipts, measured on your own machine.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-violet reveal" href="/news-xray">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.6.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>X-Ray: every coin an account has ever posted, before you click buy</h3>
-        <p>Open any X profile and the intel is already on screen — every contract address that account has put out, bio and @handle changes counted separately, and the biggest accounts following them. Every counter says how long we have been watching, because nobody can honestly tell you a bio changed on a day they never saw it.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-blue reveal" href="/news-instant-x">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.4.0</span>
-          <span class="tag speed">Speed</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>Instant X links: 3.5 seconds down to about half a second</h3>
-        <p>Vetting a coin means clicking its X link — and then watching a cold tab boot the entire X app. PaperTrench keeps one warm viewer tab and routes clicks into it as in-page navigations. Hovering starts the trip before you even click.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-red reveal d1" href="/news-fills">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.7.0</span>
-          <span class="tag fix">Fix</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>The "instant +14%" is dead: fills land on the chart you are looking at</h3>
-        <p>On migrated tokens the price feed could silently lose one side of every trade, filling paper buys up to ~13% away from the live chart — and booking fake profit that teaches exactly the wrong lesson. Two independent fixes, one of them belt-and-braces.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-green reveal" href="/news-the-after">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.1.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>The After: what actually happened once you sold</h3>
-        <p>Every closed round watches its coin for the next hour and records the truth — observed extremes only, no interpolation. The most expensive guesswork in this market, and the number one revenge-FOMO trigger, replaced with measurement.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-orange reveal d1" href="/news-flex">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.5.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>The Flex Pack: share cards that can never pass as a real trade</h3>
-        <p>A terminal-grade composer with your own backgrounds, honest USD sub-lines, and an After line no other terminal can print. The PAPER watermark is drawn last, by a code path that reads no settings.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-green reveal" href="/news-fees">
-        <div class="feat-meta">
-          <span class="ver-chip">v2.2.0</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>Fees &amp; costs: make paper fills cost what real fills cost</h3>
-        <p>Platform percentage, priority fee and bribe — the costs that dominate small entries and that zero-cost practice quietly ignores. A dust exit can now genuinely net negative, which is precisely the lesson.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
-      <a class="feat-card a-orange reveal d1" href="/news-v2">
-        <div class="feat-meta">
-          <span class="ver-chip major">v2.0.0</span>
-          <span class="tag fix">Fix</span>
-          <span class="tag feature">Feature</span>
-          <time class="feat-date" datetime="2026-08-05">Aug 5, 2026</time>
-        </div>
-        <h3>Out of alpha: 139 defects published, 116 closed</h3>
-        <p>We audited our own code in four parallel tracks, ranked every finding by how badly it could lie to a user, and published the register before fixing any of it. Then closed 116 with a regression test each.</p>
-        <span class="go">Read the full story <span class="arr" aria-hidden="true">→</span></span>
-      </a>
-
+    <div class="ed-list">
+      <a class="ed-row" href="/news-chain"><span class="ed-ver">v2.8.1</span><span class="ed-ttl">We shipped a build that broke the chain, and said so</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-rugguard"><span class="ed-ver">v2.8.0</span><span class="ed-ttl">Fresh launches are snipeable, and the rug guard</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-quickedit"><span class="ed-ver">v2.9.0</span><span class="ed-ttl">The quick fixes live on the trading tab</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-turbo"><span class="ed-ver">v2.7.0</span><span class="ed-ttl">Terminal Turbo: every terminal, warm</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-xray"><span class="ed-ver">v2.6.0</span><span class="ed-ttl">X-Ray: every coin an account has ever posted, before you click buy</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-instant-x"><span class="ed-ver">v2.4.0</span><span class="ed-ttl">Instant X links: 3.5 seconds down to about half a second</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-fills"><span class="ed-ver">v2.7.0</span><span class="ed-ttl">Fills land on the chart you are looking at</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-the-after"><span class="ed-ver">v2.1.0</span><span class="ed-ttl">The After: what actually happened once you sold</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-flex"><span class="ed-ver">v2.5.0</span><span class="ed-ttl">The Flex Pack: share cards that can never pass as a real trade</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-fees"><span class="ed-ver">v2.2.0</span><span class="ed-ttl">Fees and costs: make paper fills cost what real fills cost</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
+      <a class="ed-row" href="/news-v2"><span class="ed-ver">v2.0.0</span><span class="ed-ttl">Out of alpha: 139 defects published, 116 closed</span><time class="ed-when" datetime="2026-08-05">Aug 5</time></a>
     </div>
   </div>
 </section>
 
-<!-- ============ FULL ARCHIVE ============ -->
 <section class="archive-sec" id="archive">
   <div class="wrap">
-    <span class="sec-kicker k-green reveal">The whole log</span>
-    <h2 class="reveal d1">Every release, newest first</h2>
-    <p class="sec-sub reveal d2">The same patch notes that ship in <code style="font-family:var(--mono);color:var(--orange2)">CHANGELOG.md</code> with the extension. Filter by what you care about.</p>
+    <h2>Every release, newest first</h2>
+    <p class="ed-sub">The same patch notes that ship in CHANGELOG.md with the extension. Filter by what you care about.</p>
 
-    <div class="filter-row reveal d2" id="filterRow" role="group" aria-label="Filter releases by type"></div>
-    <div class="filter-count reveal d3" id="filterCount"></div>
+    <div class="filter-row" id="filterRow" role="group" aria-label="Filter releases by type"></div>
+    <div class="filter-count" id="filterCount"></div>
 
     <div class="timeline" id="timeline"></div>
 
     <p class="reveal" style="margin-top:8px;padding:16px 20px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:14px;color:var(--muted)">
-      Earlier than this: armed snipes surviving pair→mint resolution on Axiom/Photon/BullX, overlay auto-hide when no token is detected, the master overlay toggle, resizable trade tab, draggable positions bar, average fill/exit price lines, GMGN support, and the paper fill attest chain.
+      Earlier than this: armed snipes surviving pair to mint resolution on Axiom/Photon/BullX, overlay auto-hide when no token is detected, the master overlay toggle, resizable trade tab, draggable positions bar, average fill/exit price lines, GMGN support, and the paper fill attest chain.
     </p>
   </div>
 </section>
 
-<!-- ============ CTA ============ -->
-<section class="final-cta" style="padding:80px 0 110px">
+<section class="film-end">
   <div class="wrap">
-    <span class="hero-badge reveal"><span class="dot"></span>Free · Open source · MIT</span>
-    <h2 class="reveal d1" style="margin-top:24px">Every one of these<br><span class="grad-orange" style="background:linear-gradient(100deg,var(--orange2),var(--orange-deep));-webkit-background-clip:text;background-clip:text;color:transparent">is already in the build.</span></h2>
-    <p class="sec-sub reveal d2" style="text-align:center;margin-top:16px">Update by unzipping the latest release over the folder you already loaded, then hitting ↻ Reload on the extension card. Your wallet, journal and attest chain survive.</p>
-    <div class="hero-ctas reveal d3" style="margin-top:36px">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">⬇ Get the latest build</a>
-      <a class="btn btn-ghost" href="https://github.com/OnlyTerp/papertrench/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Raw changelog on GitHub ↗</a>
+    <h2>Every one of these is already in the build.</h2>
+    <p>Unzip the latest release over the folder you already loaded, then hit Reload on the extension card. Wallet, journal and attest chain survive. Then open a terminal.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
     </div>
   </div>
 </section>
@@ -274,13 +135,13 @@
       <div class="foot-links">
         <a href="/">Home</a>
         <a href="/news">News</a>
-      <a href="/links">Links</a>
+        <a href="/links">Links</a>
         <a href="/streams">Live on Twitch</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
     </div>
-        <nav class="term-dock" aria-label="Paper terminals">
+    <nav class="term-dock" aria-label="Paper terminals">
       <span class="term-lbl">Open a terminal</span>
       <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
       <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
@@ -288,21 +149,26 @@
       <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
     </nav>
     <div class="foot-social">
-      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.198.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join the Discord
-      </a>
-      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
-      </a>
+      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">Join the Discord</a>
+      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">@PaperTrench_</a>
     </div>
     <div class="foot-note">Paper trading only · not financial advice · every example figure on this page is simulated demo data, because PaperTrench never fabricates a real one.</div>
   </div>
 </footer>
 
+<script src="/vendor/gsap.min.js"></script>
 <script src="news.js"></script>
 <script src="reveal.js"></script>
 <script src="/nav-wallet.js"></script>
 <script src="/nav-profile.js"></script>
+<script>
+(() => {
+  'use strict';
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!window.gsap) return;
+  window.gsap.from('.film-mast-copy > *', { y: 24, duration: 0.85, stagger: 0.07, ease: 'power3.out', clearProps: 'transform' });
+})();
+</script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
 </body>
 </html>

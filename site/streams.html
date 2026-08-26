@@ -16,6 +16,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ================================================================== *
    *  /streams — the watch page.
@@ -253,6 +254,22 @@
 
   /* ---------- final ---------- */
   .final-cta { padding: 96px 0 110px; }
+
+  /* Brand over Twitch purple leftovers. Player stays. */
+  .signup-strip {
+    background: rgba(255,157,69,0.06);
+    border-color: rgba(255,157,69,0.28);
+  }
+  .btn-twitch {
+    background: linear-gradient(135deg, var(--orange2), var(--orange-deep));
+    color: #2a1400; box-shadow: 0 10px 30px -8px rgba(255,157,69,0.45);
+  }
+  .s-card:hover { border-color: rgba(255,157,69,0.42); }
+  .s-card.open { border-color: rgba(255,157,69,0.3); background: rgba(255,157,69,0.02); }
+  .watch-sec { padding: 18px 0 48px; }
+  .streamers-sec { padding: 8px 0 56px; }
+  .proof-sec { padding: 12px 0 24px; background: none; }
+  .obs-sec { padding: 40px 0 8px; }
 </style>
 </head>
 <body>
@@ -264,8 +281,6 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
@@ -273,7 +288,7 @@
       <a href="/news">News</a>
       <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch" aria-current="page"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch" aria-current="page"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -284,10 +299,15 @@
 <main id="main">
 
 <!-- ============ HERO ============ -->
-<header class="hero compact">
-  <div class="wrap">
-    <span class="live-count reveal" id="liveCount"><span class="dot"></span><span id="liveCountLabel">The PaperTrench Challenge</span></span>
-    <h1 class="reveal d1">Watch the trenches.<br>Live on Twitch.</h1>
+<header class="film-mast" aria-label="Live streams">
+  <div class="film-mast-bg" aria-hidden="true">
+    <video autoplay muted loop playsinline preload="metadata" poster="/assets/films/padre.jpg" src="/assets/films/padre.mp4"></video>
+  </div>
+  <div class="film-mast-veil" aria-hidden="true"></div>
+  <div class="film-mast-copy">
+    <span class="live-count" id="liveCount"><span class="dot"></span><span id="liveCountLabel">The PaperTrench Challenge</span></span>
+    <h1>Watch the trenches.</h1>
+    <p class="lede">Streamers run a paper wallet on live markets. Every fill is hash-chained, replayed, and re-priced against public market history.</p>
   </div>
 </header>
 
@@ -318,9 +338,8 @@
 <!-- ============ ROSTER ============ -->
 <section class="streamers-sec" id="streamers">
   <div class="wrap">
-    <span class="sec-kicker k-twitch reveal">Challenge roster</span>
-    <h2 class="reveal d1">The streamers in the trench</h2>
-    <p class="sec-sub reveal d2">Every one of them trades a paper wallet under the same protocol as everyone else — no house accounts, no seeded balances. Pick a card to watch them here.</p>
+    <h2>The streamers in the trench</h2>
+    <p class="ed-sub">Every one of them trades a paper wallet under the same protocol as everyone else. No house accounts, no seeded balances. Pick a card to watch them here.</p>
     <div class="streamer-grid" id="streamerGrid"></div>
 
     <div class="signup-strip reveal" id="signupStrip">
@@ -337,12 +356,11 @@
 <section class="proof-sec" id="challenge">
   <div class="wrap">
     <div class="proof-head">
-      <span class="sec-kicker k-green reveal">How a record is checked</span>
-      <h2 class="reveal d1">Standings come from the fills, not the screenshots</h2>
-      <p class="sec-sub reveal d2">Nobody on this page reports their own numbers. A record is rebuilt from the raw fills by a server that runs three checks in order — and the code that runs them is public.</p>
+      <h2>Standings come from the fills, not the screenshots</h2>
+      <p class="ed-sub">Nobody on this page reports their own numbers. A record is rebuilt from the raw fills by a server that runs three checks in order, and the code that runs them is public.</p>
     </div>
 
-    <div class="proof-chain">
+    <div class="proof-rail">
       <div class="proof-step reveal">
         <div class="idx">STEP 01 · LOCAL</div>
         <h3>Each fill signs the one before it</h3>
@@ -351,7 +369,7 @@
       <div class="proof-step reveal d1">
         <div class="idx">STEP 02 · SERVER</div>
         <h3>The whole chain is re-hashed and replayed</h3>
-        <p>On submission the server recomputes every link, refuses a history that shrank or was swapped for a luckier one, and replays the book itself. Your claimed P&amp;L is never what ranks — the replay's is.</p>
+        <p>On submission the server recomputes every link, refuses a history that shrank or was swapped for a luckier one, and replays the book itself. Your claimed P&amp;L is never what ranks. The replay's is.</p>
       </div>
       <div class="proof-step reveal d2">
         <div class="idx">STEP 03 · MARKET</div>
@@ -380,13 +398,12 @@
 <!-- ============ STREAM IT YOURSELF ============ -->
 <section class="obs-sec" id="stream-yourself">
   <div class="wrap">
-    <div style="text-align:center;max-width:700px;margin:0 auto">
-      <span class="sec-kicker k-orange reveal">For streamers</span>
-      <h2 class="reveal d1">Put your paper P&amp;L on stream</h2>
-      <p class="sec-sub reveal d2" style="margin:0 auto">PaperTrench ships a built-in <b>stream overlay</b> — a chroma-key window with live equity, session P&amp;L, win rate and open positions. It updates the instant you trade, and it is permanently marked <b>PAPER</b> so your chat is never in doubt about what they are watching.</p>
+    <div style="max-width:700px">
+      <h2>Put your paper P&amp;L on stream</h2>
+      <p class="ed-sub">PaperTrench ships a built-in stream overlay: a chroma-key window with live equity, session P&amp;L, win rate and open positions. It updates the instant you trade, and it is permanently marked PAPER so chat is never in doubt.</p>
     </div>
     <div class="install-steps">
-      <div class="step reveal"><div class="n">01</div><h4>Install PaperTrench</h4><p>Grab the extension from the <a href="/#install" style="color:var(--orange2)">install guide</a> — free, open source, no signup.</p></div>
+      <div class="step reveal"><div class="n">01</div><h4>Install PaperTrench</h4><p>Grab the extension from the <a href="/#install" style="color:var(--orange2)">install guide</a>. Free, open source, no signup.</p></div>
       <div class="step reveal d1"><div class="n">02</div><h4>Open the overlay</h4><p>Click the PaperTrench icon, then <code>Stream overlay</code>. A capture-ready window opens on a green screen.</p></div>
       <div class="step reveal d2"><div class="n">03</div><h4>Add it to OBS</h4><p>Sources → <code>Window Capture</code> → pick the overlay → add a <code>Chroma Key</code> filter. Defaults just work.</p></div>
       <div class="step reveal d3"><div class="n">04</div><h4>Go live &amp; apply</h4><p>Trade with the overlay on screen, then <a href="/streamer-signup" style="color:var(--orange2)">apply for the roster</a> to get featured here.</p></div>
@@ -395,13 +412,13 @@
 </section>
 
 <!-- ============ FINAL CTA ============ -->
-<section class="final-cta">
+<section class="film-end">
   <div class="wrap">
-    <span class="hero-badge reveal"><span class="dot"></span>Paper money. Real competition.</span>
-    <h2 class="reveal d1" style="margin-top:24px">Think you can out-trade them?<br><span class="grad-twitch">Prove it on the board.</span></h2>
-    <div class="hero-ctas reveal d3" style="margin-top:34px;justify-content:center">
-      <a class="btn btn-primary" href="/#install">Get PaperTrench</a>
-      <a class="btn btn-ghost" href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">How verification works</a>
+    <h2>Think you can out-trade them?</h2>
+    <p>Install the overlay, open a terminal, then prove it on the board.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
     </div>
   </div>
 </section>
@@ -434,12 +451,21 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
       </a>
     </div>
-    <div class="foot-note">Paper trading only · not financial advice · streams show simulated funds — every P&amp;L on this page is paper, and proud of it.</div>
+    <div class="foot-note">Paper trading only · not financial advice · streams show simulated funds. Every P&amp;L on this page is paper, and proud of it.</div>
   </div>
 </footer>
 
+<script src="/vendor/gsap.min.js"></script>
 <script src="streams.js"></script>
 <script src="/nav-wallet.js"></script>
+<script>
+(() => {
+  'use strict';
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!window.gsap) return;
+  window.gsap.from('.film-mast-copy > *', { y: 24, duration: 0.85, stagger: 0.07, ease: 'power3.out', clearProps: 'transform' });
+})();
+</script>
 <script src="/nav-profile.js"></script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
 </body>

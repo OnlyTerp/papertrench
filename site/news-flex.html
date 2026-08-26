@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Flex Pack — share cards that can never pass as a real trade · PaperTrench news</title>
-<meta name="description" content="v2.5.0–v2.5.2: a terminal-grade share composer with your own backgrounds, honest USD sub-lines, an observed-only After line, open-position cards — and a PAPER watermark drawn by a code path that reads no settings.">
+<title>The Flex Pack - share cards that can never pass as a real trade · PaperTrench news</title>
+<meta name="description" content="v2.5.0-v2.5.2: a terminal-grade share composer with your own backgrounds, honest USD sub-lines, an observed-only After line, open-position cards - and a PAPER watermark drawn by a code path that reads no settings.">
 <meta property="og:title" content="The Flex Pack: share cards that can never pass as a real trade">
 <meta property="og:description" content="Flex the result, never fake it. The watermark and brand bar are drawn last, by code that reads no settings, verified by a test that drives every option combination.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
@@ -17,6 +17,7 @@
 
 
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="film-inner.css">
 <style>
   /* ---------- share card mock ---------- */
   .fx-wrap { margin: 34px 0 12px; }
@@ -67,15 +68,14 @@
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="/#bubbles">Chart bubbles</a>
-      <a href="/#replay">Replay</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news" aria-current="page">News</a>
+      <a href="/links">Links</a>
       <a href="/#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
       <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
@@ -98,7 +98,7 @@
         <span class="post-read">· 5 min read</span>
       </div>
       <h1 class="post-title">The Flex Pack: share cards that can never pass as a real trade</h1>
-      <p class="post-stand">People want to post their results. Fine — but a paper P&amp;L card that could be mistaken for a real one is a lie generator, and this market has enough of those. So we built a genuinely good-looking composer <strong>and made the PAPER branding structurally impossible to remove.</strong></p>
+      <p class="post-stand">People want to post their results. Fine - but a paper P&amp;L card that could be mistaken for a real one is a lie generator, and this market has enough of those. So we built a genuinely good-looking composer <strong>and made the PAPER branding structurally impossible to remove.</strong></p>
       <div class="post-rule"></div>
     </div>
   </header>
@@ -116,13 +116,13 @@
         <div class="fx-pnl">+2.41 ◎</div>
         <div class="fx-cols">
           <div class="fx-col"><div class="k">Invested</div><div class="v">1.00 ◎</div><div class="u">$172.40</div></div>
-          <div class="fx-col"><div class="k">Returned</div><div class="v">3.41 ◎</div><div class="u none">—</div></div>
+          <div class="fx-col"><div class="k">Returned</div><div class="v">3.41 ◎</div><div class="u none"> - </div></div>
           <div class="fx-col"><div class="k">P&amp;L %</div><div class="v" style="color:var(--green)">+241%</div><div class="u">realised</div></div>
         </div>
         <div class="fx-journey">
           <span>ENTRY 0.00003412</span><span class="ar">→</span><span>EXIT 0.00011631</span><span class="ar">→</span><span>HELD 41m</span>
         </div>
-        <div class="fx-after">◷ −62% after exit — dodged</div>
+        <div class="fx-after">◷ −62% after exit - dodged</div>
         <div class="fx-bar">
           <span class="logo">P</span><span>PaperTrench</span><span class="sim">SIMULATED FUNDS · NOT A REAL TRADE</span>
         </div>
@@ -140,12 +140,12 @@
       <li><b>Token symbol and multiple chip</b>, then a huge ◎ SOL P&amp;L as the hero number.</li>
       <li><b>Invested / Returned / P&amp;L%</b> columns, each with a USD sub-line.</li>
       <li><b>The journey line:</b> entry → exit → held. How long you were actually in it, which is the number people quietly omit.</li>
-      <li><b>An After line</b> — "−62% after exit — dodged" — that no other terminal can print, because no other terminal <a href="/news-the-after">measures what happened after you left</a>.</li>
+      <li><b>An After line</b> - "−62% after exit - dodged" - that no other terminal can print, because no other terminal <a href="/news-the-after">measures what happened after you left</a>.</li>
     </ul>
 
     <h3>The em-dash rule</h3>
 
-    <p>USD sub-lines appear only where the fills genuinely recorded a USD price. When one did not — common on fresh launches, where the first ticks pre-date the USD feed — the card prints an em-dash.</p>
+    <p>USD sub-lines appear only where the fills genuinely recorded a USD price. When one did not - common on fresh launches, where the first ticks pre-date the USD feed - the card prints an em-dash.</p>
 
     <p>It would be trivial to multiply the SOL figure by today's SOL price and print something. That number would look right and be fabricated, and a fabricated number on a card built for public posting is exactly the thing we refuse to ship.</p>
 
@@ -153,7 +153,7 @@
 
     <h2>Make it yours</h2>
 
-    <p>Five built-in looks, plus your own uploads — up to 2 MB each, ten stored, saved between sessions, deletable whenever. The drop zone works and now remembers what you dropped.</p>
+    <p>Five built-in looks, plus your own uploads - up to 2 MB each, ten stored, saved between sessions, deletable whenever. The drop zone works and now remembers what you dropped.</p>
 
     <p>Then <b>Customize / Download / Copy</b>: toggle which stats show, pick a trim accent, download a PNG, or copy straight to the clipboard for paste-and-go posting.</p>
 
@@ -169,25 +169,25 @@
 
     <h2>Then two follow-ups, straight from live use</h2>
 
-    <h3>v2.5.1 — share an open position</h3>
+    <h3>v2.5.1 - share an open position</h3>
 
-    <p>Spotted in the maintainer's stream footage: the real terminals card an <em>open</em> position — the "still holding" flex — and ours only carded closed rounds.</p>
+    <p>Spotted in the maintainer's stream footage: the real terminals card an <em>open</em> position - the "still holding" flex - and ours only carded closed rounds.</p>
 
     <p>Live open positions on the Overview now carry a Share button. The card states OPEN, the middle column reads POSITION (live value at the last recorded mark), and the journey line <b>claims no EXIT that has not happened</b>. Same gallery, same Customize / Download / Copy, same un-removable branding.</p>
 
-    <h3>v2.5.2 — flex it from the overlay, wins and losses</h3>
+    <h3>v2.5.2 - flex it from the overlay, wins and losses</h3>
 
-    <p>The Closed P&amp;L card in the overlay gained a Flex button that opens the composer for that exact result — the newest round, or the open position after a partial exit.</p>
+    <p>The Closed P&amp;L card in the overlay gained a Flex button that opens the composer for that exact result - the newest round, or the open position after a partial exit.</p>
 
     <p><b>Losses are flexable by design.</b> A share feature that only works when you won is a share feature that manufactures a fake win rate across everyone who uses it. The PAPER watermark rides along either way.</p>
 
-    <p>That release also fixed two things the maintainer hit while taking a live trade: the resize grip could latch after a cancelled gesture and keep resizing forever (pointer capture now guarantees a terminal event), and the Closed P&amp;L card was being rebuilt on every heartbeat — re-running its entry animation each time, which read as a blink. It now renders once per close, and only the how-long-ago text updates in place.</p>
+    <p>That release also fixed two things the maintainer hit while taking a live trade: the resize grip could latch after a cancelled gesture and keep resizing forever (pointer capture now guarantees a terminal event), and the Closed P&amp;L card was being rebuilt on every heartbeat - re-running its entry animation each time, which read as a blink. It now renders once per close, and only the how-long-ago text updates in place.</p>
 
-    <h3>v2.7.0 — flex without leaving the terminal</h3>
+    <h3>v2.7.0 - flex without leaving the terminal</h3>
 
     <p>Flexing still cost you your seat: the button bounced you to a dashboard tab, away from the chart you were watching. Now it opens the composer as a <b>floating window centred over the page</b>. Esc or a backdrop click closes it.</p>
 
-    <p>It is the same composer, not a cut-down copy — identical card, backgrounds, customize toggles, Copy and Download, and one shared background gallery, so uploads made in the overlay appear in the dashboard composer and vice versa.</p>
+    <p>It is the same composer, not a cut-down copy - identical card, backgrounds, customize toggles, Copy and Download, and one shared background gallery, so uploads made in the overlay appear in the dashboard composer and vice versa.</p>
 
     <div class="callout">
       <span class="co-label">Two composers, one set of numbers</span>
@@ -205,11 +205,11 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The share card grew up</h4>
-          <p>Terminal-grade composer: token symbol and multiple chip, a huge ◎ SOL P&amp;L, Invested / Returned / P&amp;L% columns with honest USD sub-lines (em-dash when a fill never had a USD price — never a fabricated conversion), the entry→exit→held journey line, and an observed-only After line ("−62% after exit — dodged") no other terminal can print, because no other terminal measures it.</p>
+          <p>Terminal-grade composer: token symbol and multiple chip, a huge ◎ SOL P&amp;L, Invested / Returned / P&amp;L% columns with honest USD sub-lines (em-dash when a fill never had a USD price - never a fabricated conversion), the entry→exit→held journey line, and an observed-only After line ("−62% after exit - dodged") no other terminal can print, because no other terminal measures it.</p>
         </div>
         <div class="pn-item">
           <h4>Backgrounds, yours</h4>
-          <p>Five built-in looks plus your own uploads — max 2 MB each, ten stored, saved between sessions, deletable. The drop zone still works and now remembers what you dropped.</p>
+          <p>Five built-in looks plus your own uploads - max 2 MB each, ten stored, saved between sessions, deletable. The drop zone still works and now remembers what you dropped.</p>
         </div>
         <div class="pn-item">
           <h4>Customize / Download / Copy</h4>
@@ -217,7 +217,7 @@
         </div>
         <div class="pn-item">
           <h4>The non-negotiable, by construction</h4>
-          <p>The PAPER watermark and the PaperTrench brand bar are drawn last by a code path that reads no settings — verified by a test that drives every combination of options and asserts the branding survives all of them. Flex the result; never fake it.</p>
+          <p>The PAPER watermark and the PaperTrench brand bar are drawn last by a code path that reads no settings - verified by a test that drives every combination of options and asserts the branding survives all of them. Flex the result; never fake it.</p>
         </div>
       </div>
       <div class="pn-foot"><span>Also in v2.5.0:</span> <a href="/news-instant-x">Instant X links learn GMGN and Axiom, plus hover preview cards</a></div>
@@ -232,7 +232,7 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Share an open position</h4>
-          <p>Live open positions on the Overview now carry a Share button. The card states OPEN, the middle column reads POSITION (live value at the last recorded mark), the journey line claims no EXIT that has not happened, and USD figures appear only where fills and marks genuinely recorded them. Same gallery, same Customize/Download/Copy — and the same un-removable PaperTrench branding.</p>
+          <p>Live open positions on the Overview now carry a Share button. The card states OPEN, the middle column reads POSITION (live value at the last recorded mark), the journey line claims no EXIT that has not happened, and USD figures appear only where fills and marks genuinely recorded them. Same gallery, same Customize/Download/Copy - and the same un-removable PaperTrench branding.</p>
         </div>
       </div>
     </div>
@@ -246,14 +246,14 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>The resize grip can never stick again</h4>
-          <p>A cancelled gesture (misclick, drag out of the window, context menu) used to leave the drag latched — the panel kept resizing with every mouse move. Pointer capture now guarantees a terminal event, and pointercancel ends the drag like pointerup.</p>
+          <p>A cancelled gesture (misclick, drag out of the window, context menu) used to leave the drag latched - the panel kept resizing with every mouse move. Pointer capture now guarantees a terminal event, and pointercancel ends the drag like pointerup.</p>
         </div>
         <div class="pn-item">
           <h4>Resize from any corner</h4>
           <p>All four corners are grips. The panel is right/top-anchored, so left corners grow it leftward from the planted right edge, and top corners grow it upward while the bottom edge stays planted.</p>
         </div>
         <div class="pn-item">
-          <h4>Flex it — wins AND losses</h4>
+          <h4>Flex it - wins AND losses</h4>
           <p>The Closed P&amp;L card in the overlay now has a Flex button that opens the share composer for that exact result (the newest round, or the open position after a partial exit). Losses are flexable by design; the PAPER watermark rides along either way.</p>
         </div>
         <div class="pn-item">
@@ -276,7 +276,7 @@
       <div class="pn-body">
         <div class="pn-item">
           <h4>Flex without leaving the terminal</h4>
-          <p>The Flex button on the closed P&amp;L card now opens the share composer as a floating window centered over the page — no more bouncing to a dashboard tab. It is the SAME composer: identical card, backgrounds, customize toggles, Copy and Download, and the same shared background gallery (uploads made in the overlay appear in the dashboard composer and vice versa). Esc or a backdrop click closes it. The card math now lives in one shared derivation (<code>pnlcard.js</code>) used by both composers, so a card can never show different numbers depending on where you opened it. The PAPER watermark rides along, as always.</p>
+          <p>The Flex button on the closed P&amp;L card now opens the share composer as a floating window centered over the page - no more bouncing to a dashboard tab. It is the SAME composer: identical card, backgrounds, customize toggles, Copy and Download, and the same shared background gallery (uploads made in the overlay appear in the dashboard composer and vice versa). Esc or a backdrop click closes it. The card math now lives in one shared derivation (<code>pnlcard.js</code>) used by both composers, so a card can never show different numbers depending on where you opened it. The PAPER watermark rides along, as always.</p>
         </div>
       </div>
       <div class="pn-foot">
@@ -300,6 +300,17 @@
 
   </div>
 </article>
+
+<section class="film-end">
+  <div class="wrap">
+    <h2>Install once. Open a terminal.</h2>
+    <p>The overlay sits on the chart you already grind.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+    </div>
+  </div>
+</section>
 </main>
 
 <footer>
