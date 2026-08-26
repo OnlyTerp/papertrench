@@ -378,3 +378,70 @@
 .rp-reel .m { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; }
 .rp-reel .w { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--orange2, #ff9d45); }
 .rp-reel .w.dim { color: var(--dim, #5c6577); }
+
+/* ============================ replay effects ============================ */
+/* A fill announces itself twice: the whole chart takes a brief wash of its
+ * colour, and the amount floats up out of it. The float is a TRANSITION, not
+ * a keyframe - a fast run of fills has to interrupt it, and a keyframe
+ * restarts from frame one when retimed while a transition eases from wherever
+ * it is. Ported from Trickshot (MIT), rebuilt on our tokens. */
+
+.rp-fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 6; }
+
+@keyframes rp-wash {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.rp-wash { position: absolute; inset: 0; animation: rp-wash 900ms ease-out forwards; }
+.rp-wash.buy { background: radial-gradient(ellipse at center, rgba(52, 211, 153, 0.20), transparent 70%); }
+.rp-wash.sell { background: radial-gradient(ellipse at center, rgba(255, 92, 122, 0.20), transparent 70%); }
+
+.rp-flash {
+  position: absolute; left: 50%;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 26px; line-height: 1; font-weight: 900;
+  letter-spacing: -0.01em; white-space: nowrap;
+  opacity: 0;
+  transform: translate(-50%, 14px) scale(0.94);
+  transition: opacity 240ms ease-out, transform 620ms cubic-bezier(0.16, 1, 0.3, 1);
+  text-shadow: 0 2px 18px rgba(4, 6, 9, 0.9);
+}
+.rp-flash.buy { color: #34d399; }
+.rp-flash.sell { color: #ff5c7a; }
+.rp-flash.is-shown { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.rp-flash.is-out { opacity: 0; transform: translate(-50%, -30px) scale(1); }
+.rp-flash .cap {
+  margin-left: 9px; font-size: 16px; font-weight: 700;
+  color: rgba(141, 151, 169, 0.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-flash { transition: opacity 240ms ease-out; transform: translate(-50%, 0) !important; }
+  .rp-wash { animation: none; opacity: 0; }
+}
+
+/* sound / fx toggles in the transport */
+.rp-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid rgba(141, 151, 169, 0.18);
+  background: transparent; color: rgba(141, 151, 169, 0.5);
+  cursor: pointer; transition: color 140ms, border-color 140ms;
+}
+.rp-toggle svg { width: 17px; height: 17px; }
+.rp-toggle:hover { color: rgba(141, 151, 169, 0.9); }
+.rp-toggle.is-on { color: #ff9d45; border-color: rgba(255, 157, 69, 0.4); }
+
+/* token identity in the mast */
+.rp-token-icon {
+  width: 22px; height: 22px; border-radius: 50%;
+  margin-right: 8px; vertical-align: -4px;
+  border: 1px solid rgba(141, 151, 169, 0.25);
+}
+.rp-live-price.big b { font-size: 26px; letter-spacing: -0.02em; }
+.rp-live-price .cap-l {
+  display: block; margin-top: 3px;
+  font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(141, 151, 169, 0.6); font-weight: 600;
+}
+.rp-live-price .dim { color: rgba(141, 151, 169, 0.55); font-size: 12px; }

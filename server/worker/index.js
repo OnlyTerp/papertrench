@@ -1953,6 +1953,33 @@ function replayChain(url) {
 }
 
 /** GET /api/replay/history?mint=...&chain=solana — candles + wallet leaderboard. */
+
+/**
+ * The token's name, ticker, image and supply, from Jupiter's free token API.
+ * Supply is what lets the chart draw MARKET CAP instead of a 9-decimal price
+ * nobody can read. Best-effort: a replay without identity still replays.
+ */
+async function tokenIdentity(mint) {
+  try {
+    const res = await fetch(
+      `https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(mint)}`,
+      { signal: AbortSignal.timeout(4000) },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    const t = Array.isArray(rows) && rows.find((r) => r && r.id === mint);
+    if (!t) return null;
+    return {
+      name: typeof t.name === 'string' ? t.name.slice(0, 64) : null,
+      symbol: typeof t.symbol === 'string' ? t.symbol.slice(0, 16) : null,
+      icon: typeof t.icon === 'string' && /^https:\/\//.test(t.icon) ? t.icon : null,
+      supply: Number.isFinite(t.circSupply) && t.circSupply > 0 ? t.circSupply : null,
+    };
+  } catch {
+    return null; // identity is garnish; never let it break the replay
+  }
+}
+
 async function handleReplayHistory(request, env) {
   const url = new URL(request.url);
   const chain = replayChain(url);
@@ -1961,9 +1988,10 @@ async function handleReplayHistory(request, env) {
   if (!replay.isAddress(mint)) return json({ ok: false, reason: 'bad-mint' }, 400);
   const budget = { used: 0, max: 8 };
   try {
-    const [candles, rawTrades] = await Promise.all([
+    const [candles, rawTrades, token] = await Promise.all([
       indeix.ohlcv(env, chain, mint, 0, budget),
       indeix.trades(env, chain, mint, budget, 50),
+      tokenIdentity(mint),
     ]);
     if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
     const byMinute = indeix.candlesByMinute(candles);
@@ -1978,6 +2006,7 @@ async function handleReplayHistory(request, env) {
       ok: true, mint,
       candles: candles.slice(-720),
       leaderboard: lb,
+      token,
     });
   } catch (err) {
     return replayError(err);

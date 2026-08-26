@@ -1,30 +1,112 @@
 /* PaperTrench Replay - the theater player.
  *
- * The chart is TradingView's open-source lightweight-charts (self-hosted in
- * /vendor/lwc.js) - the same engine class the terminals use, so the candles
- * read like a real chart, not a science project. The player lives in a
- * theater overlay that pops over the page; the page itself stays a simple
- * loader + a shelf of recent builds.
- *
- * Honesty rules mirror the server: no invented prices, degraded upstream is
- * said out loud, and an empty board is an empty board.
+ * The chart is TradingView's lightweight-charts (self-hosted /vendor/lwc.js).
+ * The playback model is ported from Trickshot (github.com/nathanliow/trickshot,
+ * MIT) and rebuilt for our wire shape:
+ *   - the current bar FORMS: its close walks open->close on a smoothstep, the
+ *     high/low revealed as it goes - a live candle, not a slideshow tick;
+ *   - a fill washes the chart in its colour and floats its size over the
+ *     screen; a new fill displaces the old label rather than stacking;
+ *   - sound through Web Audio: a till ring for every bar that sold, a fanfare
+ *     each time total PnL climbs another $20K (armed at the opening bar so a
+ *     wallet already up $80K does not open with four blasts);
+ *   - candles denominate in MARKET CAP when supply is known - "$4.1M" reads,
+ *     "0.0000041" does not.
+ * Honesty rules unchanged: no invented prices, degraded upstream said out
+ * loud, an empty board is an empty board.
  */
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
 
+  /* ---------------- constants (Trickshot-calibrated) ---------------- */
+
+  const STEP_MS = 600;           // one bar per 600ms at 1x
+  const SPEEDS = [1, 2, 4, 8];
+  const FLASH_MS = 1400;         // how long a fill label holds the screen
+  const FANFARE_AT = 20000;      // fanfare each time total PnL gains $20K
+  const BAR_SPACING = 9;
+
   let chart = null, candleSeries = null, pnlSeries = null;
-  let state = { candles: [], fills: [], curve: [], board: [], pnl: {}, mint: null, wallet: null };
-  let playIdx = 0, playing = false, timer = null;
-  let speedIdx = 0; const SPEEDS = [1, 2, 4, 8];
+  let state = {
+    candles: [], fills: [], curve: [], board: [], pnl: {},
+    mint: null, wallet: null, token: null, supply: 0,
+  };
+  let capMode = false;           // candles denominated in market cap
+  let playing = false, rafId = null, clipMs = 0, lastFrame = 0;
+  let painted = -1;              // last fully-painted bar (seek guard)
+  let playIdx = 0;               // current bar index
+  let speedIdx = 1;              // default 2x
+  let fanfareTier = 0;           // high-water $20K step already sounded
+  let flashId = 0, flashes = []; // floating fill labels
+  let markers = [];              // precomputed chart markers (all bars)
+  let filledBars = new Set();    // bar indexes that contain fills
   let recording = false, recorder = null, chunks = [], recTimer = null;
-  let fullRange = null;
 
   /* The site is static GitHub Pages - there is no /api on this origin. All
    * API traffic goes to the worker, same origin arena.js uses. Local dev
    * (127.0.0.1 harness) keeps same-origin so mocks can intercept. */
   const API_BASE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname)
     ? '' : 'https://papertrench-api.onerobby.workers.dev';
+
+  /* ---------------- stored toggles ---------------- */
+
+  function storedFlag(key, dflt) {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? dflt : v === '1';
+    } catch { return dflt; }
+  }
+  function storeFlag(key, v) {
+    try { localStorage.setItem(key, v ? '1' : '0'); } catch { /* private */ }
+  }
+  let soundOn = storedFlag('pt-replay-sound', true);
+  let fxOn = storedFlag('pt-replay-fx', true);
+
+  /* ---------------- sound (Web Audio; fails quietly) ---------------- */
+
+  const SFX = { kaching: '/sfx/kaching.mp3', bandos: '/sfx/bandos.mov' };
+  let audioCtx = null, master = null, sfxLoading = null;
+  const sfxBuffers = new Map();
+
+  function audio() {
+    if (audioCtx) return audioCtx;
+    try {
+      audioCtx = new AudioContext();
+      master = audioCtx.createGain();
+      master.gain.value = 0.6;
+      master.connect(audioCtx.destination);
+      return audioCtx;
+    } catch { return null; }
+  }
+  /** Decode both clips once, on a user gesture (build click). */
+  function prepareSfx() {
+    const ctx = audio();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    sfxLoading = sfxLoading || Promise.all(Object.keys(SFX).map(async (cue) => {
+      try {
+        const res = await fetch(SFX[cue]);
+        if (!res.ok) return;
+        sfxBuffers.set(cue, await ctx.decodeAudioData(await res.arrayBuffer()));
+      } catch { /* a clip that will not decode simply never plays */ }
+    }));
+  }
+  /** Fire a cue. Overlapping calls each get their own voice. */
+  function playCue(cue) {
+    if (!soundOn || !audioCtx || !master) return;
+    const buffer = sfxBuffers.get(cue);
+    if (!buffer) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    try {
+      const src = audioCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(master);
+      src.start();
+    } catch { /* the replay carries on silently */ }
+  }
+
+  /* ---------------- parsing + formatting ---------------- */
 
   function parseMint(v) {
     const s = String(v || '').trim();
@@ -38,6 +120,27 @@
   }
   const short = (a) => a ? a.slice(0, 5) + '\u2026' + a.slice(-4) : '';
   const fmtUsd = (v, d = 2) => '$' + Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: d });
+  const trim1 = (n) => n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2);
+  /** $412K, $1.2M - the market-cap / volume convention. */
+  function usdCompact(v) {
+    const a = Math.abs(Number(v) || 0);
+    if (a >= 1e9) return '$' + trim1(a / 1e9) + 'B';
+    if (a >= 1e6) return '$' + trim1(a / 1e6) + 'M';
+    if (a >= 1e3) return '$' + trim1(a / 1e3) + 'K';
+    return '$' + Math.round(a);
+  }
+  /** $1.24M / $61.4K - a cap or price at a glance. */
+  function capLabel(v) {
+    if (!Number.isFinite(v) || v <= 0) return '$0';
+    if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+    return '$' + v.toFixed(0);
+  }
+  function fmtPrice(p) {
+    if (p >= 1) return p >= 10000 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : p.toFixed(p >= 100 ? 1 : 3);
+    return p.toExponential(2);
+  }
 
   async function api(path, params) {
     const q = new URLSearchParams(params).toString();
@@ -75,13 +178,13 @@
   function closeTheater() {
     const t = $('theater');
     if (t.hidden) return;
-    stopTick(); stopRecord();
+    stopPlay(); stopRecord(); clearFlashes();
     t.classList.remove('is-open');
     document.body.style.overflow = '';
     setTimeout(() => { t.hidden = true; }, 220);
   }
 
-  /* ---------------- chart (lightweight-charts) ---------------- */
+  /* ---------------- chart ---------------- */
 
   function ensureChart() {
     if (chart || typeof LightweightCharts === 'undefined') return;
@@ -94,17 +197,22 @@
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: 'rgba(141,151,169,.06)' },
-        horzLines: { color: 'rgba(141,151,169,.06)' },
+        vertLines: { color: 'rgba(255,255,255,.04)' },
+        horzLines: { color: 'rgba(255,255,255,.04)' },
       },
       rightPriceScale: {
-        borderColor: 'rgba(141,151,169,.15)',
-        scaleMargins: { top: 0.08, bottom: 0.18 },
+        borderColor: 'rgba(255,255,255,.08)',
+        scaleMargins: { top: 0.08, bottom: 0.22 },
       },
       timeScale: {
-        borderColor: 'rgba(141,151,169,.15)',
+        borderColor: 'rgba(255,255,255,.08)',
         timeVisible: true, secondsVisible: false,
-        rightOffset: 2, fixLeftEdge: true,
+        /* Fixed spacing with the newest bar mid-chart and room ahead of it -
+         * the way a live chart behaves. fitContent() every frame rescales the
+         * whole range each step, which reads as bars shrinking, not time
+         * passing. */
+        barSpacing: BAR_SPACING,
+        rightOffset: Math.round((el.clientWidth || 900) / BAR_SPACING / 2),
       },
       crosshair: {
         mode: LightweightCharts.CrosshairMode.Magnet,
@@ -117,56 +225,240 @@
       upColor: '#34d399', downColor: '#ff5c7a',
       wickUpColor: 'rgba(52,211,153,.7)', wickDownColor: 'rgba(255,92,122,.7)',
       borderVisible: false,
-      priceFormat: { type: 'price', precision: 10, minMove: 0.0000000001 },
+      priceFormat: { type: 'price', precision: 10, minMove: 1e-10 },
     });
     pnlSeries = chart.addLineSeries({
       priceScaleId: 'pnl',
       color: 'rgba(255,157,69,.95)', lineWidth: 2,
       priceLineVisible: false, lastValueVisible: true,
       crosshairMarkerVisible: false,
-      priceFormat: { type: 'custom', formatter: (v) => fmtUsd(v, 0) },
+      priceFormat: { type: 'custom', formatter: (v) => usdCompact(v) },
     });
-    chart.priceScale('pnl').applyOptions({ visible: false, scaleMargins: { top: 0.55, bottom: 0.03 } });
+    chart.priceScale('pnl').applyOptions({ visible: false, scaleMargins: { top: 0.6, bottom: 0.02 } });
     new ResizeObserver(() => {
       chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
     }).observe(el);
     chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
   }
 
+  /** Market cap when supply is known, price otherwise - set once per build. */
+  function applyDenomination() {
+    if (!candleSeries) return;
+    candleSeries.applyOptions({
+      priceFormat: capMode
+        ? { type: 'custom', formatter: capLabel, minMove: 1 }
+        : { type: 'price', precision: 10, minMove: 1e-10 },
+    });
+  }
+
+  /** Candle value in the axis denomination. */
+  const denom = (v) => capMode ? Number(v) * state.supply : Number(v);
+
   const toBar = (c) => ({
     time: Math.floor(Number(c.ts) / 1000),
-    open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c),
+    open: denom(c.o), high: denom(c.h), low: denom(c.l), close: denom(c.c),
   });
 
-  /** Push the state at playIdx into the chart: visible candles, markers up to
-   * the playhead, and the PnL line stepping alongside. The time range is
-   * pinned to the whole film so bars sweep left-to-right into empty space. */
-  function sync() {
-    if (!chart) return;
-    const visible = state.candles.slice(0, playIdx + 1);
-    candleSeries.setData(visible.map(toBar));
+  /**
+   * The index of the bar a moment falls in, FOUND rather than computed -
+   * nothing assumes even spacing. Returns -1 before the first bar.
+   */
+  function barAt(ts) {
+    const cs = state.candles;
+    if (!cs.length || ts < Number(cs[0].ts)) return -1;
+    let lo = 0, hi = cs.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (Number(cs[mid].ts) <= ts) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
 
-    const curTs = visible.length ? Number(visible[visible.length - 1].ts) + 60000 : 0;
-    const markers = (state.fills || [])
-      .filter((f) => Number(f.ts) < curTs && Number.isFinite(Number(f.priceUsd)))
-      .sort((a, b) => a.ts - b.ts)
-      .map((f) => ({
-        time: Math.floor(Number(f.ts) / 1000),
+  /**
+   * The bar being replayed, part-formed: close walks open->real close on a
+   * smoothstep, high/low revealed as it goes - exactly how a live candle
+   * behaves while trades land in it.
+   */
+  function formingRow(bar, p) {
+    const b = state.candles[bar];
+    const eased = p * p * (3 - 2 * p);
+    const o = denom(b.o), h = denom(b.h), l = denom(b.l), c = denom(b.c);
+    const close = o + (c - o) * eased;
+    return {
+      time: Math.floor(Number(b.ts) / 1000),
+      open: o,
+      high: Math.max(o, close, o + (h - o) * eased),
+      low: Math.min(o, close, o + (l - o) * eased),
+      close,
+    };
+  }
+
+  /**
+   * Put the chart exactly where a moment says it should be. Structural work
+   * (history, markers) only when the bar changes; the forming update runs
+   * every frame.
+   */
+  function seek(bar, p) {
+    const b = state.candles[bar];
+    if (!chart || !b) return;
+    if (painted !== bar) {
+      if (bar > 0 && painted === bar - 1) {
+        candleSeries.update(toBar(state.candles[bar - 1])); // finish the old bar
+      } else {
+        candleSeries.setData(state.candles.slice(0, bar).map(toBar));
+        chart.timeScale().scrollToRealTime();
+      }
+      const t = Math.floor(Number(b.ts) / 1000);
+      candleSeries.setMarkers(markers.filter((m) => m.time <= t));
+      if (state.curve.length) {
+        const pts = state.curve.slice(0, bar + 1)
+          .filter((x) => Number.isFinite(Number(x.total)) && Number.isFinite(Number(x.ts)))
+          .map((x) => ({ time: Math.floor(Number(x.ts) / 1000), value: Number(x.total) }));
+        pnlSeries.setData(pts);
+      }
+      painted = bar;
+      onBarEntered(bar);
+    }
+    candleSeries.update(formingRow(bar, p));
+    chart.timeScale().scrollToRealTime();
+  }
+
+  /* ---------------- fills per bar, markers, effects ---------------- */
+
+  function fillsInBar(bar) {
+    const out = [];
+    for (const f of state.fills || []) {
+      if (barAt(Number(f.ts)) === bar && Number.isFinite(Number(f.usd)) && Number(f.usd) > 0) out.push(f);
+    }
+    return out;
+  }
+
+  /** Precompute chart markers + which bars carry fills, once per build. */
+  function prepareMarks() {
+    filledBars = new Set();
+    const rows = [];
+    for (const f of state.fills || []) {
+      const bar = barAt(Number(f.ts));
+      if (bar < 0) continue;
+      filledBars.add(bar);
+      rows.push({
+        time: Math.floor(Number(state.candles[bar].ts) / 1000),
         position: f.side === 'sell' ? 'aboveBar' : 'belowBar',
         color: f.side === 'sell' ? '#ff5c7a' : '#34d399',
         shape: f.side === 'sell' ? 'arrowDown' : 'arrowUp',
-        text: f.side === 'sell' ? 'S' : 'B',
-      }));
-    candleSeries.setMarkers(markers);
+        text: usdCompact(f.usd),
+        usd: Number(f.usd) || 0,
+      });
+    }
+    /* The space goes to the trades worth reading: the six biggest keep their
+     * label, the rest stay arrows. Ascending time - the library requires it. */
+    const bySize = rows.slice().sort((a, b) => b.usd - a.usd);
+    const labeled = new Set(bySize.slice(0, 6));
+    markers = rows
+      .sort((a, b) => a.time - b.time)
+      .map((m) => ({ time: m.time, position: m.position, color: m.color, shape: m.shape, text: labeled.has(m) ? m.text : '' }));
+  }
 
-    if (state.curve.length) {
-      const pts = state.curve.slice(0, playIdx + 1)
-        .filter((p) => Number.isFinite(Number(p.total)) && Number.isFinite(Number(p.ts)))
-        .map((p) => ({ time: Math.floor(Number(p.ts) / 1000), value: Number(p.total) }));
-      pnlSeries.setData(pts);
-    } else pnlSeries.setData([]);
+  /**
+   * A fill lands: wash the chart, float the number. A new fill pushes the
+   * previous label OUT rather than stacking on it - at 8x a busy wallet lands
+   * fills faster than a label can finish leaving.
+   */
+  function spawnFlashes(bar) {
+    if (!fxOn) return;
+    const inBar = fillsInBar(bar);
+    if (!inBar.length) return;
+    const layer = $('fx');
+    // Whatever is on screen makes way.
+    for (const f of flashes) retireFlash(f, true);
+    flashes = [];
+    const cap = denom(state.candles[bar].c);
+    inBar.slice(0, 3).forEach((f, slot) => {
+      const el = document.createElement('div');
+      const isBuy = f.side !== 'sell';
+      el.className = 'rp-flash ' + (isBuy ? 'buy' : 'sell');
+      el.style.top = (30 + slot * 44) + 'px';
+      el.innerHTML = usdCompact(f.usd) + ' ' + (isBuy ? 'BUY' : 'SELL') +
+        '<span class="cap">(' + capLabel(cap) + (capMode ? ' MC' : '') + ')</span>';
+      layer.appendChild(el);
+      const wash = document.createElement('div');
+      wash.className = 'rp-wash ' + (isBuy ? 'buy' : 'sell');
+      layer.appendChild(wash);
+      setTimeout(() => wash.remove(), 950);
+      const rec = { el, born: Date.now(), gone: false };
+      flashes.push(rec);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-shown')));
+      setTimeout(() => { if (!rec.gone) retireFlash(rec, false); }, FLASH_MS);
+    });
+  }
+  function retireFlash(rec, displaced) {
+    if (rec.gone) return;
+    rec.gone = true;
+    rec.el.classList.add('is-out');
+    setTimeout(() => rec.el.remove(), displaced ? 260 : 700);
+  }
+  function clearFlashes() {
+    for (const f of flashes) { f.gone = true; f.el.remove(); }
+    flashes = [];
+    const layer = $('fx');
+    if (layer) layer.querySelectorAll('.rp-wash').forEach((w) => w.remove());
+  }
 
-    if (fullRange) chart.timeScale().setVisibleRange(fullRange);
+  /** Sound + effects + ledger, once per bar the playhead ENTERS. */
+  function onBarEntered(bar) {
+    spawnFlashes(bar);
+    // A till ring for every bar that sold something - one per bar, or a
+    // router splitting a sale across pools would fire a dozen tills at once.
+    if (fillsInBar(bar).some((f) => f.side === 'sell')) playCue('kaching');
+    const total = Number((state.curve[bar] || {}).total);
+    if (Number.isFinite(total)) {
+      const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
+      if (reached > fanfareTier) { fanfareTier = reached; playCue('bandos'); }
+      else if (reached < fanfareTier) fanfareTier = reached; // re-arm after a dip
+    }
+    ledgerAt(bar); markTape(bar); headlineAt(bar);
+    playIdx = bar;
+    $('scrub').value = bar;
+    $('tlabel').textContent = (bar + 1) + ' / ' + state.candles.length;
+  }
+
+  /* ---------------- frame loop ---------------- */
+
+  function loop(now) {
+    if (!playing) return;
+    const dt = Math.min(now - lastFrame, 100); // a background tab does not fast-forward
+    lastFrame = now;
+    clipMs += dt * SPEEDS[speedIdx];
+    const stepMs = STEP_MS;
+    const exact = clipMs / stepMs;
+    const bar = Math.floor(exact);
+    const last = state.candles.length - 1;
+    if (bar > last) {
+      seek(last, 1);
+      stopPlay();
+      return;
+    }
+    seek(bar, Math.min(exact - bar, 1));
+    rafId = requestAnimationFrame(loop);
+  }
+  function startPlay() {
+    if (playing || !state.candles.length) return;
+    if (playIdx >= state.candles.length - 1) { clipMs = 0; painted = -1; fanfareTier = armTier(0); }
+    playing = true;
+    lastFrame = performance.now();
+    $('ic-play').style.display = 'none'; $('ic-pause').style.display = '';
+    rafId = requestAnimationFrame(loop);
+  }
+  function stopPlay() {
+    playing = false;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    $('ic-play').style.display = ''; $('ic-pause').style.display = 'none';
+  }
+
+  /** The fanfare tier the replay OPENS at - armed, not sounded. */
+  function armTier(bar) {
+    const t = Number((state.curve[bar] || {}).total);
+    return Number.isFinite(t) ? Math.max(Math.floor(t / FANFARE_AT), 0) : 0;
   }
 
   /* ---------------- build ---------------- */
@@ -176,6 +468,7 @@
     const wallet = walletOverride !== undefined ? walletOverride : parseAddr($('wallet').value);
     if (!mint) { setStatus('Enter a valid mint address or pump.fun link.', 'err'); return; }
     if (walletOverride !== undefined) $('wallet').value = walletOverride || '';
+    prepareSfx(); // user gesture: the only moment a browser lets audio start
     setStatus('Rebuilding the chain - first load takes a few seconds\u2026', 'busy');
     $('build').disabled = true;
     try {
@@ -183,6 +476,9 @@
       state.mint = mint;
       state.candles = hist.candles || [];
       state.board = (hist.leaderboard && (hist.leaderboard.top || [])) || [];
+      state.token = hist.token || null;
+      state.supply = (state.token && Number(state.token.supply)) || 0;
+      capMode = state.supply > 0;
       state.wallet = wallet || null;
       if (wallet) {
         const wd = await api('wallet', { mint, wallet, chain: 'solana' });
@@ -191,9 +487,7 @@
         state.pnl = wd.pnl || {};
       } else { state.fills = []; state.curve = []; state.pnl = {}; }
 
-      playIdx = state.candles.length ? state.candles.length - 1 : 0;
-      playing = false; stopTick();
-
+      stopPlay(); clearFlashes();
       openTheater();
       renderTitle(); renderBoard(); renderFills(); renderLedger();
 
@@ -206,23 +500,22 @@
       $('chartMsg').hidden = true;
       setTransport(true);
       $('scrub').max = Math.max(0, state.candles.length - 1);
-      $('scrub').value = playIdx;
-      updateScrub();
 
-      // Establish the full time range once, then sync at the playhead.
       ensureChart();
-      if (chart) {
-        candleSeries.setData(state.candles.map(toBar));
-        chart.timeScale().fitContent();
-        const r = chart.timeScale().getVisibleRange();
-        fullRange = r ? { from: r.from, to: r.to } : null;
-      }
-      sync();
+      applyDenomination();
+      prepareMarks();
+      painted = -1; clipMs = 0; playIdx = 0;
+      fanfareTier = armTier(0);
+      if (chart) { candleSeries.setData([]); pnlSeries.setData([]); candleSeries.setMarkers([]); }
+
       rememberBuild(mint, wallet);
       const qs = new URLSearchParams({ mint });
       if (wallet) qs.set('wallet', wallet);
       history.replaceState(null, '', '/replay?' + qs.toString());
       setStatus('');
+      // The FIRST play always happens - a replay that opens paused on an
+      // empty frame reads as broken.
+      startPlay();
     } catch (e) {
       const reason = typeof e === 'string' ? e : (e && e.message) || '';
       setStatus(FRIENDLY[reason] || ('Build failed: ' + reason), 'err');
@@ -241,7 +534,8 @@
   }
   function rememberBuild(mint, wallet) {
     let shelf = readShelf().filter((s) => !(s.mint === mint && (s.wallet || null) === (wallet || null)));
-    shelf.unshift({ mint, wallet: wallet || null, at: Date.now() });
+    const label = state.token && state.token.symbol ? state.token.symbol : null;
+    shelf.unshift({ mint, wallet: wallet || null, at: Date.now(), sym: label });
     shelf = shelf.slice(0, 8);
     try { localStorage.setItem(SHELF_KEY, JSON.stringify(shelf)); } catch { /* private mode */ }
     renderShelf();
@@ -251,8 +545,9 @@
     $('shelf-head').hidden = !shelf.length;
     $('shelf').innerHTML = shelf.map((s) => {
       const who = s.wallet ? '<span class="w">' + short(s.wallet) + '</span>' : '<span class="w dim">whole cast</span>';
+      const name = s.sym ? '<span class="m">' + String(s.sym).replace(/[<>&"]/g, '') + '</span>' : '<span class="m">' + short(s.mint) + '</span>';
       return '<button type="button" class="rp-reel" data-mint="' + s.mint + '" data-wallet="' + (s.wallet || '') + '">' +
-        '<span class="m">' + short(s.mint) + '</span>' + who + '</button>';
+        name + who + '</button>';
     }).join('');
     $('shelf').querySelectorAll('.rp-reel').forEach((el) => {
       el.addEventListener('click', () => {
@@ -268,16 +563,36 @@
   function renderTitle() {
     const t = $('film-title');
     if (!state.mint) { t.textContent = 'No film loaded'; return; }
+    const tok = state.token;
+    const name = tok && tok.symbol
+      ? '<span class="tkr">' + String(tok.symbol).replace(/[<>&"]/g, '') + '</span><span class="dim"> ' + short(state.mint) + '</span>'
+      : '<span class="tkr">' + short(state.mint) + '</span>';
+    const icon = tok && tok.icon ? '<img class="rp-token-icon" src="' + tok.icon + '" alt="" referrerpolicy="no-referrer">' : '';
     const who = state.wallet ? ' \u00b7 ' + short(state.wallet) : '';
-    t.innerHTML = '<span class="tkr">' + short(state.mint) + '</span>' + who;
+    t.innerHTML = icon + name + who;
+    headlineAt(state.candles.length - 1);
+  }
+
+  /** The big number: wallet total PnL when replaying one, last cap otherwise. */
+  function headlineAt(bar) {
     const lp = $('live-price');
-    const last = state.candles[state.candles.length - 1];
-    if (last && Number.isFinite(last.c)) {
+    if (state.wallet && state.curve.length) {
+      const pt = state.curve[Math.min(bar, state.curve.length - 1)] || {};
+      const total = Number(pt.total);
+      if (Number.isFinite(total)) {
+        const up = total >= 0;
+        lp.className = 'rp-live-price big ' + (up ? 'up' : 'down');
+        lp.innerHTML = '<b>' + (up ? '+' : '\u2212') + usdCompact(Math.abs(total)) + '</b><span class="cap-l">total pnl</span>';
+        return;
+      }
+    }
+    const c = state.candles[Math.min(bar, state.candles.length - 1)];
+    if (c && Number.isFinite(Number(c.c))) {
       const first = state.candles[0];
-      const up = last.c >= (first ? first.o : last.c);
+      const up = Number(c.c) >= Number(first ? first.o : c.c);
       lp.className = 'rp-live-price ' + (up ? 'up' : 'down');
-      lp.innerHTML = 'last <b>' + fmtPrice(last.c) + '</b>';
-    } else { lp.textContent = ''; }
+      lp.innerHTML = (capMode ? 'cap <b>' + capLabel(denom(c.c)) + '</b>' : 'last <b>' + fmtPrice(Number(c.c)) + '</b>');
+    } else lp.textContent = '';
   }
 
   function renderBoard() {
@@ -315,14 +630,11 @@
         '</div>';
       return;
     }
-    const curT = state.candles[Math.min(playIdx, state.candles.length - 1)];
-    const curTs = curT ? Number(curT.ts) + 60000 : Infinity;
     box.innerHTML = list.slice().sort((a, b) => b.ts - a.ts).map((f) => {
       const side = f.side === 'sell' ? 'sell' : 'buy';
-      const future = Number(f.ts) >= curTs ? ' is-future' : '';
       const qty = Number(f.base).toLocaleString('en-US', { maximumFractionDigits: 0 });
       const t = new Date(Number(f.ts)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      return '<div class="rp-fill ' + side + future + '" data-ts="' + f.ts + '">' +
+      return '<div class="rp-fill ' + side + ' is-future" data-ts="' + f.ts + '">' +
         '<span class="chip">' + (side === 'sell' ? 'S' : 'B') + '</span>' +
         '<span class="qty">' + qty + '</span>' +
         '<span class="usd">' + fmtUsd(f.usd) + '</span>' +
@@ -330,14 +642,18 @@
     }).join('');
   }
 
-  function renderLedger() {
-    const p = state.pnl || {};
-    const cells = [
-      ['led-real', p.realized], ['led-unreal', p.unrealized], ['led-total', p.total],
-    ];
+  function renderLedger() { ledgerAt(0); }
+
+  function ledgerAt(bar) {
+    const pt = (state.wallet && state.curve.length)
+      ? state.curve[Math.min(bar, state.curve.length - 1)] || {}
+      : (state.wallet ? state.pnl : {});
+    const cells = [['led-real', pt.realized], ['led-unreal', pt.unrealized], ['led-total', pt.total]];
     for (const [id, v] of cells) {
       const el = $(id);
-      if (!state.wallet || v === undefined || v === null) { el.textContent = '--'; el.className = 'v dim'; continue; }
+      if (!state.wallet || v === undefined || v === null || !Number.isFinite(Number(v))) {
+        el.textContent = '--'; el.className = 'v dim'; continue;
+      }
       const n = Number(v);
       el.textContent = fmtUsd(n);
       el.className = 'v ' + (n >= 0 ? 'up' : 'down');
@@ -347,59 +663,14 @@
     lf.className = 'v ' + (state.wallet ? '' : 'dim');
   }
 
-  function fmtPrice(p) {
-    if (p >= 1) return p >= 10000 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : p.toFixed(p >= 100 ? 1 : 3);
-    return p.toExponential(2);
-  }
-
-  /* ---------------- stepping PnL under the playhead ---------------- */
-
-  function ledgerAtPlayhead() {
-    if (!state.wallet || !state.curve.length) return;
-    const pt = state.curve[Math.min(playIdx, state.curve.length - 1)];
-    if (!pt) return;
-    const cells = [['led-real', pt.realized], ['led-unreal', pt.unrealized], ['led-total', pt.total]];
-    for (const [id, v] of cells) {
-      const el = $(id);
-      if (v === undefined || v === null || !Number.isFinite(Number(v))) { el.textContent = '--'; el.className = 'v dim'; continue; }
-      const n = Number(v);
-      el.textContent = fmtUsd(n);
-      el.className = 'v ' + (n >= 0 ? 'up' : 'down');
-    }
-  }
-
-  function markTapeProgress() {
-    const curT = state.candles[Math.min(playIdx, state.candles.length - 1)];
+  function markTape(bar) {
+    const curT = state.candles[Math.min(bar, state.candles.length - 1)];
     if (!curT) return;
-    const curTs = Number(curT.ts) + 60000;
+    const nextT = state.candles[Math.min(bar + 1, state.candles.length - 1)];
+    const curTs = bar >= state.candles.length - 1 ? Infinity : Number(nextT.ts);
     $('fills').querySelectorAll('.rp-fill').forEach((el) => {
       el.classList.toggle('is-future', Number(el.dataset.ts) >= curTs);
     });
-  }
-
-  /* ---------------- transport ---------------- */
-
-  function frame() { sync(); ledgerAtPlayhead(); updateScrub(); markTapeProgress(); }
-  function tick() {
-    if (!playing) return;
-    if (playIdx < state.candles.length - 1) { playIdx++; frame(); }
-    else stopTick();
-  }
-  function startTick() {
-    if (timer) return;
-    if (playIdx >= state.candles.length - 1) { playIdx = 0; }
-    playing = true;
-    $('ic-play').style.display = 'none'; $('ic-pause').style.display = '';
-    timer = setInterval(tick, 300 / SPEEDS[speedIdx]);
-  }
-  function stopTick() {
-    playing = false;
-    if (timer) { clearInterval(timer); timer = null; }
-    $('ic-play').style.display = ''; $('ic-pause').style.display = 'none';
-  }
-  function updateScrub() {
-    $('scrub').value = playIdx;
-    $('tlabel').textContent = (playIdx + 1) + ' / ' + state.candles.length;
   }
 
   /* ---------------- record (composite canvas at 30fps) ---------------- */
@@ -443,15 +714,35 @@
   $('build').addEventListener('click', () => build());
   $('mint').addEventListener('keydown', (e) => { if (e.key === 'Enter') build(); });
   $('wallet').addEventListener('keydown', (e) => { if (e.key === 'Enter') build(); });
-  $('play').addEventListener('click', () => (playing ? stopTick() : startTick()));
+  $('play').addEventListener('click', () => (playing ? stopPlay() : startPlay()));
   $('scrub').addEventListener('input', (e) => {
-    playIdx = Number(e.target.value);
-    frame();
+    stopPlay();
+    const bar = Number(e.target.value);
+    clipMs = bar * STEP_MS;
+    painted = -1; // scrubbing rebuilds; cheap at these sizes
+    fanfareTier = armTier(bar); // a scrub is not a gain; do not fanfare it
+    clearFlashes();
+    seek(bar, 1);
   });
   $('speed').addEventListener('click', () => {
     speedIdx = (speedIdx + 1) % SPEEDS.length;
     $('speed').textContent = SPEEDS[speedIdx] + 'x';
-    if (playing) { stopTick(); startTick(); }
+  });
+  function paintToggles() {
+    $('sound').classList.toggle('is-on', soundOn);
+    $('sound').setAttribute('aria-pressed', soundOn ? 'true' : 'false');
+    $('fx-toggle').classList.toggle('is-on', fxOn);
+    $('fx-toggle').setAttribute('aria-pressed', fxOn ? 'true' : 'false');
+  }
+  $('sound').addEventListener('click', () => {
+    soundOn = !soundOn; storeFlag('pt-replay-sound', soundOn);
+    if (soundOn) prepareSfx();
+    paintToggles();
+  });
+  $('fx-toggle').addEventListener('click', () => {
+    fxOn = !fxOn; storeFlag('pt-replay-fx', fxOn);
+    if (!fxOn) clearFlashes();
+    paintToggles();
   });
   $('record').addEventListener('click', () => (recording ? stopRecord() : startRecord()));
   $('theater-close').addEventListener('click', closeTheater);
@@ -460,10 +751,12 @@
     if (e.key === 'Escape' && !$('theater').hidden) closeTheater();
     else if (e.key === ' ' && !$('theater').hidden && !$('play').disabled &&
       !/INPUT|BUTTON/.test(document.activeElement.tagName)) {
-      e.preventDefault(); (playing ? stopTick() : startTick());
+      e.preventDefault(); (playing ? stopPlay() : startPlay());
     }
   });
 
+  paintToggles();
+  $('speed').textContent = SPEEDS[speedIdx] + 'x';
   renderShelf();
 
   // Deep link: /replay?mint=...&wallet=... builds on arrival.
