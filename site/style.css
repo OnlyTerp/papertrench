@@ -1060,7 +1060,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   display: grid;
   grid-template-columns: 3.2rem minmax(0, 1fr);
   gap: 8px 16px;
-  padding: 1.35rem 0 1.45rem;
+  padding: 1.05rem 0 1.1rem;
   border-bottom: 1px solid var(--line);
 }
 .home-rail .n {
@@ -1095,7 +1095,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   padding-bottom: 6.5rem;
   border-top: 1px solid var(--line);
 }
-.home-end h2 { max-width: 18ch; }
+.home-end h2 { max-width: 18em; }
 
 @media (max-width: 767px) {
   .home-ledger, .home-install, .home-end { padding: 3.5rem 0 3.25rem; }
