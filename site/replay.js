@@ -27,7 +27,8 @@
   const FANFARE_AT = 20000;      // fanfare each time total PnL gains $20K
   const BAR_SPACING = 9;
 
-  let chart = null, candleSeries = null, pnlSeries = null;
+  let chart = null, candleSeries = null, pnlSeries = null, volSeries = null, basisSeries = null;
+  let basisPoints = [];           // avg-cost line, precomputed per build
   let state = {
     candles: [], fills: [], curve: [], board: [], pnl: {},
     mint: null, wallet: null, token: null, supply: 0,
@@ -257,6 +258,25 @@
       borderVisible: false,
       priceFormat: { type: 'price', precision: 10, minMove: 1e-10 },
     });
+    // Volume histogram along the floor - the texture every serious chart has.
+    // Its own hidden scale; candles keep the right axis to themselves.
+    volSeries = chart.addHistogramSeries({
+      priceScaleId: 'vol',
+      priceFormat: { type: 'volume' },
+      priceLineVisible: false, lastValueVisible: false,
+    });
+    chart.priceScale('vol').applyOptions({ visible: false, scaleMargins: { top: 0.82, bottom: 0 } });
+    // The wallet's average cost, as a line the price crosses: every candle
+    // above it is unrealized profit, every sell above it a booked win. Drawn
+    // only when a wallet with priced buys is loaded.
+    basisSeries = chart.addLineSeries({
+      color: 'rgba(251,191,36,.85)', lineWidth: 1,
+      lineStyle: 2 /* dashed */,
+      priceLineVisible: false, lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      title: 'avg cost',
+      priceFormat: { type: 'custom', formatter: (v) => capMode ? capLabel(v) : fmtPrice(v) },
+    });
     pnlSeries = chart.addLineSeries({
       priceScaleId: 'pnl',
       color: 'rgba(255,157,69,.95)', lineWidth: 2,
@@ -323,6 +343,16 @@
     };
   }
 
+  /** Volume row for a bar, tinted by the bar's direction, dimmed history. */
+  function toVol(c) {
+    const up = Number(c.c) >= Number(c.o);
+    return {
+      time: Math.floor(Number(c.ts) / 1000),
+      value: Number(c.v) || 0,
+      color: up ? 'rgba(52,211,153,.28)' : 'rgba(255,92,122,.28)',
+    };
+  }
+
   /**
    * Put the chart exactly where a moment says it should be. Structural work
    * (history, markers) only when the bar changes; the forming update runs
@@ -334,12 +364,15 @@
     if (painted !== bar) {
       if (bar > 0 && painted === bar - 1) {
         candleSeries.update(toBar(state.candles[bar - 1])); // finish the old bar
+        volSeries.update(toVol(state.candles[bar - 1]));
       } else {
         candleSeries.setData(state.candles.slice(0, bar).map(toBar));
+        volSeries.setData(state.candles.slice(0, bar).map(toVol));
         chart.timeScale().scrollToRealTime();
       }
       const t = Math.floor(Number(b.ts) / 1000);
       candleSeries.setMarkers(markers.filter((m) => m.time <= t));
+      basisSeries.setData(basisPoints.filter((x) => x.time <= t));
       if (state.curve.length) {
         const pts = state.curve.slice(0, bar + 1)
           .filter((x) => Number.isFinite(Number(x.total)) && Number.isFinite(Number(x.ts)))
@@ -350,6 +383,7 @@
       onBarEntered(bar);
     }
     candleSeries.update(formingRow(bar, p));
+    volSeries.update(toVol(b));
     chart.timeScale().scrollToRealTime();
   }
 
@@ -399,6 +433,31 @@
     markers = rows
       .sort((a, b) => a.time - b.time)
       .map((m) => ({ time: m.time, position: m.position, color: m.color, shape: m.shape, text: labeled.has(m) ? m.text : '' }));
+
+    // Average cost per bar, for the basis line: fold fills up to each bar
+    // once (O(n) - walk fills and bars together), price = costUsd/qty while
+    // the wallet holds. Zero-position bars carry no line.
+    basisPoints = [];
+    if (window.ReplayCore && inOrder.length && state.wallet) {
+      let fi = 0, qty = 0, cost = 0;
+      for (const c of state.candles) {
+        const barEnd = Number(c.ts) + 60000;
+        while (fi < inOrder.length && Number(inOrder[fi].ts) < barEnd) {
+          const f = inOrder[fi++];
+          const b = Number(f.base) || 0, u = Number(f.usd) || 0;
+          if (f.side === 'sell') {
+            const avg = qty > 0 ? cost / qty : 0;
+            const sold = Math.min(b, qty);
+            qty -= sold; cost -= sold * avg;
+            if (qty <= 1e-9) { qty = 0; cost = 0; }
+          } else { qty += b; cost += u; }
+        }
+        if (qty > 1e-9 && cost > 0) {
+          const px = cost / qty;
+          basisPoints.push({ time: Math.floor(Number(c.ts) / 1000), value: capMode ? px * state.supply : px });
+        }
+      }
+    }
   }
 
   /**
@@ -444,69 +503,90 @@
     }
   }
 
-  /** Chart-space anchor for a bar: x from the time scale, y above the high. */
+  /** Chart-space anchor for a bar: x from the time scale, y above the high.
+   * Clamped to the PANE - the drawable area left of the price axis - so a
+   * label never covers the axis or hangs off an edge. */
   function barAnchor(bar) {
     try {
       const b = state.candles[bar];
       const x = chart.timeScale().timeToCoordinate(Math.floor(Number(b.ts) / 1000));
       const y = candleSeries.priceToCoordinate(denom(b.h));
       if (x === null || y === null) return null;
-      return { x, y };
+      const wrap = $('rp-chart-wrap');
+      let axisW = 56;
+      try { axisW = chart.priceScale('right').width() || 56; } catch { /* keep guess */ }
+      const paneW = (wrap.clientWidth || 900) - axisW;
+      const paneH = wrap.clientHeight || 500;
+      return {
+        x: Math.min(Math.max(x, 60), paneW - 60),
+        y: Math.min(Math.max(y, 46), paneH - 60),
+      };
     } catch { return null; }
   }
 
   /**
    * The number that matters, where it happened: "+$1.2K" springs out of the
-   * sell bar and drifts up. Falls back to top-center when the bar is off the
-   * visible range (scrolled away at high speed).
+   * sell bar and drifts up. Anchored one frame LATE - the chart scrolls to
+   * real time after the bar paints, and an anchor read before that settles
+   * lands a bar-width to the right of the candle it belongs to. Only one
+   * bubble lives at a time; a new sell displaces the old (8x tapes land
+   * sells faster than a 1.9s drift can finish).
    */
+  let liveBubble = null;
   function spawnPnlBubble(bar, realized) {
-    const layer = $('fx');
-    const el = document.createElement('div');
-    const up = realized >= 0;
-    el.className = 'rp-pnl-pop ' + (up ? 'up' : 'down');
-    el.textContent = (up ? '+' : '\u2212') + usdCompact(Math.abs(realized));
-    const a = barAnchor(bar);
-    if (a) {
-      el.style.left = a.x + 'px';
-      el.style.top = Math.max(a.y - 14, 12) + 'px';
-    } else {
-      el.style.left = '50%';
-      el.style.top = '18px';
-    }
-    layer.appendChild(el);
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-live')));
-    setTimeout(() => el.remove(), 1900);
+    requestAnimationFrame(() => {
+      if (liveBubble) { liveBubble.remove(); liveBubble = null; }
+      const layer = $('fx');
+      const el = document.createElement('div');
+      const up = realized >= 0;
+      el.className = 'rp-pnl-pop ' + (up ? 'up' : 'down');
+      el.textContent = (up ? '+' : '\u2212') + usdCompact(Math.abs(realized));
+      const a = barAnchor(bar);
+      if (a) {
+        el.style.left = a.x + 'px';
+        el.style.top = a.y + 'px';
+      } else {
+        el.style.left = '50%';
+        el.style.top = '18%';
+      }
+      layer.appendChild(el);
+      liveBubble = el;
+      requestAnimationFrame(() => el.classList.add('is-live'));
+      setTimeout(() => { if (liveBubble === el) liveBubble = null; el.remove(); }, 1900);
+    });
   }
 
   /**
    * Confetti for a green sell. DOM particles, ~26 of them, one-shot;
    * transform+opacity only so the compositor does the work. Count scales
    * gently with the win so a $50 scalp doesn't celebrate like a $50K exit.
+   * Same one-frame delay as the bubble: they must agree on the origin.
    */
   function spawnConfetti(bar, realized) {
-    const layer = $('fx');
-    const a = barAnchor(bar);
-    const wrap = $('rp-chart-wrap');
-    const ox = a ? a.x : wrap.clientWidth / 2;
-    const oy = a ? Math.max(a.y, 20) : 40;
-    const n = Math.min(18 + Math.floor(Math.log10(Math.max(realized, 10)) * 8), 46);
-    const colors = ['#34d399', '#a7f3d0', '#fbbf24', '#f9fafb', '#6ee7b7'];
-    for (let i = 0; i < n; i++) {
-      const p = document.createElement('div');
-      p.className = 'rp-confetti';
-      const ang = (Math.random() * Math.PI) - Math.PI / 2 - Math.PI / 2; // up half
-      const v = 60 + Math.random() * 150;
-      p.style.background = colors[i % colors.length];
-      p.style.left = ox + 'px';
-      p.style.top = oy + 'px';
-      p.style.setProperty('--dx', (Math.cos(ang) * v).toFixed(0) + 'px');
-      p.style.setProperty('--dy', (Math.sin(ang) * v - 40).toFixed(0) + 'px');
-      p.style.setProperty('--rot', (Math.random() * 720 - 360).toFixed(0) + 'deg');
-      p.style.animationDelay = (Math.random() * 120) + 'ms';
-      layer.appendChild(p);
-      setTimeout(() => p.remove(), 1500);
-    }
+    requestAnimationFrame(() => {
+      const layer = $('fx');
+      const a = barAnchor(bar);
+      const wrap = $('rp-chart-wrap');
+      const ox = a ? a.x : wrap.clientWidth / 2;
+      const oy = a ? a.y : 40;
+      const n = Math.min(18 + Math.floor(Math.log10(Math.max(realized, 10)) * 8), 46);
+      const colors = ['#34d399', '#a7f3d0', '#fbbf24', '#f9fafb', '#6ee7b7'];
+      for (let i = 0; i < n; i++) {
+        const p = document.createElement('div');
+        p.className = 'rp-confetti';
+        const ang = (Math.random() * Math.PI) - Math.PI / 2 - Math.PI / 2; // up half
+        const v = 60 + Math.random() * 150;
+        p.style.background = colors[i % colors.length];
+        p.style.left = ox + 'px';
+        p.style.top = oy + 'px';
+        p.style.setProperty('--dx', (Math.cos(ang) * v).toFixed(0) + 'px');
+        p.style.setProperty('--dy', (Math.sin(ang) * v - 40).toFixed(0) + 'px');
+        p.style.setProperty('--rot', (Math.random() * 720 - 360).toFixed(0) + 'deg');
+        p.style.animationDelay = (Math.random() * 120) + 'ms';
+        layer.appendChild(p);
+        setTimeout(() => p.remove(), 1500);
+      }
+    });
   }
   function retireFlash(rec, displaced) {
     if (rec.gone) return;
@@ -689,10 +769,22 @@
 
       ensureChart();
       applyDenomination();
+      // The token's ticker, huge and faint behind the candles - the theater
+      // marquee. Built-in LWC watermark: zero DOM, scales with the pane.
+      chart.applyOptions({
+        watermark: {
+          visible: !!(state.token && state.token.symbol),
+          text: state.token && state.token.symbol ? String(state.token.symbol).toUpperCase() : '',
+          color: 'rgba(255,255,255,.045)',
+          fontSize: 96,
+          fontFamily: '"Space Grotesk", system-ui, sans-serif',
+          horzAlign: 'center', vertAlign: 'center',
+        },
+      });
       prepareMarks();
       painted = -1; clipMs = 0; playIdx = 0;
       fanfareTier = armTier(0);
-      if (chart) { candleSeries.setData([]); pnlSeries.setData([]); candleSeries.setMarkers([]); }
+      if (chart) { candleSeries.setData([]); pnlSeries.setData([]); volSeries.setData([]); basisSeries.setData([]); candleSeries.setMarkers([]); }
 
       rememberBuild(mint, wallet);
       const qs = new URLSearchParams({ mint });
