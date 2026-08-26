@@ -336,12 +336,15 @@
       const on = v.getAttribute('data-film') === key;
       if (on && !still && stageIn) {
         ensureSrc(v);
-        const arm = () => {
+        const show = () => {
           films.forEach((x) => x.classList.toggle('is-on', x === v));
-          const p = v.play(); if (p && p.catch) p.catch(() => {});
         };
-        if (v.readyState >= 2) arm();
-        else v.addEventListener('loadeddata', arm, { once: true });
+        if (v.readyState >= 2) show();
+        else {
+          v.addEventListener('playing', show, { once: true });
+          v.addEventListener('loadeddata', show, { once: true });
+        }
+        const p = v.play(); if (p && p.catch) p.catch(() => {});
       } else {
         v.pause();
       }

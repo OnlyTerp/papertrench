@@ -9,11 +9,7 @@
   const onScreen = new Set();
   const playIfOn = (v) => {
     if (!v.getAttribute('src') && v.dataset.src) v.src = v.dataset.src;
-    const arm = () => {
-      const p = v.play(); if (p && p.catch) p.catch(() => {});
-    };
-    if (v.readyState >= 2) arm();
-    else v.addEventListener('loadeddata', arm, { once: true });
+    const p = v.play(); if (p && p.catch) p.catch(() => {});
   };
   const io = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
