@@ -99,11 +99,23 @@
 
   if (!still && window.gsap) {
     var gsap = window.gsap;
+    if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
     var tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
     tl.from('.lt-film.is-on', { scale: 1.08, duration: 1.7, ease: 'power2.out', clearProps: 'transform' }, 0)
       .from('.lt-hero > *', { y: 28, duration: 0.85, stagger: 0.08, clearProps: 'transform' }, 0.08);
     if (hoverFine) {
       tl.from('.lt-door', { y: 36, duration: 0.7, stagger: 0.06, clearProps: 'transform' }, 0.22);
+    }
+    if (window.ScrollTrigger) {
+      gsap.timeline({
+        scrollTrigger: { trigger: '.lt-proof', start: 'top 82%' }
+      }).from('.lt-proof h2, .lt-proof p, .lt-proof-dl', {
+        y: 36,
+        duration: 0.85,
+        stagger: 0.08,
+        ease: 'power3.out',
+        clearProps: 'transform'
+      });
     }
   }
 

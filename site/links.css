@@ -205,9 +205,9 @@ button:focus-visible {
   line-height: 1.4;
   color: var(--muted);
 }
-.lt-lede-m,
-.lt-pick-h,
-.lt-pick-sub { display: none; }
+.lt-pick { display: contents; }
+.lt-pick-line { display: none; }
+.lt-proof-dl { margin-top: 1.75rem; }
 
 .lt-ctas {
   display: flex;
@@ -343,28 +343,28 @@ button:focus-visible {
 
 /* ---------- proof (editorial, not cards) ---------- */
 .lt-proof {
-  padding: 7.5rem 4vw 5.5rem;
+  padding: 8.5rem 4vw 6rem;
   max-width: 1400px;
   scroll-margin-top: 72px;
 }
 .lt-proof h2 {
-  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  font-size: clamp(3rem, 8vw, 6.4rem);
   font-weight: 800;
-  letter-spacing: -0.045em;
-  line-height: 0.95;
+  letter-spacing: -0.05em;
+  line-height: 0.92;
 }
 .lt-proof p {
-  margin-top: 1.4rem;
-  max-width: 32ch;
-  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  margin-top: 1.6rem;
+  max-width: 28ch;
+  font-size: clamp(1.2rem, 2.1vw, 1.65rem);
   font-weight: 500;
   line-height: 1.35;
   color: var(--muted);
 }
 
-/* ---------- follow (inline rail) ---------- */
+/* ---------- follow (index list) ---------- */
 .lt-follow {
-  padding: 0 4vw 5.5rem;
+  padding: 0 4vw 6rem;
   max-width: 1400px;
 }
 .lt-follow h2 {
@@ -373,20 +373,21 @@ button:focus-visible {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--dim);
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
 }
 .lt-follow ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 28px;
+  gap: 8px 2.5rem;
 }
 .lt-follow a {
   display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  align-items: baseline;
+  gap: 12px;
+  font-size: clamp(1.45rem, 3.2vw, 2.6rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.15;
 }
 .lt-follow a:hover { color: var(--orange); }
 .lt-follow small {
@@ -399,11 +400,13 @@ button:focus-visible {
 
 /* ---------- $PT rail ---------- */
 .lt-ca {
-  margin: 0 4vw 4rem;
-  max-width: 1400px;
-  padding: 1.25rem 1.35rem 1.15rem;
-  border: 1px solid var(--line);
-  border-radius: var(--rail);
+  margin: 0 0 0;
+  max-width: none;
+  padding: 1.75rem 4vw 1.5rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   background: #0c1017;
 }
 .lt-ca-row {
@@ -441,9 +444,9 @@ button:focus-visible {
 
 .lt-ca-addr {
   display: block;
-  margin-top: 10px;
+  margin-top: 12px;
   font-family: var(--mono);
-  font-size: clamp(11px, 1.5vw, 14px);
+  font-size: clamp(13px, 1.7vw, 1.15rem);
   line-height: 1.4;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -467,8 +470,8 @@ button:focus-visible {
 }
 
 .lt-foot {
-  padding: 0 4vw 3rem;
-  max-width: 1400px;
+  padding: 2.5rem 4vw 3rem;
+  max-width: none;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -479,27 +482,27 @@ button:focus-visible {
 .lt-foot-links { display: flex; gap: 16px; }
 .lt-foot-links a:hover { color: var(--ink); }
 
-/* ---------- mobile ---------- */
+/* ---------- mobile: film quad, not a form ---------- */
 @media (max-width: 767px) {
   body.lt { overflow-x: clip; }
 
   .lt-top {
-    height: calc(56px + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) 16px 10px 16px;
+    height: calc(52px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 14px 8px 14px;
     align-items: flex-end;
   }
   .lt-brand span { display: none; }
   .lt-top nav {
     position: absolute;
-    right: 20px;
-    bottom: 10px;
+    right: 14px;
+    bottom: 8px;
     gap: 8px;
   }
   .lt-top nav a:not(.is-priority):not(.lt-pt) { display: none; }
   .lt-top nav a.is-priority {
     display: inline-flex;
     align-items: center;
-    height: 32px;
+    height: 30px;
     padding: 0 12px;
     border-radius: var(--pill);
     background: var(--orange);
@@ -509,96 +512,80 @@ button:focus-visible {
   .lt-pt {
     display: inline-flex;
     align-items: center;
-    height: 32px;
+    height: 30px;
     padding: 0 10px;
     border-radius: var(--pill);
     border: 1px solid rgba(255, 157, 69, 0.45);
-    font-size: 13px;
+    font-size: 12px;
   }
   .lt-stamp { display: none; }
 
   .lt-veil {
     background:
-      linear-gradient(180deg, rgba(7, 9, 14, 0.78) 0%, rgba(7, 9, 14, 0.38) 32%, rgba(7, 9, 14, 0.22) 52%, rgba(7, 9, 14, 0.82) 100%);
+      linear-gradient(180deg, rgba(7, 9, 14, 0.82) 0%, rgba(7, 9, 14, 0.42) 28%, rgba(7, 9, 14, 0.18) 48%, rgba(7, 9, 14, 0.55) 100%);
   }
 
   .lt-stage {
     display: flex;
     flex-direction: column;
     grid-template-rows: none;
-    justify-content: flex-start;
     min-height: 100dvh;
-    height: auto;
+    height: 100dvh;
     padding-bottom: 0;
-    gap: 10px;
+    gap: 0;
   }
 
   .lt-hero {
     flex: 0 0 auto;
-    padding: calc(3.7rem + env(safe-area-inset-top, 0px)) 16px 0;
+    z-index: 6;
+    padding: calc(3.25rem + env(safe-area-inset-top, 0px)) 16px 0.5rem;
     max-width: none;
   }
   .lt-hero h1 {
-    font-size: 2.2rem;
-    line-height: 0.92;
-    letter-spacing: -0.05em;
+    font-size: clamp(2.15rem, 10vw, 2.55rem);
+    line-height: 0.9;
+    letter-spacing: -0.055em;
   }
-  .lt-l2 { font-size: 0.84em; }
-  .lt-lede { display: none; }
-  .lt-lede-m {
+  .lt-l2 { font-size: 0.86em; }
+  .lt-lede,
+  .lt-ctas { display: none; }
+  .lt-pick-line {
     display: block;
-    margin-top: 0.65rem;
-    max-width: 28ch;
-    font-size: 0.92rem;
-    font-weight: 500;
-    line-height: 1.35;
-    color: var(--ink);
+    margin-top: 0.45rem;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--orange);
   }
-  .lt-ctas { margin-top: 0.85rem; }
-  .lt-btn { justify-content: center; width: 100%; height: 44px; }
-  .lt-btn-ghost { display: none; }
 
   .lt-pick {
-    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     z-index: 5;
-    flex: 0 0 auto;
-    margin-top: 0;
-    padding: 0.35rem 16px max(16px, env(safe-area-inset-bottom, 0px));
-  }
-  .lt-pick-h {
-    display: block;
-    margin: 0 0 0.2rem;
-    font-size: 1.15rem;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-  }
-  .lt-pick-sub {
-    display: block;
-    margin: 0 0 0.7rem;
-    max-width: 34ch;
-    font-size: 0.8rem;
-    font-weight: 500;
-    line-height: 1.35;
-    color: var(--muted);
+    padding: 0 10px 18px;
   }
 
   .lt-doors {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    grid-template-rows: 1fr 1fr;
+    flex: 1 1 auto;
+    gap: 6px;
     height: auto;
     min-height: 0;
     max-height: none;
     padding: 0;
-    overflow: visible;
+    overflow: hidden;
   }
   .lt-door {
     flex: none;
     width: auto;
     height: auto;
     min-height: 0;
-    aspect-ratio: 1.05 / 1;
-    border-radius: var(--rail);
+    aspect-ratio: auto;
+    border-radius: 10px;
   }
   .lt-door.is-on,
   .lt-door:hover,
@@ -609,19 +596,14 @@ button:focus-visible {
   .lt-door-meta {
     left: 10px;
     right: 10px;
-    bottom: 10px;
+    bottom: 8px;
     flex-direction: column;
     align-items: flex-start;
+    justify-content: flex-end;
     gap: 6px;
   }
-  .lt-door-meta b { font-size: 1.05rem; }
-  .lt-door-go {
-    opacity: 1;
-    transform: none;
-    height: 26px;
-    padding: 0 9px;
-    font-size: 10px;
-  }
+  .lt-door-meta b { font-size: 1.1rem; }
+  .lt-door-go { display: none; }
 
   .lt-proof,
   .lt-follow,
@@ -630,13 +612,11 @@ button:focus-visible {
     padding-left: max(20px, env(safe-area-inset-left));
     padding-right: max(20px, env(safe-area-inset-right));
   }
-  .lt-ca {
-    margin-left: max(20px, env(safe-area-inset-left));
-    margin-right: max(20px, env(safe-area-inset-right));
-  }
+  .lt-ca { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
   .lt-proof { padding-top: 4.5rem; padding-bottom: 3.5rem; }
-  .lt-proof p { max-width: 28ch; }
-  .lt-follow a { min-height: 44px; }
+  .lt-proof h2 { font-size: clamp(2.6rem, 14vw, 4rem); }
+  .lt-proof-dl { width: 100%; justify-content: center; }
+  .lt-follow a { min-height: 48px; font-size: 1.55rem; }
   .lt-copy-btn { height: 44px; padding: 0 18px; }
   .lt-ca-addr { font-size: 13px; }
 }
