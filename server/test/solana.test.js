@@ -47,6 +47,19 @@ test('decodeFill: a buy = tokens in, SOL out', () => {
   assert.strictEqual(f.ts, 1787726767000, 'blockTime seconds -> ms');
 });
 
+test('decodeFill: USDC counter-leg is dollars (zero SOL moved)', () => {
+  // Live shape 8/26: CATE tape's top trader swapped token<->USDC with no
+  // native SOL delta at all - the old decoder called that a transfer and the
+  // whole ledger showed $0. The USDC delta IS the dollar price.
+  const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const tx = mkTx({ tokenPre: 0, tokenPost: 5708 });
+  tx.meta.preTokenBalances.push({ accountIndex: 5, owner: W, mint: USDC, uiTokenAmount: { uiAmount: 500 } });
+  tx.meta.postTokenBalances.push({ accountIndex: 5, owner: W, mint: USDC, uiTokenAmount: { uiAmount: 92.43 } });
+  const f = solana.decodeFill(tx, W, M);
+  assert.strictEqual(f.side, 'buy');
+  assert.ok(Math.abs(f.stableUsd - 407.57) < 0.01, `USDC leg priced (got ${f.stableUsd})`);
+});
+
 test('decodeFill: a sell = tokens out, SOL in', () => {
   const tx = mkTx({ tokenPre: 31.0004, tokenPost: 0, solPre: 4.977e9, solPost: 4.999e9 });
   const f = solana.decodeFill(tx, W, M);

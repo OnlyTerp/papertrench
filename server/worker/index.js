@@ -2053,8 +2053,11 @@ async function handleReplayWallet(request, env) {
     const fills = [];
     for (const f of chainLane.fills || []) {
       let usd = 0;
-      const bar = byMinute.get(Math.floor(f.ts / 60000) * 60000);
-      if (bar && bar.c > 0) usd = f.base * bar.c;
+      if (f.stableUsd > 0.01) usd = f.stableUsd; // USDC/USDT leg IS dollars, any era
+      if (!(usd > 0)) {
+        const bar = byMinute.get(Math.floor(f.ts / 60000) * 60000);
+        if (bar && bar.c > 0) usd = f.base * bar.c;
+      }
       if (!(usd > 0) && f.solLamports > 0 && solUsd > 0 && (now - f.ts) < SPOT_HONEST_MS) {
         usd = Math.abs(f.solLamports / 1e9) * solUsd;
       }

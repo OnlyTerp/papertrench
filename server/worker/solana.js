@@ -102,17 +102,36 @@ function decodeFill(tx, wallet, mint) {
   // Counter leg: the wallet's native SOL delta (fees included) plus any WSOL
   // token delta - swaps route through either. Fees are part of the price a
   // trader actually paid, so leaving them in is honest for PnL purposes.
+  // USDC/USDT counter-legs are dollars outright (live 8/26: the CATE tape's
+  // top trader swapped vs USDC with ZERO native SOL movement).
   const msg = tx.transaction && tx.transaction.message;
   const keys = ((msg && msg.accountKeys) || []).map((k) => (typeof k === 'string' ? k : k.pubkey));
   const wi = keys.indexOf(wallet);
   let solDelta = wi >= 0 ? (meta.postBalances[wi] - meta.preBalances[wi]) / 1e9 : 0;
-  for (const b of meta.postTokenBalances || []) {
-    if (b.owner === wallet && b.mint === WSOL) {
-      const pre = (meta.preTokenBalances || []).find((p) => p.accountIndex === b.accountIndex);
-      solDelta += Number((b.uiTokenAmount && b.uiTokenAmount.uiAmount) || 0)
-        - Number(((pre || {}).uiTokenAmount || {}).uiAmount || 0);
+  const STABLES = [
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  ];
+  const deltaFor = (mintAddr) => {
+    let d = 0;
+    for (const b of meta.postTokenBalances || []) {
+      if (b.owner === wallet && b.mint === mintAddr) {
+        const pre = (meta.preTokenBalances || []).find((p) => p.accountIndex === b.accountIndex);
+        d += Number((b.uiTokenAmount && b.uiTokenAmount.uiAmount) || 0)
+          - Number(((pre || {}).uiTokenAmount || {}).uiAmount || 0);
+      }
     }
-  }
+    for (const p of meta.preTokenBalances || []) {
+      if (p.owner === wallet && p.mint === mintAddr
+        && !(meta.postTokenBalances || []).some((b) => b.accountIndex === p.accountIndex)) {
+        d -= Number((p.uiTokenAmount || {}).uiAmount || 0);
+      }
+    }
+    return d;
+  };
+  let stableUsd = 0;
+  for (const sm of STABLES) stableUsd += Math.abs(deltaFor(sm));
+  solDelta += deltaFor(WSOL);
 
   const ts = Number(tx.blockTime || 0) * 1000;
   if (!(ts > 0)) return null;
@@ -121,6 +140,7 @@ function decodeFill(tx, wallet, mint) {
     side: tokenDelta > 0 ? 'buy' : 'sell',
     base: Math.abs(tokenDelta),
     solDelta, // signed; buy is negative (SOL out)
+    stableUsd, // absolute USDC/USDT counter-leg, already dollars
     sig: (tx.transaction.signatures || [])[0] || '',
   };
 }
@@ -162,7 +182,7 @@ async function walletFills(wallet, mint, budget, solUsdAt, txCap = 25) {
     const f = decodeFill(tx, wallet, mint);
     if (!f) continue;
     const solUsd = solUsdAt ? solUsdAt(f.ts) : 0;
-    const counterUsd = Math.abs(f.solDelta) * (solUsd || 0);
+    const counterUsd = f.stableUsd > 0.01 ? f.stableUsd : Math.abs(f.solDelta) * (solUsd || 0);
     fills.push({
       ts: f.ts,
       wallet,
@@ -170,7 +190,8 @@ async function walletFills(wallet, mint, budget, solUsdAt, txCap = 25) {
       base: f.base,
       usd: counterUsd, // 0 when no SOL mark; core prices from the bar then
       solLamports: Math.round(Math.abs(f.solDelta) * 1e9),
-      isTransfer: Math.abs(f.solDelta) < 1e-6, // no counter leg moved
+      stableUsd: f.stableUsd || 0,
+      isTransfer: Math.abs(f.solDelta) < 1e-6 && !(f.stableUsd > 0.01), // no counter leg moved
       priceUsd: counterUsd > 0 && f.base > 0 ? counterUsd / f.base : null,
       mint,
       sig: f.sig,
