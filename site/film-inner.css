@@ -1,7 +1,7 @@
 /* Inner-page film language. Loaded after style.css.
    Homepage /links already speak this; every other public URL must too. */
 
-.home-stage, .home-ch, .film-mast, .lost-stage, .film-end { padding: 0; }
+.home-stage, .home-ch, .home-work, .home-end, .try, .film-mast, .lost-stage, .film-end { padding: 0; }
 
 .film-mast {
   position: relative;
@@ -102,6 +102,8 @@
   overflow: hidden;
   padding: 0;
   border: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 720px;
 }
 .film-end::before {
   content: "";
@@ -124,13 +126,15 @@
   font-size: clamp(2.2rem, 5.4vw, 4.2rem);
   letter-spacing: -0.05em; line-height: 0.94; margin: 0 0 0.8rem;
   max-width: 16ch;
+  color: var(--text);
 }
 .film-end p { max-width: 36ch; color: var(--muted); }
 .film-end .hero-ctas { margin-top: 1.5rem; }
+.film-end .btn-primary { background: var(--orange); color: #1a0c00; }
 @media (max-width: 767px) {
-  .film-end { min-height: 62dvh; }
+  .film-end { min-height: 72dvh; }
   .film-end .wrap { padding: 3.5rem 16px 2.5rem; }
-  .film-end h2 { font-size: clamp(2rem, 9vw, 2.5rem); max-width: none; }
+  .film-end h2 { font-size: clamp(2.2rem, 9vw, 2.8rem); max-width: none; }
 }
 
 .lost-stage {
@@ -245,4 +249,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .film-mast-bg video { display: none; }
+  .film-mast, .film-mast-copy, .film-end, .film-end .wrap, .lost-copy,
+  .film-end .wrap > * {
+    opacity: 1;
+    transform: none;
+  }
 }

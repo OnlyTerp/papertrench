@@ -51,7 +51,7 @@
   <div class="home-veil" aria-hidden="true"></div>
   <div class="home-copy">
     <h1>Paper<br>the trench.</h1>
-    <p class="lede">Chrome overlay on the terminal you already grind. Live prices. Fake SOL.</p>
+    <p class="lede">Live prices. Fake SOL.</p>
     <p class="home-pick-line">Pick a platform.</p>
     <div class="home-ctas">
       <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
@@ -89,44 +89,57 @@
   <span>100% local</span>
 </p>
 
-<section class="home-ch" id="bubbles">
-  <img class="home-ch-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
-  <div class="home-ch-veil" aria-hidden="true"></div>
-  <div class="home-ch-copy">
-    <h2>Fills on the live chart.</h2>
-    <p>Every paper buy sits at the exact fill. On Padre those fills are native TradingView markers, with average entry and exit on the series you already watch.</p>
-  </div>
-</section>
-
-<section class="home-ch flip" id="journal">
-  <img class="home-ch-bg" src="/assets/films/axiom.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
-  <div class="home-ch-veil" aria-hidden="true"></div>
-  <div class="home-ch-copy">
-    <h2>Write the thesis first.</h2>
-    <p>Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck. Recordings stay in your browser. Nothing is uploaded.</p>
+<section class="try" id="try" aria-label="Paper demo">
+  <span id="bubbles"></span>
+  <img class="try-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
+  <div class="try-veil" aria-hidden="true"></div>
+  <div class="try-grid">
+    <div class="try-chart">
+      <p class="try-mark">PAPER · DEMO</p>
+      <h2>Sit the overlay on the chart. Then try to cheat.</h2>
+      <p>Quote is Dexscreener $PT or the ticket stays shut. DEMO CHAIN is labeled. Not a board row.</p>
+      <ol class="try-chain" aria-label="Demo hash chain">
+        <li class="try-link is-ok">DEMO CHAIN 1</li>
+        <li class="try-link is-ok">DEMO CHAIN 2</li>
+        <li class="try-link is-ok">DEMO CHAIN 3</li>
+        <li class="try-link is-ok">DEMO CHAIN 4</li>
+      </ol>
+    </div>
+    <div class="try-ticket" aria-live="polite">
+      <p class="try-quote">PAPER · DEMO</p>
+      <p class="try-reason">Can't read a live rate. Ticket stays shut.</p>
+      <p class="try-fill" hidden></p>
+      <p class="try-note" hidden></p>
+      <div class="try-actions">
+        <button type="button" class="btn btn-primary try-buy" disabled>Paper buy</button>
+        <button type="button" class="btn btn-ghost try-cheat">Edit this fill</button>
+      </div>
+    </div>
   </div>
 </section>
 
 <section class="home-work" id="install">
+  <span id="journal"></span>
   <img class="home-work-bg" src="/assets/films/overlay.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
   <div class="home-work-veil" aria-hidden="true"></div>
   <div class="home-work-grid">
     <div>
-      <h2>In the trench in half a minute.</h2>
-      <p>Not on the Chrome Web Store yet. Load it unpacked, then open a terminal with a PaperTrench link.</p>
+      <h2>Load it unpacked.</h2>
+      <p>Not on the Web Store. Load it unpacked. Developer Mode has to stay on or Chrome kills it.</p>
       <ol class="home-rail">
         <li>
           <span class="n" aria-hidden="true">01</span>
           <div>
             <h3>Download</h3>
-            <p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">latest release</a>, grab the zip under Assets, and unzip it.</p>
+            <p>Grab the zip from the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">latest GitHub release</a> and unzip it.</p>
           </div>
         </li>
         <li>
           <span class="n" aria-hidden="true">02</span>
           <div>
             <h3>Extensions</h3>
-            <p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p>
+            <p>Paste <code>chrome://extensions</code> into the address bar. Turn on Developer mode. Chrome 134 and later will kill the extension if you turn it off.</p>
+            <p><button type="button" class="try-copy" id="copyExtensions">Copy chrome://extensions</button></p>
           </div>
         </li>
         <li>
@@ -139,8 +152,8 @@
         <li>
           <span class="n" aria-hidden="true">04</span>
           <div>
-            <h3>Open a terminal</h3>
-            <p>Use a PaperTrench link. The overlay lands on the chart you already grind.</p>
+            <h3>Open Axiom</h3>
+            <p>Open <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom with the PaperTrench referral</a>. The overlay lands on the chart.</p>
           </div>
         </li>
       </ol>
@@ -154,7 +167,7 @@
           <a class="ledger-all" href="/leaderboard">Full Arena</a>
         </div>
         <div id="homeBoard" aria-live="polite">
-          <p class="ledger-empty">Loading the board…</p>
+          <p class="ledger-empty">If the verifier is unreachable, no standings are shown.</p>
         </div>
       </div>
     </div>
@@ -219,6 +232,7 @@
 
 <script src="/vendor/gsap.min.js"></script>
 <script src="arena.js"></script>
+<script src="try.js"></script>
 <script>
 (() => {
   'use strict';

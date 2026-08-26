@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PaperTrench — Live on Twitch · The PaperTrench Challenge</title>
-<meta name="description" content="Watch streamers run the PaperTrench Challenge live on Twitch — real charts, paper money, and records that are re-hashed and re-priced against public market history before they count.">
-<meta property="og:title" content="PaperTrench Challenge — Live on Twitch">
+<title>PaperTrench | Live on Twitch</title>
+<meta name="description" content="Watch streamers run the PaperTrench Challenge live on Twitch. Real charts, paper money, and records that are re-hashed and re-priced against public market history before they count.">
+<meta property="og:title" content="PaperTrench Challenge | Live on Twitch">
 <meta property="og:description" content="Streamers run a paper wallet on live markets. Every fill is hash-chained, replayed, and re-priced against public market history. Watch live.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
@@ -29,23 +29,12 @@
    *  that runs it, and the honest limits are printed next to the badge
    *  rather than left in a doc nobody opens.
    *
-   *  Visual pass: one gradient per page (the hero), emoji replaced with
-   *  drawn marks, and a monospace/protocol register for anything that
-   *  describes verification — it should read like a receipt, not an ad.
+   *  Visual pass: no kickers, no gradient text. Proof is a rail, not
+   *  three equal cards. Verification copy should read like a receipt.
    * ================================================================== */
   :root {
     --twitch: #9146FF; --twitch2: #bf94ff; --twitch-dim: rgba(145,70,255,0.30);
     --kick: #53fc18; --yt: #ff4e45;
-  }
-
-  .k-twitch { color: var(--twitch2); background: rgba(145,70,255,0.10); border: 1px solid var(--twitch-dim); }
-
-  /* ---------- hero ---------- */
-  .hero.compact { padding: 132px 0 26px; }
-  .hero.compact h1 { font-size: clamp(36px, 5.2vw, 62px); line-height: 1.05; letter-spacing: -1.5px; }
-  .grad-twitch {
-    background: linear-gradient(100deg, var(--twitch2) 10%, var(--twitch) 70%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
 
   /* The status pill is a live readout, so it renders as one: monospace, and
@@ -64,9 +53,6 @@
   }
   .live-count.on { color: #ff9a90; background: rgba(224,67,58,0.09); border-color: rgba(224,67,58,0.34); }
   .live-count.on .dot { background: var(--red); box-shadow: 0 0 10px var(--red); animation: pulse 1.6s infinite; }
-
-  .hero-sub a { color: var(--twitch2); border-bottom: 1px solid rgba(191,148,255,0.3); }
-  .hero-sub a:hover { border-bottom-color: var(--twitch2); }
 
   /* ---------- featured player ---------- */
   .watch-sec { padding: 26px 0 64px; }
@@ -209,22 +195,11 @@
   .signup-strip .txt { flex: 1; min-width: 260px; }
   .signup-strip h3 { font-size: 17.5px; font-weight: 800; margin-bottom: 5px; letter-spacing: -0.3px; }
   .signup-strip p { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
-  .btn-twitch {
-    background: linear-gradient(135deg, var(--twitch2), var(--twitch));
-    color: #150031; box-shadow: 0 10px 30px -8px rgba(145,70,255,0.55);
-  }
-  .btn-twitch:hover { transform: translateY(-2px); box-shadow: 0 14px 36px -8px rgba(145,70,255,0.7); }
 
   /* ---------- how a record is checked ---------- */
   .proof-sec { padding: 20px 0 30px; background: linear-gradient(180deg, transparent, rgba(145,70,255,0.035), transparent); }
   .proof-head { max-width: 640px; }
 
-  .proof-chain { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 38px; }
-  @media (max-width: 900px) { .proof-chain { grid-template-columns: 1fr; } }
-  .proof-step {
-    position: relative; padding: 22px 22px 24px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  }
   .proof-step .idx {
     font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 1.4px;
     color: var(--dim); margin-bottom: 14px;
@@ -259,10 +234,6 @@
   .signup-strip {
     background: rgba(255,157,69,0.06);
     border-color: rgba(255,157,69,0.28);
-  }
-  .btn-twitch {
-    background: linear-gradient(135deg, var(--orange2), var(--orange-deep));
-    color: #2a1400; box-shadow: 0 10px 30px -8px rgba(255,157,69,0.45);
   }
   .s-card:hover { border-color: rgba(255,157,69,0.42); }
   .s-card.open { border-color: rgba(255,157,69,0.3); background: rgba(255,157,69,0.02); }
@@ -347,7 +318,7 @@
         <h3>Streaming the challenge? Get on the roster.</h3>
         <p>Any Twitch streamer running PaperTrench can apply. Approved channels get a card on this page, the Streamer role in Discord, and an automatic alert when they go live.</p>
       </div>
-      <a class="btn btn-twitch" id="signupBtn" href="/streamer-signup">Apply as a streamer</a>
+      <a class="btn btn-primary" id="signupBtn" href="/streamer-signup">Apply as a streamer</a>
     </div>
   </div>
 </section>
@@ -382,13 +353,12 @@
       <svg class="mark" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>
       <p>
         <b>What the checks do not cover.</b> Re-pricing needs public candle data
-        for the minute a fill claims, and the newest launches often have none —
-        those fills come back <i>unpriced</i> rather than passing, and a record
+        for the minute a fill claims. Newest launches often have none. Those
+        fills come back <i>unpriced</i> rather than passing, and a record
         carrying too many of them is labelled instead of ranked. Live/offline
         badges on this page are inferred from Twitch's public preview images,
-        not an official Twitch API, so treat them as a hint rather than a
-        guarantee. The full protocol, including what it deliberately refuses to
-        claim, is in
+        not an official Twitch API. Treat them as a hint. The full protocol,
+        including what it refuses to claim, is in
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">LEADERBOARD.md</a>.
       </p>
     </div>

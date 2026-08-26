@@ -4,13 +4,14 @@
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var hoverFine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   var saveData = !!(navigator.connection && navigator.connection.saveData);
-  var still = reduced || saveData;
+  var still = reduced || saveData || !hoverFine;
   var stage = document.querySelector('.lt-stage');
   var films = Array.prototype.slice.call(document.querySelectorAll('.lt-film'));
   var doors = Array.prototype.slice.call(document.querySelectorAll('.lt-door'));
   var lede = document.getElementById('stageLede');
   var openBtn = document.getElementById('stageOpen');
   var openLabel = document.getElementById('stageOpenLabel');
+  var stageIn = true;
   var idle = {
     film: 'overlay',
     lede: lede ? lede.textContent : '',
@@ -31,10 +32,12 @@
       node = films[i];
       if (node.getAttribute('data-film') === key) {
         node.classList.add('is-on');
-        if (!still) {
+        if (!still && stageIn) {
           ensureSrc(node);
           var p = node.play();
           if (p && p.catch) p.catch(function () {});
+        } else {
+          node.pause();
         }
       } else {
         node.classList.remove('is-on');
@@ -65,44 +68,47 @@
     setOpen(door.getAttribute('href'), door.getAttribute('data-open') || idle.open);
   }
 
-  if (still) {
-    films.forEach(function (node) {
-      node.pause();
-      node.classList.remove('is-on');
-    });
-  } else {
-    doors.forEach(function (door) {
-      door.addEventListener('pointerenter', function () { showDoor(door); });
-      door.addEventListener('focus', function () { showDoor(door); });
-    });
-    if (stage && hoverFine) {
-      stage.addEventListener('pointerleave', function () { showDoor(null); });
-    }
-    if (!hoverFine) {
-      showDoor(null);
-    }
+  doors.forEach(function (door) {
+    door.addEventListener('pointerenter', function () { showDoor(door); });
+    door.addEventListener('focus', function () { showDoor(door); });
+  });
+  if (stage && hoverFine) {
+    stage.addEventListener('pointerleave', function () { showDoor(null); });
+  }
+
+  if (!still) {
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
         films.forEach(function (node) { node.pause(); });
         return;
       }
       var on = document.querySelector('.lt-film.is-on');
-      if (on) {
-        var p = on.play();
-        if (p && p.catch) p.catch(function () {});
-      }
+      if (on) playOnly(on.getAttribute('data-film') || idle.film);
     });
     var boot = function () { playOnly(idle.film); };
     if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1800 });
     else window.setTimeout(boot, 900);
+    if (stage && 'IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        stageIn = !!(entries[0] && entries[0].isIntersecting);
+        if (!stageIn) {
+          films.forEach(function (node) { node.pause(); });
+          return;
+        }
+        var on = document.querySelector('.lt-film.is-on');
+        playOnly(on ? on.getAttribute('data-film') : idle.film);
+      }, { threshold: 0.12 }).observe(stage);
+    }
   }
 
-  if (!still && window.gsap) {
+  if (!reduced && window.gsap) {
     var gsap = window.gsap;
     if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
     var tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-    tl.from('.lt-film.is-on', { scale: 1.08, duration: 1.7, ease: 'power2.out', clearProps: 'transform' }, 0)
-      .from('.lt-hero > *', { y: 28, duration: 0.85, stagger: 0.08, clearProps: 'transform' }, 0.08);
+    if (!still) {
+      tl.from('.lt-film.is-on', { scale: 1.08, duration: 1.7, ease: 'power2.out', clearProps: 'transform' }, 0);
+    }
+    tl.from('.lt-hero > *', { y: 28, duration: 0.85, stagger: 0.08, clearProps: 'transform' }, 0.08);
     if (hoverFine) {
       tl.from('.lt-door', { y: 36, duration: 0.7, stagger: 0.06, clearProps: 'transform' }, 0.22);
     }
