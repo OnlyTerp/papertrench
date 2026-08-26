@@ -237,23 +237,24 @@ nav[aria-label="Primary"] {
   .nav-links a:not(.nav-cta):not(.nav-live) { display: none; }
 }
 @media (max-width: 470px) {
-  /* Tiny screens: keep both pills tappable side by side. Measured at 375px
-     the logo plus both pills still ran ~30px past the viewport, so the
-     gutters and the gap shrink too rather than letting the bar clip.
-     Raised from 420px: with the pills no longer allowed to shrink, 421-470
-     was carrying a 1px overflow. */
-  .nav-inner { padding: 0 14px; }
-  .nav-links { gap: 10px; }
+  /* Icon-only mark: the wordmark plus Live plus Download overflowed 375,
+     and the homepage hides the in-hero Download on this breakpoint, so the
+     nav pill is the only install path in the first viewport. */
+  .nav-inner { padding: 0 12px; }
+  .nav-links { gap: 8px; }
   .nav-live { padding: 8px 10px; font-size: 11.5px; }
-  .nav-cta { padding: 9px 11px; font-size: 12px; }
-  .nav-logo { font-size: 15px; gap: 8px; }
-  .nav-logo img { width: 22px; height: 22px; }
+  .nav-cta { padding: 9px 12px; font-size: 12px; }
+  .nav-logo {
+    width: 22px;
+    min-width: 22px;
+    max-width: 22px;
+    overflow: hidden;
+    gap: 0;
+    flex: none;
+  }
+  .nav-logo img { width: 22px; height: 22px; flex: none; }
 }
 @media (max-width: 360px) {
-  /* Below the narrowest phone anyone tests on, the wordmark plus two
-     non-shrinking pills stopped fitting (measured: 39px over at 320). Shrink
-     the type rather than clip a tappable control off the edge. */
-  .nav-logo { font-size: 13px; }
   .nav-live, .nav-cta { font-size: 11px; padding: 7px 9px; }
   .nav-live { gap: 5px; }
 }
@@ -815,11 +816,12 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   margin-bottom: 2px;
 }
 
-/* Homepage film stage */
+/* Homepage film stage. Nav overlays the film; the stage is one 100dvh
+   viewport so the doors are not pushed below the fold by a 64px offset. */
 .home-stage {
   position: relative; min-height: 100dvh;
   display: grid; grid-template-rows: 1fr auto;
-  margin-top: 64px; overflow: hidden;
+  overflow: hidden;
 }
 .home-films { position: absolute; inset: 0; background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat; }
 .home-films video {
@@ -833,12 +835,17 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
     linear-gradient(90deg, rgba(7,9,14,.92) 0%, rgba(7,9,14,.55) 42%, rgba(7,9,14,.2) 100%),
     linear-gradient(180deg, rgba(7,9,14,.55) 0%, transparent 30%, transparent 58%, rgba(7,9,14,.88) 100%);
 }
-.home-copy { position: relative; z-index: 2; padding: 5.5rem 4vw 1.5rem; max-width: 52rem; }
+.home-copy {
+  position: relative; z-index: 2;
+  padding: calc(64px + 2.25rem) 4vw 1.25rem;
+  max-width: 52rem;
+}
 .home-copy h1 {
   margin: 0; font-size: clamp(2.6rem, 6.4vw, 5.2rem);
   letter-spacing: -0.045em; line-height: 0.94;
 }
 .home-copy .lede { margin-top: 1.1rem; max-width: 36ch; color: var(--muted); font-size: clamp(1rem, 1.5vw, 1.2rem); }
+.home-pick-line { display: none; }
 .home-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 1.5rem; }
 .home-doors { position: relative; z-index: 3; display: flex; height: 22vh; min-height: 128px; max-height: 220px; }
 .home-door {
@@ -848,7 +855,12 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 .home-door:hover, .home-door:focus-visible, .home-door.is-on { flex-grow: 2.4; }
 .home-door img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.85) brightness(.78); transition: filter .4s, transform .5s; }
 .home-door:hover img, .home-door.is-on img { filter: none; transform: scale(1.02); }
-.home-door span {
+.home-door-shade {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 42%, rgba(7,9,14,.78) 100%);
+  pointer-events: none;
+}
+.home-door > span:not(.home-door-shade) {
   position: absolute; left: 14px; bottom: 14px;
   font-size: clamp(1rem, 1.6vw, 1.3rem); font-weight: 800; letter-spacing: -0.04em;
   text-shadow: 0 1px 10px rgba(7,9,14,.85);
@@ -866,17 +878,108 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 }
 .site-index b { color: var(--text); }
 
+.home-ch {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+}
+.home-ch-bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  filter: saturate(.9) brightness(.55);
+}
+.home-ch-veil {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, rgba(7,9,14,.88) 0%, rgba(7,9,14,.4) 50%, rgba(7,9,14,.25) 100%);
+}
+.home-ch-copy {
+  position: relative; z-index: 2;
+  padding: 5rem 4vw 4.5rem;
+  max-width: 40rem;
+}
+.home-ch-copy h2 {
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  letter-spacing: -0.05em; line-height: .92; font-weight: 800;
+}
+.home-ch-copy p {
+  margin-top: 1.2rem; max-width: 32ch;
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+  color: var(--muted); line-height: 1.4;
+}
+.home-ch.ed {
+  align-items: center;
+  background: var(--bg);
+}
+.home-ch.ed .home-ch-copy { max-width: 52rem; padding-top: 8rem; }
+.home-ch.flip .home-ch-copy { margin-left: auto; text-align: right; }
+.home-ch.flip .home-ch-copy p { margin-left: auto; }
+.home-ch.flip .home-ch-veil {
+  background: linear-gradient(-90deg, rgba(7,9,14,.9) 0%, rgba(7,9,14,.35) 55%, transparent 100%);
+}
+
+.mk-hero {
+  padding: 8rem 0 3rem;
+}
+.mk-hero h1 {
+  font-size: clamp(2.8rem, 7vw, 5.6rem);
+  letter-spacing: -0.05em; line-height: .92; margin: 0 0 1rem;
+}
+.mk-hero p { max-width: 42ch; color: var(--muted); font-size: 1.15rem; }
+
 @media (max-width: 767px) {
-  .home-stage { height: auto; min-height: 100dvh; display: flex; flex-direction: column; }
-  .home-copy { padding: 4.5rem 16px .6rem; }
-  .home-copy h1 { font-size: 2.3rem; }
-  .home-ctas .btn { width: 100%; justify-content: center; }
-  .home-doors {
-    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
-    height: auto; min-height: 42vh; max-height: none; flex: 1; gap: 6px; padding: 0 10px 14px;
+  .home-ch { min-height: 72dvh; }
+  .home-ch-copy { padding: 3.5rem 20px 2.5rem; }
+  .home-ch.flip .home-ch-copy { text-align: left; margin-left: 0; }
+  .home-ch.flip .home-ch-copy p { margin-left: 0; }
+}
+
+@media (max-width: 767px) {
+  /* Phone first viewport is a film-quad, not stacked desktop CTAs.
+     Download stays in the nav. Doors fill whatever is left under the title. */
+  .home-stage {
+    display: flex; flex-direction: column;
+    height: 100dvh; min-height: 100dvh; max-height: 100dvh;
   }
-  .home-door { flex: none; border-radius: 10px; }
+  .home-veil {
+    background:
+      linear-gradient(180deg, rgba(7,9,14,.82) 0%, rgba(7,9,14,.42) 28%, rgba(7,9,14,.18) 48%, rgba(7,9,14,.55) 100%);
+  }
+  .home-copy {
+    flex: 0 0 auto;
+    padding: calc(64px + 8px) 16px 10px;
+    max-width: none;
+  }
+  .home-copy h1 {
+    font-size: clamp(2.15rem, 10vw, 2.55rem);
+    line-height: 0.9;
+    letter-spacing: -0.055em;
+  }
+  .home-copy .lede,
+  .home-copy .home-ctas { display: none; }
+  .home-pick-line {
+    display: block;
+    margin-top: 0.45rem;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--orange);
+  }
+  .home-doors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    gap: 6px;
+    padding: 0 10px 14px;
+  }
+  .home-door { flex: none; border-radius: 10px; min-height: 0; }
   .home-door:hover, .home-door.is-on { flex-grow: 0; }
+  .home-door > span:not(.home-door-shade) { left: 10px; bottom: 10px; font-size: 1.1rem; }
 }
 
 /* ---------- reveal animations ---------- */
@@ -887,6 +990,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .marquee-track { animation: none; }
   .pt-box, .pt-box::before, .pt-banner::after, .pt-buy-btn::after, .pt-dot, .hero-badge .dot, .rec-dot, .nav-live .dot, .live-banner .live-chip .dot { animation: none; }
+  .home-films video, .home-door, .home-door img { transition: none; }
 }
 
 /* =========================================================================

@@ -50,7 +50,8 @@
   <div class="home-veil" aria-hidden="true"></div>
   <div class="home-copy">
     <h1>Paper<br>the trench.</h1>
-    <p class="lede">Chrome overlay on the terminal you already grind. Live prices. Fake SOL. Then go live on a PaperTrench link.</p>
+    <p class="lede">Chrome overlay on the terminal you already grind. Live prices. Fake SOL.</p>
+    <p class="home-pick-line">Pick a platform.</p>
     <div class="home-ctas">
       <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
       <a class="btn btn-ghost" id="homeOpen" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
@@ -59,18 +60,22 @@
   <div class="home-doors" role="list">
     <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" data-film="axiom" data-open="Open Axiom" aria-label="Open Axiom with the PaperTrench referral">
       <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+      <span class="home-door-shade" aria-hidden="true"></span>
       <span>Axiom</span>
     </a>
     <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" data-film="padre" data-open="Open Padre" aria-label="Open Padre with the PaperTrench referral">
       <img src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+      <span class="home-door-shade" aria-hidden="true"></span>
       <span>Padre</span>
     </a>
     <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" data-film="gmgn" data-open="Open GMGN" aria-label="Open GMGN with the PaperTrench referral">
       <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720">
+      <span class="home-door-shade" aria-hidden="true"></span>
       <span>GMGN</span>
     </a>
     <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" data-film="overlay" data-open="Open Lute" aria-label="Open Lute with the PaperTrench referral">
       <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720">
+      <span class="home-door-shade" aria-hidden="true"></span>
       <span>Lute</span>
     </a>
   </div>
@@ -83,24 +88,28 @@
   <span>100% local</span>
 </p>
 
-<section id="bubbles" style="padding: 7rem 0 3rem">
-  <div class="wrap">
-    <h2 class="reveal" style="font-size:clamp(2.4rem,6vw,4.8rem);letter-spacing:-0.045em;line-height:.95;max-width:12ch">Fills drawn on the live chart.</h2>
-    <p class="sec-sub reveal d1" style="max-width:42ch">Every paper buy and sell sits at the exact fill. On Padre those fills are native TradingView markers, with average entry and exit lines on the series you are already watching.</p>
+<section class="home-ch" id="bubbles">
+  <img class="home-ch-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+  <div class="home-ch-veil" aria-hidden="true"></div>
+  <div class="home-ch-copy">
+    <h2>Fills on the live chart.</h2>
+    <p>Every paper buy sits at the exact fill. On Padre those fills are native TradingView markers, with average entry and exit on the series you already watch.</p>
   </div>
 </section>
 
-<section id="replay" style="padding: 4rem 0">
-  <div class="wrap">
-    <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,4rem);letter-spacing:-0.045em;line-height:.95;max-width:14ch">Review the round like game film.</h2>
-    <p class="sec-sub reveal d1" style="max-width:46ch">Record the session. Scrub fills against the chart. Watch yourself chase, then stop. Recordings stay in your browser. Nothing is uploaded.</p>
+<section class="home-ch ed" id="replay">
+  <div class="home-ch-copy">
+    <h2>Review the round like game film.</h2>
+    <p>Record the session. Scrub fills against the chart. Watch yourself chase, then stop. Recordings stay in your browser. Nothing is uploaded.</p>
   </div>
 </section>
 
-<section id="journal" style="padding: 4rem 0 6rem">
-  <div class="wrap">
-    <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,4rem);letter-spacing:-0.045em;line-height:.95;max-width:16ch">Write the thesis before the outcome exists.</h2>
-    <p class="sec-sub reveal d1" style="max-width:46ch">Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck: size, exit quality, what you left on the table.</p>
+<section class="home-ch flip" id="journal">
+  <img class="home-ch-bg" src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+  <div class="home-ch-veil" aria-hidden="true"></div>
+  <div class="home-ch-copy">
+    <h2>Write the thesis first.</h2>
+    <p>Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck: size, exit quality, what you left on the table.</p>
   </div>
 </section>
 
@@ -204,15 +213,20 @@
   </div>
 </footer>
 
+<script src="/vendor/gsap.min.js"></script>
+<script src="/vendor/ScrollTrigger.min.js"></script>
+<script src="/vendor/gsap.min.js"></script>
+<script src="/vendor/ScrollTrigger.min.js"></script>
 <script src="arena.js"></script>
 <script src="main.js"></script>
 <script>
 (() => {
   'use strict';
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hoverFine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   const films = Array.from(document.querySelectorAll('.home-films video'));
   const doors = Array.from(document.querySelectorAll('.home-door'));
   const openBtn = document.getElementById('homeOpen');
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function playOnly(key) {
     films.forEach((v) => {
       const on = v.getAttribute('data-film') === key;
@@ -230,6 +244,28 @@
       if (openBtn) { openBtn.href = d.href; openBtn.textContent = d.getAttribute('data-open') || 'Open'; }
     });
   });
+  if (!reduced && window.gsap) {
+    const gsap = window.gsap;
+    if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
+    gsap.from('.home-copy > *', { y: 28, duration: 0.9, stagger: 0.08, ease: 'power3.out', clearProps: 'transform' });
+    if (hoverFine) {
+      gsap.from('.home-door', { y: 40, duration: 0.8, stagger: 0.06, ease: 'power3.out', clearProps: 'transform' });
+    }
+    const chapters = Array.from(document.querySelectorAll('.home-ch'));
+    if (hoverFine && window.ScrollTrigger && chapters.length > 1) {
+      const last = chapters[chapters.length - 1];
+      chapters.slice(0, -1).forEach((card) => {
+        ScrollTrigger.create({
+          trigger: card,
+          start: 'top top',
+          endTrigger: last,
+          end: 'top top',
+          pin: true,
+          pinSpacing: false
+        });
+      });
+    }
+  }
 })();
 </script>
 <script>

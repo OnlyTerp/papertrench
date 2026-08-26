@@ -28,8 +28,7 @@
   .lost .code {
     font-family: var(--mono); font-size: clamp(72px, 15vw, 150px);
     font-weight: 800; line-height: 1; letter-spacing: -2px;
-    background: linear-gradient(100deg, var(--orange2) 10%, var(--orange-deep) 75%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
+    color: var(--orange);
   }
   .lost h1 { font-size: clamp(24px, 3.6vw, 34px); margin: 18px 0 12px; }
   .lost p { font-size: 15px; color: var(--muted); max-width: 520px; margin: 0 auto; line-height: 1.7; }
@@ -85,14 +84,13 @@
     <div class="code">404</div>
     <h1>This page rugged.</h1>
     <p>
-      Nothing lives at <span class="path" id="badPath">that address</span> — but
-      unlike a real rug, everything you were looking for is still here.
+      Nothing lives at <span class="path" id="badPath">that address</span>. Home, a terminal, or the overlay will get you back in.
     </p>
     <div class="go">
-      <a href="/"><span class="ico">🏠</span><span><b>Home</b><span>What PaperTrench is</span></span></a>
-      <a href="/leaderboard"><span class="ico">🏆</span><span><b>Leaderboard</b><span>Verified standings</span></span></a>
-      <a href="/streams"><span class="ico">🎥</span><span><b>Watch Live</b><span>Streamers in the trench</span></span></a>
-      <a href="/news"><span class="ico">📰</span><span><b>News</b><span>Patch notes &amp; releases</span></span></a>
+      <a href="/"><span><b>Home</b><span>Paper the trench</span></span></a>
+      <a href="/links"><span><b>Links</b><span>Pick a platform</span></span></a>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener"><span><b>Axiom</b><span>Open with the ref</span></span></a>
+      <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener"><span><b>Download</b><span>Chrome overlay</span></span></a>
     </div>
   </div>
 </header>
