@@ -124,15 +124,8 @@
 /* ============================================================== hero ===== */
 
 .ar-hero { padding: 118px 0 26px; position: relative; overflow: hidden; }
-.ar-hero::before {
-  content: "";
-  position: absolute; inset: 0; pointer-events: none;
-  background: url("/assets/films/overlay.jpg") center/cover no-repeat;
-  opacity: 0.2;
-  mask-image: linear-gradient(180deg, rgba(0,0,0,.75), transparent 88%);
-  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.75), transparent 88%);
-}
 .ar-hero .wrap { position: relative; z-index: 1; }
+.ar-pane.is-vacant { display: none; }
 
 /* Pre-launch notice. Deliberately calm rather than alarming — nothing here is
  * broken, the thing simply has not started yet. */
@@ -1530,6 +1523,7 @@
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 10px;
   padding: 16px 18px 8px;
+  max-height: none;
 }
 .ar-trench-card {
   display: flex; flex-direction: column; gap: 8px;

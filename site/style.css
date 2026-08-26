@@ -553,7 +553,7 @@ h1 .grad-green { color: var(--green); }
 /* ---------- sections ---------- */
 section { padding: 110px 0; position: relative; }
 /* Film stages are full-viewport stills. The 110px marketing pad must not leak onto them. */
-.home-stage, .home-ch, .home-work, .home-end, .try { padding: 0; }
+.home-stage, .home-ch, .home-work, .home-end, .try, .ar-pane { padding: 0; }
 .sec-kicker {
   display: inline-block; font-size: 12.5px; font-weight: 800; letter-spacing: 2.5px;
   text-transform: uppercase; margin-bottom: 16px; padding: 6px 14px; border-radius: 999px;

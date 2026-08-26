@@ -16,8 +16,8 @@
 
 
 
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="arena.css">
+<link rel="stylesheet" href="style.css?v=trench2">
+<link rel="stylesheet" href="arena.css?v=trench2">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -32,6 +32,7 @@
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
+      <a href="/replay">Replay</a>
       <a href="/news">News</a>
       <a href="/links">Links</a>
       <a href="/#install">Install</a>
@@ -87,6 +88,20 @@
   <div class="ar-shell">
 
     <div class="ar-stack">
+      <section class="ar-pane" aria-labelledby="trench-h">
+        <div class="ar-pane-head">
+          <span class="glyph" style="color:var(--orange2)">◎</span><span id="trench-h">The trench</span>
+          <span class="spacer"></span>
+          <span class="ar-note" id="trench-count"></span>
+          <div class="ar-tabs">
+            <a class="ar-tab" href="/leaderboard" aria-current="page">All-time</a>
+            <a class="ar-tab" href="/sprint">This week</a>
+            <a class="ar-tab" href="/duels">Duels</a>
+          </div>
+        </div>
+        <div id="trench"></div>
+      </section>
+
       <section class="ar-pane" aria-labelledby="tape-h">
         <div class="ar-pane-head">
           <span class="glyph" style="color:var(--green)">▸</span><span id="tape-h">The tape</span>
@@ -98,30 +113,15 @@
         </div>
       </section>
 
-      <section class="ar-pane" aria-labelledby="board-h">
+      <section class="ar-pane is-vacant" id="podium-pane" aria-labelledby="board-h">
         <div class="ar-pane-head">
           <span class="glyph">🛡</span><span id="board-h">The podium</span>
-          <span class="spacer"></span>
-          <div class="ar-tabs">
-            <a class="ar-tab" href="/leaderboard" aria-current="page">All-time</a>
-            <a class="ar-tab" href="/sprint">This week</a>
-            <a class="ar-tab" href="/duels">Duels</a>
-          </div>
         </div>
         <div id="podium"></div>
         <div id="plinth"></div>
       </section>
 
-      <section class="ar-pane" aria-labelledby="trench-h">
-        <div class="ar-pane-head">
-          <span class="glyph" style="color:var(--orange2)">◎</span><span id="trench-h">The trench</span>
-          <span class="spacer"></span>
-          <span class="ar-note" id="trench-count"></span>
-        </div>
-        <div id="trench"></div>
-      </section>
-
-      <section class="ar-pane" aria-labelledby="tower-h">
+      <section class="ar-pane is-vacant" id="tower-pane" aria-labelledby="tower-h">
         <div class="ar-pane-head">
           <span class="glyph" style="color:var(--orange2)">▤</span><span id="tower-h">The tower</span>
           <span class="spacer"></span>
@@ -130,7 +130,7 @@
         <div id="tower"></div>
       </section>
 
-      <section class="ar-pane" aria-labelledby="formula-h">
+      <section class="ar-pane is-vacant" id="formula-pane" aria-labelledby="formula-h">
         <div class="ar-pane-head"><span class="glyph" style="color:var(--violet)">ƒ</span>
           <span id="formula-h">The formula is public</span></div>
         <div class="pad">
@@ -189,7 +189,7 @@
               <b style="font-size:13px">Re-priced against history.</b>
               <p class="ar-note">Every fill is checked against the token's real traded range in that
                 exact minute. Fabricated prices reject the record; missing candle data downgrades you
-                to <span class="ar-chip partial" style="font-size:8px">◐ Partial</span> — it never
+                to <span class="ar-chip partial" style="font-size:8px">Unpriced</span>. It never
                 invents coverage.</p>
             </li>
             <li>
@@ -233,6 +233,7 @@
         <a href="/sprint">Weekly Sprint</a>
         <a href="/duels">Duels</a>
         <a href="/clans">Clans</a>
+        <a href="/replay">Replay</a>
         <a href="/news">News &amp; patch notes</a>
         <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
@@ -257,7 +258,7 @@
   </div>
 </footer>
 
-<script src="arena.js?v=9733304"></script>
+<script src="arena.js?v=trench2"></script>
 <script>
 (() => {
   'use strict';
@@ -274,13 +275,19 @@
   const streamEl = document.getElementById('stream');
   const tapeEl = document.getElementById('tape');
   const roomsEl = document.getElementById('rooms');
+  const podiumPane = document.getElementById('podium-pane');
+  const towerPane = document.getElementById('tower-pane');
+  const formulaPane = document.getElementById('formula-pane');
 
   let signedInHandle = null;
 
   /* ---------------- the board ---------------- */
 
-  podiumEl.innerHTML = L.skeleton(1);
-  towerEl.innerHTML = L.skeleton(6);
+  const showRanked = (on) => {
+    [podiumPane, towerPane, formulaPane].forEach((el) => {
+      if (el) el.classList.toggle('is-vacant', !on);
+    });
+  };
 
   function podiumCard(entry, rank) {
     const s = entry.stats;
@@ -348,6 +355,9 @@
     try {
       body = await L.getOrThrow('/api/leaderboard');
     } catch {
+      if (podiumPane) podiumPane.classList.remove('is-vacant');
+      if (towerPane) towerPane.classList.add('is-vacant');
+      if (formulaPane) formulaPane.classList.add('is-vacant');
       podiumEl.innerHTML = L.errorState(
         'The verifier is unreachable right now, so no standings are shown. Nothing here is cached or guessed.');
       plinthEl.innerHTML = '';
@@ -357,17 +367,12 @@
 
     const entries = (body && body.entries) || [];
     if (!entries.length) {
-      podiumEl.innerHTML = L.empty('🏴',
-        'No one has earned a seat yet.',
-        'Five closed rounds, fully re-priced, hash-chained. The podium stays empty until that is real. People who already showed up are in the trench below. No seeded names, no demo traders.');
-      plinthEl.innerHTML = '';
-      towerEl.innerHTML = L.empty('▤', 'The tower is the rest of the ranked board.',
-        'Ranks four and below appear here once more than three records survive replay.');
-      countEl.textContent = '0 ranked';
-      formulaEl.innerHTML = '<p class="ar-note">The formula is public. It has no one to run on until a verified record lands.</p>';
+      showRanked(false);
+      if (countEl) countEl.textContent = '0 ranked';
       return;
     }
 
+    showRanked(true);
     const snapshot = L.readSnapshot('global');
     const top = entries.slice(0, 3);
     const rest = entries.slice(3);
