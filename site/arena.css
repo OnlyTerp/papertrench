@@ -669,10 +669,15 @@
  */
 
 .ar-census {
-  display: flex; flex-wrap: wrap; gap: 10px 22px;
+  display: flex; flex-wrap: wrap; gap: 8px 0;
   margin-top: 22px;
   font-family: var(--mono); font-size: 12px;
   letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim);
+}
+.ar-census span:not(:last-child)::after {
+  content: "·";
+  margin: 0 12px;
   color: var(--dim);
 }
 .ar-census b { color: var(--text); font-weight: 700; letter-spacing: 0; }
