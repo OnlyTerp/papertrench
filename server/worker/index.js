@@ -16,6 +16,7 @@ import { windowOf, sprintEntry } from '../core/sprint.js';
 import { windowEntry } from '../core/window.js';
 import { awarded } from '../core/achievements.js';
 import * as duel from '../core/duel.js';
+import * as adminCore from '../core/admin.js';
 import * as clan from '../core/clan.js';
 import * as streamer from '../core/streamer.js';
 // Default-imported, not named: core/chain.js re-exports attest.js by property
@@ -1654,24 +1655,23 @@ async function handleAdminUsers(request, env) {
   const mod = await moderator(request, env);
   if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
 
-  const term = (new URL(request.url).searchParams.get('q') || '').trim().toLowerCase();
-  const like = '%' + term.replace(/[%_]/g, '') + '%';
-  const rows = await env.DB.prepare(`
-    SELECT u.id, u.handle, u.display_name, u.x_id, u.avatar_url,
-           u.created_at, u.last_login_at, u.banned_at, u.banned_reason,
-           r.status AS record_status, r.chain_len, r.stats_json, r.dq_at, r.dq_reason,
-           cl.tag AS clan_tag
-      FROM users u
-      LEFT JOIN records r ON r.user_id = u.id
-      LEFT JOIN clan_members cm ON cm.user_id = u.id
-      LEFT JOIN clans cl ON cl.id = cm.clan_id
-     WHERE (?1 = '' OR LOWER(u.handle) LIKE ?2 OR u.x_id LIKE ?2)
-     ORDER BY u.last_login_at DESC
-     LIMIT 100`).bind(term, like).all();
+  const params = new URL(request.url).searchParams;
+  const q = adminCore.adminUsersQuery({
+    term: params.get('q') || '',
+    limit: params.get('limit'),
+    offset: params.get('offset'),
+  });
+
+  const [rows, counted] = await Promise.all([
+    env.DB.prepare(q.sql).bind(...q.binds).all(),
+    env.DB.prepare(q.countSql).bind(...q.countBinds).first(),
+  ]);
+  const results = rows.results || [];
 
   return json({
     ok: true,
-    users: (rows.results || []).map((r) => {
+    page: adminCore.pageInfo(counted ? counted.n : 0, q.offset, results.length),
+    users: results.map((r) => {
       const stats = r.stats_json ? JSON.parse(r.stats_json) : null;
       return {
         id: r.id, handle: r.handle, displayName: r.display_name, xId: r.x_id,
@@ -1802,17 +1802,22 @@ async function handleAdminClans(request, env) {
   const mod = await moderator(request, env);
   if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
 
-  const rows = await env.DB.prepare(`
-    SELECT c.id, c.tag, c.name, c.motto, c.open, c.created_at,
-           c.disbanded_at, c.disbanded_reason,
-           f.handle AS founder,
-           (SELECT COUNT(*) FROM clan_members m WHERE m.clan_id = c.id) AS members
-      FROM clans c LEFT JOIN users f ON f.id = c.founder_id
-     ORDER BY c.created_at DESC LIMIT 200`).all();
+  const params = new URL(request.url).searchParams;
+  const q = adminCore.adminClansQuery({
+    limit: params.get('limit'),
+    offset: params.get('offset'),
+  });
+
+  const [rows, counted] = await Promise.all([
+    env.DB.prepare(q.sql).bind(...q.binds).all(),
+    env.DB.prepare(q.countSql).bind(...q.countBinds).first(),
+  ]);
+  const results = rows.results || [];
 
   return json({
     ok: true,
-    clans: (rows.results || []).map((c) => ({
+    page: adminCore.pageInfo(counted ? counted.n : 0, q.offset, results.length),
+    clans: results.map((c) => ({
       id: c.id, tag: c.tag, name: c.name, motto: c.motto || '',
       open: Boolean(c.open), createdAt: c.created_at, founder: c.founder || null,
       members: c.members || 0,

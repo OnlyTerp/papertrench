@@ -168,6 +168,15 @@ on the page:
 Ban and disqualify are separate deliberately: collapsed into one flag, taking a
 duplicate chain off the board would require banning its owner.
 
+Both lists **page**, 100 rows at a time, and print what they are showing out of
+what exists ("Showing 100 of 347 accounts"). They used to take a flat
+`LIMIT 100` / `LIMIT 200` with no paging and no total, so past the cap the rows
+were simply absent with nothing on the page saying so — and since the clans view
+has no search box, a clan past the first 200 could not be reached from the
+console at all. `server/core/admin.js` owns the queries; note that every
+ORDER BY there ends in a unique id, because paging over a non-unique sort key
+drops and repeats rows across page boundaries.
+
 Enforcement is in SQL on the leaderboard and Sprint queries, not in the page —
 there is no board, cache or export that can still be showing a banned account.
 
