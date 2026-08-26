@@ -2,317 +2,130 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PaperTrench — Paper-trade Solana memecoins on the sites you already use</title>
-<meta name="description" content="A Chrome extension that overlays a paper-trading terminal on Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Lute, Hyperliquid, Kalshi, Polymarket, and Limitless. Real prices. Fake money. A record you can actually learn from.">
-<meta property="og:title" content="PaperTrench — Real prices. Fake money. Real lessons.">
-<meta property="og:description" content="Paper-trade Solana memecoins with live chart bubbles, screen-recorded trade replays, a trading journal, and a verifiable leaderboard record.">
-<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>PaperTrench | Paper-trade the trenches</title>
+<meta name="description" content="A Chrome overlay for Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Lute, Hyperliquid, Kalshi, Polymarket, and Limitless. Real charts. Live prices. Fake SOL. $PT.">
+<meta property="og:title" content="PaperTrench | Real prices. Fake SOL.">
+<meta property="og:description" content="Paper-trade memecoins on the terminal you already grind. Then take it live with the PaperTrench referral.">
+<meta property="og:image" content="https://papertrench.com/assets/films/overlay.jpg">
+<meta name="theme-color" content="#07090e">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="/assets/icon192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="bg-glow" aria-hidden="true"></div>
-<div class="bg-grid" aria-hidden="true"></div>
 
 <nav aria-label="Primary">
   <div class="nav-inner">
-    <a class="nav-logo" href="#"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
     <div class="nav-links">
-      <a href="#bubbles">Chart bubbles</a>
-      <a href="#replay">Replay</a>
-      <a href="#journal">Journal</a>
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/duels">Duels</a>
       <a href="/clans">Clans</a>
       <a href="/news">News</a>
+      <a href="/links">Links</a>
       <a href="#install">Install</a>
-      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Watch Live</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
       <span id="nav-wallet"></span>
       <span id="nav-profile"></span>
-      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub ↗</a>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
     </div>
   </div>
 </nav>
 
 <main id="main">
 
-<!-- ============ HERO ============ -->
-<header class="hero">
-  <div class="wrap">
-    <span class="hero-badge reveal"><span class="dot"></span>Free · Open source · No signup · Zero telemetry</span>
-    <h1 class="reveal d1">Trade the trenches.<br><span class="grad-orange">Keep your SOL.</span></h1>
-    <p class="hero-sub reveal d2">PaperTrench overlays a <strong>paper-trading terminal</strong> on the memecoin sites you already use — real charts, real live prices, <strong>fake money</strong> — then shows you exactly what you did and why. <span style="color:var(--green)">Learn in an afternoon what usually costs a wallet.</span></p>
-    <div class="hero-ctas reveal d3">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">⬇ Get the extension</a>
-      <a class="btn btn-ghost" href="/streams"><span style="width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)"></span>Watch live</a>
-      <a class="btn btn-ghost" href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">★ Star on GitHub</a>
-      <!-- ONBOARDING-BOT: disabled until the X handle is registered.
-           To enable: register the handle, disclose it in the bio, complete the
-           flip-to-live checklist in docs/ONBOARDING-BOT.md, then uncomment.
-      <a class="btn btn-ghost" href="docs/ONBOARDING-BOT.md">Tag @PaperTrenchBot on X for the one-minute start guide</a>
-      -->
-    </div>
-    <!-- Launch video: served from this site because GitHub's blob viewer
-         cannot play a 15 MB mp4 (issue #28). Poster-first, click-to-load. -->
-    <div class="reveal d3" style="margin-top:28px;max-width:720px">
-      <video controls preload="none" poster="assets/video-poster.jpg" style="width:100%;border-radius:14px;border:1px solid var(--border,#2a2f3a);box-shadow:0 12px 40px rgba(0,0,0,.45);display:block">
-        <source src="assets/launch.mp4" type="video/mp4">
-        <a href="assets/launch.mp4">Watch the launch video</a>
-      </video>
-      <div style="font-size:13px;color:var(--muted,#8b93a5);margin-top:8px">The 90-second launch tour — paper trading on the live trenches.</div>
-    </div>
-    <!-- Both figures are hand-typed and both had gone stale (9 sites when the
-         shipped build supports 10; 872 tests when the suites report 1212).
-         scripts/preflight.sh recomputes both from the manifest and the suites
-         and fails the release on over-claiming. The site count describes what
-         you can INSTALL today, so it tracks the released tag, not the working
-         tree — an unreleased window under-claims on purpose. The marquee below
-         must name the same sites the count claims: 15 chips for 15 hosts, or
-         the hero counts a site the page never names. 2289 = 2072 extension +
-         201 server + 16 bot. -->
-    <div class="hero-stats reveal d3">
-      <div class="hero-stat"><div class="num o" data-check="sites">15</div><div class="lbl">TRADING SITES</div></div>
-      <div class="hero-stat"><div class="num g" data-check="tests">2289</div><div class="lbl">TESTS PASSING</div></div>
-      <div class="hero-stat"><div class="num b">0</div><div class="lbl">PRICES INVENTED</div></div>
-      <div class="hero-stat"><div class="num o">100%</div><div class="lbl">LOCAL &amp; PRIVATE</div></div>
-    </div>
-
-    <!-- live animated chart demo -->
-    <div class="chart-demo reveal">
-      <div class="chart-chrome">
-        <span class="cdot" style="background:#ff5f57"></span>
-        <span class="cdot" style="background:#febc2e"></span>
-        <span class="cdot" style="background:#28c840"></span>
-        <span class="ticker"><b>$TRENCH</b> / SOL · <span id="tickerPrice">0.00003412</span></span>
-        <span class="live-pill"><span class="dot" style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>LIVE PRICE ANCHORED</span>
-      </div>
-      <div class="chart-body">
-        <canvas id="heroChart"></canvas>
-        <div class="pt-box">
-          <div class="pt-watermark">PAPER</div>
-          <div class="pt-banner"><b>Paper Trading</b>&nbsp;· Simulated Funds</div>
-          <div class="pt-header">
-            <div class="pt-icon">P</div>
-            <div class="pt-title">PaperTrench<span class="sub">Quick paper buy box</span></div>
-            <div class="pt-hbtns"><span>▤</span><span>—</span></div>
-          </div>
-          <div class="pt-body">
-            <div class="pt-token-row">
-              <div class="pt-token"><div>$TRENCH</div><span class="pt-mint">7xKq…3fWm</span></div>
-              <div class="pt-price"><div class="num" id="ptPrice">0.00003412</div><div class="usd" id="ptUsd">$0.005868 · SOL</div></div>
-            </div>
-            <div class="pt-balance">
-              <div class="lab"><span class="pt-dot"></span>Paper balance</div>
-              <div class="amt"><span id="ppBal">10.42</span> SOL</div>
-              <div class="pt-delta" id="ppPnl" style="color:var(--green)">+0.42 SOL today (+4.2%)</div>
-            </div>
-            <div class="pt-label">Quick buy (SOL)</div>
-            <div class="pt-presets">
-              <span class="pt-preset">0.1 SOL</span><span class="pt-preset sel">0.5 SOL</span><span class="pt-preset">1 SOL</span><span class="pt-preset">2 SOL</span>
-            </div>
-            <div class="pt-custom">Or type a custom SOL amount…</div>
-            <div class="pt-buy-btn">BUY (PAPER)</div>
-          </div>
-          <div class="pt-footer-bar"><span>Live price · anchored</span><span>Dashboard ↗</span></div>
-        </div>
-      </div>
+<section class="home-stage" aria-label="PaperTrench">
+  <div class="home-films" aria-hidden="true">
+    <video class="is-on" data-film="overlay" autoplay muted loop playsinline preload="auto" poster="/assets/films/overlay.jpg" src="/assets/films/overlay.mp4"></video>
+    <video data-film="axiom" muted loop playsinline preload="none" poster="/assets/films/axiom.jpg" data-src="/assets/films/axiom.mp4"></video>
+    <video data-film="padre" muted loop playsinline preload="none" poster="/assets/films/padre.jpg" data-src="/assets/films/padre.mp4"></video>
+    <video data-film="gmgn" muted loop playsinline preload="none" poster="/assets/films/gmgn.jpg" data-src="/assets/films/gmgn.mp4"></video>
+  </div>
+  <div class="home-veil" aria-hidden="true"></div>
+  <div class="home-copy">
+    <h1>Paper<br>the trench.</h1>
+    <p class="lede">Chrome overlay on the terminal you already grind. Live prices. Fake SOL. Then go live on a PaperTrench link.</p>
+    <div class="home-ctas">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" id="homeOpen" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
     </div>
   </div>
-</header>
-
-<!-- ============ SITES MARQUEE ============ -->
-<div class="marquee-sec">
-  <div class="marquee-label reveal">Works as an overlay on the sites you already trade on</div>
-  <div class="marquee reveal">
-    <div class="marquee-track" id="marqueeTrack">
-      <span class="site-chip"><span class="sq" style="background:#ff9d45"></span>Axiom</span>
-      <span class="site-chip"><span class="sq" style="background:#34d399"></span>Padre</span>
-      <span class="site-chip"><span class="sq" style="background:#6aa9ff"></span>Photon</span>
-      <span class="site-chip"><span class="sq" style="background:#a78bfa"></span>GMGN</span>
-      <span class="site-chip"><span class="sq" style="background:#f472b6"></span>BullX</span>
-      <span class="site-chip"><span class="sq" style="background:#facc15"></span>Dexscreener</span>
-      <span class="site-chip"><span class="sq" style="background:#fb7185"></span>Birdeye</span>
-      <span class="site-chip"><span class="sq" style="background:#2dd4bf"></span>Jupiter</span>
-      <span class="site-chip"><span class="sq" style="background:#8bd450"></span>Pump.fun</span>
-      <span class="site-chip"><span class="sq" style="background:#e879f9"></span>Fomo</span>
-      <span class="site-chip"><span class="sq" style="background:#d4a574"></span>Lute</span>
-      <span class="site-chip"><span class="sq" style="background:#38bdf8"></span>Hyperliquid</span>
-      <span class="site-chip"><span class="sq" style="background:#22d3ee"></span>Kalshi</span>
-      <span class="site-chip"><span class="sq" style="background:#a3e635"></span>Polymarket</span>
-      <span class="site-chip"><span class="sq" style="background:#fb923c"></span>Limitless</span>
-    </div>
-  </div>
-  <div class="wrap" style="margin-top:38px">
-    <a class="news-strip reveal" href="/news">
-      <div class="txt">
-        <h3>New in v3.5.0: the Arena repair — a leaderboard that verifies every price you claimed</h3>
-        <p>Eleven audited defects closed across the verifier pipeline, ahead of real prize money — plus the three releases that came before it. All the patch notes.</p>
-      </div>
-      <span class="go">What's new →</span>
+  <div class="home-doors" role="list">
+    <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" data-film="axiom" data-open="Open Axiom" aria-label="Open Axiom with the PaperTrench referral">
+      <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+      <span>Axiom</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" data-film="padre" data-open="Open Padre" aria-label="Open Padre with the PaperTrench referral">
+      <img src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+      <span>Padre</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" data-film="gmgn" data-open="Open GMGN" aria-label="Open GMGN with the PaperTrench referral">
+      <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720">
+      <span>GMGN</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" data-film="overlay" data-open="Open Lute" aria-label="Open Lute with the PaperTrench referral">
+      <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720">
+      <span>Lute</span>
     </a>
   </div>
-</div>
+</section>
 
-<!-- ============ CHART BUBBLES ============ -->
-<section id="bubbles">
+<p class="home-quiet">
+  <span><b data-check="sites">15</b> terminals</span>
+  <span>0 invented prices</span>
+  <span><b data-check="tests">2289</b> tests</span>
+  <span>100% local</span>
+</p>
+
+<section id="bubbles" style="padding: 7rem 0 3rem">
   <div class="wrap">
-    <div class="split">
-      <div>
-        <span class="sec-kicker k-orange reveal">Bubbles on the chart</span>
-        <h2 class="reveal d1">Your paper fills, drawn <span class="grad-orange" style="background:linear-gradient(100deg,var(--orange2),var(--orange-deep));-webkit-background-clip:text;background-clip:text;color:transparent">right on the chart</span></h2>
-        <p class="sec-sub reveal d2">Every paper buy and sell renders as a bubble at the exact price level of the fill — the same visual treatment real trades get. On Padre, fills go one step further and render as <b>native TradingView markers</b> with average entry and exit lines.</p>
-        <div class="feature-list reveal d3">
-          <div class="feature-row"><div class="fi">🎯</div><div><h4>Price-true placement</h4><p>Bubbles sit at the actual fill price and time. Hover any bubble to see price and SOL amount.</p></div></div>
-          <div class="feature-row"><div class="fi">📈</div><div><h4>Native chart fills on Padre</h4><p>Buys and sells appear as real TradingView markers, with average fill and exit lines drawn on the series.</p></div></div>
-          <div class="feature-row"><div class="fi">⚡</div><div><h4>Armed buys on fresh launches</h4><p>Click buy before a brand-new coin even has a quote — the order arms, then fills the instant the first trusted price lands.</p></div></div>
-        </div>
-      </div>
-      <div class="split-visual reveal d1">
-        <div class="visual-card bubbles-canvas-wrap">
-          <div class="chart-chrome">
-            <span class="cdot" style="background:#ff5f57"></span>
-            <span class="cdot" style="background:#febc2e"></span>
-            <span class="cdot" style="background:#28c840"></span>
-            <span class="ticker"><b>trade.padre.gg</b> · your fills</span>
-          </div>
-          <div style="position:relative;height:340px">
-            <canvas id="bubbleChart" style="width:100%;height:100%;display:block"></canvas>
-          </div>
-          <div class="vc-pad" style="padding-top:0">
-            <div class="bubble-legend">
-              <span class="bl"><span class="bdot b">B</span>Paper buy</span>
-              <span class="bl"><span class="bdot s">S</span>Paper sell</span>
-              <span class="bl"><span style="width:18px;height:2px;background:var(--orange);display:inline-block"></span>Avg fill line</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <h2 class="reveal" style="font-size:clamp(2.4rem,6vw,4.8rem);letter-spacing:-0.045em;line-height:.95;max-width:12ch">Fills drawn on the live chart.</h2>
+    <p class="sec-sub reveal d1" style="max-width:42ch">Every paper buy and sell sits at the exact fill. On Padre those fills are native TradingView markers, with average entry and exit lines on the series you are already watching.</p>
   </div>
 </section>
 
-<!-- ============ SCREEN RECORDING / REPLAY ============ -->
-<section id="replay" style="background:linear-gradient(180deg, transparent, rgba(224,67,58,0.03), transparent)">
+<section id="replay" style="padding: 4rem 0">
+  <div class="wrap">
+    <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,4rem);letter-spacing:-0.045em;line-height:.95;max-width:14ch">Review the round like game film.</h2>
+    <p class="sec-sub reveal d1" style="max-width:46ch">Record the session. Scrub fills against the chart. Watch yourself chase, then stop. Recordings stay in your browser. Nothing is uploaded.</p>
+  </div>
+</section>
+
+<section id="journal" style="padding: 4rem 0 6rem">
+  <div class="wrap">
+    <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,4rem);letter-spacing:-0.045em;line-height:.95;max-width:16ch">Write the thesis before the outcome exists.</h2>
+    <p class="sec-sub reveal d1" style="max-width:46ch">Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck: size, exit quality, what you left on the table.</p>
+  </div>
+</section>
+
+<section id="leaderboard" style="padding: 2rem 0 6rem">
   <div class="wrap">
     <div class="split rev">
       <div>
-        <span class="sec-kicker k-orange reveal" style="color:#ff8a80;background:rgba(224,67,58,0.08);border-color:rgba(224,67,58,0.3)">● REC — Session replay</span>
-        <h2 class="reveal d1">Screen-record your trades.<br>Review them like game film.</h2>
-        <p class="sec-sub reveal d2">Hit record and PaperTrench captures your screen while you trade. Afterwards, scrub through the whole session on one timeline — <b>every fill, every chart frame, and the recording itself, perfectly in sync.</b> Watch yourself chase. Then stop.</p>
-        <div class="feature-list reveal d3">
-          <div class="feature-row"><div class="fi">🎬</div><div><h4>One-click capture</h4><p>Screen recording built into the extension — no OBS, no setup. Recordings are stored locally in IndexedDB.</p></div></div>
-          <div class="feature-row"><div class="fi">🕘</div><div><h4>Fills pinned to the timeline</h4><p>Every buy and sell is a marker on the scrubber. Jump straight to the moment you pulled the trigger.</p></div></div>
-          <div class="feature-row"><div class="fi">🔒</div><div><h4>Never leaves your machine</h4><p>Recordings live in your browser and save to your downloads folder. Nothing is uploaded, ever.</p></div></div>
+        <h2 class="reveal" style="font-size:clamp(2.2rem,5vw,3.8rem);letter-spacing:-0.045em;line-height:.95">A board that cannot be faked.</h2>
+        <p class="sec-sub reveal d1">Every fill is committed to a SHA-256 hash chain the moment it happens. The dashboard re-derives your record. Standings are recomputed server-side from the raw fills.</p>
+        <div class="home-ctas reveal d2" style="margin-top:28px">
+          <a class="btn btn-primary" href="/leaderboard">Enter the Arena</a>
+          <a class="btn btn-ghost" href="/sprint">Sprint</a>
+          <a class="btn btn-ghost" href="/duels">Duels</a>
         </div>
       </div>
       <div class="split-visual reveal d1">
-        <div class="visual-card rec-mock">
-          <div class="rec-head"><span class="rec-dot"></span><span class="rec-lbl">RECORDING</span><span class="rec-time" id="recTime">04:12</span></div>
-          <div class="rec-screen"><canvas id="recChart"></canvas></div>
-          <div class="rec-timeline">
-            <div class="rec-track">
-              <div class="rec-fill" id="recFill"></div>
-              <span class="rec-mark b" style="left:14%">B</span>
-              <span class="rec-mark b" style="left:31%">B</span>
-              <span class="rec-mark s" style="left:52%">S</span>
-              <span class="rec-mark s" style="left:78%">S</span>
-              <span class="rec-scrub" id="recScrub"></span>
-            </div>
-            <div class="rec-events">
-              <span class="rec-evt buy">00:34 BUY 0.5 ◎ @ 0.0000311</span>
-              <span class="rec-evt buy">01:18 BUY 0.5 ◎ @ 0.0000287</span>
-              <span class="rec-evt sell">02:09 SELL 50% @ 0.0000402</span>
-              <span class="rec-evt sell">03:16 SELL 100% @ 0.0000378</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ JOURNAL ============ -->
-<section id="journal">
-  <div class="wrap">
-    <div class="split">
-      <div>
-        <span class="sec-kicker k-blue reveal">The journal</span>
-        <h2 class="reveal d1">Write the thesis <em style="font-style:normal;color:var(--blue)">before</em> you know the outcome</h2>
-        <p class="sec-sub reveal d2">While the position is open, you write down <b>why</b> you took the trade, tag the setup, and set a target and stop. When the round closes, PaperTrench grades your process — not just your P&amp;L — because anyone can get lucky once.</p>
-        <div class="feature-list reveal d3">
-          <div class="feature-row"><div class="fi">📝</div><div><h4>Trade thesis, pre-committed</h4><p>Your reasoning is on record before the outcome exists. No revisionist history.</p></div></div>
-          <div class="feature-row"><div class="fi">🏷️</div><div><h4>Setup performance</h4><p>Win rate and average P&amp;L per setup tag — so <code style="font-family:var(--mono);color:var(--red)">revenge</code> gets compared honestly against <code style="font-family:var(--mono);color:var(--blue)">narrative</code>.</p></div></div>
-          <div class="feature-row"><div class="fi">⚖️</div><div><h4>Exit quality &amp; sizing, graded</h4><p>Every round graded excellent / sold early / round-tripped — with the SOL you left on the table quantified, and positions over 25% of your book flagged.</p></div></div>
-          <div class="feature-row"><div class="fi">🤖</div><div><h4>Optional AI coach</h4><p>Point it at any OpenAI-compatible endpoint and get a review of a round — judged against the plan you wrote.</p></div></div>
-        </div>
-      </div>
-      <div class="split-visual reveal d1">
-        <div class="visual-card journal-mock">
-          <div class="j-card">
-            <div class="j-head"><span class="sym">$WIF</span><span class="j-tag narrative">NARRATIVE</span><span class="j-pnl up">+2.41 ◎</span></div>
-            <div class="j-thesis">"Fresh CT narrative, volume ramping, holders doubling every 10m. Target 2x, stop −30%."</div>
-            <div><span class="j-grade exc">EXCELLENT EXIT</span><span class="j-left">captured 87% of the move</span></div>
-          </div>
-          <div class="j-card">
-            <div class="j-head"><span class="sym">$TRENCH</span><span class="j-tag breakout">BREAKOUT</span><span class="j-pnl up">+0.88 ◎</span></div>
-            <div class="j-thesis">"Range break on rising liquidity. Plan: sell halves into strength."</div>
-            <div><span class="j-grade early">SOLD EARLY</span><span class="j-left">left 1.9 ◎ on the table</span></div>
-          </div>
-          <div class="j-card">
-            <div class="j-head"><span class="sym">$REKT</span><span class="j-tag narrative" style="color:var(--red);border-color:rgba(224,67,58,.3);background:rgba(224,67,58,.08)">REVENGE</span><span class="j-pnl down">−1.30 ◎</span></div>
-            <div class="j-thesis">"It has to bounce here…" — no target, no stop.</div>
-            <div><span class="j-grade rt">ROUND-TRIPPED</span><span class="j-left">was +64% at peak</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ============ LEADERBOARD ============ -->
-<section id="leaderboard" style="background:linear-gradient(180deg, transparent, rgba(52,211,153,0.03), transparent)">
-  <div class="wrap">
-    <div class="split rev">
-      <div>
-        <span class="sec-kicker k-green reveal">Verifiable leaderboard</span>
-        <h2 class="reveal d1">A leaderboard that <span style="background:linear-gradient(100deg,var(--green2),var(--green));-webkit-background-clip:text;background-clip:text;color:transparent">can't be faked</span></h2>
-        <p class="sec-sub reveal d2">Every fill is committed to a <b>SHA-256 hash chain the moment it happens</b> — before the outcome is known. No inserting trades, no deleting losers, no backdating winners. The dashboard re-derives your record from the chain and standings are recomputed server-side from the raw fills, never from a self-reported number.</p>
-        <div class="feature-list reveal d3">
-          <div class="feature-row"><div class="fi">⛓️</div><div><h4>Tamper-evident by construction</h4><p>Each fill commits to the hash of the previous one. Touch anything, and every link after it breaks.</p></div></div>
-          <div class="feature-row"><div class="fi">🔍</div><div><h4>Every price re-verifiable</h4><p>Fills record mint, price, and timestamp — so a verifier can re-check them against real market history.</p></div></div>
-          <div class="feature-row"><div class="fi">🪪</div><div><h4>Verified identity</h4><p>One ranked record per verified account, making sybil entries expensive.</p></div></div>
-        </div>
-        <div class="reveal d3" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:26px">
-          <a class="btn btn-primary" href="/leaderboard">🛡 Enter the Arena</a>
-          <a class="btn btn-ghost" href="/sprint">⚡ This week's Sprint</a>
-          <a class="btn btn-ghost" href="/duels">⚔ Duels</a>
-          <a class="btn btn-ghost" href="/clans">🏴 Clans</a>
-        </div>
-      </div>
-      <div class="split-visual reveal d1">
-        <!-- The real board, live. This used to be a mock with invented
-             handles; a product whose whole claim is "no number on screen is
-             ever wrong" cannot show fictional traders on its front page.
-             It loads real standings, and says so plainly when there are
-             none or the verifier is unreachable. -->
         <div class="visual-card lb-mock">
-          <div class="lb-title"><span class="shield">🛡</span>Season standings
+          <div class="lb-title">Season standings
             <span style="margin-left:auto;font-size:11px;font-weight:800;letter-spacing:1px;color:var(--green);border:1px solid rgba(52,211,153,.35);border-radius:999px;padding:4px 10px;background:rgba(52,211,153,.08)">LIVE</span></div>
           <div id="homeBoard" aria-live="polite">
             <div style="padding:26px 4px;color:var(--dim);font-size:13px">Loading the board…</div>
           </div>
           <div class="lb-chain" id="chainTicker"></div>
           <div style="font-size:11.5px;margin-top:12px;text-align:right">
-            <a href="/leaderboard" style="color:var(--green);font-weight:700">Open the full Arena →</a>
+            <a href="/leaderboard" style="color:var(--green);font-weight:700">Open the full Arena</a>
           </div>
         </div>
       </div>
@@ -320,127 +133,44 @@
   </div>
 </section>
 
-<!-- ============ TERMINAL SCENE ============ -->
-<section id="shots" style="padding-top:40px">
+<section style="padding: 0 0 5rem">
   <div class="wrap">
-    <div style="text-align:center;max-width:680px;margin:0 auto 54px">
-      <span class="sec-kicker k-violet reveal">The real thing</span>
-      <h2 class="reveal d1">Built like a terminal, not a toy</h2>
-      <p class="sec-sub reveal d2" style="margin:0 auto">The overlay, the positions bar, and your fills — living directly on the chart you're already watching.</p>
-    </div>
-    <div class="visual-card terminal-scene reveal">
-      <div class="chart-chrome">
-        <span class="cdot" style="background:#ff5f57"></span>
-        <span class="cdot" style="background:#febc2e"></span>
-        <span class="cdot" style="background:#28c840"></span>
-        <span class="ticker"><b>trade.padre.gg</b>/trade/solana/7xKq…3fWm</span>
-        <span class="live-pill"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>LIVE PRICE ANCHORED</span>
-      </div>
-      <div class="scene-posbar">
-        <span class="pb-label">PAPER POSITIONS</span>
-        <span class="pb-pos"><b>$TRENCH</b> 0.5 ◎ <span class="up">+38.2%</span></span>
-        <span class="pb-pos"><b>$WIF</b> 1.0 ◎ <span class="up">+12.4%</span></span>
-        <span class="pb-pos"><b>$BONK</b> 0.25 ◎ <span class="down">−4.1%</span></span>
-        <span class="pb-pos"><b>$POPCAT</b> 0.5 ◎ <span class="up">+2.9%</span></span>
-      </div>
-      <div class="scene-body">
-        <canvas id="sceneChart"></canvas>
-        <div class="pt-box" style="top:20px;right:20px">
-          <div class="pt-watermark">PAPER</div>
-          <div class="pt-banner"><b>Paper Trading</b>&nbsp;· Simulated Funds</div>
-          <div class="pt-header">
-            <div class="pt-icon">P</div>
-            <div class="pt-title">PaperTrench<span class="sub">Quick paper buy box</span></div>
-            <div class="pt-hbtns"><span>▤</span><span>—</span></div>
-          </div>
-          <div class="pt-body">
-            <div class="pt-token-row">
-              <div class="pt-token"><div>$TRENCH</div><span class="pt-mint">7xKq…3fWm</span></div>
-              <div class="pt-price"><div class="num">0.00004719</div><div class="usd">$0.008122 · SOL</div></div>
-            </div>
-            <div class="pt-balance">
-              <div class="lab"><span class="pt-dot"></span>Paper balance</div>
-              <div class="amt">11.86 SOL</div>
-              <div class="pt-delta" style="color:var(--green)">+1.86 SOL today (+18.6%)</div>
-            </div>
-            <div class="pt-pos">
-              <div class="row"><span class="k">Position</span><span class="v">14,654 TRENCH</span></div>
-              <div class="row"><span class="k">Avg entry</span><span class="v">0.00003412</span></div>
-              <div class="row"><span class="k">Value</span><span class="v">0.69 SOL</span></div>
-              <span class="pt-pnl-chip">+0.19 SOL (+38.2%) · $32.71</span>
-            </div>
-            <div class="pt-label">Sell position</div>
-            <div class="pt-sell-row"><span class="pt-sell">25%</span><span class="pt-sell">50%</span><span class="pt-sell">75%</span><span class="pt-sell">100%</span></div>
-          </div>
-          <div class="pt-footer-bar"><span>Live price · anchored</span><span>Dashboard ↗</span></div>
-        </div>
-      </div>
+    <p class="reveal" style="font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:1.2rem">Sits on the terminals you already use</p>
+    <div class="site-index reveal">
+      <b>Axiom</b> <b>Padre</b> <b>Photon</b> <b>GMGN</b> <b>BullX</b>
+      <span>Dexscreener</span> <span>Birdeye</span> <span>Jupiter</span>
+      <span>Pump.fun</span> <span>Fomo</span> <b>Lute</b>
+      <span>Hyperliquid</span> <span>Kalshi</span> <span>Polymarket</span> <span>Limitless</span>
     </div>
   </div>
 </section>
 
-<!-- ============ MORE FEATURES GRID ============ -->
-<section id="more" style="padding-top:30px">
-  <div class="wrap">
-    <div style="text-align:center;max-width:680px;margin:0 auto">
-      <span class="sec-kicker k-orange reveal">And then some</span>
-      <h2 class="reveal d1">Everything else in the trench kit</h2>
-    </div>
-    <div class="grid3">
-      <div class="gcard reveal"><div class="gi">🎯</div><h3>It never invents a price</h3><p>Every fill is validated against a trusted anchor from Dexscreener and Jupiter, raced in parallel. No source, no number — the panel says so instead of guessing.</p></div>
-      <div class="gcard reveal d1"><div class="gi">🚀</div><h3>Trades launches seconds old</h3><p>Jupiter is queried in parallel with Dexscreener, so a coin that just hit the curve is tradeable before indexers even see it.</p></div>
-      <div class="gcard reveal d2"><div class="gi">📌</div><h3>Positions bar</h3><p>Every open position pinned to the top of the page with live P&amp;L. Click one to jump straight to its chart.</p></div>
-      <div class="gcard reveal"><div class="gi">🖼️</div><h3>Shareable P&amp;L cards</h3><p>Turn any closed round into a 1200×675 image with your own picture or GIF behind it — permanently watermarked PAPER, so it can never pass as a real trade.</p></div>
-      <!-- Deliberately carries no figure. The hero stat above is the one test
-           count on this site, and preflight polices it; this card said "600+"
-           while the suites were past 1300 because nothing was watching it. A
-           second, ungated number is just a slower lie. -->
-      <div class="gcard reveal d1"><div class="gi">🧪</div><h3>Mutation-tested, not just covered</h3><p>The decision logic is pure functions exercised directly by the suite — the same code that runs in the page — and each guard has to fail against the exact change it protects against.</p></div>
-      <div class="gcard reveal d2"><div class="gi">🕵️</div><h3>Zero telemetry</h3><p>No account, no signup, nothing phoned home. The only network calls are the public price APIs — and your own AI endpoint, only if you configure one.</p></div>
-      <a class="gcard live-banner reveal" href="/streams">
-        <span class="live-chip"><span class="dot"></span>LIVE</span>
-        <div class="txt"><h3>Watch the PaperTrench Challenge — live on Twitch</h3><p>Streamers grind the leaderboard on stream, with giveaways for the best verified records — and a built-in OBS overlay so you can stream your own runs.</p></div>
-        <span class="go">Watch the streams →</span>
-      </a>
-    </div>
-  </div>
-</section>
-
-<!-- ============ INSTALL ============ -->
 <section id="install">
   <div class="wrap">
-    <div style="text-align:center;max-width:680px;margin:0 auto">
-      <span class="sec-kicker k-green reveal">30-second install</span>
-      <h2 class="reveal d1">In the trenches in half a minute</h2>
-      <p class="sec-sub reveal d2" style="margin:0 auto">Not on the Chrome Web Store yet — loading it unpacked is quick.</p>
-    </div>
+    <h2 class="reveal" style="font-size:clamp(2.4rem,6vw,4.4rem);letter-spacing:-0.045em;line-height:.95">In the trench in half a minute.</h2>
+    <p class="sec-sub reveal d1">Not on the Chrome Web Store yet. Load it unpacked.</p>
     <div class="install-steps">
-      <div class="step reveal"><div class="n">01</div><h4>Download</h4><p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener" style="color:var(--orange2)">latest release</a>, grab the <code>papertrench-*.zip</code> under Assets, and unzip it.</p></div>
-      <div class="step reveal d1"><div class="n">02</div><h4>Open extensions</h4><p>Go to <code>chrome://extensions</code> and flip on <b>Developer mode</b>.</p></div>
-      <div class="step reveal d2"><div class="n">03</div><h4>Load unpacked</h4><p>Select the folder containing <code>manifest.json</code>.</p></div>
-      <div class="step reveal d3"><div class="n">04</div><h4>Trade</h4><p>Open any supported token page — the overlay appears within seconds.</p></div>
+      <div class="step reveal"><div class="n">1</div><h4>Download</h4><p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener" style="color:var(--orange)">latest release</a>, grab the zip under Assets, and unzip it.</p></div>
+      <div class="step reveal d1"><div class="n">2</div><h4>Extensions</h4><p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p></div>
+      <div class="step reveal d2"><div class="n">3</div><h4>Load unpacked</h4><p>Select the folder that contains <code>manifest.json</code>.</p></div>
+      <div class="step reveal d3"><div class="n">4</div><h4>Open a terminal</h4><p>Use a PaperTrench link below. The overlay lands on the chart.</p></div>
     </div>
-    <p class="reveal d3" style="max-width:680px;margin:22px auto 0;padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:14px;color:var(--muted)">
-      <b style="color:var(--text)">Updating later?</b> Unzip the new release <b style="color:var(--orange2)">over the same folder</b> you already loaded (overwrite the files), then hit <b>↻ Reload</b> on the extension card. Your wallet, history, and attest chain all live with the folder — a brand-new folder starts a blank wallet. You can also back up from the extension popup any time.
-    </p>
-    <div class="privacy-strip">
-      <div class="pchip reveal"><span class="pi">🔐</span>No account. No signup.</div>
-      <div class="pchip reveal d1"><span class="pi">💾</span>Everything stays local.</div>
-      <div class="pchip reveal d2"><span class="pi">📡</span>Zero telemetry.</div>
-      <div class="pchip reveal d3"><span class="pi">🆓</span>MIT licensed. Free forever.</div>
-    </div>
+    <nav class="term-dock reveal" aria-label="Paper terminals" style="margin-top:28px;justify-content:center">
+      <span class="term-lbl">Pick a platform</span>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
+      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
+      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
+      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
+    </nav>
   </div>
 </section>
 
-<!-- ============ FINAL CTA ============ -->
 <section class="final-cta">
   <div class="wrap">
-    <span class="hero-badge reveal"><span class="dot"></span>Paper money. Real lessons.</span>
-    <h2 class="reveal d1" style="margin-top:24px">Blow up a fake account<br><span class="grad-orange" style="background:linear-gradient(100deg,var(--orange2),var(--orange-deep));-webkit-background-clip:text;background-clip:text;color:transparent">before you blow up a real one.</span></h2>
-    <p class="sec-sub reveal d2" style="text-align:center;margin-top:16px">The usual way people learn this market is losing money finding out they chase, oversize, and round-trip their winners. PaperTrench tells you that in an afternoon instead.</p>
-    <div class="hero-ctas reveal d3" style="margin-top:36px">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">⬇ Download PaperTrench</a>
-      <a class="btn btn-ghost" href="https://github.com/OnlyTerp/papertrench#readme" target="_blank" rel="noopener">Read the docs</a>
+    <h2 class="reveal">Blow up a fake account before you blow up a real one.</h2>
+    <div class="home-ctas reveal d1" style="justify-content:center;margin-top:32px">
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download PaperTrench</a>
+      <a class="btn btn-ghost" href="/links">All links</a>
     </div>
   </div>
 </section>
@@ -449,59 +179,80 @@
 <footer>
   <div class="wrap">
     <div class="foot-inner">
-      <a class="nav-logo" href="#"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
       <div class="foot-links">
-        <a href="/news">News &amp; patch notes</a>
+        <a href="/news">News</a>
         <a href="/links">Links</a>
-        <a href="/streams">Live on Twitch</a>
+        <a href="/streams">Live</a>
         <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
-        <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
-        <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
     </div>
+    <nav class="term-dock" aria-label="Paper terminals">
+      <span class="term-lbl">Open a terminal</span>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
+      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
+      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
+      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
+    </nav>
     <div class="foot-social">
-      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.198.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join the Discord
-      </a>
-      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
-      </a>
+      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">Discord</a>
+      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">@PaperTrench_</a>
     </div>
-    <div class="foot-note">Paper trading only · not financial advice · every number on this page is simulated demo data, because PaperTrench never fabricates a real one.</div>
+    <div class="foot-note">Paper trading only. Not financial advice. $PT is a community token, not a claim on the extension.</div>
   </div>
 </footer>
 
 <script src="arena.js"></script>
 <script src="main.js"></script>
 <script>
-/* The homepage board preview — real standings or an honest blank. */
+(() => {
+  'use strict';
+  const films = Array.from(document.querySelectorAll('.home-films video'));
+  const doors = Array.from(document.querySelectorAll('.home-door'));
+  const openBtn = document.getElementById('homeOpen');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function playOnly(key) {
+    films.forEach((v) => {
+      const on = v.getAttribute('data-film') === key;
+      v.classList.toggle('is-on', on);
+      if (on && !reduced) {
+        if (!v.getAttribute('src') && v.dataset.src) v.src = v.dataset.src;
+        const p = v.play(); if (p && p.catch) p.catch(() => {});
+      } else { v.pause(); }
+    });
+  }
+  doors.forEach((d) => {
+    d.addEventListener('pointerenter', () => {
+      doors.forEach((x) => x.classList.toggle('is-on', x === d));
+      playOnly(d.getAttribute('data-film'));
+      if (openBtn) { openBtn.href = d.href; openBtn.textContent = d.getAttribute('data-open') || 'Open'; }
+    });
+  });
+})();
+</script>
+<script>
 (() => {
   'use strict';
   const A = window.PTArena;
   const boardEl = document.getElementById('homeBoard');
   const tickerEl = document.getElementById('chainTicker');
   if (!A || !boardEl) return;
-
   const note = (text) =>
     `<div style="padding:24px 4px;color:var(--dim);font-size:13px;line-height:1.6">${text}</div>`;
-
   (async () => {
     let entries;
     try {
       entries = (await A.getOrThrow('/api/leaderboard')).entries || [];
     } catch {
       boardEl.innerHTML = note(A.API_LIVE
-        ? 'The verifier is unreachable right now, so no standings are shown — nothing here is ' +
-          'cached or guessed.'
-        : '<strong style="color:var(--orange2)">Opening soon.</strong> The verifier isn\'t deployed ' +
-          'yet, so there are no standings to show. Your extension is already hash-committing every ' +
-          'fill, so the record you build now is the record that ranks on day one.');
+        ? 'The verifier is unreachable right now, so no standings are shown.'
+        : '<strong style="color:var(--orange2)">Opening soon.</strong> The verifier is not deployed yet, so there are no standings to show.');
       return;
     }
     if (!entries.length) {
-      boardEl.innerHTML = note('No ranked records yet. Five closed rounds gets you on the board, and ' +
-        'nothing appears here until a real chain has been replayed and re-priced.');
+      boardEl.innerHTML = note('No ranked records yet. Five closed rounds gets you on the board.');
       return;
     }
     boardEl.innerHTML = entries.slice(0, 5).map((entry, i) => {
@@ -516,8 +267,6 @@
       </a>`;
     }).join('');
   })();
-
-  /* Real verifier events, rotating — replaces the old random-hex ticker. */
   (async () => {
     if (!tickerEl) return;
     let events = [];

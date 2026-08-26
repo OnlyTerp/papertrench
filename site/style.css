@@ -1,3 +1,16 @@
+@font-face {
+  font-family: Syne;
+  src: url("/assets/fonts/syne.ttf") format("truetype");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
 /* PaperTrench showcase site */
 :root {
   --bg: #07090e;
@@ -22,8 +35,8 @@
      agree, or the content pillars drift out from under the navbar. Bumped
      from 1180px after ultrawide users reported the homepage pillar-boxing. */
   --wrap-max: 1440px;
-  --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --font: Syne, ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -82,14 +95,12 @@ section[id], [id="watch"], [id="streamers"] { scroll-margin-top: 84px; }
 .bg-glow {
   position: fixed; inset: 0; z-index: -3; pointer-events: none;
   background:
-    radial-gradient(900px 500px at 15% -5%, rgba(255,157,69,0.13), transparent 60%),
-    radial-gradient(800px 500px at 90% 10%, rgba(52,211,153,0.09), transparent 60%),
-    radial-gradient(1000px 700px at 50% 110%, rgba(106,169,255,0.06), transparent 60%),
+    radial-gradient(700px 380px at 12% -8%, rgba(255,157,69,0.08), transparent 62%),
     var(--bg);
 }
 
 /* ---------- nav ---------- */
-nav {
+nav[aria-label="Primary"] {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;
   backdrop-filter: blur(14px);
   background: rgba(7, 9, 14, 0.72);
@@ -101,17 +112,16 @@ nav {
 }
 .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; letter-spacing: -0.4px; }
 .nav-logo img { width: 28px; height: 28px; border-radius: 8px; }
-.nav-links { display: flex; gap: 22px; margin-left: auto; font-size: 14px; color: var(--muted); font-weight: 600; }
+.nav-links { display: flex; align-items: center; gap: 16px; margin-left: auto; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.01em; }
 .nav-links a { transition: color .2s; }
 .nav-links a:hover { color: var(--text); }
 .nav-cta {
-  margin-left: 8px; font-size: 13.5px; font-weight: 700;
-  padding: 9px 18px; border-radius: 999px;
-  background: linear-gradient(135deg, var(--orange2), var(--orange-deep));
-  color: #2a1400; transition: transform .2s, box-shadow .2s;
-  box-shadow: 0 0 0 rgba(255,157,69,0);
+  margin-left: 8px; font-size: 13px; font-weight: 800;
+  padding: 8px 16px; border-radius: 999px;
+  background: var(--orange);
+  color: #1a0c00; transition: transform .2s, background .2s;
 }
-.nav-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(255,157,69,0.35); }
+.nav-cta:hover { transform: translateY(-1px); background: #ffb05e; }
 /* Profile control — the one nav item whose content depends on who is looking.
    Sized like the pills beside it so the bar does not reflow when the answer
    arrives, and painted from cache first for the same reason. */
@@ -264,14 +274,9 @@ h1 {
   font-size: clamp(42px, 7vw, 84px);
   line-height: 1.03; letter-spacing: -0.035em; font-weight: 800;
 }
-h1 .grad-orange {
-  background: linear-gradient(100deg, var(--orange2) 10%, var(--orange) 45%, var(--orange-deep) 90%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-h1 .grad-green {
-  background: linear-gradient(100deg, var(--green2), var(--green));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
+h1 .grad-orange { color: var(--orange); }
+h1 .grad-green { color: var(--green); }
+.grad-orange { color: var(--orange); }
 .hero-sub { font-size: clamp(17px, 2.2vw, 21px); color: var(--muted); max-width: 640px; }
 .hero-sub strong { color: var(--text); font-weight: 600; }
 
@@ -785,6 +790,94 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 @media (max-width: 720px) { .foot-social { justify-content: center; } }
 
 .foot-note { margin-top: 18px; font-size: 12.5px; color: var(--dim); }
+
+/* Terminal referral dock - conversion strip on every public page */
+.term-dock {
+  position: static;
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 18px;
+  background: none; border: 0; backdrop-filter: none;
+}
+.term-dock a {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line2);
+  font-size: 13px; font-weight: 800; letter-spacing: -0.02em;
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  transition: border-color .18s, color .18s, background .18s;
+}
+.term-dock a:hover { border-color: var(--orange); color: var(--orange); }
+.term-dock .term-lbl {
+  width: 100%; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
+  margin-bottom: 2px;
+}
+
+/* Homepage film stage */
+.home-stage {
+  position: relative; min-height: 100dvh;
+  display: grid; grid-template-rows: 1fr auto;
+  margin-top: 64px; overflow: hidden;
+}
+.home-films { position: absolute; inset: 0; background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat; }
+.home-films video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: 0; transition: opacity .55s ease;
+}
+.home-films video.is-on { opacity: 1; }
+.home-veil {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(7,9,14,.92) 0%, rgba(7,9,14,.55) 42%, rgba(7,9,14,.2) 100%),
+    linear-gradient(180deg, rgba(7,9,14,.55) 0%, transparent 30%, transparent 58%, rgba(7,9,14,.88) 100%);
+}
+.home-copy { position: relative; z-index: 2; padding: 5.5rem 4vw 1.5rem; max-width: 52rem; }
+.home-copy h1 {
+  margin: 0; font-size: clamp(2.6rem, 6.4vw, 5.2rem);
+  letter-spacing: -0.045em; line-height: 0.94;
+}
+.home-copy .lede { margin-top: 1.1rem; max-width: 36ch; color: var(--muted); font-size: clamp(1rem, 1.5vw, 1.2rem); }
+.home-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 1.5rem; }
+.home-doors { position: relative; z-index: 3; display: flex; height: 22vh; min-height: 128px; max-height: 220px; }
+.home-door {
+  position: relative; flex: 1 1 0; min-width: 0; overflow: hidden;
+  transition: flex-grow .55s cubic-bezier(.22,1,.36,1);
+}
+.home-door:hover, .home-door:focus-visible, .home-door.is-on { flex-grow: 2.4; }
+.home-door img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.85) brightness(.78); transition: filter .4s, transform .5s; }
+.home-door:hover img, .home-door.is-on img { filter: none; transform: scale(1.02); }
+.home-door span {
+  position: absolute; left: 14px; bottom: 14px;
+  font-size: clamp(1rem, 1.6vw, 1.3rem); font-weight: 800; letter-spacing: -0.04em;
+  text-shadow: 0 1px 10px rgba(7,9,14,.85);
+}
+.home-quiet {
+  display: flex; flex-wrap: wrap; gap: 8px 22px;
+  padding: 18px 4vw; font-family: var(--mono); font-size: 12px; color: var(--dim);
+  border-bottom: 1px solid var(--line);
+}
+.home-quiet b { color: var(--muted); font-weight: 400; }
+.site-index {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  padding: 0; max-width: var(--wrap-max); margin: 0 auto;
+  font-size: 15px; font-weight: 700; color: var(--muted);
+}
+.site-index b { color: var(--text); }
+
+@media (max-width: 767px) {
+  .home-stage { height: auto; min-height: 100dvh; display: flex; flex-direction: column; }
+  .home-copy { padding: 4.5rem 16px .6rem; }
+  .home-copy h1 { font-size: 2.3rem; }
+  .home-ctas .btn { width: 100%; justify-content: center; }
+  .home-doors {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    height: auto; min-height: 42vh; max-height: none; flex: 1; gap: 6px; padding: 0 10px 14px;
+  }
+  .home-door { flex: none; border-radius: 10px; }
+  .home-door:hover, .home-door.is-on { flex-grow: 0; }
+}
 
 /* ---------- reveal animations ---------- */
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity .8s cubic-bezier(.2,.8,.2,1), transform .8s cubic-bezier(.2,.8,.2,1); }
