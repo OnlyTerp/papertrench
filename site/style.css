@@ -825,9 +825,12 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   padding: 0;
 }
 .home-films { position: absolute; inset: 0; background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat; }
-.home-films video {
+.home-poster, .home-films video {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; opacity: 0; transition: opacity .55s ease;
+  object-fit: cover;
+}
+.home-films video {
+  opacity: 0; transition: opacity .55s ease;
 }
 .home-films video.is-on { opacity: 1; }
 .home-veil {
@@ -984,27 +987,70 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   .home-door > span:not(.home-door-shade) { left: 10px; bottom: 10px; font-size: 1.1rem; }
 }
 
-/* Below-fold close. Different families from the film chapters:
-   ledger (typographic standings), numbered rail (install), manifesto (end).
-   Visible without JS - no opacity-0 reveal death. */
-.home-ledger, .home-install, .home-end {
-  padding: 5.5rem 0 4.75rem;
+.home-ch, .home-work, .home-end { content-visibility: auto; contain-intrinsic-size: 1000px; }
+
+.home-work {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+  padding: 0;
 }
-.home-ledger h2, .home-install h2, .home-end h2 {
+.home-work-bg, .home-end-bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  filter: saturate(.9) brightness(.42);
+}
+.home-work-veil, .home-end-veil {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(90deg, rgba(7,9,14,.92) 0%, rgba(7,9,14,.55) 48%, rgba(7,9,14,.22) 100%),
+    linear-gradient(180deg, rgba(7,9,14,.35) 0%, transparent 28%, rgba(7,9,14,.9) 100%);
+}
+.home-work-grid {
+  position: relative; z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+  gap: 4vw;
+  padding: 5rem 4vw 4rem;
+  align-items: end;
+}
+.home-work h2, .home-credits h2, .home-end-copy h2 {
   margin: 0;
-  font-size: clamp(2.2rem, 5.4vw, 4.2rem);
+  font-size: clamp(2.2rem, 5.2vw, 4.2rem);
   letter-spacing: -0.05em;
   line-height: 0.94;
-  max-width: 16ch;
+  max-width: 14ch;
 }
-.home-ledger > .wrap > p, .home-install > .wrap > p {
+.home-work p, .home-credits p {
   margin-top: 1rem;
-  max-width: 42ch;
+  max-width: 38ch;
   color: var(--muted);
   font-size: clamp(1rem, 1.5vw, 1.15rem);
 }
-.home-ledger .home-ctas, .home-end .home-ctas { margin-top: 1.6rem; }
-.home-install .term-dock, .home-end .term-dock { margin-top: 2rem; }
+.home-work .home-rail { margin-top: 1.6rem; max-width: none; }
+.home-work .home-rail,
+.home-work .home-rail li,
+.home-work .ledger-head,
+.home-work .ledger .lb-row { border-color: rgba(234,239,247,0.12); }
+
+.home-end {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+}
+.home-end-copy {
+  position: relative; z-index: 2;
+  padding: calc(64px + 2.5rem) 4vw 1.5rem;
+  max-width: 48rem;
+}
+.home-end-copy h2 { max-width: 16ch; }
+.home-end-doors { z-index: 3; }
 
 .ledger { margin-top: 2.75rem; max-width: 52rem; }
 .ledger-head {
@@ -1090,23 +1136,28 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   color: var(--orange2);
 }
 
-.home-end {
-  padding-top: 5.75rem;
-  padding-bottom: 6.5rem;
-  border-top: 1px solid var(--line);
+@media (max-width: 900px) {
+  .home-work-grid { grid-template-columns: 1fr; gap: 2.5rem; padding: 3.5rem 16px 2.5rem; }
 }
-.home-end h2 { max-width: 18em; }
-
 @media (max-width: 767px) {
-  .home-ledger, .home-install, .home-end { padding: 3.5rem 0 3.25rem; }
-  .home-ledger h2, .home-install h2, .home-end h2 {
+  .home-work { min-height: 0; }
+  .home-work h2, .home-credits h2, .home-end-copy h2 {
     font-size: clamp(2rem, 9.5vw, 2.55rem);
     max-width: none;
   }
   .ledger .lb-row { grid-template-columns: 2.4rem minmax(0, 1fr) auto; }
   .ledger .lb-row .win { display: none; }
   .home-rail li { grid-template-columns: 2.4rem minmax(0, 1fr); gap: 8px 10px; }
-  .home-end { padding-bottom: 4.5rem; }
+  .home-end { min-height: 100dvh; }
+  .home-end-copy { padding: calc(64px + 12px) 16px 12px; }
+  .home-end-doors {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    height: auto; min-height: 220px; max-height: none;
+    gap: 6px; padding: 0 10px 14px;
+  }
+  .home-end-doors .home-door { flex: none; border-radius: 10px; }
 }
 
 /* ---------- reveal animations ---------- */

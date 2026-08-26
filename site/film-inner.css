@@ -95,15 +95,43 @@
 .latest-card p, .latest-card .go { display: none; }
 
 .film-end {
-  padding: 5.5rem 0 6.5rem;
-  border-top: 1px solid var(--line);
+  position: relative;
+  min-height: 72dvh;
+  display: grid;
+  align-items: end;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+}
+.film-end::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat;
+  filter: brightness(.42) saturate(.9);
+}
+.film-end::after {
+  content: "";
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(7,9,14,.88) 0%, rgba(7,9,14,.4) 55%, rgba(7,9,14,.2) 100%),
+    linear-gradient(180deg, rgba(7,9,14,.4) 0%, transparent 30%, rgba(7,9,14,.9) 100%);
+}
+.film-end .wrap {
+  position: relative; z-index: 2;
+  padding: 5rem 4vw 4.5rem;
 }
 .film-end h2 {
-  font-size: clamp(2rem, 5vw, 3.6rem);
-  letter-spacing: -0.05em; line-height: 0.95; margin: 0 0 0.8rem;
+  font-size: clamp(2.2rem, 5.4vw, 4.2rem);
+  letter-spacing: -0.05em; line-height: 0.94; margin: 0 0 0.8rem;
+  max-width: 16ch;
 }
 .film-end p { max-width: 36ch; color: var(--muted); }
 .film-end .hero-ctas { margin-top: 1.5rem; }
+@media (max-width: 767px) {
+  .film-end { min-height: 62dvh; }
+  .film-end .wrap { padding: 3.5rem 16px 2.5rem; }
+  .film-end h2 { font-size: clamp(2rem, 9vw, 2.5rem); max-width: none; }
+}
 
 .lost-stage {
   position: relative;

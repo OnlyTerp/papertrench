@@ -53,7 +53,7 @@
 
 <header class="lost-stage film-mast" aria-label="Page not found">
   <div class="film-mast-bg" aria-hidden="true">
-    <video autoplay muted loop playsinline preload="metadata" poster="/assets/films/overlay.jpg" src="/assets/films/overlay.mp4"></video>
+    <video muted loop playsinline preload="none" poster="/assets/films/overlay.jpg" data-src="/assets/films/overlay.mp4"></video>
   </div>
   <div class="film-mast-veil" aria-hidden="true"></div>
   <div class="lost-copy">
@@ -117,6 +117,7 @@
   })();
 </script>
 <script src="/vendor/gsap.min.js"></script>
+<script src="/film-boot.js"></script>
 <script src="/nav-wallet.js"></script>
 <script src="/nav-profile.js"></script>
 <script>

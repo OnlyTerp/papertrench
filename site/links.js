@@ -92,9 +92,9 @@
         if (p && p.catch) p.catch(function () {});
       }
     });
-    window.setTimeout(function () {
-      films.forEach(ensureSrc);
-    }, 4000);
+    var boot = function () { playOnly(idle.film); };
+    if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1800 });
+    else window.setTimeout(boot, 900);
   }
 
   if (!still && window.gsap) {

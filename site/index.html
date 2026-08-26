@@ -42,7 +42,8 @@
 
 <section class="home-stage" aria-label="PaperTrench">
   <div class="home-films" aria-hidden="true">
-    <video class="is-on" data-film="overlay" autoplay muted loop playsinline preload="auto" poster="/assets/films/overlay.jpg" src="/assets/films/overlay.mp4"></video>
+    <img class="home-poster" src="/assets/films/overlay.jpg" alt="" width="1280" height="720" fetchpriority="high" decoding="async">
+    <video data-film="overlay" muted loop playsinline preload="none" poster="/assets/films/overlay.jpg" data-src="/assets/films/overlay.mp4"></video>
     <video data-film="axiom" muted loop playsinline preload="none" poster="/assets/films/axiom.jpg" data-src="/assets/films/axiom.mp4"></video>
     <video data-film="padre" muted loop playsinline preload="none" poster="/assets/films/padre.jpg" data-src="/assets/films/padre.mp4"></video>
     <video data-film="gmgn" muted loop playsinline preload="none" poster="/assets/films/gmgn.jpg" data-src="/assets/films/gmgn.mp4"></video>
@@ -89,7 +90,7 @@
 </p>
 
 <section class="home-ch" id="bubbles">
-  <img class="home-ch-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720">
+  <img class="home-ch-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
   <div class="home-ch-veil" aria-hidden="true"></div>
   <div class="home-ch-copy">
     <h2>Fills on the live chart.</h2>
@@ -97,103 +98,100 @@
   </div>
 </section>
 
-<section class="home-ch ed" id="replay">
-  <div class="home-ch-copy">
-    <h2>Review the round like game film.</h2>
-    <p>Record the session. Scrub fills against the chart. Watch yourself chase, then stop. Recordings stay in your browser. Nothing is uploaded.</p>
-  </div>
-</section>
-
 <section class="home-ch flip" id="journal">
-  <img class="home-ch-bg" src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
+  <img class="home-ch-bg" src="/assets/films/axiom.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
   <div class="home-ch-veil" aria-hidden="true"></div>
   <div class="home-ch-copy">
     <h2>Write the thesis first.</h2>
-    <p>Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck: size, exit quality, what you left on the table.</p>
+    <p>Tag the setup. Set a target and a stop. When the round closes, PaperTrench grades process, not luck. Recordings stay in your browser. Nothing is uploaded.</p>
   </div>
 </section>
 
-<section class="home-ledger" id="leaderboard">
-  <div class="wrap">
-    <h2>A board that cannot be faked.</h2>
-    <p>Every fill is committed to a SHA-256 hash chain the moment it happens. Standings are recomputed server-side from the raw fills.</p>
-    <div class="home-ctas">
-      <a class="btn btn-primary" href="/leaderboard">Enter the Arena</a>
-      <a class="btn btn-ghost" href="/sprint">Sprint</a>
-      <a class="btn btn-ghost" href="/duels">Duels</a>
+<section class="home-work" id="install">
+  <img class="home-work-bg" src="/assets/films/overlay.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
+  <div class="home-work-veil" aria-hidden="true"></div>
+  <div class="home-work-grid">
+    <div>
+      <h2>In the trench in half a minute.</h2>
+      <p>Not on the Chrome Web Store yet. Load it unpacked, then open a terminal with a PaperTrench link.</p>
+      <ol class="home-rail">
+        <li>
+          <span class="n" aria-hidden="true">01</span>
+          <div>
+            <h3>Download</h3>
+            <p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">latest release</a>, grab the zip under Assets, and unzip it.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n" aria-hidden="true">02</span>
+          <div>
+            <h3>Extensions</h3>
+            <p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n" aria-hidden="true">03</span>
+          <div>
+            <h3>Load unpacked</h3>
+            <p>Select the folder that contains <code>manifest.json</code>.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n" aria-hidden="true">04</span>
+          <div>
+            <h3>Open a terminal</h3>
+            <p>Use a PaperTrench link. The overlay lands on the chart you already grind.</p>
+          </div>
+        </li>
+      </ol>
     </div>
-    <div class="ledger">
-      <div class="ledger-head">
-        <span>Season standings</span>
-        <span class="ledger-live">LIVE</span>
-        <a class="ledger-all" href="/leaderboard">Full Arena</a>
+    <div class="home-credits" id="leaderboard">
+      <h2>A board that cannot be faked.</h2>
+      <p>Every fill is hash-chained the moment it happens. Standings are recomputed from the raw fills.</p>
+      <div class="ledger">
+        <div class="ledger-head">
+          <span>Season</span>
+          <a class="ledger-all" href="/leaderboard">Full Arena</a>
+        </div>
+        <div id="homeBoard" aria-live="polite">
+          <p class="ledger-empty">Loading the board…</p>
+        </div>
       </div>
-      <div id="homeBoard" aria-live="polite">
-        <p class="ledger-empty">Loading the board…</p>
-      </div>
-      <p class="ledger-tick" id="chainTicker"></p>
     </div>
   </div>
 </section>
 
-<section class="home-install" id="install">
-  <div class="wrap">
-    <h2>In the trench in half a minute.</h2>
-    <p>Not on the Chrome Web Store yet. Load it unpacked, then open a terminal with a PaperTrench link.</p>
-    <ol class="home-rail">
-      <li>
-        <span class="n" aria-hidden="true">01</span>
-        <div>
-          <h3>Download</h3>
-          <p>Open the <a href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">latest release</a>, grab the zip under Assets, and unzip it.</p>
-        </div>
-      </li>
-      <li>
-        <span class="n" aria-hidden="true">02</span>
-        <div>
-          <h3>Extensions</h3>
-          <p>Go to <code>chrome://extensions</code> and turn on Developer mode.</p>
-        </div>
-      </li>
-      <li>
-        <span class="n" aria-hidden="true">03</span>
-        <div>
-          <h3>Load unpacked</h3>
-          <p>Select the folder that contains <code>manifest.json</code>.</p>
-        </div>
-      </li>
-      <li>
-        <span class="n" aria-hidden="true">04</span>
-        <div>
-          <h3>Open a terminal</h3>
-          <p>Use a PaperTrench link. The overlay lands on the chart you already grind.</p>
-        </div>
-      </li>
-    </ol>
-    <nav class="term-dock" aria-label="Paper terminals">
-      <span class="term-lbl">Pick a platform</span>
-      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
-      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
-      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
-      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
-    </nav>
-  </div>
-</section>
-
-<section class="home-end">
-  <div class="wrap">
-    <h2>Blow up a fake account<br>before you blow up a real one.</h2>
+<section class="home-end" id="replay">
+  <img class="home-end-bg" src="/assets/films/gmgn.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
+  <div class="home-end-veil" aria-hidden="true"></div>
+  <div class="home-end-copy">
+    <h2>Blow up a fake account before you blow up a real one.</h2>
     <div class="home-ctas">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download PaperTrench</a>
-      <a class="btn btn-ghost" href="/links">All links</a>
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
     </div>
-    <nav class="term-dock" aria-label="Paper terminals">
-      <span class="term-lbl">Or open a terminal now</span>
-      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
-      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
-      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
-      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
-    </nav>
+  </div>
+  <div class="home-doors home-end-doors" role="list">
+    <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" aria-label="Open Axiom with the PaperTrench referral">
+      <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720" loading="lazy">
+      <span class="home-door-shade" aria-hidden="true"></span>
+      <span>Axiom</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" aria-label="Open Padre with the PaperTrench referral">
+      <img src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy">
+      <span class="home-door-shade" aria-hidden="true"></span>
+      <span>Padre</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" aria-label="Open GMGN with the PaperTrench referral">
+      <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720" loading="lazy">
+      <span class="home-door-shade" aria-hidden="true"></span>
+      <span>GMGN</span>
+    </a>
+    <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" aria-label="Open Lute with the PaperTrench referral">
+      <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720" loading="lazy">
+      <span class="home-door-shade" aria-hidden="true"></span>
+      <span>Lute</span>
+    </a>
   </div>
 </section>
 </main>
@@ -211,13 +209,6 @@
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
       </div>
     </div>
-    <nav class="term-dock" aria-label="Paper terminals">
-      <span class="term-lbl">Open a terminal</span>
-      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
-      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
-      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
-      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
-    </nav>
     <div class="foot-social">
       <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">Discord</a>
       <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">@PaperTrench_</a>
@@ -227,27 +218,36 @@
 </footer>
 
 <script src="/vendor/gsap.min.js"></script>
-<script src="/vendor/ScrollTrigger.min.js"></script>
 <script src="arena.js"></script>
-<script src="main.js"></script>
 <script>
 (() => {
   'use strict';
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hoverFine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const saveData = !!(navigator.connection && navigator.connection.saveData);
+  const still = reduced || saveData || !hoverFine;
+  const stage = document.querySelector('.home-stage');
   const films = Array.from(document.querySelectorAll('.home-films video'));
-  const doors = Array.from(document.querySelectorAll('.home-door'));
+  const doors = Array.from(document.querySelectorAll('.home-stage .home-door'));
   const openBtn = document.getElementById('homeOpen');
+  let stageIn = true;
+
+  function ensureSrc(v) {
+    if (!v.getAttribute('src') && v.dataset.src) v.src = v.dataset.src;
+  }
   function playOnly(key) {
     films.forEach((v) => {
       const on = v.getAttribute('data-film') === key;
       v.classList.toggle('is-on', on);
-      if (on && !reduced) {
-        if (!v.getAttribute('src') && v.dataset.src) v.src = v.dataset.src;
+      if (on && !still && stageIn) {
+        ensureSrc(v);
         const p = v.play(); if (p && p.catch) p.catch(() => {});
-      } else { v.pause(); }
+      } else {
+        v.pause();
+      }
     });
   }
+
   doors.forEach((d) => {
     d.addEventListener('pointerenter', () => {
       doors.forEach((x) => x.classList.toggle('is-on', x === d));
@@ -255,37 +255,27 @@
       if (openBtn) { openBtn.href = d.href; openBtn.textContent = d.getAttribute('data-open') || 'Open'; }
     });
   });
+
+  if (!still) {
+    const boot = () => playOnly('overlay');
+    if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1800 });
+    else setTimeout(boot, 900);
+    if (stage && 'IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        stageIn = !!(entries[0] && entries[0].isIntersecting);
+        if (!stageIn) films.forEach((v) => v.pause());
+        else {
+          const on = films.find((v) => v.classList.contains('is-on')) || films[0];
+          if (on) playOnly(on.getAttribute('data-film') || 'overlay');
+        }
+      }, { threshold: 0.12 }).observe(stage);
+    }
+  }
+
   if (!reduced && window.gsap) {
-    const gsap = window.gsap;
-    if (window.ScrollTrigger) gsap.registerPlugin(window.ScrollTrigger);
-    gsap.from('.home-copy > *', { y: 28, duration: 0.9, stagger: 0.08, ease: 'power3.out', clearProps: 'transform' });
+    window.gsap.from('.home-copy > *', { y: 28, duration: 0.85, stagger: 0.07, ease: 'power3.out', clearProps: 'transform' });
     if (hoverFine) {
-      gsap.from('.home-door', { y: 40, duration: 0.8, stagger: 0.06, ease: 'power3.out', clearProps: 'transform' });
-    }
-    const chapters = Array.from(document.querySelectorAll('.home-ch'));
-    if (hoverFine && window.ScrollTrigger && chapters.length > 1) {
-      const last = chapters[chapters.length - 1];
-      chapters.slice(0, -1).forEach((card) => {
-        ScrollTrigger.create({
-          trigger: card,
-          start: 'top top',
-          endTrigger: last,
-          end: 'top top',
-          pin: true,
-          pinSpacing: false
-        });
-      });
-    }
-    if (window.ScrollTrigger) {
-      gsap.utils.toArray('.home-ledger h2, .home-install h2, .home-end h2').forEach((el) => {
-        gsap.from(el, {
-          y: 32,
-          duration: 0.85,
-          ease: 'power3.out',
-          scrollTrigger: { trigger: el, start: 'top 88%' },
-          clearProps: 'transform'
-        });
-      });
+      window.gsap.from('.home-stage .home-door', { y: 36, duration: 0.75, stagger: 0.05, ease: 'power3.out', clearProps: 'transform' });
     }
   }
 })();
