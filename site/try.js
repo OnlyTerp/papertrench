@@ -12,7 +12,9 @@
   ];
 
   const root = document.getElementById('try');
+  const hud = root ? root.querySelector('.try-hud') : null;
   const quoteEl = root ? root.querySelector('.try-quote') : null;
+  const priceEl = root ? root.querySelector('.try-hud-price') : null;
   const buyEl = root ? root.querySelector('.try-buy') : null;
   const cheatEl = root ? root.querySelector('.try-cheat') : null;
   const reasonEl = root ? root.querySelector('.try-reason') : null;
@@ -30,10 +32,11 @@
     return mint.slice(0, 4) + '…' + mint.slice(-4);
   }
 
-  function line(text) {
-    const el = document.createElement('span');
-    el.textContent = text;
-    return el;
+  function paintHud() {
+    if (hud) {
+      hud.classList.toggle('is-live', !!quoted);
+      hud.classList.toggle('is-cheated', cheated);
+    }
   }
 
   function shutTicket() {
@@ -43,7 +46,9 @@
       reasonEl.hidden = false;
       reasonEl.textContent = SHUT;
     }
-    if (quoteEl) quoteEl.replaceChildren(line('PAPER · DEMO'));
+    if (priceEl) priceEl.textContent = '-';
+    if (quoteEl) quoteEl.textContent = 'Dexscreener · waiting';
+    paintHud();
   }
 
   function openTicket(priceText) {
@@ -53,13 +58,9 @@
       reasonEl.hidden = true;
       reasonEl.textContent = '';
     }
-    if (!quoteEl) return;
-    quoteEl.replaceChildren(
-      line('PAPER · DEMO'),
-      line('Dexscreener · $PT'),
-      line('$' + priceText),
-      line(shortMint(MINT))
-    );
+    if (priceEl) priceEl.textContent = '$' + priceText;
+    if (quoteEl) quoteEl.textContent = 'Dexscreener · $PT · ' + shortMint(MINT);
+    paintHud();
   }
 
   function livePrice(data) {
@@ -134,6 +135,7 @@
       });
       chainEl.hidden = false;
       cheated = true;
+      paintHud();
     });
   }
 

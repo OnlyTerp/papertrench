@@ -5,14 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>PaperTrench | Paper-trade the trenches</title>
 <meta name="description" content="A Chrome overlay for Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Lute, Hyperliquid, Kalshi, Polymarket, and Limitless. Real charts. Live prices. Fake SOL. $PT.">
-<meta property="og:title" content="PaperTrench | Real prices. Fake SOL.">
-<meta property="og:description" content="Paper-trade memecoins on the terminal you already grind. Then take it live with the PaperTrench referral.">
+<link rel="canonical" href="https://papertrench.com/">
+<meta property="og:title" content="PaperTrench | Live prices. Fake SOL.">
+<meta property="og:description" content="Chrome overlay on the terminal you already grind. Live prices. Fake SOL. $PT.">
+<meta property="og:url" content="https://papertrench.com/">
+<meta property="og:type" content="website">
 <meta property="og:image" content="https://papertrench.com/assets/films/overlay.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@PaperTrench_">
+<meta name="twitter:image" content="https://papertrench.com/assets/films/overlay.jpg">
 <meta name="theme-color" content="#07090e">
+<meta name="color-scheme" content="dark">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="/assets/icon192.png">
+<link rel="preload" as="image" href="/assets/films/overlay.jpg">
+<link rel="preload" as="font" href="/assets/fonts/syne.ttf" type="font/ttf" crossorigin>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -49,35 +58,55 @@
     <video data-film="gmgn" muted loop playsinline preload="none" poster="/assets/films/gmgn.jpg" data-src="/assets/films/gmgn.mp4"></video>
   </div>
   <div class="home-veil" aria-hidden="true"></div>
+  <div class="home-grain" aria-hidden="true"></div>
+  <p class="home-stamp" aria-hidden="true">$PT</p>
   <div class="home-copy">
-    <h1>Paper<br>the trench.</h1>
-    <p class="lede">Live prices. Fake SOL.</p>
+    <h1>Paper<br><span class="home-l2">the trench.</span></h1>
+    <p class="lede" id="homeLede">Chrome overlay on the terminal you already grind. Live prices. Fake SOL.</p>
     <p class="home-pick-line">Pick a platform.</p>
     <div class="home-ctas">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
-      <a class="btn btn-ghost" id="homeOpen" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">
+        <svg viewBox="0 0 256 256" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>
+        Download for Chrome
+      </a>
+      <a class="btn btn-ghost" id="homeOpen" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">
+        <span id="homeOpenLabel">Open Axiom</span>
+        <svg viewBox="0 0 256 256" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
+      </a>
     </div>
   </div>
   <div class="home-doors" role="list">
-    <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" data-film="axiom" data-open="Open Axiom" aria-label="Open Axiom with the PaperTrench referral">
+    <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" data-film="axiom" data-open="Open Axiom" data-lede="Drop in on Axiom. Paper the tape before you size up." aria-label="Open Axiom with the PaperTrench referral">
       <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Axiom</span>
+      <span class="home-door-meta">
+        <b>Axiom</b>
+        <span class="home-door-go">Open <svg viewBox="0 0 256 256" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></span>
+      </span>
     </a>
-    <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" data-film="padre" data-open="Open Padre" aria-label="Open Padre with the PaperTrench referral">
+    <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" data-film="padre" data-open="Open Padre" data-lede="Padre fills draw on the live chart. Paper first." aria-label="Open Padre with the PaperTrench referral">
       <img src="/assets/films/padre.jpg" alt="" width="1280" height="720">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Padre</span>
+      <span class="home-door-meta">
+        <b>Padre</b>
+        <span class="home-door-go">Open <svg viewBox="0 0 256 256" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></span>
+      </span>
     </a>
-    <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" data-film="gmgn" data-open="Open GMGN" aria-label="Open GMGN with the PaperTrench referral">
+    <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" data-film="gmgn" data-open="Open GMGN" data-lede="GMGN launches. Paper the snipe, then go live." aria-label="Open GMGN with the PaperTrench referral">
       <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>GMGN</span>
+      <span class="home-door-meta">
+        <b>GMGN</b>
+        <span class="home-door-go">Open <svg viewBox="0 0 256 256" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></span>
+      </span>
     </a>
-    <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" data-film="overlay" data-open="Open Lute" aria-label="Open Lute with the PaperTrench referral">
+    <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" data-film="overlay" data-open="Open Lute" data-lede="Lute social tape. Honest paper fills." aria-label="Open Lute with the PaperTrench referral">
       <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Lute</span>
+      <span class="home-door-meta">
+        <b>Lute</b>
+        <span class="home-door-go">Open <svg viewBox="0 0 256 256" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></span>
+      </span>
     </a>
   </div>
 </section>
@@ -93,20 +122,21 @@
   <span id="bubbles"></span>
   <img class="try-bg" src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy" decoding="async">
   <div class="try-veil" aria-hidden="true"></div>
-  <div class="try-grid">
+  <div class="try-stage">
     <div class="try-chart">
       <p class="try-mark">PAPER · DEMO</p>
       <h2>Sit the overlay on the chart. Then try to cheat.</h2>
-      <p>Quote is Dexscreener $PT or the ticket stays shut. DEMO CHAIN is labeled. Not a board row.</p>
-      <ol class="try-chain" aria-label="Demo hash chain">
-        <li class="try-link is-ok">DEMO CHAIN 1</li>
-        <li class="try-link is-ok">DEMO CHAIN 2</li>
-        <li class="try-link is-ok">DEMO CHAIN 3</li>
-        <li class="try-link is-ok">DEMO CHAIN 4</li>
-      </ol>
+      <p class="try-lede">Quote is Dexscreener $PT or the ticket stays shut.</p>
     </div>
-    <div class="try-ticket" aria-live="polite">
-      <p class="try-quote">PAPER · DEMO</p>
+    <aside class="try-hud try-ticket" aria-live="polite">
+      <div class="try-hud-bar">
+        <span class="try-hud-dot" aria-hidden="true"></span>
+        <span>PaperTrench</span>
+        <span class="try-hud-badge">PAPER</span>
+      </div>
+      <p class="try-hud-pair">$PT · Solana</p>
+      <p class="try-hud-price">-</p>
+      <p class="try-quote">Dexscreener · waiting</p>
       <p class="try-reason">Can't read a live rate. Ticket stays shut.</p>
       <p class="try-fill" hidden></p>
       <p class="try-note" hidden></p>
@@ -114,7 +144,13 @@
         <button type="button" class="btn btn-primary try-buy" disabled>Paper buy</button>
         <button type="button" class="btn btn-ghost try-cheat">Edit this fill</button>
       </div>
-    </div>
+      <ol class="try-chain" aria-label="Demo hash chain">
+        <li class="try-link is-ok">DEMO CHAIN 1</li>
+        <li class="try-link is-ok">DEMO CHAIN 2</li>
+        <li class="try-link is-ok">DEMO CHAIN 3</li>
+        <li class="try-link is-ok">DEMO CHAIN 4</li>
+      </ol>
+    </aside>
   </div>
 </section>
 
@@ -139,7 +175,7 @@
           <div>
             <h3>Extensions</h3>
             <p>Paste <code>chrome://extensions</code> into the address bar. Turn on Developer mode. Chrome 134 and later will kill the extension if you turn it off.</p>
-            <p><button type="button" class="try-copy" id="copyExtensions">Copy chrome://extensions</button></p>
+            <button type="button" class="try-copy" id="copyExtensions">Copy chrome://extensions</button>
           </div>
         </li>
         <li>
@@ -180,30 +216,36 @@
   <div class="home-end-copy">
     <h2>Blow up a fake account before you blow up a real one.</h2>
     <div class="home-ctas">
-      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download for Chrome</a>
-      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Open Axiom</a>
+      <a class="btn btn-primary" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">
+        <svg viewBox="0 0 256 256" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M224,144v64a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V144a8,8,0,0,1,16,0v56H208V144a8,8,0,0,1,16,0Zm-101.66,5.66a8,8,0,0,0,11.32,0l40-40a8,8,0,0,0-11.32-11.32L136,124.69V32a8,8,0,0,0-16,0v92.69L93.66,98.34a8,8,0,0,0-11.32,11.32Z"/></svg>
+        Download for Chrome
+      </a>
+      <a class="btn btn-ghost" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">
+        <span>Open Axiom</span>
+        <svg viewBox="0 0 256 256" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
+      </a>
     </div>
   </div>
   <div class="home-doors home-end-doors" role="list">
     <a class="home-door" role="listitem" href="https://axiom.trade/@usepaper" target="_blank" rel="noopener" aria-label="Open Axiom with the PaperTrench referral">
       <img src="/assets/films/axiom.jpg" alt="" width="1280" height="720" loading="lazy">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Axiom</span>
+      <span class="home-door-meta"><b>Axiom</b><span class="home-door-go">Open</span></span>
     </a>
     <a class="home-door" role="listitem" href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener" aria-label="Open Padre with the PaperTrench referral">
       <img src="/assets/films/padre.jpg" alt="" width="1280" height="720" loading="lazy">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Padre</span>
+      <span class="home-door-meta"><b>Padre</b><span class="home-door-go">Open</span></span>
     </a>
     <a class="home-door" role="listitem" href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener" aria-label="Open GMGN with the PaperTrench referral">
       <img src="/assets/films/gmgn.jpg" alt="" width="1280" height="720" loading="lazy">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>GMGN</span>
+      <span class="home-door-meta"><b>GMGN</b><span class="home-door-go">Open</span></span>
     </a>
     <a class="home-door" role="listitem" href="https://lute.gg/@papertrench" target="_blank" rel="noopener" aria-label="Open Lute with the PaperTrench referral">
       <img src="/assets/films/overlay.jpg" alt="" width="1280" height="720" loading="lazy">
       <span class="home-door-shade" aria-hidden="true"></span>
-      <span>Lute</span>
+      <span class="home-door-meta"><b>Lute</b><span class="home-door-go">Open</span></span>
     </a>
   </div>
 </section>
@@ -244,6 +286,14 @@
   const films = Array.from(document.querySelectorAll('.home-films video'));
   const doors = Array.from(document.querySelectorAll('.home-stage .home-door'));
   const openBtn = document.getElementById('homeOpen');
+  const openLabel = document.getElementById('homeOpenLabel');
+  const lede = document.getElementById('homeLede');
+  const idle = {
+    film: 'overlay',
+    lede: lede ? lede.textContent : '',
+    href: openBtn ? openBtn.getAttribute('href') : '',
+    open: openLabel ? openLabel.textContent : 'Open Axiom'
+  };
   let stageIn = true;
 
   function ensureSrc(v) {
@@ -262,13 +312,30 @@
     });
   }
 
+  function setOpen(href, label) {
+    if (!openBtn) return;
+    openBtn.setAttribute('href', href);
+    if (openLabel) openLabel.textContent = label;
+  }
+  function showDoor(door) {
+    doors.forEach((x) => x.classList.toggle('is-on', x === door));
+    if (!door) {
+      playOnly(idle.film);
+      if (lede) lede.textContent = idle.lede;
+      setOpen(idle.href, idle.open);
+      return;
+    }
+    playOnly(door.getAttribute('data-film') || idle.film);
+    if (lede) lede.textContent = door.getAttribute('data-lede') || idle.lede;
+    setOpen(door.getAttribute('href'), door.getAttribute('data-open') || idle.open);
+  }
   doors.forEach((d) => {
-    d.addEventListener('pointerenter', () => {
-      doors.forEach((x) => x.classList.toggle('is-on', x === d));
-      playOnly(d.getAttribute('data-film'));
-      if (openBtn) { openBtn.href = d.href; openBtn.textContent = d.getAttribute('data-open') || 'Open'; }
-    });
+    d.addEventListener('pointerenter', () => showDoor(d));
+    d.addEventListener('focus', () => showDoor(d));
   });
+  if (stage && hoverFine) {
+    stage.addEventListener('pointerleave', () => showDoor(null));
+  }
 
   if (!still) {
     const boot = () => playOnly('overlay');
@@ -290,6 +357,16 @@
     window.gsap.from('.home-copy > *', { y: 28, duration: 0.85, stagger: 0.07, ease: 'power3.out', clearProps: 'transform' });
     if (hoverFine) {
       window.gsap.from('.home-stage .home-door', { y: 36, duration: 0.75, stagger: 0.05, ease: 'power3.out', clearProps: 'transform' });
+    }
+    const trySec = document.getElementById('try');
+    const tryHud = document.querySelector('.try-hud');
+    if (trySec && tryHud && 'IntersectionObserver' in window) {
+      new IntersectionObserver((entries, obs) => {
+        if (entries[0] && entries[0].isIntersecting) {
+          window.gsap.from(tryHud, { y: 28, duration: 0.8, ease: 'power3.out', clearProps: 'transform' });
+          obs.disconnect();
+        }
+      }, { threshold: 0.28 }).observe(trySec);
     }
   }
 })();

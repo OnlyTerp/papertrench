@@ -24,3 +24,6 @@ tools/recon/.headless/node_modules/
 
 # wrangler local state — never commit (may embed oauth/session material)
 server/.wrangler/
+
+# Local screenshot captures and headless Chrome profiles. Never publish.
+site/_shots/

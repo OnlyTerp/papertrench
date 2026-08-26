@@ -129,8 +129,16 @@
   color: var(--text);
 }
 .film-end p { max-width: 36ch; color: var(--muted); }
-.film-end .hero-ctas { margin-top: 1.5rem; }
-.film-end .btn-primary { background: var(--orange); color: #1a0c00; }
+.film-end .hero-ctas { margin-top: 1.5rem; display: flex; flex-wrap: wrap; gap: 12px; }
+.film-end .btn {
+  height: 48px; padding: 0 22px; border-radius: 999px; font-size: 14px;
+}
+.film-end .btn-primary { background: var(--orange); color: #1a0c00; box-shadow: none; }
+.film-end .btn-ghost {
+  background: rgba(7, 9, 14, 0.35);
+  border: 1px solid rgba(234, 239, 247, 0.28);
+  backdrop-filter: blur(8px);
+}
 @media (max-width: 767px) {
   .film-end { min-height: 72dvh; }
   .film-end .wrap { padding: 3.5rem 16px 2.5rem; }
