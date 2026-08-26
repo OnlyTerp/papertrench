@@ -302,10 +302,14 @@
   function playOnly(key) {
     films.forEach((v) => {
       const on = v.getAttribute('data-film') === key;
-      v.classList.toggle('is-on', on);
       if (on && !still && stageIn) {
         ensureSrc(v);
-        const p = v.play(); if (p && p.catch) p.catch(() => {});
+        const arm = () => {
+          films.forEach((x) => x.classList.toggle('is-on', x === v));
+          const p = v.play(); if (p && p.catch) p.catch(() => {});
+        };
+        if (v.readyState >= 2) arm();
+        else v.addEventListener('loadeddata', arm, { once: true });
       } else {
         v.pause();
       }
