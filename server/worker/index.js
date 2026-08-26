@@ -23,7 +23,7 @@ import * as streamer from '../core/streamer.js';
 // cannot see through — unlike the other cores, whose exports are literals.
 import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
-import { makeGetCandles } from './candles.js';
+import { makeGetCandles, chartBars } from './candles.js';
 import * as indeix from './indeix.js';
 import * as solana from './solana.js';
 import * as replay from '../core/replay.js';
@@ -1989,12 +1989,23 @@ async function handleReplayHistory(request, env) {
   if (!replay.isAddress(mint)) return json({ ok: false, reason: 'bad-mint' }, 400);
   const budget = { used: 0, max: 8 };
   try {
-    const [candles, rawTrades, token] = await Promise.all([
+    let [candles, rawTrades, token] = await Promise.all([
       indeix.ohlcv(env, chain, mint, 0, budget),
       indeix.trades(env, chain, mint, budget, 50),
       tokenIdentity(mint),
     ]);
-    if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
+    // Indeix's history tier regularly answers EMPTY for tokens that are
+    // actively trading (HIM had 14 fills and a live pool, zero candles).
+    // Candles are the reel: without them the theater shows nothing. Fall back
+    // to GeckoTerminal's minute OHLCV for the token's deepest pool - real
+    // market data, differently sourced, honestly absent when GT also has none.
+    if ((!candles || !candles.length) && chain === 'solana') {
+      candles = await chartBars(env, mint).catch(() => null);
+    }
+    if (!candles || !candles.length) return json({ ok: false, reason: 'no-data' }, 404);
+    // Trades power the cast; the reel does not need them. An empty cast is
+    // already an honest state the UI narrates ('no traders ranked yet').
+    if (!rawTrades) rawTrades = [];
     const byMinute = indeix.candlesByMinute(candles);
     const fills = rawTrades
       .map((t) => replay.normalizeTrade(t, byMinute, mint))
@@ -2035,11 +2046,16 @@ async function handleReplayWallet(request, env) {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => Number((((j || {}).So11111111111111111111111111111111111111112) || {}).usdPrice) || 0)
       .catch(() => 0);
-    const [candles, chainLane] = await Promise.all([
+    let [candles, chainLane] = await Promise.all([
       indeix.ohlcv(env, chain, mint, 0, budget),
       solana.walletFills(wallet, mint, rpcBudget, null).catch((err) => ({ fills: [], truncated: false, txSeen: 0, error: String((err && err.message) || err) })),
     ]);
-    if (!candles) return json({ ok: false, reason: 'no-data' }, 404);
+    // Same Indeix-empty fallback as the history handler: the wallet's fills
+    // are real regardless of which source drew the bars behind them.
+    if ((!candles || !candles.length) && chain === 'solana') {
+      candles = await chartBars(env, mint).catch(() => null);
+    }
+    if (!candles || !candles.length) return json({ ok: false, reason: 'no-data' }, 404);
     const byMinute = indeix.candlesByMinute(candles);
     const solUsd = await solSpotP;
 

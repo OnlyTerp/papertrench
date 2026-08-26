@@ -208,4 +208,32 @@ function makeGetCandles(env, budget) {
   };
 }
 
-module.exports = { makeGetCandles, SOL_USD_POOL };
+/**
+ * Full chart bars for the REPLAY, from GeckoTerminal: the token's deepest
+ * pool's minute OHLCV, normalized to the [{ts,o,h,l,c,v}] shape core/replay
+ * consumes. This is the fallback when Indeix's history tier answers empty -
+ * which it does often enough that 'no candles' was reading as 'no reel' for
+ * tokens actively trading. One pool lookup + one OHLCV call.
+ */
+async function chartBars(env, mint) {
+  const pool = await poolFor(env, mint);
+  if (!pool) return null;
+  const data = await gtJson(env,
+    `/networks/solana/pools/${encodeURIComponent(pool)}/ohlcv/minute` +
+    '?aggregate=1&limit=1000&currency=usd');
+  const rows = data && data.data && data.data.attributes && data.data.attributes.ohlcv_list;
+  if (!Array.isArray(rows)) return null;
+  const out = [];
+  for (const row of rows) {
+    // [ts(sec), open, high, low, close, volume] - newest FIRST from GT
+    const ts = Number(row[0]), o = Number(row[1]), h = Number(row[2]),
+      l = Number(row[3]), c = Number(row[4]);
+    if (Number.isFinite(ts) && h > 0 && l > 0) {
+      out.push({ ts: ts * 1000, o, h, l, c, v: Number(row[5]) || 0 });
+    }
+  }
+  out.sort((a, b) => a.ts - b.ts);
+  return out.length ? out : null;
+}
+
+module.exports = { makeGetCandles, chartBars, SOL_USD_POOL };
