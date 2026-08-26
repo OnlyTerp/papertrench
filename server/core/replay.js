@@ -45,54 +45,74 @@ function num0(v) {
  * Returns null when the trade cannot be priced (no amount, no bar mark) — an
  * unpriced trade must not be silently dropped nor fabricated.
  */
-function normalizeTrade(item, candleByMinute) {
+function normalizeTrade(item, candleByMinute, mintHint) {
   if (!item || typeof item !== 'object') return null;
-  const mint = isAddress(item.address || item.mint) ? (item.address || item.mint) : null;
+  const base = item.baseToken || {};
+  const quote = item.quoteToken || {};
+  const baseAddress = isAddress(base.address) ? base.address : '';
+  const quoteAddress = isAddress(quote.address) ? quote.address : '';
+  // Live Indeix trades carry NO top-level mint — the token pair lives in
+  // baseToken/quoteToken (verified against the real wire 8/25). A caller that
+  // knows the mint passes it; otherwise the non-SOL leg is the subject.
+  const SOL = 'So11111111111111111111111111111111111111112';
+  let mint = isAddress(item.address || item.mint) ? (item.address || item.mint) : null;
+  if (!mint && isAddress(mintHint)) mint = mintHint;
+  if (!mint) mint = baseAddress && baseAddress !== SOL ? baseAddress : (quoteAddress !== SOL ? quoteAddress : baseAddress);
   if (!mint) return null;
   const wallet = isAddress(item.transactionSenderAddress || item.swapSenderAddress)
     ? (item.transactionSenderAddress || item.swapSenderAddress) : null;
   if (!wallet) return null;
 
-  const base = item.baseToken || {};
-  const quote = item.quoteToken || {};
-  const baseAddress = isAddress(base.address) ? base.address : '';
-  const quoteAddress = isAddress(quote.address) ? quote.address : '';
+  let tokenRaw = null;
+  let tokenAmount = null, usdOfToken = null, quoteAmount = null, quoteUsd = null;
+  if (baseAddress === mint) {
+    tokenRaw = num0(item.baseTokenAmountRaw);
+    tokenAmount = Math.abs(num0(item.baseTokenAmount));
+    usdOfToken = Math.abs(num0(item.baseTokenAmountUSD));
+    quoteAmount = Math.abs(num0(item.quoteTokenAmount));
+    quoteUsd = Math.abs(num0(item.quoteTokenAmountUSD));
+  } else if (quoteAddress === mint) {
+    tokenRaw = num0(item.quoteTokenAmountRaw);
+    tokenAmount = Math.abs(num0(item.quoteTokenAmount));
+    usdOfToken = Math.abs(num0(item.quoteTokenAmountUSD));
+    quoteAmount = Math.abs(num0(item.baseTokenAmount));
+    quoteUsd = Math.abs(num0(item.baseTokenAmountUSD));
+  } else { return null; } // not about this mint
 
-  let tokenRaw = null, otherRaw = null;
-  if (baseAddress === mint) { tokenRaw = num0(item.baseTokenAmountRaw); otherRaw = num0(item.quoteTokenAmountRaw); }
-  else if (quoteAddress === mint) { tokenRaw = num0(item.quoteTokenAmountRaw); otherRaw = num0(item.baseTokenAmountRaw); }
-  else { return null; } // not about this mint
-
-  const usd = num(item.baseTokenAmountUSD) || (baseAddress === mint ? num(item.baseTokenAmountUSD) : num(item.quoteTokenAmountUSD));
-  const solLamports = num0(item.solLamports) || num0(item.solAmount) || 0;
-  const ts = num(item.blockTime) || num(item.timestamp);
+  // Live shape: `date` is epoch MILLISECONDS. Legacy/synthetic shapes may use
+  // blockTime/timestamp in seconds. Unify to ms.
+  const ts = num(item.date) || num(item.blockTime) || num(item.timestamp);
   if (!(ts > 0)) return null;
-  // Unify to MILLISECONDS. Indeix's blockTime is seconds; candles come in ms.
   const tsMs = ts < 1e12 ? ts * 1000 : ts;
   const minuteMs = Math.floor(tsMs / 60000) * 60000;
 
+  // Live shape: `type` is 'buy'/'sell' from the BASE token's perspective.
+  const rawSide = String(item.type || item.side || '').toLowerCase();
   const side = (baseAddress === mint)
-    ? (String(item.side || '').toLowerCase() === 'sell' ? 'sell' : 'buy')
-    : (String(item.side || '').toLowerCase() === 'buy' ? 'sell' : 'buy');
+    ? (rawSide === 'sell' ? 'sell' : 'buy')
+    : (rawSide === 'buy' ? 'sell' : 'buy');
 
-  // A transfer (token moved, no SOL leg) has no price. Priced only from the
-  // bar mark if this is genuinely a transfer; else it is a swap.
-  const isTransfer = solLamports <= 0 && !(usd > 0);
-  let priceUsd = usd > 0 && tokenRaw > 0 ? usd / tokenRaw : null;
-  if (!(priceUsd > 0) && isTransfer) {
+  // Quantity in display units. Prefer the decimal amount the wire provides;
+  // fall back to |raw| (raw is signed on the live wire: negative = out).
+  const qty = tokenAmount > 0 ? tokenAmount : Math.abs(tokenRaw || 0);
+  if (!(qty > 0)) return null;
+
+  // A transfer (token moved, no priced counter-leg) has no price of its own.
+  const solLamports = num0(item.solLamports) || num0(item.solAmount) || 0;
+  const counterValued = quoteUsd > 0 || quoteAmount > 0 || solLamports > 0;
+  const isTransfer = !counterValued && !(usdOfToken > 0);
+  const directPrice = num(item.baseTokenPriceUSD && baseAddress === mint ? item.baseTokenPriceUSD
+    : item.quoteTokenPriceUSD && quoteAddress === mint ? item.quoteTokenPriceUSD : null);
+  let priceUsd = usdOfToken > 0 && qty > 0 ? usdOfToken / qty : (directPrice > 0 ? directPrice : null);
+  if (!(priceUsd > 0)) {
     const bar = candleByMinute && candleByMinute.get(minuteMs);
     if (bar && num0(bar.c) > 0) priceUsd = num(bar.c); // mark at the bar close
   }
-  if (!(priceUsd > 0) && tokenRaw > 0) {
-    // No USD and not a transfer we can mark — price from the bar close if known.
-    const bar = candleByMinute && candleByMinute.get(minuteMs);
-    if (bar && num0(bar.c) > 0) priceUsd = num(bar.c);
-  }
   if (!(priceUsd > 0)) return null;
 
-  const usdValue = tokenRaw * priceUsd;
+  const usdValue = qty * priceUsd;
   return {
-    ts: tsMs, wallet, side, base: tokenRaw, usd: usdValue,
+    ts: tsMs, wallet, side, base: qty, usd: usdValue,
     solLamports, isTransfer, priceUsd, mint,
   };
 }

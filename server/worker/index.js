@@ -1891,7 +1891,7 @@ async function handleReplayHistory(request, env) {
     if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
     const byMinute = indeix.candlesByMinute(candles);
     const fills = rawTrades
-      .map((t) => replay.normalizeTrade(t, byMinute))
+      .map((t) => replay.normalizeTrade(t, byMinute, mint))
       .filter(Boolean);
     const byWallet = replay.groupByWallet(fills);
     const finalPrice = candles.length ? candles[candles.length - 1].c : 0;
@@ -1926,7 +1926,7 @@ async function handleReplayWallet(request, env) {
     if (!candles || !rawTrades) return json({ ok: false, reason: 'no-data' }, 404);
     const byMinute = indeix.candlesByMinute(candles);
     const fills = rawTrades
-      .map((t) => replay.normalizeTrade(t, byMinute))
+      .map((t) => replay.normalizeTrade(t, byMinute, mint))
       .filter((f) => f && f.wallet === wallet);
     const position = replay.foldFills(fills);
     const curve = replay.replayCurve(fills, candles);

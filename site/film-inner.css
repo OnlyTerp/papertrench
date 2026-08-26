@@ -15,9 +15,9 @@
   background: #07090e url("/assets/films/overlay.jpg") center/cover no-repeat;
 }
 .film-mast-bg video, .film-mast-bg img {
+  position: absolute; inset: 0;
   width: 100%; height: 100%; object-fit: cover;
 }
-.film-mast-bg video { position: absolute; inset: 0; }
 .film-mast-veil {
   position: absolute; inset: 0; pointer-events: none;
   background:
