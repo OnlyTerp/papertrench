@@ -61,6 +61,11 @@
           <div role="listitem"><div class="k">Chain · extend-only</div><div class="v">SHA-256</div></div>
           <div role="listitem"><div class="k">Self-reported</div><div class="v zero">Nothing</div></div>
         </div>
+        <p class="ar-census" id="census" aria-label="Who is on the Arena">
+          <span><b id="c-id">-</b> signed in</span>
+          <span><b id="c-tape">-</b> on the tape</span>
+          <span><b id="c-rank">-</b> ranked</span>
+        </p>
       </div>
 
       <!-- The verifier's real work. This is the hero visual because it is the
@@ -69,7 +74,7 @@
       <aside class="ar-verifier" aria-label="Live verifier activity">
         <div class="bar">
           <span class="bulbs"><i></i><i></i><i></i></span>
-          <span class="name">verifier · stdout</span>
+          <span class="name">the tape</span>
           <span class="streaming" id="stream-state"><span class="dot"></span>LIVE</span>
         </div>
         <ul class="ar-stream" id="stream" aria-live="polite"></ul>
@@ -82,6 +87,17 @@
   <div class="ar-shell">
 
     <div class="ar-stack">
+      <section class="ar-pane" aria-labelledby="tape-h">
+        <div class="ar-pane-head">
+          <span class="glyph" style="color:var(--green)">▸</span><span id="tape-h">The tape</span>
+          <span class="spacer"></span>
+          <span class="ar-note">Committed fills. No ROI here.</span>
+        </div>
+        <div class="pad" id="tape">
+          <p class="ar-note">Loading the tape…</p>
+        </div>
+      </section>
+
       <section class="ar-pane" aria-labelledby="board-h">
         <div class="ar-pane-head">
           <span class="glyph">🛡</span><span id="board-h">The podium</span>
@@ -146,6 +162,15 @@
             evidence. The extension itself never phones home. Five closed, fully re-priced rounds
             is what moves you from the trench onto a ranked seat.</p>
         </div>
+      </section>
+
+      <section class="ar-pane" aria-labelledby="rooms-h">
+        <div class="ar-pane-head">
+          <span class="glyph" style="color:var(--violet)">⌂</span><span id="rooms-h">Rooms</span>
+          <span class="spacer"></span>
+          <a class="ar-note" href="/clans">All clans</a>
+        </div>
+        <div id="rooms"></div>
       </section>
 
       <section class="ar-pane" aria-labelledby="protocol-h">
@@ -247,6 +272,8 @@
   const trenchCountEl = document.getElementById('trench-count');
   const formulaEl = document.getElementById('formula-demo');
   const streamEl = document.getElementById('stream');
+  const tapeEl = document.getElementById('tape');
+  const roomsEl = document.getElementById('rooms');
 
   let signedInHandle = null;
 
@@ -385,11 +412,16 @@
     const isYou = signedInHandle && person.handle
       && person.handle.toLowerCase() === signedInHandle.toLowerCase();
     const xHref = 'https://x.com/' + encodeURIComponent(person.handle);
-    let meta = 'Signed in. No record submitted.';
+    let meta = 'Signed in. No chain sent yet.';
     if (rec) {
-      const fills = rec.chainLen != null ? rec.chainLen + ' fills hashed' : 'record in';
+      const fills = rec.chainLen != null ? rec.chainLen + ' fills hashed' : null;
       const rounds = rec.rounds != null ? rec.rounds + ' rounds' : null;
-      const seat = rec.ranked ? 'Ranked.' : 'Labeled. Not a seat.';
+      let seat = 'On the wall.';
+      if (rec.ranked) seat = 'On a ranked seat.';
+      else if (rec.status === 'rejected') seat = 'Replay didn\'t pass.';
+      else if (rec.status === 'partial') seat = 'Waiting on public candles.';
+      else if (rec.status === 'verified') seat = 'Need five closed rounds.';
+      else if (rec.status === 'pending') seat = 'Replay in flight.';
       meta = [fills, rounds, seat].filter(Boolean).join(' · ');
     }
     return `<article class="ar-trench-card${isYou ? ' is-you' : ''}">
@@ -449,8 +481,12 @@
     const submitted = Number(body.submitted) || 0;
     const ranked = Number(body.ranked) || 0;
     if (trenchCountEl) {
-      trenchCountEl.textContent = signedIn + ' signed in · ' + submitted + ' records · ' + ranked + ' ranked';
+      trenchCountEl.textContent = signedIn + ' signed in · ' + submitted + ' on the tape · ' + ranked + ' ranked';
     }
+    const setTxt = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = String(n); };
+    setTxt('c-id', signedIn);
+    setTxt('c-tape', submitted);
+    setTxt('c-rank', ranked);
     if (!people.length) {
       trenchEl.innerHTML = L.empty('◎', 'Nobody has signed in yet.',
         'Sign in with X. Your handle, avatar and X link appear here. Ranked seats stay empty until a chain survives replay.');
@@ -472,26 +508,78 @@
     let events = [];
     try { events = (await L.getOrThrow('/api/activity')).events || []; }
     catch {
-      streamEl.innerHTML = L.API_LIVE
+      const down = L.API_LIVE
         ? '<li class="rejected"><span class="tag">offline</span>' +
-          '<span class="what">verifier unreachable — no events to show</span></li>'
+          '<span class="what">verifier unreachable. No events to show.</span></li>'
         : '<li><span class="tag" style="color:var(--dim)">pending</span>' +
-          '<span class="what">the verifier has not been deployed yet — this fills in on opening day</span></li>';
+          '<span class="what">the verifier has not been deployed yet. This fills in on opening day.</span></li>';
+      streamEl.innerHTML = down;
+      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">Tape is down with the verifier. Nothing here is cached or guessed.</p>';
       return;
     }
     if (!events.length) {
-      streamEl.innerHTML = '<li><span class="tag" style="color:var(--dim)">idle</span>' +
-        '<span class="what">no submissions yet — the log starts with the first one</span></li>';
+      const idle = '<li><span class="tag" style="color:var(--dim)">idle</span>' +
+        '<span class="what">no submissions yet. The tape starts with the first chain.</span></li>';
+      streamEl.innerHTML = idle;
+      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">No fills on the tape yet. Sync a chain and it shows up here. The extension does not phone home.</p>';
       return;
     }
-    streamEl.innerHTML = events.map((e, i) => {
+    const TAPE = {
+      accepted: 'in',
+      verified: 'cleared',
+      rejected: 'held',
+      partial: 'waiting',
+    };
+    const line = (e, i) => {
       const who = e.handle ? `<b>@${esc(e.handle)}</b> ` : '';
+      const tag = TAPE[e.kind] || e.kind;
       return `<li class="${esc(e.kind)}" style="animation-delay:${Math.min(i * 45, 500)}ms">
-        <span class="tag">${esc(e.kind)}</span>
+        <span class="tag">${esc(tag)}</span>
         <span class="what">${who}${esc(e.detail)}</span>
         <span class="when">${esc(ago(e.ts))}</span>
       </li>`;
+    };
+    streamEl.innerHTML = events.map(line).join('');
+    if (tapeEl) tapeEl.innerHTML = `<ul class="ar-stream ar-tape">${events.slice(0, 16).map(line).join('')}</ul>`;
+  })();
+
+  /* ---------------- rooms (forming clans) ---------------- */
+
+  (async () => {
+    if (!roomsEl) return;
+    roomsEl.innerHTML = L.skeleton(3);
+    let body;
+    try {
+      body = await L.getOrThrow('/api/clans');
+    } catch {
+      roomsEl.innerHTML = L.empty('⌂', 'Clans are unreachable right now.',
+        'Rooms are not guessed. Open /clans once the verifier answers.');
+      return;
+    }
+    const entries = (body && body.entries) || [];
+    const needed = Number(body.countingMembers) || 5;
+    if (!entries.length) {
+      roomsEl.innerHTML = L.empty('⌂', 'No clans yet.',
+        'The first five who sign in with X can form one. It will read forming until five of you have five re-priced rounds.') +
+        '<p class="pad"><a class="ar-btn" href="/clans">Form a clan</a> <a class="ar-btn" href="/duels">Open a duel</a></p>';
+      return;
+    }
+    const rows = entries.slice(0, 8).map((c) => {
+      const st = (c.season && typeof c.season === 'object') ? c.season : {};
+      const qualified = Number(st.qualified) || 0;
+      const roster = Number(st.roster) || 0;
+      const forming = !st.ranked;
+      const state = forming
+        ? (qualified + ' of ' + needed + ' qualified · forming')
+        : 'ranked';
+      return `<a class="ar-room" href="/clan?tag=${encodeURIComponent(c.tag)}">
+        <span class="ar-room-tag">[${esc(L.clanLabel(c.tag))}]</span>
+        <span class="ar-room-name">${esc(L.clanLabel(c.name))}</span>
+        <span class="ar-room-meta">${esc(state)} · ${esc(String(roster))} in</span>
+      </a>`;
     }).join('');
+    roomsEl.innerHTML = `<div class="ar-rooms">${rows}</div>
+      <p class="ar-trench-foot"><a href="/duels">Open a duel</a> · a room, not a career.</p>`;
   })();
 
   /* ---------------- account + submission ---------------- */

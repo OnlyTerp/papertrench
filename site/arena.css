@@ -668,8 +668,33 @@
  * glance, at any size, in any screenshot.
  */
 
-.ar-chip {
-  display: inline-flex;
+.ar-census {
+  display: flex; flex-wrap: wrap; gap: 10px 22px;
+  margin-top: 22px;
+  font-family: var(--mono); font-size: 12px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--dim);
+}
+.ar-census b { color: var(--text); font-weight: 700; letter-spacing: 0; }
+
+.ar-tape { margin: 0; max-height: 420px; overflow: auto; }
+.ar-rooms { display: flex; flex-direction: column; padding: 8px 0; }
+.ar-room {
+  display: grid; grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 2px 12px; align-items: baseline;
+  padding: 12px 18px;
+  border-bottom: var(--rail);
+  color: inherit; text-decoration: none;
+}
+.ar-room:hover .ar-room-name { color: var(--orange); }
+.ar-room-tag {
+  font-family: var(--mono); font-size: 11px; font-weight: 800;
+  letter-spacing: 0.06em; color: var(--orange2);
+}
+.ar-room-name { font-size: 14px; font-weight: 800; letter-spacing: -0.03em; grid-column: 2; }
+.ar-room-meta { grid-column: 2; font-size: 12px; color: var(--dim); }
+
+.ar-chip {  display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--mono);

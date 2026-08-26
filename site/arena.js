@@ -184,10 +184,10 @@
   /* -------------------------------------------------------- verification */
 
   const CHIP = {
-    verified: '<span class="ar-chip verified" title="Every link re-hashed, book replayed, and every fill re-priced against real market history.">✓ Verified</span>',
-    pending: '<span class="ar-chip pending" title="Chain re-hashed and replayed. Prices are still being re-checked against market history."><i class="spin"></i>Verifying</span>',
-    partial: '<span class="ar-chip partial" title="Chain valid and replayed, but some fills had no public candle data to check against. Shown and labeled, but not ranked — a fill we could not check is not a fill we can rank.">◐ Partial data</span>',
-    rejected: '<span class="ar-chip rejected" title="This record failed verification and does not rank.">✕ Rejected</span>',
+    verified: '<span class="ar-chip verified" title="Every link re-hashed, book replayed, and every fill re-priced against real market history.">Cleared</span>',
+    pending: '<span class="ar-chip pending" title="Chain re-hashed and replayed. Prices are still being re-checked against market history."><i class="spin"></i>Checking</span>',
+    partial: '<span class="ar-chip partial" title="Chain is valid. Some fills had no public candle that minute, so they cannot be re-priced. On the wall, not ranked, until coverage is enough.">Unpriced</span>',
+    rejected: '<span class="ar-chip rejected" title="Replay did not pass. An implausible fill, or the chain itself failed. On the wall, not a ranked seat.">Didn\'t clear</span>',
   };
   const chipFor = (status) => CHIP[status] || CHIP.pending;
 
