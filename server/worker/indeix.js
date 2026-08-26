@@ -25,7 +25,7 @@ const BASE_URL = 'https://api.indeix.com';
  * retries). A 5xx that survives the retry is typed `indeix-degraded` so the
  * route can say "temporarily unavailable" rather than lying "no data".
  */
-async function indeixJson(env, method, path, params, budget, retries = 1) {
+async function indeixJson(env, method, path, params, budget, retries = 3) {
   const key = env && env.INDEIX_API_KEY;
   if (!key) {
     const err = new Error('indeix-not-configured');
@@ -65,25 +65,64 @@ async function indeixJson(env, method, path, params, budget, retries = 1) {
       throw err;
     }
     // A 5xx is the provider's own backend timing out (504) or being briefly
-    // down — retry once before concluding it's degraded.
+    // down — retry before concluding it's degraded. Measured during the 8/25
+    // outages: flapping tiers still answer ~1-in-4, so extra attempts convert
+    // many user-visible failures into slow successes.
     if (res.status >= 500 && res.status < 600) {
       if (attempt < retries) {
         await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
         continue;
       }
+      // Last resort: serve the edge-cached copy of this exact upstream call
+      // if one exists. Stale real data beats no data — the response carries
+      // no fabrication, it is simply the last truth we saw.
+      const cached = await cacheGet(url.toString());
+      if (cached) return cached;
       const err = new Error('indeix-degraded');
       err.code = 'indeix-degraded';
       err.status = res.status;
       throw err;
     }
     if (!res.ok) return null;
-    return res.json();
+    const body = await res.json();
+    // Cache the good answer at the edge (TTL below) so a provider outage can
+    // replay it. Fire-and-forget: a cache write must never fail the request.
+    try { await cachePut(url.toString(), body); } catch { /* best effort */ }
+    return body;
   }
   // Unreachable: the loop either returns or throws on its final attempt.
   const err = new Error('indeix-degraded');
   err.code = 'indeix-degraded';
   err.status = lastStatus;
   throw err;
+}
+
+/* Edge cache for upstream answers, keyed on the exact upstream URL. The key is
+ * a synthetic GET (the Cache API ignores non-GET); 6h TTL — candle history and
+ * a trades window for a replay do not need to be fresher than the outage they
+ * are covering. Both helpers are no-ops where `caches` is absent (node tests). */
+const CACHE_TTL_SEC = 6 * 3600;
+/* Volatile params (to=Date.now()) would make every call a unique key and the
+ * fallback would never hit — caught by the outage-replay test. Strip them. */
+const CACHE_KEY_IGNORE = new Set(['to']);
+function cacheKey(upstreamUrl) {
+  const u = new URL(upstreamUrl);
+  for (const k of CACHE_KEY_IGNORE) u.searchParams.delete(k);
+  u.searchParams.sort();
+  return new Request('https://indeix-cache.papertrench.internal/' +
+    encodeURIComponent(u.toString()));
+}
+async function cachePut(upstreamUrl, body) {
+  if (typeof caches === 'undefined' || !caches.default) return;
+  await caches.default.put(cacheKey(upstreamUrl), new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${CACHE_TTL_SEC}` },
+  }));
+}
+async function cacheGet(upstreamUrl) {
+  if (typeof caches === 'undefined' || !caches.default) return null;
+  const hit = await caches.default.match(cacheKey(upstreamUrl));
+  if (!hit) return null;
+  try { return await hit.json(); } catch { return null; }
 }
 
 /**
