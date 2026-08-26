@@ -442,6 +442,83 @@ async function handleLeaderboard(env) {
   return json({ board: 'global', entries });
 }
 
+/* The trench is the floor of the Arena: everyone who signed in with X,
+ * plus the record they submitted if any. It is NOT the podium.
+ *
+ * Ranked seats stay verified-only (handleLeaderboard). Unverified and
+ * rejected records still belong on a public wall because the submitter
+ * chose a public board — they just must not look ranked. So this payload
+ * never carries ROI, P&L or score. Rounds and chain length are counts of
+ * committed fills, not a standing.
+ *
+ * Banned accounts are omitted. Rejections stay labeled. Empty is empty:
+ * if nobody has signed in, people is []. The page is allowed to look
+ * small; it is not allowed to look seeded.
+ */
+async function handleTrench(env) {
+  // Three cheap counts instead of one nested SELECT. D1 has rejected the
+  // nested form as a server-error in production; each of these matches a
+  // query shape the worker already runs elsewhere.
+  const signedRow = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM users WHERE COALESCE(banned_at, 0) = 0').first();
+  const submittedRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM records r JOIN users u ON u.id = r.user_id
+     WHERE COALESCE(u.banned_at, 0) = 0`).first();
+  const rankedRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM records r JOIN users u ON u.id = r.user_id
+     WHERE r.status = 'verified'
+       AND json_extract(r.stats_json, '$.rankable')
+       AND COALESCE(u.banned_at, 0) = 0
+       AND COALESCE(r.dq_at, 0) = 0`).first();
+
+  const rows = await env.DB.prepare(`
+    SELECT u.handle, u.display_name, u.avatar_url, u.created_at, u.last_login_at,
+           r.status, r.chain_len, r.stats_json, r.submitted_at, r.dq_at
+    FROM users u
+    LEFT JOIN records r ON r.user_id = u.id
+    WHERE COALESCE(u.banned_at, 0) = 0
+    ORDER BY CASE WHEN r.submitted_at IS NULL THEN 1 ELSE 0 END,
+             COALESCE(r.submitted_at, u.last_login_at, u.created_at) DESC
+    LIMIT 80
+  `).all();
+
+  const people = (rows.results || []).map((row) => {
+    let rounds = null;
+    let rankable = false;
+    if (row.stats_json) {
+      try {
+        const stats = JSON.parse(row.stats_json);
+        if (stats && Number.isFinite(Number(stats.rounds))) rounds = Number(stats.rounds);
+        rankable = !!(stats && stats.rankable);
+      } catch {
+        rounds = null;
+      }
+    }
+    const ranked = !!(row.status === 'verified' && rankable && !row.dq_at);
+    return {
+      handle: row.handle,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+      joinedAt: row.created_at,
+      lastSeenAt: row.last_login_at,
+      record: row.status ? {
+        status: row.status,
+        chainLen: row.chain_len,
+        rounds,
+        submittedAt: row.submitted_at,
+        ranked,
+      } : null,
+    };
+  });
+
+  return json({
+    signedIn: Number(signedRow && signedRow.n) || 0,
+    submitted: Number(submittedRow && submittedRow.n) || 0,
+    ranked: Number(rankedRow && rankedRow.n) || 0,
+    people,
+  });
+}
+
 async function handleSprint(env) {
   const window = windowOf(Date.now());
   const rows = await env.DB.prepare(`
@@ -2033,6 +2110,7 @@ export default {
       }
       else if (path === '/api/submit' && request.method === 'POST') response = await handleSubmit(request, env);
       else if (path === '/api/leaderboard') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleLeaderboard(env));
+      else if (path === '/api/trench') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleTrench(env));
       else if (path === '/api/sprint/current') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleSprint(env));
       else if (path === '/api/profile') {
         // Normalize into the CACHE KEY, not just into the query. The lookup is

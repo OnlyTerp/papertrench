@@ -47,12 +47,13 @@
   <div class="wrap">
     <div class="ar-hero-grid">
       <div>
-        <span class="ar-eyebrow"><span class="dot"></span>Global standings · re-verified server side</span>
-        <h1 class="ar-title"><span class="line">Every name up here</span><span class="line accent">earned it twice.</span></h1>
-        <p class="ar-lede">Once by trading it. Once by surviving the replay — every fill
-          <strong>hash-chained the moment it happened</strong>, then re-priced against the token's
-          real traded range in that exact minute. Rank is <strong>ROI × ln(1+rounds) × discipline</strong>.
-          A lottery ticket does not top this board, and it was never going to.</p>
+        <span class="ar-eyebrow"><span class="dot"></span>The Arena · public trench + verified podium</span>
+        <h1 class="ar-title"><span class="line">Show up.</span><span class="line accent">Then earn a seat.</span></h1>
+        <p class="ar-lede">The trench is everyone who signed in with X. The podium is only
+          records that survived replay: every fill <strong>hash-chained the moment it happened</strong>,
+          then re-priced against the token's real traded range in that minute.
+          Rank is <strong>ROI × ln(1+rounds) × discipline</strong>. Empty ranked seats stay empty.
+          People do not.</p>
 
         <div class="ar-spec" role="list" aria-label="Board parameters">
           <div role="listitem"><div class="k">Board</div><div class="v">Global · all-time</div></div>
@@ -95,6 +96,15 @@
         <div id="plinth"></div>
       </section>
 
+      <section class="ar-pane" aria-labelledby="trench-h">
+        <div class="ar-pane-head">
+          <span class="glyph" style="color:var(--orange2)">◎</span><span id="trench-h">The trench</span>
+          <span class="spacer"></span>
+          <span class="ar-note" id="trench-count"></span>
+        </div>
+        <div id="trench"></div>
+      </section>
+
       <section class="ar-pane" aria-labelledby="tower-h">
         <div class="ar-pane-head">
           <span class="glyph" style="color:var(--orange2)">▤</span><span id="tower-h">The tower</span>
@@ -129,10 +139,12 @@
             </label>
           </div>
           <div id="submit-status" style="margin-top:14px"></div>
-          <p class="ar-note" style="margin-top:14px">Sync asks the extension for your committed chain
-            — it only answers if you enabled <strong>Site sync</strong> in the dashboard's Leaderboard
-            tab, and no other site can ask. Or export the record as a file there and upload it here;
-            both paths carry identical evidence. The extension itself never phones home.</p>
+          <p class="ar-note" style="margin-top:14px">Sign in with X and you are on the trench.
+            Sync asks the extension for your committed chain - it only answers if you enabled
+            <strong>Site sync</strong> in the dashboard's Leaderboard tab, and no other site can ask.
+            Or export the record as a file there and upload it here. Both paths carry identical
+            evidence. The extension itself never phones home. Five closed, fully re-priced rounds
+            is what moves you from the trench onto a ranked seat.</p>
         </div>
       </section>
 
@@ -231,6 +243,8 @@
   const plinthEl = document.getElementById('plinth');
   const towerEl = document.getElementById('tower');
   const countEl = document.getElementById('tower-count');
+  const trenchEl = document.getElementById('trench');
+  const trenchCountEl = document.getElementById('trench-count');
   const formulaEl = document.getElementById('formula-demo');
   const streamEl = document.getElementById('stream');
 
@@ -317,11 +331,13 @@
     const entries = (body && body.entries) || [];
     if (!entries.length) {
       podiumEl.innerHTML = L.empty('🏴',
-        'The board is empty. Someone has to be first.',
-        'Five closed rounds over fully re-priced fills gets you onto the board. Nothing is shown here until a real chain has been submitted, replayed, and re-priced — no seeded names, no demo traders.');
+        'No one has earned a seat yet.',
+        'Five closed rounds, fully re-priced, hash-chained. The podium stays empty until that is real. People who already showed up are in the trench below. No seeded names, no demo traders.');
       plinthEl.innerHTML = '';
-      towerEl.innerHTML = '';
-      countEl.textContent = '';
+      towerEl.innerHTML = L.empty('▤', 'The tower is the rest of the ranked board.',
+        'Ranks four and below appear here once more than three records survive replay.');
+      countEl.textContent = '0 ranked';
+      formulaEl.innerHTML = '<p class="ar-note">The formula is public. It has no one to run on until a verified record lands.</p>';
       return;
     }
 
@@ -358,6 +374,91 @@
       + L.formulaHtml(entries[0].stats);
 
     L.writeSnapshot('global', entries);
+  })();
+
+  /* ---------------- the trench (everyone who showed up) ---------------- */
+
+  if (trenchEl) trenchEl.innerHTML = L.skeleton(4);
+
+  function trenchCard(person) {
+    const rec = person.record;
+    const isYou = signedInHandle && person.handle
+      && person.handle.toLowerCase() === signedInHandle.toLowerCase();
+    const xHref = 'https://x.com/' + encodeURIComponent(person.handle);
+    let meta = 'Signed in. No record submitted.';
+    if (rec) {
+      const fills = rec.chainLen != null ? rec.chainLen + ' fills hashed' : 'record in';
+      const rounds = rec.rounds != null ? rec.rounds + ' rounds' : null;
+      const seat = rec.ranked ? 'Ranked.' : 'Labeled. Not a seat.';
+      meta = [fills, rounds, seat].filter(Boolean).join(' · ');
+    }
+    return `<article class="ar-trench-card${isYou ? ' is-you' : ''}">
+      <a class="ar-trench-who" href="/profile?handle=${encodeURIComponent(person.handle)}">
+        ${face(person, 'face')}
+        <span>
+          <b>@${esc(person.handle)}</b>
+          ${isYou ? '<span class="ar-you-tag">YOU</span>' : ''}
+          ${rec ? chipFor(rec.status) : '<span class="ar-chip" style="font-size:8px">signed in</span>'}
+        </span>
+      </a>
+      <p class="ar-trench-meta">${esc(meta)}</p>
+      <a class="ar-trench-x" href="${esc(xHref)}" target="_blank" rel="noopener">X</a>
+    </article>`;
+  }
+
+  (async () => {
+    if (!trenchEl) return;
+    let body;
+    try {
+      body = await L.getOrThrow('/api/trench');
+    } catch {
+      try {
+        const act = await L.getOrThrow('/api/activity');
+        const seen = new Map();
+        for (const ev of (act.events || [])) {
+          if (!ev.handle) continue;
+          const key = String(ev.handle).toLowerCase();
+          if (seen.has(key)) continue;
+          const st = ev.kind === 'rejected' ? 'rejected'
+            : ev.kind === 'verified' ? 'verified' : 'pending';
+          seen.set(key, {
+            handle: ev.handle,
+            displayName: ev.handle,
+            avatarUrl: '',
+            record: { status: st, chainLen: null, rounds: null, ranked: false },
+          });
+        }
+        body = {
+          signedIn: seen.size,
+          submitted: seen.size,
+          ranked: 0,
+          people: Array.from(seen.values()),
+        };
+      } catch {
+        trenchEl.innerHTML = L.API_LIVE
+          ? L.empty('◎', 'The trench is unreachable right now.',
+            'Signed-in handles are not guessed. Refresh once the verifier answers.')
+          : L.empty('◎', 'The trench opens with the Arena.',
+            'Sign in with X on opening day and your handle is the roster.');
+        if (trenchCountEl) trenchCountEl.textContent = '';
+        return;
+      }
+    }
+    const people = (body && body.people) || [];
+    const signedIn = Number(body.signedIn) || 0;
+    const submitted = Number(body.submitted) || 0;
+    const ranked = Number(body.ranked) || 0;
+    if (trenchCountEl) {
+      trenchCountEl.textContent = signedIn + ' signed in · ' + submitted + ' records · ' + ranked + ' ranked';
+    }
+    if (!people.length) {
+      trenchEl.innerHTML = L.empty('◎', 'Nobody has signed in yet.',
+        'Sign in with X. Your handle, avatar and X link appear here. Ranked seats stay empty until a chain survives replay.');
+      return;
+    }
+    trenchEl.innerHTML = `<div class="ar-trench">${people.map(trenchCard).join('')}</div>
+      <p class="ar-trench-foot">This wall is sign-ins and submissions, not overlay installs.
+        The extension does not phone home. ROI never appears here unless the name also has a ranked seat.</p>`;
   })();
 
   /* ---------------- verifier stream ---------------- */
@@ -424,14 +525,19 @@
             this state should not happen anymore; seeing it usually means a stale page or a
             mid-deploy server. Try signing in once more, and if it persists, tell us on
             Discord — it is our bug, not yours.</p>`
-        : `<p class="ar-note" style="margin-bottom:12px">Sign in with X to rank. One record per account —
-            that is what makes this board expensive to sybil.</p>`;
+        : `<p class="ar-note" style="margin-bottom:12px">Sign in with X to appear on the trench. One record per account -
+            that is what makes a ranked seat expensive to sybil.</p>`;
       accountEl.innerHTML = blockedNote +
         `<button class="ar-btn primary" id="signin-btn">𝕏 &nbsp;Sign in with X</button>`;
       document.getElementById('signin-btn').addEventListener('click', L.signIn);
       return;
     }
     signedInHandle = session.handle;
+    document.querySelectorAll('.ar-trench-card').forEach((card) => {
+      const who = card.querySelector('.ar-trench-who b');
+      const mine = who && who.textContent.slice(1).toLowerCase() === session.handle.toLowerCase();
+      card.classList.toggle('is-you', !!mine);
+    });
     accountEl.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px">
         ${face(session, 'ar-face')}

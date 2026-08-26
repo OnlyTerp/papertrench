@@ -254,6 +254,62 @@ test('the board ranks by score with deterministic ties, in SQL and in JS', async
   assert.ok(!/ORDER BY r\.submitted_at/.test(boardSql));
 });
 
+/* ---------------- trench roster (public floor, not the podium) ---------------- */
+
+test('the trench lists signed-in people and submitted records without ranking numbers', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB((sql) => {
+    if (sql.includes('COUNT(*) AS n') && sql.includes('FROM users WHERE')) {
+      return { n: 2 };
+    }
+    if (sql.includes('COUNT(*) AS n') && sql.includes('FROM records r JOIN users u')
+        && sql.includes("r.status = 'verified'")) {
+      return { n: 0 };
+    }
+    if (sql.includes('COUNT(*) AS n') && sql.includes('FROM records r JOIN users u')) {
+      return { n: 1 };
+    }
+    if (sql.includes('FROM users u') && sql.includes('LEFT JOIN records')) {
+      return [
+        {
+          handle: 'MeloXSol', display_name: 'Melo', avatar_url: 'https://x.test/a.jpg',
+          created_at: 100, last_login_at: 200,
+          status: 'rejected', chain_len: 27,
+          stats_json: JSON.stringify({ rounds: 5, rankable: true, roiPct: 145.3, score: 259 }),
+          submitted_at: 300, dq_at: 0,
+        },
+        {
+          handle: 'newbie', display_name: 'New', avatar_url: '',
+          created_at: 50, last_login_at: 50,
+          status: null, chain_len: null, stats_json: null, submitted_at: null, dq_at: null,
+        },
+      ];
+    }
+    return null;
+  });
+
+  const response = await worker.fetch(
+    new Request('https://api.test/api/trench'), makeEnv(db), { waitUntil: () => {} });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.signedIn, 2);
+  assert.equal(body.submitted, 1);
+  assert.equal(body.ranked, 0);
+  assert.equal(body.people.length, 2);
+
+  const rejected = body.people.find((p) => p.handle === 'MeloXSol');
+  assert.equal(rejected.record.status, 'rejected');
+  assert.equal(rejected.record.chainLen, 27);
+  assert.equal(rejected.record.rounds, 5);
+  assert.equal(rejected.record.ranked, false);
+  assert.equal('roiPct' in rejected.record, false, 'rejected ROI must not ride the public floor');
+  assert.equal('score' in rejected.record, false);
+  assert.equal('realizedPnlSol' in rejected.record, false);
+
+  const fresh = body.people.find((p) => p.handle === 'newbie');
+  assert.equal(fresh.record, null);
+});
+
 /* ---------------- pricing queue liveness (DEFECT L-10) ---------------- */
 
 test('a record whose candle lookups fail backs off instead of pinning the queue', async () => {

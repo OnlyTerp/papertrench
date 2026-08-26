@@ -1493,6 +1493,40 @@
 
 /* ========================================================== responsive === */
 
+/* Trench: the public floor. Not a podium. Faces + socials + labeled
+ * records. ROI is forbidden here — that number only lives on a ranked seat. */
+.ar-trench {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 16px 18px 8px;
+}
+.ar-trench-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 14px 12px;
+  border: var(--edge); border-radius: 14px;
+  background: var(--pane);
+  min-width: 0;
+}
+.ar-trench-card.is-you { border-color: rgba(255, 157, 69, 0.45); }
+.ar-trench-who {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  color: inherit; text-decoration: none;
+}
+.ar-trench-who b { font-size: 14px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+.ar-trench-who span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.ar-trench-meta { margin: 0; font-size: 12px; line-height: 1.45; color: var(--dim); }
+.ar-trench-x {
+  align-self: flex-start;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.ar-trench-x:hover { color: var(--orange); }
+.ar-trench-foot {
+  margin: 0; padding: 4px 18px 16px;
+  font-size: 12px; line-height: 1.5; color: var(--dim);
+}
+
 @media (max-width: 1180px) {
   .ar-shell { grid-template-columns: minmax(0, 1fr); }
   .ar-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 26px; align-items: start; }
