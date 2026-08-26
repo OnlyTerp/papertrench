@@ -93,7 +93,7 @@
     }));
   }
   /** Fire a cue. Overlapping calls each get their own voice. */
-  function playCue(cue) {
+  function playCue(cue, gain) {
     if (!soundOn || !audioCtx || !master) return;
     const buffer = sfxBuffers.get(cue);
     if (!buffer) return;
@@ -101,9 +101,39 @@
     try {
       const src = audioCtx.createBufferSource();
       src.buffer = buffer;
-      src.connect(master);
+      if (Number.isFinite(gain) && gain > 0 && gain !== 1) {
+        const g = audioCtx.createGain();
+        g.gain.value = Math.min(gain, 1.6);
+        src.connect(g); g.connect(master);
+      } else src.connect(master);
       src.start();
     } catch { /* the replay carries on silently */ }
+  }
+
+  /**
+   * A buy doesn't ring the till - it thocks. Two-oscillator synth blip, no
+   * asset to load, distinct from the sell's kaching at any speed.
+   */
+  function playBuyBlip(gain) {
+    if (!soundOn || !audioCtx || !master) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    try {
+      const t = audioCtx.currentTime;
+      const g = audioCtx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.min(0.5 * (gain || 1), 0.9), t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      const o1 = audioCtx.createOscillator();
+      o1.type = 'sine';
+      o1.frequency.setValueAtTime(660, t);
+      o1.frequency.exponentialRampToValueAtTime(990, t + 0.09);
+      const o2 = audioCtx.createOscillator();
+      o2.type = 'triangle';
+      o2.frequency.setValueAtTime(330, t);
+      o1.connect(g); o2.connect(g); g.connect(master);
+      o1.start(t); o2.start(t);
+      o1.stop(t + 0.25); o2.stop(t + 0.25);
+    } catch { /* silent */ }
   }
 
   /* ---------------- parsing + formatting ---------------- */
@@ -336,6 +366,18 @@
   /** Precompute chart markers + which bars carry fills, once per build. */
   function prepareMarks() {
     filledBars = new Set();
+    // Each fill learns what it REALIZED, by cumulative fold - the same
+    // accounting core the server tests pin. A sell's bubble shows the profit
+    // it booked against the running cost basis; a buy realizes nothing.
+    const inOrder = (state.fills || []).slice().sort((a, b) => a.ts - b.ts);
+    if (window.ReplayCore) {
+      let prev = 0;
+      for (let i = 0; i < inOrder.length; i++) {
+        const pos = ReplayCore.foldFills(inOrder.slice(0, i + 1));
+        inOrder[i]._realized = (pos.realized || 0) - prev;
+        prev = pos.realized || 0;
+      }
+    }
     const rows = [];
     for (const f of state.fills || []) {
       const bar = barAt(Number(f.ts));
@@ -390,6 +432,81 @@
       requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-shown')));
       setTimeout(() => { if (!rec.gone) retireFlash(rec, false); }, FLASH_MS);
     });
+    // Sells that booked PnL get a bubble pinned to the bar itself, and a
+    // profitable one rains confetti - the Trickshot move, sized to ours.
+    for (const f of inBar) {
+      if (f.side !== 'sell') continue;
+      const realized = Number(f._realized);
+      if (!Number.isFinite(realized) || Math.abs(realized) < 0.5) continue;
+      spawnPnlBubble(bar, realized);
+      if (realized > 0) spawnConfetti(bar, realized);
+      break; // one bubble per bar - routers split sells into many fills
+    }
+  }
+
+  /** Chart-space anchor for a bar: x from the time scale, y above the high. */
+  function barAnchor(bar) {
+    try {
+      const b = state.candles[bar];
+      const x = chart.timeScale().timeToCoordinate(Math.floor(Number(b.ts) / 1000));
+      const y = candleSeries.priceToCoordinate(denom(b.h));
+      if (x === null || y === null) return null;
+      return { x, y };
+    } catch { return null; }
+  }
+
+  /**
+   * The number that matters, where it happened: "+$1.2K" springs out of the
+   * sell bar and drifts up. Falls back to top-center when the bar is off the
+   * visible range (scrolled away at high speed).
+   */
+  function spawnPnlBubble(bar, realized) {
+    const layer = $('fx');
+    const el = document.createElement('div');
+    const up = realized >= 0;
+    el.className = 'rp-pnl-pop ' + (up ? 'up' : 'down');
+    el.textContent = (up ? '+' : '\u2212') + usdCompact(Math.abs(realized));
+    const a = barAnchor(bar);
+    if (a) {
+      el.style.left = a.x + 'px';
+      el.style.top = Math.max(a.y - 14, 12) + 'px';
+    } else {
+      el.style.left = '50%';
+      el.style.top = '18px';
+    }
+    layer.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-live')));
+    setTimeout(() => el.remove(), 1900);
+  }
+
+  /**
+   * Confetti for a green sell. DOM particles, ~26 of them, one-shot;
+   * transform+opacity only so the compositor does the work. Count scales
+   * gently with the win so a $50 scalp doesn't celebrate like a $50K exit.
+   */
+  function spawnConfetti(bar, realized) {
+    const layer = $('fx');
+    const a = barAnchor(bar);
+    const wrap = $('rp-chart-wrap');
+    const ox = a ? a.x : wrap.clientWidth / 2;
+    const oy = a ? Math.max(a.y, 20) : 40;
+    const n = Math.min(18 + Math.floor(Math.log10(Math.max(realized, 10)) * 8), 46);
+    const colors = ['#34d399', '#a7f3d0', '#fbbf24', '#f9fafb', '#6ee7b7'];
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement('div');
+      p.className = 'rp-confetti';
+      const ang = (Math.random() * Math.PI) - Math.PI / 2 - Math.PI / 2; // up half
+      const v = 60 + Math.random() * 150;
+      p.style.background = colors[i % colors.length];
+      p.style.left = ox + 'px';
+      p.style.top = oy + 'px';
+      p.style.setProperty('--dx', (Math.cos(ang) * v).toFixed(0) + 'px');
+      p.style.setProperty('--dy', (Math.sin(ang) * v - 40).toFixed(0) + 'px');
+      p.style.setProperty('--rot', (Math.random() * 720 - 360).toFixed(0) + 'deg');
+      p.style.animationDelay = (Math.random() * 120) + 'ms';
+      layer.appendChild(p);
+      setTimeout(() => p.remove(), 1500);
+    }
   }
   function retireFlash(rec, displaced) {
     if (rec.gone) return;
@@ -407,9 +524,18 @@
   /** Sound + effects + ledger, once per bar the playhead ENTERS. */
   function onBarEntered(bar) {
     spawnFlashes(bar);
-    // A till ring for every bar that sold something - one per bar, or a
-    // router splitting a sale across pools would fire a dozen tills at once.
-    if (fillsInBar(bar).some((f) => f.side === 'sell')) playCue('kaching');
+    // One cue per side per bar - a router splitting a sale across pools
+    // would fire a dozen tills at once. Volume scales with the bar's biggest
+    // fill: a $40 nibble whispers, a $40K exit slams the drawer.
+    const inBar = fillsInBar(bar);
+    const sells = inBar.filter((f) => f.side === 'sell');
+    const buys = inBar.filter((f) => f.side !== 'sell');
+    const sizeGain = (fs) => {
+      const usd = Math.max(...fs.map((f) => Number(f.usd) || 0), 1);
+      return 0.45 + Math.min(Math.log10(usd) / 5, 1) * 0.9; // $1->0.45, $100K->1.35
+    };
+    if (sells.length) playCue('kaching', sizeGain(sells));
+    else if (buys.length) playBuyBlip(sizeGain(buys));
     const total = Number((state.curve[bar] || {}).total);
     if (Number.isFinite(total)) {
       const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
@@ -436,13 +562,55 @@
     if (bar > last) {
       seek(last, 1);
       stopPlay();
+      showCredits();
       return;
     }
     seek(bar, Math.min(exact - bar, 1));
     rafId = requestAnimationFrame(loop);
   }
+
+  /**
+   * The tape ran out: roll credits. A verdict card over the chart - total
+   * PnL, money in/out, best single exit - built ONLY from the folded fills
+   * already on screen. Dismissed by scrub, rebuild, or its replay button.
+   */
+  function showCredits() {
+    dropCredits();
+    if (!state.wallet || !state.fills.length || !window.ReplayCore) return;
+    const pos = ReplayCore.foldFills(state.fills);
+    const lastBar = state.candles[state.candles.length - 1];
+    const pnl = ReplayCore.pnlAt(pos, lastBar ? Number(lastBar.c) : 0);
+    const total = Number(pnl.total) || 0;
+    const up = total >= 0;
+    const sells = state.fills.filter((f) => f.side === 'sell' && Number.isFinite(Number(f._realized)));
+    const best = sells.length ? Math.max(...sells.map((f) => Number(f._realized))) : null;
+    const el = document.createElement('div');
+    el.className = 'rp-credits ' + (up ? 'up' : 'down');
+    el.id = 'rp-credits';
+    el.innerHTML =
+      '<div class="verdict">' + (up ? 'CAME OUT UP' : 'PAID THE CHAIN') + '</div>' +
+      '<div class="big">' + (up ? '+' : '\u2212') + usdCompact(Math.abs(total)) + '</div>' +
+      '<div class="row"><span>In ' + usdCompact(pos.boughtUsd || 0) + '</span>' +
+      '<span>Out ' + usdCompact(pos.soldUsd || 0) + '</span>' +
+      (best !== null && best > 0 ? '<span>Best exit +' + usdCompact(best) + '</span>' : '') +
+      '</div>' +
+      '<button type="button" class="again" id="rp-again">\u21bb Run it back</button>';
+    $('fx').appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('is-in')));
+    el.querySelector('#rp-again').addEventListener('click', () => {
+      dropCredits();
+      clipMs = 0; painted = -1; playIdx = 0; fanfareTier = armTier(0);
+      startPlay();
+    });
+    if (up && total > 0) spawnConfetti(state.candles.length - 1, total);
+  }
+  function dropCredits() {
+    const el = document.getElementById('rp-credits');
+    if (el) el.remove();
+  }
   function startPlay() {
     if (playing || !state.candles.length) return;
+    dropCredits();
     if (playIdx >= state.candles.length - 1) { clipMs = 0; painted = -1; fanfareTier = armTier(0); }
     playing = true;
     lastFrame = performance.now();
@@ -504,7 +672,8 @@
         }
       } else { state.fills = []; state.curve = []; state.pnl = {}; }
 
-      stopPlay(); clearFlashes();
+      stopPlay(); clearFlashes(); dropCredits();
+      odo.live = false; // new film: the counter must not roll over from the last one
       openTheater();
       renderTitle(); renderBoard(); renderFills(); renderLedger();
 
@@ -590,19 +759,38 @@
     headlineAt(state.candles.length - 1);
   }
 
-  /** The big number: wallet total PnL when replaying one, last cap otherwise. */
+  /** The big number: wallet total PnL when replaying one, last cap otherwise.
+   * The PnL number ROLLS - it tweens from where it was to where it is, so a
+   * spike reads as a climb, not a cut. */
+  let odo = { shown: 0, target: 0, raf: null, live: false };
+  function paintOdo() {
+    const lp = $('live-price');
+    const up = odo.shown >= 0;
+    lp.className = 'rp-live-price big ' + (up ? 'up' : 'down');
+    lp.innerHTML = '<b>' + (up ? '+' : '\u2212') + usdCompact(Math.abs(odo.shown)) + '</b><span class="cap-l">total pnl</span>';
+  }
+  function rollOdo() {
+    const gap = odo.target - odo.shown;
+    if (Math.abs(gap) < Math.max(Math.abs(odo.target) * 0.002, 0.01)) {
+      odo.shown = odo.target; paintOdo(); odo.raf = null; return;
+    }
+    odo.shown += gap * 0.18; // exponential chase: fast when far, soft landing
+    paintOdo();
+    odo.raf = requestAnimationFrame(rollOdo);
+  }
   function headlineAt(bar) {
     const lp = $('live-price');
     if (state.wallet && state.curve.length) {
       const pt = state.curve[Math.min(bar, state.curve.length - 1)] || {};
       const total = Number(pt.total);
       if (Number.isFinite(total)) {
-        const up = total >= 0;
-        lp.className = 'rp-live-price big ' + (up ? 'up' : 'down');
-        lp.innerHTML = '<b>' + (up ? '+' : '\u2212') + usdCompact(Math.abs(total)) + '</b><span class="cap-l">total pnl</span>';
+        if (!odo.live) { odo.shown = total; odo.live = true; } // first paint: no roll-in from 0
+        odo.target = total;
+        if (!odo.raf) odo.raf = requestAnimationFrame(rollOdo);
         return;
       }
     }
+    odo.live = false;
     const c = state.candles[Math.min(bar, state.candles.length - 1)];
     if (c && Number.isFinite(Number(c.c))) {
       const first = state.candles[0];
@@ -734,6 +922,7 @@
   $('play').addEventListener('click', () => (playing ? stopPlay() : startPlay()));
   $('scrub').addEventListener('input', (e) => {
     stopPlay();
+    dropCredits();
     const bar = Number(e.target.value);
     clipMs = bar * STEP_MS;
     painted = -1; // scrubbing rebuilds; cheap at these sizes
