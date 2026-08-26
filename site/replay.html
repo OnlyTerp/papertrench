@@ -64,65 +64,80 @@
   <p class="rp-hint">Works with a bare mint or a <code>pump.fun/coin/...</code> link. Leave the wallet blank to see the token's whole cast ranked by PnL.</p>
   <div id="status" class="rp-status" role="status" aria-live="polite"></div>
 
-  <div class="rp-stage">
-    <section class="rp-screen" aria-label="Replay screen">
-      <div class="rp-screen-head">
+  <section class="rp-shelf" aria-label="Recent builds">
+    <div class="rp-shelf-head" id="shelf-head" hidden>
+      <span class="glyph" aria-hidden="true">&#9654;</span><span>Already rolled</span>
+      <span class="rp-note">replays from the edge cache in about a second</span>
+    </div>
+    <div class="rp-shelf-row" id="shelf"></div>
+  </section>
+
+  <div class="rp-theater" id="theater" role="dialog" aria-modal="true" aria-label="Replay theater" hidden>
+    <div class="rp-theater-backdrop" id="theater-backdrop"></div>
+    <div class="rp-theater-box">
+      <div class="rp-theater-head">
         <span class="rp-film-title" id="film-title">No film loaded</span>
-        <span class="spacer"></span>
         <span class="rp-live-price" id="live-price"></span>
-      </div>
-      <div id="rp-chart-wrap">
-        <canvas id="chart"></canvas>
-        <div class="rp-screen-empty" id="chartMsg">
-          <div>
-            <span class="glyph" aria-hidden="true">&#127902;</span>
-            <p><strong>Paste a mint and roll the tape.</strong><br>
-            The chain is rebuilt from real trades - first load takes a few seconds.</p>
-          </div>
-        </div>
-      </div>
-      <div class="rp-transport">
-        <button id="play" class="rp-tbtn" aria-label="Play or pause the replay" disabled>
-          <svg id="ic-play" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></svg>
-          <svg id="ic-pause" viewBox="0 0 256 256" aria-hidden="true" style="display:none"><path fill="currentColor" d="M216,48V208a16,16,0,0,1-16,16H164a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h36A16,16,0,0,1,216,48ZM92,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H92a16,16,0,0,0,16-16V48A16,16,0,0,0,92,32Z"/></svg>
+        <span class="spacer"></span>
+        <button class="rp-close" id="theater-close" aria-label="Close the replay">
+          <svg viewBox="0 0 256 256" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></svg>
         </button>
-        <input id="scrub" class="rp-scrub" type="range" min="0" max="1" step="1" value="0" aria-label="Scrub through the replay" disabled>
-        <span class="rp-clock" id="tlabel">-- / --</span>
-        <button id="speed" class="rp-speed" aria-label="Playback speed" disabled>1x</button>
-        <button id="record" class="rp-rec" disabled><span class="rdot" aria-hidden="true"></span>Record</button>
       </div>
-      <div class="rp-ledger" id="pnl">
-        <div class="rp-led"><div class="l">Realized</div><div class="v dim" id="led-real">--</div></div>
-        <div class="rp-led"><div class="l">Unrealized</div><div class="v dim" id="led-unreal">--</div></div>
-        <div class="rp-led"><div class="l">Total PnL</div><div class="v dim" id="led-total">--</div></div>
-        <div class="rp-led"><div class="l">Fills on tape</div><div class="v dim" id="led-fills">--</div></div>
+      <div class="rp-theater-body">
+        <section class="rp-screen" aria-label="Replay screen">
+          <div id="rp-chart-wrap">
+            <div id="chart"></div>
+            <div class="rp-screen-empty" id="chartMsg" hidden>
+              <div>
+                <span class="glyph" aria-hidden="true">&#127902;</span>
+                <p><strong>Nothing on this reel.</strong></p>
+              </div>
+            </div>
+          </div>
+          <div class="rp-transport">
+            <button id="play" class="rp-tbtn" aria-label="Play or pause the replay" disabled>
+              <svg id="ic-play" viewBox="0 0 256 256" aria-hidden="true"><path fill="currentColor" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></svg>
+              <svg id="ic-pause" viewBox="0 0 256 256" aria-hidden="true" style="display:none"><path fill="currentColor" d="M216,48V208a16,16,0,0,1-16,16H164a16,16,0,0,1-16-16V48a16,16,0,0,1,16-16h36A16,16,0,0,1,216,48ZM92,32H56A16,16,0,0,0,40,48V208a16,16,0,0,0,16,16H92a16,16,0,0,0,16-16V48A16,16,0,0,0,92,32Z"/></svg>
+            </button>
+            <input id="scrub" class="rp-scrub" type="range" min="0" max="1" step="1" value="0" aria-label="Scrub through the replay" disabled>
+            <span class="rp-clock" id="tlabel">-- / --</span>
+            <button id="speed" class="rp-speed" aria-label="Playback speed" disabled>1x</button>
+            <button id="record" class="rp-rec" disabled><span class="rdot" aria-hidden="true"></span>Record</button>
+          </div>
+          <div class="rp-ledger" id="pnl">
+            <div class="rp-led"><div class="l">Realized</div><div class="v dim" id="led-real">--</div></div>
+            <div class="rp-led"><div class="l">Unrealized</div><div class="v dim" id="led-unreal">--</div></div>
+            <div class="rp-led"><div class="l">Total PnL</div><div class="v dim" id="led-total">--</div></div>
+            <div class="rp-led"><div class="l">Fills on tape</div><div class="v dim" id="led-fills">--</div></div>
+          </div>
+        </section>
+
+        <div class="rp-rail">
+          <section class="rp-pane" aria-labelledby="cast-h">
+            <div class="rp-pane-head">
+              <span class="glyph" aria-hidden="true">&#9733;</span><span id="cast-h">The cast</span>
+              <span class="spacer"></span>
+              <span class="rp-note" id="cast-note"></span>
+            </div>
+            <div class="rp-cast" id="board">
+              <div class="rp-cast-empty">Every wallet that traded this token, ranked by what the
+                chain says they made or lost. Click one to replay their tape.</div>
+            </div>
+          </section>
+
+          <section class="rp-pane" aria-labelledby="tape-h">
+            <div class="rp-pane-head">
+              <span class="glyph" aria-hidden="true">&#9776;</span><span id="tape-h">The fills</span>
+              <span class="spacer"></span>
+              <span class="rp-note" id="tape-note"></span>
+            </div>
+            <div class="rp-tape" id="fills">
+              <div class="rp-tape-empty">Load a wallet to see its buys and sells. Rows light up as
+                the playhead reaches them.</div>
+            </div>
+          </section>
+        </div>
       </div>
-    </section>
-
-    <div class="rp-rail">
-      <section class="rp-pane" aria-labelledby="cast-h">
-        <div class="rp-pane-head">
-          <span class="glyph" aria-hidden="true">&#9733;</span><span id="cast-h">The cast</span>
-          <span class="spacer"></span>
-          <span class="rp-note" id="cast-note"></span>
-        </div>
-        <div class="rp-cast" id="board">
-          <div class="rp-cast-empty">Every wallet that traded this token, ranked by what the
-            chain says they made or lost. Click one to replay their tape.</div>
-        </div>
-      </section>
-
-      <section class="rp-pane" aria-labelledby="tape-h">
-        <div class="rp-pane-head">
-          <span class="glyph" aria-hidden="true">&#9776;</span><span id="tape-h">The fills</span>
-          <span class="spacer"></span>
-          <span class="rp-note" id="tape-note"></span>
-        </div>
-        <div class="rp-tape" id="fills">
-          <div class="rp-tape-empty">Load a wallet to see its buys and sells. Rows light up as
-            the playhead reaches them.</div>
-        </div>
-      </section>
     </div>
   </div>
 
@@ -182,6 +197,7 @@
 
 <script src="/nav-wallet.js"></script>
 <script src="/nav-profile.js"></script>
+<script src="/vendor/lwc.js"></script>
 <script src="replay.js"></script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
 </body>

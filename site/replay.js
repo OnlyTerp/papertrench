@@ -1,11 +1,10 @@
-/* PaperTrench Replay - the film room player.
+/* PaperTrench Replay - the theater player.
  *
- * Pure browser logic, no chart library. Fetches /api/replay/history (candles +
- * leaderboard) and /api/replay/wallet (fills + stepping PnL) and projects:
- *   - the token's 1m candles revealed by a playhead,
- *   - the wallet's buy/sell markers landing on their bars,
- *   - a PnL line stepping on its own right-hand scale,
- * with play/scrub/speed transport and MediaRecorder canvas-to-webm export.
+ * The chart is TradingView's open-source lightweight-charts (self-hosted in
+ * /vendor/lwc.js) - the same engine class the terminals use, so the candles
+ * read like a real chart, not a science project. The player lives in a
+ * theater overlay that pops over the page; the page itself stays a simple
+ * loader + a shelf of recent builds.
  *
  * Honesty rules mirror the server: no invented prices, degraded upstream is
  * said out loud, and an empty board is an empty board.
@@ -13,13 +12,13 @@
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
-  const canvas = $('chart'), ctx = canvas.getContext('2d');
-  const DPR = window.devicePixelRatio || 1;
 
+  let chart = null, candleSeries = null, pnlSeries = null;
   let state = { candles: [], fills: [], curve: [], board: [], pnl: {}, mint: null, wallet: null };
   let playIdx = 0, playing = false, timer = null;
   let speedIdx = 0; const SPEEDS = [1, 2, 4, 8];
-  let recording = false, recorder = null, chunks = [];
+  let recording = false, recorder = null, chunks = [], recTimer = null;
+  let fullRange = null;
 
   /* The site is static GitHub Pages - there is no /api on this origin. All
    * API traffic goes to the worker, same origin arena.js uses. Local dev
@@ -63,6 +62,115 @@
     'no-data': 'The chain has no trade history for that mint yet.',
   };
 
+  /* ---------------- theater ---------------- */
+
+  function openTheater() {
+    const t = $('theater');
+    if (!t.hidden) return;
+    t.hidden = false;
+    requestAnimationFrame(() => t.classList.add('is-open'));
+    document.body.style.overflow = 'hidden';
+    ensureChart();
+  }
+  function closeTheater() {
+    const t = $('theater');
+    if (t.hidden) return;
+    stopTick(); stopRecord();
+    t.classList.remove('is-open');
+    document.body.style.overflow = '';
+    setTimeout(() => { t.hidden = true; }, 220);
+  }
+
+  /* ---------------- chart (lightweight-charts) ---------------- */
+
+  function ensureChart() {
+    if (chart || typeof LightweightCharts === 'undefined') return;
+    const el = $('chart');
+    chart = LightweightCharts.createChart(el, {
+      layout: {
+        background: { type: 'solid', color: 'transparent' },
+        textColor: 'rgba(141,151,169,.9)',
+        fontFamily: '"IBM Plex Mono", monospace',
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: 'rgba(141,151,169,.06)' },
+        horzLines: { color: 'rgba(141,151,169,.06)' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(141,151,169,.15)',
+        scaleMargins: { top: 0.08, bottom: 0.18 },
+      },
+      timeScale: {
+        borderColor: 'rgba(141,151,169,.15)',
+        timeVisible: true, secondsVisible: false,
+        rightOffset: 2, fixLeftEdge: true,
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Magnet,
+        vertLine: { color: 'rgba(255,157,69,.35)', labelBackgroundColor: '#1a1e26' },
+        horzLine: { color: 'rgba(255,157,69,.35)', labelBackgroundColor: '#1a1e26' },
+      },
+      handleScroll: true, handleScale: true,
+    });
+    candleSeries = chart.addCandlestickSeries({
+      upColor: '#34d399', downColor: '#ff5c7a',
+      wickUpColor: 'rgba(52,211,153,.7)', wickDownColor: 'rgba(255,92,122,.7)',
+      borderVisible: false,
+      priceFormat: { type: 'price', precision: 10, minMove: 0.0000000001 },
+    });
+    pnlSeries = chart.addLineSeries({
+      priceScaleId: 'pnl',
+      color: 'rgba(255,157,69,.95)', lineWidth: 2,
+      priceLineVisible: false, lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      priceFormat: { type: 'custom', formatter: (v) => fmtUsd(v, 0) },
+    });
+    chart.priceScale('pnl').applyOptions({ visible: false, scaleMargins: { top: 0.55, bottom: 0.03 } });
+    new ResizeObserver(() => {
+      chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+    }).observe(el);
+    chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+  }
+
+  const toBar = (c) => ({
+    time: Math.floor(Number(c.ts) / 1000),
+    open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c),
+  });
+
+  /** Push the state at playIdx into the chart: visible candles, markers up to
+   * the playhead, and the PnL line stepping alongside. The time range is
+   * pinned to the whole film so bars sweep left-to-right into empty space. */
+  function sync() {
+    if (!chart) return;
+    const visible = state.candles.slice(0, playIdx + 1);
+    candleSeries.setData(visible.map(toBar));
+
+    const curTs = visible.length ? Number(visible[visible.length - 1].ts) + 60000 : 0;
+    const markers = (state.fills || [])
+      .filter((f) => Number(f.ts) < curTs && Number.isFinite(Number(f.priceUsd)))
+      .sort((a, b) => a.ts - b.ts)
+      .map((f) => ({
+        time: Math.floor(Number(f.ts) / 1000),
+        position: f.side === 'sell' ? 'aboveBar' : 'belowBar',
+        color: f.side === 'sell' ? '#ff5c7a' : '#34d399',
+        shape: f.side === 'sell' ? 'arrowDown' : 'arrowUp',
+        text: f.side === 'sell' ? 'S' : 'B',
+      }));
+    candleSeries.setMarkers(markers);
+
+    if (state.curve.length) {
+      const pts = state.curve.slice(0, playIdx + 1)
+        .filter((p) => Number.isFinite(Number(p.total)) && Number.isFinite(Number(p.ts)))
+        .map((p) => ({ time: Math.floor(Number(p.ts) / 1000), value: Number(p.total) }));
+      pnlSeries.setData(pts);
+    } else pnlSeries.setData([]);
+
+    if (fullRange) chart.timeScale().setVisibleRange(fullRange);
+  }
+
+  /* ---------------- build ---------------- */
+
   async function build(walletOverride) {
     const mint = parseMint($('mint').value);
     const wallet = walletOverride !== undefined ? walletOverride : parseAddr($('wallet').value);
@@ -85,20 +193,35 @@
 
       playIdx = state.candles.length ? state.candles.length - 1 : 0;
       playing = false; stopTick();
+
+      openTheater();
       renderTitle(); renderBoard(); renderFills(); renderLedger();
 
       if (!state.candles.length) {
-        showEmpty('The chain has no candle history for that mint.');
+        $('chartMsg').hidden = false;
         setTransport(false);
         setStatus('');
         return;
       }
-      hideEmpty();
+      $('chartMsg').hidden = true;
       setTransport(true);
       $('scrub').max = Math.max(0, state.candles.length - 1);
       $('scrub').value = playIdx;
       updateScrub();
-      draw();
+
+      // Establish the full time range once, then sync at the playhead.
+      ensureChart();
+      if (chart) {
+        candleSeries.setData(state.candles.map(toBar));
+        chart.timeScale().fitContent();
+        const r = chart.timeScale().getVisibleRange();
+        fullRange = r ? { from: r.from, to: r.to } : null;
+      }
+      sync();
+      rememberBuild(mint, wallet);
+      const qs = new URLSearchParams({ mint });
+      if (wallet) qs.set('wallet', wallet);
+      history.replaceState(null, '', '/replay?' + qs.toString());
       setStatus('');
     } catch (e) {
       const reason = typeof e === 'string' ? e : (e && e.message) || '';
@@ -106,17 +229,41 @@
     } finally { $('build').disabled = false; }
   }
 
-  function showEmpty(msg) {
-    const el = $('chartMsg');
-    el.style.display = '';
-    if (msg) el.querySelector('p').innerHTML = '<strong>' + msg + '</strong>';
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }
-  function hideEmpty() { $('chartMsg').style.display = 'none'; }
-
   function setTransport(on) {
     for (const id of ['play', 'scrub', 'speed', 'record']) $(id).disabled = !on;
   }
+
+  /* ---------------- shelf (recent builds) ---------------- */
+
+  const SHELF_KEY = 'pt-replay-shelf';
+  function readShelf() {
+    try { return JSON.parse(localStorage.getItem(SHELF_KEY)) || []; } catch { return []; }
+  }
+  function rememberBuild(mint, wallet) {
+    let shelf = readShelf().filter((s) => !(s.mint === mint && (s.wallet || null) === (wallet || null)));
+    shelf.unshift({ mint, wallet: wallet || null, at: Date.now() });
+    shelf = shelf.slice(0, 8);
+    try { localStorage.setItem(SHELF_KEY, JSON.stringify(shelf)); } catch { /* private mode */ }
+    renderShelf();
+  }
+  function renderShelf() {
+    const shelf = readShelf();
+    $('shelf-head').hidden = !shelf.length;
+    $('shelf').innerHTML = shelf.map((s) => {
+      const who = s.wallet ? '<span class="w">' + short(s.wallet) + '</span>' : '<span class="w dim">whole cast</span>';
+      return '<button type="button" class="rp-reel" data-mint="' + s.mint + '" data-wallet="' + (s.wallet || '') + '">' +
+        '<span class="m">' + short(s.mint) + '</span>' + who + '</button>';
+    }).join('');
+    $('shelf').querySelectorAll('.rp-reel').forEach((el) => {
+      el.addEventListener('click', () => {
+        $('mint').value = el.dataset.mint;
+        $('wallet').value = el.dataset.wallet || '';
+        build(el.dataset.wallet || null);
+      });
+    });
+  }
+
+  /* ---------------- panes ---------------- */
 
   function renderTitle() {
     const t = $('film-title');
@@ -200,94 +347,13 @@
     lf.className = 'v ' + (state.wallet ? '' : 'dim');
   }
 
-  // ---- projection ----
-  function draw() {
-    const cw = canvas.clientWidth, chh = canvas.clientHeight;
-    canvas.width = cw * DPR; canvas.height = chh * DPR;
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    ctx.clearRect(0, 0, cw, chh);
-    const candles = state.candles;
-    if (!candles.length) return;
-    const visible = candles.slice(0, playIdx + 1);
-    if (!visible.length) return;
-
-    const padL = 64, padR = 64, padT = 18, padB = 26;
-    const w = cw - padL - padR, h = chh - padT - padB;
-    let lo = Infinity, hi = -Infinity;
-    for (const c of visible) {
-      if (Number.isFinite(c.l)) lo = Math.min(lo, c.l);
-      if (Number.isFinite(c.h)) hi = Math.max(hi, c.h);
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
-    const pad = (hi - lo) * 0.06 || 1;
-    lo -= pad; hi += pad;
-    const y = (p) => padT + (hi - p) / (hi - lo) * h;
-    const x = (i) => padL + (i / Math.max(1, visible.length - 1)) * w;
-    const cwpx = Math.max(2, w / visible.length * 0.6);
-
-    ctx.strokeStyle = 'rgba(141,151,169,.08)';
-    ctx.fillStyle = 'rgba(141,151,169,.8)';
-    ctx.font = '10px "IBM Plex Mono", monospace';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 5; i++) {
-      const gp = lo + (hi - lo) * i / 5, gy = y(gp);
-      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(cw - padR, gy); ctx.stroke();
-      ctx.fillText(fmtPrice(gp), 6, gy + 3);
-    }
-    for (let i = 0; i < visible.length; i++) {
-      const c = visible[i], cx = x(i), up = c.c >= c.o;
-      const col = up ? '#34d399' : '#ff8a80';
-      ctx.strokeStyle = col; ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.moveTo(cx, y(c.h)); ctx.lineTo(cx, y(c.l)); ctx.stroke();
-      const top = y(Math.max(c.o, c.c)), bot = y(Math.min(c.o, c.c));
-      ctx.fillRect(cx - cwpx / 2, top, cwpx, Math.max(1, bot - top));
-    }
-    if (state.curve.length) {
-      const pv = state.curve.slice(0, playIdx + 1).filter((p) => Number.isFinite(p.total));
-      if (pv.length > 1) {
-        let plo = Infinity, phi = -Infinity;
-        for (const p of pv) { plo = Math.min(plo, p.total); phi = Math.max(phi, p.total); }
-        const span = (phi - plo) || 1; const py = (v) => padT + (1 - (v - plo) / span) * h;
-        ctx.strokeStyle = 'rgba(255,157,69,.9)'; ctx.lineWidth = 2; ctx.beginPath();
-        pv.forEach((p, i) => { const px = x(i); i ? ctx.lineTo(px, py(p.total)) : ctx.moveTo(px, py(p.total)); });
-        ctx.stroke();
-        const lastP = pv[pv.length - 1];
-        ctx.fillStyle = 'rgba(255,157,69,.95)';
-        ctx.font = '700 10px "IBM Plex Mono", monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(fmtUsd(lastP.total), cw - 6, py(lastP.total) + 3);
-        ctx.textAlign = 'left';
-      }
-    }
-    const barByTs = new Map(visible.map((c, i) => [Math.floor(Number(c.ts) / 60000) * 60000, i]));
-    for (const f of (state.fills || [])) {
-      const bi = barByTs.get(Math.floor(Number(f.ts) / 60000) * 60000);
-      if (bi === undefined || bi > playIdx) continue;
-      const cx = x(bi), cy = y(Number(f.priceUsd));
-      const up = f.side !== 'sell';
-      ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, 7);
-      ctx.fillStyle = up ? '#34d399' : '#ff8a80'; ctx.fill();
-      ctx.strokeStyle = '#05070b'; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = '#05070b'; ctx.font = '800 8px "IBM Plex Mono", monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(up ? 'B' : 'S', cx, cy + 0.5);
-      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    }
-    ctx.fillStyle = 'rgba(141,151,169,.8)';
-    ctx.font = '10px "IBM Plex Mono", monospace';
-    const last = visible[visible.length - 1];
-    const tt = new Date(Number(last.ts));
-    ctx.fillText(tt.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
-      tt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), padL, chh - 8);
-  }
-
   function fmtPrice(p) {
     if (p >= 1) return p >= 10000 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : p.toFixed(p >= 100 ? 1 : 3);
     return p.toExponential(2);
   }
 
-  // ---- stepping PnL under the playhead ----
+  /* ---------------- stepping PnL under the playhead ---------------- */
+
   function ledgerAtPlayhead() {
     if (!state.wallet || !state.curve.length) return;
     const pt = state.curve[Math.min(playIdx, state.curve.length - 1)];
@@ -311,13 +377,13 @@
     });
   }
 
-  // ---- transport ----
+  /* ---------------- transport ---------------- */
+
+  function frame() { sync(); ledgerAtPlayhead(); updateScrub(); markTapeProgress(); }
   function tick() {
     if (!playing) return;
-    if (playIdx < state.candles.length - 1) {
-      playIdx++;
-      draw(); ledgerAtPlayhead(); updateScrub(); markTapeProgress();
-    } else stopTick();
+    if (playIdx < state.candles.length - 1) { playIdx++; frame(); }
+    else stopTick();
   }
   function startTick() {
     if (timer) return;
@@ -336,14 +402,28 @@
     $('tlabel').textContent = (playIdx + 1) + ' / ' + state.candles.length;
   }
 
-  // ---- record ----
+  /* ---------------- record (composite canvas at 30fps) ---------------- */
+
   function startRecord() {
-    if (recording) return;
+    if (recording || !chart) return;
     chunks = [];
-    const stream = canvas.captureStream(30);
+    const rc = document.createElement('canvas');
+    const wrap = $('rp-chart-wrap');
+    rc.width = wrap.clientWidth * 2; rc.height = wrap.clientHeight * 2;
+    const rctx = rc.getContext('2d');
+    recTimer = setInterval(() => {
+      try {
+        const shot = chart.takeScreenshot();
+        rctx.fillStyle = '#0a0d12';
+        rctx.fillRect(0, 0, rc.width, rc.height);
+        rctx.drawImage(shot, 0, 0, rc.width, rc.height);
+      } catch { /* mid-frame */ }
+    }, 33);
+    const stream = rc.captureStream(30);
     recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
     recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
+      clearInterval(recTimer); recTimer = null;
       const blob = new Blob(chunks, { type: 'video/webm' });
       const url = URL.createObjectURL(blob), a = document.createElement('a');
       a.href = url; a.download = 'papertrench-replay-' + Date.now() + '.webm'; a.click();
@@ -356,16 +436,17 @@
     $('record').classList.add('is-on');
     $('record').lastChild.textContent = 'Stop';
   }
-  function stopRecord() { if (recording && recorder.state !== 'inactive') recorder.stop(); recording = false; }
+  function stopRecord() { if (recording && recorder && recorder.state !== 'inactive') recorder.stop(); recording = false; }
 
-  // ---- wire ----
+  /* ---------------- wire ---------------- */
+
   $('build').addEventListener('click', () => build());
   $('mint').addEventListener('keydown', (e) => { if (e.key === 'Enter') build(); });
   $('wallet').addEventListener('keydown', (e) => { if (e.key === 'Enter') build(); });
   $('play').addEventListener('click', () => (playing ? stopTick() : startTick()));
   $('scrub').addEventListener('input', (e) => {
     playIdx = Number(e.target.value);
-    draw(); ledgerAtPlayhead(); updateScrub(); markTapeProgress();
+    frame();
   });
   $('speed').addEventListener('click', () => {
     speedIdx = (speedIdx + 1) % SPEEDS.length;
@@ -373,7 +454,17 @@
     if (playing) { stopTick(); startTick(); }
   });
   $('record').addEventListener('click', () => (recording ? stopRecord() : startRecord()));
-  window.addEventListener('resize', () => draw());
+  $('theater-close').addEventListener('click', closeTheater);
+  $('theater-backdrop').addEventListener('click', closeTheater);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('theater').hidden) closeTheater();
+    else if (e.key === ' ' && !$('theater').hidden && !$('play').disabled &&
+      !/INPUT|BUTTON/.test(document.activeElement.tagName)) {
+      e.preventDefault(); (playing ? stopTick() : startTick());
+    }
+  });
+
+  renderShelf();
 
   // Deep link: /replay?mint=...&wallet=... builds on arrival.
   const qs = new URLSearchParams(location.search);
