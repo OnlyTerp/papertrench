@@ -1,18 +1,14 @@
 {
-  "version": "3.13.11",
-  "date": "2026-08-25",
+  "version": "3.13.12",
+  "date": "2026-08-26",
   "entries": [
     {
-      "title": "Brand-new coins are buyable immediately.",
-      "text": "If you installed the extension and every coin sat on \"Fetching live price…\" — only becoming buyable once it had aged 20-30 seconds — that was one throttled RPC read poisoning the whole token."
+      "title": "The quick-buy chip is back on compact boards.",
+      "text": "Padre's reworked Trenches board renders rows at 34px — under the 55px minimum the chip placer used to consider \"a real row\" — so freshly launched coins never received a PaperTrench chip at all. That was the other half of \"it won't let u buy half the time\": the coin was there, the price was there, and the button simply never existed. The row-height floor now sits at 28px, and the chip sweep reports *why* it skipped a row so the harness can see refusals instead of inferring them."
     },
     {
-      "title": null,
-      "text": "The extension probes the chain directly for coins too new for any aggregator to know. That probe marked the address as \"already probed\" *before* the read came back, and never un-marked it if the read failed. A single blip — a rate-limited public endpoint, a dropped socket — therefore switched off the only source that can price a fresh launch, leaving the coin waiting on an indexer to catch up."
-    },
-    {
-      "title": null,
-      "text": "A failed read is never evidence about the coin. Now a failed probe retries on the very next pass (~400ms) instead of waiting on a ~4-second safety net, and clicking Buy asks the chain whenever nothing else produced a price, rather than only when the panel had never had one."
+      "title": "A throttled RPC read no longer crashes the fresh-launch probe.",
+      "text": "The on-chain prewatch that prices brand-new coins referenced a variable outside its scope in its error path — so the exact moment a public RPC rate-limited (the moment you most need the retry), the probe crashed instead of retrying. Fresh launches then sat unpriceable until an aggregator caught up."
     }
   ]
 }
