@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.12', date: 'Aug 26, 2026', iso: '2026-08-26',
+        tags: ['fix'],
+        title: 'The quick-buy chip is back on compact boards',
+        body: 'Two halves of "it won\'t let u buy half the time," both fixed. Padre\'s reworked Trenches board renders rows at 34px — under the 55px minimum the chip placer considered a real row — so brand-new coins never received a quick-buy chip at all: the coin was there, the price was there, and the button simply never existed. The row-height floor now matches the compact board. And the on-chain probe that prices brand-new launches crashed in its error path at the exact moment a public RPC rate-limited — the moment the retry matters most — leaving fresh coins stuck on "Fetching live price" until an aggregator caught up. The probe now survives the blip and retries on the next pass, and a live-board harness run proves the whole lane: new mint pops, chip appears, chip fills in under 2 seconds.',
+      },
+      {
         v: '3.13.4', date: 'Aug 24, 2026', iso: '2026-08-24',
         tags: ['fix'],
         title: 'Armed buys: first quote lands, the buy fires',

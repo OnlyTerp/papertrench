@@ -3,6 +3,23 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.12 — 2026-08-26
+
+**The quick-buy chip is back on compact boards.** Padre's reworked Trenches
+board renders rows at 34px — under the 55px minimum the chip placer used to
+consider "a real row" — so freshly launched coins never received a
+PaperTrench chip at all. That was the other half of "it won't let u buy half
+the time": the coin was there, the price was there, and the button simply
+never existed. The row-height floor now sits at 28px, and the chip sweep
+reports *why* it skipped a row so the harness can see refusals instead of
+inferring them.
+
+**A throttled RPC read no longer crashes the fresh-launch probe.** The
+on-chain prewatch that prices brand-new coins referenced a variable outside
+its scope in its error path — so the exact moment a public RPC rate-limited
+(the moment you most need the retry), the probe crashed instead of retrying.
+Fresh launches then sat unpriceable until an aggregator caught up.
+
 ## v3.13.11 — 2026-08-25
 
 **Brand-new coins are buyable immediately.** If you installed the extension
