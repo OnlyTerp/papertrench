@@ -325,6 +325,70 @@
   }
 
   /**
+   * Candle feeds return only TRADED minutes; a fill in a gap snapped onto
+   * the last bar before it, so trades hours apart played "simultaneously".
+   * Two repairs, applied per gap:
+   *  - a bar at each fill's own minute, priced by the fill itself (a real
+   *    trade at a real price - never invented);
+   *  - a few FLAT bars through the gap (carried close, capped at 6) so dead
+   *    time is visible time and two fills in one hole stay far apart on the
+   *    tape, without a 218-minute hole becoming minutes of dead air.
+   * Curve recomputed after so bar indexes stay 1:1 with PnL points.
+   */
+  function weaveFillBars() {
+    if (!state.candles.length) return;
+    const fillPx = new Map(); // minute -> best fill price (or null)
+    for (const f of state.fills || []) {
+      const m = Math.floor(Number(f.ts) / 60000) * 60000;
+      const px = Number(f.priceUsd);
+      if (!fillPx.has(m) || (px > 0 && !(fillPx.get(m) > 0))) fillPx.set(m, px > 0 ? px : null);
+    }
+    if (!fillPx.size) return;
+    const GAP_FILL = 6;
+    const src = state.candles;
+    const out = [];
+    let changed = false;
+    for (let i = 0; i < src.length; i++) {
+      out.push(src[i]);
+      if (i === src.length - 1) break;
+      const a = Number(src[i].ts), bTs = Number(src[i + 1].ts);
+      const gapMins = Math.round((bTs - a) / 60000) - 1;
+      if (gapMins <= 0) continue;
+      // Minutes to weave: every fill minute in the hole, plus evenly spaced
+      // flat filler up to the cap.
+      const want = new Set();
+      for (const m of fillPx.keys()) { if (m > a && m < bTs) want.add(m); }
+      const fillers = Math.min(gapMins, GAP_FILL);
+      for (let k = 1; k <= fillers; k++) {
+        const m = a + Math.round((k * gapMins) / (fillers + 1)) * 60000;
+        if (m > a && m < bTs) want.add(m);
+      }
+      if (!want.size) continue;
+      changed = true;
+      let prevClose = Number(src[i].c) > 0 ? Number(src[i].c) : Number(src[i].o);
+      for (const m of [...want].sort((x, y) => x - y)) {
+        const fp = fillPx.get(m);
+        const close = fp > 0 ? fp : prevClose;
+        const open = prevClose > 0 ? prevClose : close;
+        out.push({
+          ts: m, o: open, c: close,
+          h: Math.max(open, close), l: Math.min(open, close),
+          v: 0, woven: true,
+        });
+        prevClose = close;
+      }
+    }
+    if (!changed) return;
+    state.candles = out;
+    if (state.wallet && window.ReplayCore && (state.fills || []).length) {
+      state.curve = ReplayCore.replayCurve(state.fills, state.candles);
+      const pos = ReplayCore.foldFills(state.fills);
+      const last = out[out.length - 1];
+      state.pnl = ReplayCore.pnlAt(pos, last ? Number(last.c) : 0);
+    }
+  }
+
+  /**
    * The bar being replayed, part-formed: close walks open->real close on a
    * smoothstep, high/low revealed as it goes - exactly how a live candle
    * behaves while trades land in it.
@@ -751,6 +815,15 @@
           } catch (err) { /* chain lane is best-effort; the page stays honest */ }
         }
       } else { state.fills = []; state.curve = []; state.pnl = {}; }
+
+      // Both candle sources return only TRADED minutes, and memecoin tapes
+      // are full of holes (HIM: 38 gaps, one 218 minutes wide). A fill inside
+      // a gap used to collapse onto the last bar before it - so buys and
+      // sells hours apart all fired 'at the same time'. Weave a bar at each
+      // fill's own minute: priced by the fill itself, which IS a real trade
+      // at a real price - no fabrication, just a minute the candle feed
+      // missed. Then recompute the curve so bar indexes stay 1:1.
+      weaveFillBars();
 
       stopPlay(); clearFlashes(); dropCredits();
       odo.live = false; // new film: the counter must not roll over from the last one

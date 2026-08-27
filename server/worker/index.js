@@ -1989,9 +1989,15 @@ async function handleReplayHistory(request, env) {
   if (!replay.isAddress(mint)) return json({ ok: false, reason: 'bad-mint' }, 400);
   const budget = { used: 0, max: 8 };
   try {
+    // Indeix's failures must not short-circuit the fallback: a persistent 5xx
+    // THROWS indeix-degraded, and letting that propagate here skipped the GT
+    // lane entirely - older coins whose history tier flaps showed 'provider
+    // down' while GT held perfectly good bars. Catch, remember, fall back;
+    // the degraded message survives only when GT comes up empty too.
+    let indeixErr = null;
     let [candles, rawTrades, token] = await Promise.all([
-      indeix.ohlcv(env, chain, mint, 0, budget),
-      indeix.trades(env, chain, mint, budget, 50),
+      indeix.ohlcv(env, chain, mint, 0, budget).catch((e) => { indeixErr = e; return null; }),
+      indeix.trades(env, chain, mint, budget, 50).catch(() => null),
       tokenIdentity(mint),
     ]);
     // Indeix's history tier regularly answers EMPTY for tokens that are
@@ -2002,7 +2008,10 @@ async function handleReplayHistory(request, env) {
     if ((!candles || !candles.length) && chain === 'solana') {
       candles = await chartBars(env, mint).catch(() => null);
     }
-    if (!candles || !candles.length) return json({ ok: false, reason: 'no-data' }, 404);
+    if (!candles || !candles.length) {
+      if (indeixErr) throw indeixErr;
+      return json({ ok: false, reason: 'no-data' }, 404);
+    }
     // Trades power the cast; the reel does not need them. An empty cast is
     // already an honest state the UI narrates ('no traders ranked yet').
     if (!rawTrades) rawTrades = [];
@@ -2046,16 +2055,22 @@ async function handleReplayWallet(request, env) {
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => Number((((j || {}).So11111111111111111111111111111111111111112) || {}).usdPrice) || 0)
       .catch(() => 0);
+    let indeixErr = null;
     let [candles, chainLane] = await Promise.all([
-      indeix.ohlcv(env, chain, mint, 0, budget),
+      indeix.ohlcv(env, chain, mint, 0, budget).catch((e) => { indeixErr = e; return null; }),
       solana.walletFills(wallet, mint, rpcBudget, null).catch((err) => ({ fills: [], truncated: false, txSeen: 0, error: String((err && err.message) || err) })),
     ]);
     // Same Indeix-empty fallback as the history handler: the wallet's fills
-    // are real regardless of which source drew the bars behind them.
+    // are real regardless of which source drew the bars behind them. A
+    // thrown indeix-degraded falls back too (K-coin: persistent 504s on
+    // older coins read as 'provider down' while GT had the bars).
     if ((!candles || !candles.length) && chain === 'solana') {
       candles = await chartBars(env, mint).catch(() => null);
     }
-    if (!candles || !candles.length) return json({ ok: false, reason: 'no-data' }, 404);
+    if (!candles || !candles.length) {
+      if (indeixErr) throw indeixErr;
+      return json({ ok: false, reason: 'no-data' }, 404);
+    }
     const byMinute = indeix.candlesByMinute(candles);
     const solUsd = await solSpotP;
 
