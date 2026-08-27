@@ -8849,13 +8849,38 @@
     return `${trimSci(priceNative)} SOL`;
   }
 
-  if (contextAlive()) chrome.runtime.onMessage.addListener((msg) => {
-    if (contextDead) return;
+  if (contextAlive()) chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
+    if (contextDead) return undefined;
     if (msg?.type === 'pt_toggle_overlay') {
       // The popup / toolbar toggle flips the master overlay switch, so the
       // user can turn the whole thing on or off from the browser action.
       toggleOverlayEnabled().catch(() => {});
+      return undefined;
     }
+    if (msg?.type === 'pt_chip_debug') {
+      // Share-debug-logs pull: the chip map lives in the MAIN-world bridge,
+      // so relay the request over the postMessage bridge and hand back the
+      // first answer. A page with no bridge (non-screener site) answers
+      // nothing — resolve empty after a short deadline so the popup's
+      // report never hangs on a tab that cannot answer.
+      let done = false;
+      const finish = (chips) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onAnswer);
+        try { respond({ ok: true, chips }); } catch (_) { /* popup gone */ }
+      };
+      const onAnswer = (event) => {
+        if (event.source !== window || !event.data || event.data.source !== 'papertrench-bridge') return;
+        const ev = event.data;
+        if (ev.type === 'chip-debug') finish((ev.payload && ev.payload.chips) || []);
+      };
+      window.addEventListener('message', onAnswer);
+      sendPadreMarker('chip-debug-request', null);
+      setTimeout(() => finish([]), 400);
+      return true; // async respond
+    }
+    return undefined;
   });
 
   function stopOverlays() {

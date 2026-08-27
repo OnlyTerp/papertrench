@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.13.13', date: 'Aug 26, 2026', iso: '2026-08-26',
+        tags: ['feature'],
+        title: 'Share debug logs — one click, one paste',
+        body: 'Settings grew a 🐞 button that copies a redacted error report to your clipboard: both halves of the error black box (service worker and page), your version, the current site, and live quick-buy chip diagnostics — including exactly why any chip is hidden. Keys and secrets are stripped the moment an error is recorded, before it ever touches storage, so the report is safe by construction. Nothing is sent anywhere; you are the transport. Paste it in Discord and your bug report arrives pre-packaged instead of kicking off a twenty-question thread.',
+      },
+      {
         v: '3.13.12', date: 'Aug 26, 2026', iso: '2026-08-26',
         tags: ['fix'],
         title: 'The quick-buy chip is back on compact boards',

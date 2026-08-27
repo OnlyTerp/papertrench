@@ -59,7 +59,7 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
   }
   const els = {};
   for (const id of ['dash','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','badge','equity','delta','cash',
+                    'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
     els[id] = makeEl(id);
   }
@@ -180,7 +180,7 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
     };
   }
   for (const id of ['dash','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','badge','equity','delta','cash',
+                    'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
     els[id] = makeEl(id);
   }
@@ -276,7 +276,7 @@ test('every control still exists — panes hide, they never remove', () => {
   const ids = ['equity', 'cash', 'pnl', 'open', 'rounds', 'flow', 'recent',
     'power', 'dash', 'toggle', 'backup', 'restore', 'restoreFile', 'overlay-window',
     'warmx', 'warmdest', 'turbo-receipts', 'xray', 'qs-balance', 'qs-presets',
-    'qs-sellpcts', 'qs-fees', 'qs-apply', 'reset', 'status'];
+    'qs-sellpcts', 'qs-fees', 'qs-apply', 'sharelogs', 'reset', 'status'];
   for (const id of ids) {
     const count = popupHtmlTabs.split(`id="${id}"`).length - 1;
     assert.equal(count, 1, `${id} must appear exactly once`);

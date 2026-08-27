@@ -1,14 +1,10 @@
 {
-  "version": "3.13.12",
+  "version": "3.13.13",
   "date": "2026-08-26",
   "entries": [
     {
-      "title": "The quick-buy chip is back on compact boards.",
-      "text": "Padre's reworked Trenches board renders rows at 34px — under the 55px minimum the chip placer used to consider \"a real row\" — so freshly launched coins never received a PaperTrench chip at all. That was the other half of \"it won't let u buy half the time\": the coin was there, the price was there, and the button simply never existed. The row-height floor now sits at 28px, and the chip sweep reports *why* it skipped a row so the harness can see refusals instead of inferring them."
-    },
-    {
-      "title": "A throttled RPC read no longer crashes the fresh-launch probe.",
-      "text": "The on-chain prewatch that prices brand-new coins referenced a variable outside its scope in its error path — so the exact moment a public RPC rate-limited (the moment you most need the retry), the probe crashed instead of retrying. Fresh launches then sat unpriceable until an aggregator caught up."
+      "title": "Share debug logs — one click, one paste.",
+      "text": "Settings now has a 🐞 button that copies a redacted error report to the clipboard: both halves of the error black box (service worker + page), the extension version, the current site, and live quick-buy chip diagnostics including WHY any chip is hidden. Secrets and wallet keys are stripped at record time, before anything is stored — the report is safe by construction. Nothing is transmitted anywhere: you are the transport. Paste it in Discord and a bug report arrives pre-forensic'd instead of starting a twenty-question thread."
     }
   ]
 }

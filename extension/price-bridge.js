@@ -2832,6 +2832,24 @@
     }
     if (type === 'paper-axis' || type === 'row-scan') feedWanted = true;
 
+    if (type === 'chip-debug-request') {
+      // Debug-report pull (Share debug logs button). The chip map lives in
+      // THIS world; the content script relays the answer to the popup. Same
+      // read-only mapping as window.__ptRowChipDebug — no state is touched.
+      let chips = [];
+      try {
+        chips = [...rowChips.values()].map((e) => ({
+          address: e.address,
+          mode: e.place.mode,
+          hasPill: Boolean(e.pill),
+          display: e.el.style.display,
+          hideReason: e.applied ? e.applied.hideReason || null : null,
+        }));
+      } catch (_) { chips = []; }
+      emit('chip-debug', { chips });
+      return;
+    }
+
     if (type === 'standdown') {
       // The content script is going away (overlay disabled, or extension
       // reload teardown): erase every native drawing this bridge owns and

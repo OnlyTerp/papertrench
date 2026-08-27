@@ -3,6 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.13 — 2026-08-26
+
+**Share debug logs — one click, one paste.** Settings now has a 🐞 button
+that copies a redacted error report to the clipboard: both halves of the
+error black box (service worker + page), the extension version, the current
+site, and live quick-buy chip diagnostics including WHY any chip is hidden.
+Secrets and wallet keys are stripped at record time, before anything is
+stored — the report is safe by construction. Nothing is transmitted
+anywhere: you are the transport. Paste it in Discord and a bug report
+arrives pre-forensic'd instead of starting a twenty-question thread.
+
 ## v3.13.12 — 2026-08-26
 
 **The quick-buy chip is back on compact boards.** Padre's reworked Trenches

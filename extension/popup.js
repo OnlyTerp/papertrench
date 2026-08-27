@@ -40,6 +40,66 @@ $('warmdest').addEventListener('click', toggleWarmEverywhere);
 $('xray').addEventListener('click', toggleXRay);
 $('power').addEventListener('click', togglePower);
 $('qs-apply').addEventListener('click', applyQuickSettings);
+$('sharelogs').addEventListener('click', shareDebugLogs);
+
+/* ---- share debug logs -----------------------------------------------
+ * One click -> a redacted JSON report on the clipboard, ready to paste in
+ * Discord. Pulls BOTH halves of the error black box (the service worker's
+ * ring and the active tab's content-script ring — separate worlds, separate
+ * buffers), plus enough environment to reproduce: version, site, and the
+ * live chip diagnostics that carry hideReason for every quick-buy chip.
+ * Everything was redacted AT RECORD TIME (errors.js strips keys, tokens and
+ * addresses before storage), so this report is safe by construction, not by
+ * an export-time scrub that could miss a new field. Nothing is transmitted
+ * anywhere: the user IS the transport. */
+async function shareDebugLogs() {
+  const btn = $('sharelogs');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Collecting…';
+  try {
+    const report = {
+      app: 'papertrench-debug-report',
+      format: 1,
+      exportedAt: new Date().toISOString(),
+      version: (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '?',
+      ua: navigator.userAgent,
+      errors: { background: [], content: [] },
+      tab: null,
+    };
+    // Worker half. The worker also accepts forwarded content entries, but we
+    // pull the tab half ourselves so a dead tab cannot block the report.
+    try {
+      const bg = await chrome.runtime.sendMessage({ type: 'pt_errors_snapshot' });
+      if (bg && bg.ok) report.errors.background = bg.entries || [];
+    } catch (_) { /* worker asleep: background half stays empty */ }
+    // Content half + live chip diagnostics from the active tab, if it is a
+    // page we run on. Every step is optional — a chrome:// tab or a page
+    // without chips still yields a useful report.
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id != null && /^https:/.test(tab.url || '')) {
+        report.tab = { url: (tab.url || '').split('?')[0] };
+        try {
+          const ct = await chrome.tabs.sendMessage(tab.id, { type: 'pt_errors_snapshot_content' });
+          if (ct && ct.ok) report.errors.content = ct.entries || [];
+        } catch (_) { /* no content script on this tab */ }
+        try {
+          const chips = await chrome.tabs.sendMessage(tab.id, { type: 'pt_chip_debug' });
+          if (chips && chips.ok) report.chips = chips.chips || null;
+        } catch (_) { /* chip bridge absent (non-screener page) */ }
+      }
+    } catch (_) { /* tabs query denied: report still carries the worker half */ }
+    const text = JSON.stringify(report, null, 1);
+    await navigator.clipboard.writeText(text);
+    const n = report.errors.background.length + report.errors.content.length;
+    btn.textContent = `✓ Copied (${n} error${n === 1 ? '' : 's'}) — paste in Discord`;
+  } catch (e) {
+    btn.textContent = 'Copy failed — try again';
+  } finally {
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
+  }
+}
 
 /* ---- update nudge ---------------------------------------------------
  * PaperTrench ships as a zip from GitHub — no Chrome Web Store, so Chrome
