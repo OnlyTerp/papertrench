@@ -769,6 +769,12 @@
    */
   async function prewatch({ pool, mint }) {
     if (!O || !POOL) return null;
+    // Hoisted out of the try: the catch below logs which address the probe
+    // was for. Declared inside the try it was out of scope in the catch —
+    // every thrown probe raised a ReferenceError INSIDE the error handler,
+    // so noteFeedError never recorded the real fault (the 429/socket error)
+    // and the promise rejected instead of returning the designed null.
+    let address = null;
     try {
       // Which address (if any) has already paid for the heavy PumpSwap
       // program scan on this lookup, so it is never run twice.
@@ -795,7 +801,7 @@
         // Still nothing priceable — the mint account may hold supply facts.
       }
 
-      const address = pool || mint;
+      address = pool || mint;
       if (!address) return null;
       const { slot, accounts } = await getAccountsWithSlot([address]);
       const account = accounts[0];

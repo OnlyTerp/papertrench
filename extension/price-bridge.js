@@ -3265,7 +3265,7 @@
     if (rect.width < 10 || rect.height < 10 ||
         rect.bottom < 0 || rect.top > window.innerHeight ||
         rect.right < 0 || rect.left > window.innerWidth) {
-      return { display: 'none' };
+      return { display: 'none', hideReason: 'row-offscreen' };
     }
     // Occlusion: rows scroll inside their own panes — when a row slides
     // under a sticky header the fixed-layer chip must vanish with it.
@@ -3273,7 +3273,12 @@
     const probeX = Math.min(Math.max(rect.left + rect.width * 0.35, 1), window.innerWidth - 1);
     const hit = document.elementFromPoint(probeX, probeY);
     if (hit && hit !== el && !row.contains(hit) && !el.contains(hit)) {
-      return { display: 'none' };
+      return {
+        display: 'none',
+        hideReason: 'row-occluded:' + (hit.tagName || '?')
+          + (hit.id ? '#' + hit.id : '')
+          + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.split(/\s+/).slice(0, 2).join('.') : ''),
+      };
     }
 
     let anchor = null; // { x, y, align }
@@ -3365,7 +3370,7 @@
       1), (window.innerHeight || 1) - 1);
     const over = document.elementFromPoint(chipProbeX, chipProbeY);
     if (over && over !== el && !el.contains(over) && over.id === 'papertrench-host') {
-      return { display: 'none' };
+      return { display: 'none', hideReason: 'under-pt-panel' };
     }
 
     const size = Number(entry.size) > 0 ? entry.size : 1;
@@ -3388,9 +3393,14 @@
     const last = entry.applied || (entry.applied = {});
     if (plan.display === 'none') {
       if (last.display !== 'none') { el.style.display = 'none'; last.display = 'none'; }
+      // Diagnostics only: WHY the chip is hidden, surfaced via
+      // __ptRowChipDebug so a harness (or a screen-share debug session) can
+      // tell an occluded chip from a dead one. Zero style writes.
+      last.hideReason = plan.hideReason || 'unknown';
       return;
     }
     if (last.display !== '') { el.style.display = ''; last.display = ''; }
+    last.hideReason = null;
     if (last.left !== plan.left) { el.style.left = plan.left; last.left = plan.left; }
     if (last.top !== plan.top) { el.style.top = plan.top; last.top = plan.top; }
     if (last.origin !== plan.origin) { el.style.transformOrigin = plan.origin; last.origin = plan.origin; }
@@ -3451,6 +3461,7 @@
         mode: e.place.mode,
         hasPill: Boolean(e.pill),
         display: e.el.style.display,
+        hideReason: e.applied ? e.applied.hideReason || null : null,
         align: e.applied ? e.applied.transform : null,
         // The chip's OWN rect (not the row's) so E2E tooling can click the
         // exact chip pinned to an address — rect math against a moving
@@ -3506,12 +3517,19 @@
   }
 
   function findRowContainer(anchor) {
+    // Height band: Padre's reworked Trenches board renders its live column
+    // in a COMPACT format — measured 2026-08-26: the row is 34px tall,
+    // 346px wide (`_row_14q3h_6`), and the next ancestor is the whole
+    // 1360px list. With the old 55px floor NO ancestor ever qualified, so a
+    // fresh launch's row never got a quick-buy chip at all — the board
+    // surface of "it wont let u buy half the time" (vro, 8/26). 28px keeps
+    // ticker pills and chrome out (they fail the 300px width gate anyway).
     let node = anchor;
     for (let i = 0; i < 9 && node && node.parentElement; i++) {
       node = node.parentElement;
       const rect = node.getBoundingClientRect();
-      if (rect.height >= 55 && rect.height <= 190 && rect.width >= 380) return node;
-      if (rect.height >= 55 && rect.height <= 190 && rect.width >= 300) return node;
+      if (rect.height >= 28 && rect.height <= 190 && rect.width >= 380) return node;
+      if (rect.height >= 28 && rect.height <= 190 && rect.width >= 300) return node;
     }
     return null;
   }
@@ -3598,7 +3616,10 @@
       for (const parent of parents) {
         for (const card of parent.children) {
           const rect = card.getBoundingClientRect();
-          if (rect.height >= 55 && rect.height <= 190 && rect.width >= 300) candidates.add(card);
+          // Same 28px floor as findRowContainer — the sibling walk must
+          // accept the same compact rows the anchor walk does, or cards in
+          // the compact column would chip only when they carry a link.
+          if (rect.height >= 28 && rect.height <= 190 && rect.width >= 300) candidates.add(card);
         }
       }
     }

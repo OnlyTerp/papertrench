@@ -553,3 +553,31 @@ test('a pool between two non-SOL tokens is refused — nothing says which side t
   });
   assert.equal(await feed.prewatch({ pool: WP_POOL }), null);
 });
+
+/* ---------------- D-62: a thrown probe must RESOLVE null, never reject ------
+ *
+ * Field report (vro, Discord 8/26): "it wont let u buy half the time" on
+ * fresh coins. One of the legs: prewatch()'s catch block referenced
+ * `address`, a const declared INSIDE the try — so any thrown RPC (429 from
+ * a keyless public endpoint, dropped socket) raised a ReferenceError inside
+ * the error handler itself. The promise REJECTED instead of resolving the
+ * designed null: pt_onchain_prewatch's own try/catch masked it to null one
+ * layer up, but noteFeedError never recorded the real fault, and any direct
+ * caller of prewatch() (tests, future code) saw an unhandled rejection.
+ * The negative control for this test: revert the hoist and it fails with
+ * "ReferenceError: address is not defined".
+ */
+test('D-62: a throwing RPC makes prewatch resolve null — not reject from its own catch', async () => {
+  const BOOM_MINT = 'BoomMint11111111111111111111111111111111111';
+  const feed = feedWithRpc(async () => { throw new Error('429 Too Many Requests'); });
+  let result = 'unset';
+  let rejection = null;
+  try {
+    result = await feed.prewatch({ mint: BOOM_MINT });
+  } catch (e) {
+    rejection = e;
+  }
+  assert.equal(rejection, null,
+    `prewatch must swallow probe faults and resolve; it rejected with: ${rejection && rejection.message}`);
+  assert.equal(result, null, 'the designed answer for an unreachable chain is null');
+});
