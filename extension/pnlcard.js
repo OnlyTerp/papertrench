@@ -1016,6 +1016,95 @@
     ctx.restore();
   }
 
+  /** Wrapped share-card model: the monthly discipline recap, NO PnL.
+   * Consumes PTWrapped.derive() output. */
+  function wrappedCardModel(model, opts) {
+    if (!model || typeof model !== 'object' || !model.month) return null;
+    const options = opts || {};
+    const letter = String(model.letter || '').toUpperCase();
+    const letterColor = {
+      S: '#7C3AED', A: '#34D399', B: '#6AA9FF', C: '#FF9D45', D: '#FF5F56', F: '#FF2D2D',
+    }[letter] || COLORS.text;
+    const recovery = model.longestRecovery
+      ? `${model.longestRecovery.days} day${model.longestRecovery.days === 1 ? '' : 's'} to come back`
+      : 'no losing run this month';
+    const symmetry = model.holdSymmetry
+      ? `green ${formatHeld(model.holdSymmetry.greenAvgMs)} · red ${formatHeld(model.holdSymmetry.redAvgMs)}`
+      : '—';
+    const gotAway = model.oneThatGotAway
+      ? `${model.oneThatGotAway.symbol || 'a coin'} ran ${Math.round(model.oneThatGotAway.maxPct)}% after you left`
+      : 'nothing ran after you left';
+    return {
+      kind: 'wrapped',
+      month: String(model.month),
+      monthName: typeof model.monthName === 'string' ? model.monthName : String(model.month),
+      year: Number(model.year) || new Date().getFullYear(),
+      roundsText: `${model.rounds} rounds`,
+      journalText: `${Math.round((model.journalRate || 0) * 100)}% journaled`,
+      letter,
+      letterColor,
+      letterLabel: {
+        S: 'flawless month', A: 'strong month', B: 'solid month',
+        C: 'sloppy month', D: 'broke the rules', F: 'no discipline',
+      }[letter] || 'month',
+      recoveryText: recovery,
+      symmetryText: symmetry,
+      gotAwayText: gotAway,
+      cleanText: `${model.cleanExits} clean exits`,
+      handle: options.handle ? `@${String(options.handle).replace(/^@+/, '')}` : '',
+      trim: ACCENTS[(options.prefs && options.prefs.accent) || 'amber'] || COLORS.amber,
+    };
+  }
+
+  /** Wrapped painter: month headline, letter huge, discipline lines, brand
+   * bar. NO PnL figure — the recap is process, never money. */
+  function drawWrappedCard(ctx, model) {
+    if (!ctx || !model || model.kind !== 'wrapped') return;
+    ctx.save();
+    paintBackground(ctx, model.background || 'void', WIDTH, HEIGHT);
+    drawBrandingSafe(ctx, model);
+    const cx = 64;
+    let y = 150;
+    // Month headline
+    ctx.font = '800 44px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(`${model.monthName} ${model.year}`, cx, y);
+    y += 28;
+    ctx.font = '600 20px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.dim;
+    ctx.fillText('TRENCH WRAPPED', cx, y);
+    y += 64;
+    // Discipline letter, huge
+    ctx.font = '800 120px Inter, system-ui, sans-serif';
+    ctx.fillStyle = model.letterColor;
+    ctx.fillText(model.letter, cx, y);
+    y += 56;
+    ctx.font = '700 30px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(model.letterLabel, cx, y);
+    y += 44;
+    // Discipline lines
+    ctx.font = '600 22px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(`${model.roundsText} · ${model.journalText} · ${model.cleanText}`, cx, y);
+    y += 34;
+    ctx.font = '600 20px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.dim;
+    ctx.fillText(`longest recovery: ${model.recoveryText}`, cx, y);
+    y += 30;
+    ctx.fillText(`hold symmetry: ${model.symmetryText}`, cx, y);
+    y += 30;
+    ctx.fillText(`the one that got away: ${model.gotAwayText}`, cx, y);
+    if (model.handle) {
+      ctx.font = '600 16px Inter, system-ui, sans-serif';
+      ctx.fillStyle = COLORS.dim;
+      ctx.textAlign = 'right';
+      ctx.fillText(model.handle, WIDTH - 200, 40);
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+
   /** Branding helper reusing drawBranding if present, else minimal. */
   function drawBrandingSafe(ctx, model) {
     try {
@@ -1035,6 +1124,7 @@
     roundCardSource, positionCardSource,
     seasonCardSource, seasonCardModel, drawSeasonCard,
     sparkCardModel, drawSparkCard,
+    wrappedCardModel, drawWrappedCard,
     formatPrice, formatMarketCap, formatSol, formatUsd, formatHeld, shortMint,
   };
 

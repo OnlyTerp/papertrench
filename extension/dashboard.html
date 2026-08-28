@@ -935,6 +935,20 @@
     .spark-share-row { margin-top: 12px; }
     .spark-error { color: var(--red); font-size: 12.5px; }
 
+    /* ---- Trench Wrapped (B1) ---- */
+    .wr-head { margin: 4px 0 10px; }
+    .wr-letter { font-size: 84px; font-weight: 800; line-height: 1;
+      letter-spacing: -2px; }
+    .wr-letter-label { font-size: 15px; font-weight: 750; margin-top: 2px; }
+    .wr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px; margin: 14px 0; }
+    .wr-stat { border: 1px solid rgba(255,255,255,0.10); border-radius: 10px;
+      padding: 12px 14px; background: rgba(10,13,19,0.5); }
+    .wr-stat-label { font-size: 10.5px; font-weight: 750; letter-spacing: 1.1px;
+      text-transform: uppercase; color: var(--dim); }
+    .wr-stat-value { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
+    .wr-share-row { margin-top: 14px; }
+
     .cal-summary {
       display: flex; flex-wrap: wrap; gap: 7px 20px;
       margin-bottom: 15px; font-size: 12px; color: var(--dim);
@@ -1012,6 +1026,7 @@
       <button data-section="calendar">Calendar</button>
       <button data-section="grid">Trench Grid</button>
       <button data-section="spark">Daily Spark</button>
+      <button data-section="wrapped">Wrapped</button>
       <button data-section="journal">Journal</button>
       <button data-section="rounds">Rounds</button>
       <button data-section="perps">Perps</button>
@@ -1030,6 +1045,7 @@
       <section id="calendar" class="section hidden"></section>
       <section id="grid" class="section hidden"></section>
       <section id="spark" class="section hidden"></section>
+      <section id="wrapped" class="section hidden"></section>
       <section id="journal" class="section hidden"></section>
       <section id="rounds" class="section hidden"></section>
       <section id="perps" class="section hidden"></section>
@@ -1053,6 +1069,7 @@
   <script src="gamify.js"></script>
   <script src="trench-grid.js"></script>
   <script src="spark.js"></script>
+  <script src="wrapped.js"></script>
   <!-- The modal must exist before dashboard.js runs (D-53): bindShareCard
        silently disables the composer if #card-modal is missing, and the old
        order was safe only by accident of init() being async. -->

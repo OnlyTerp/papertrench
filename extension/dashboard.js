@@ -237,7 +237,7 @@ const store = {
 // overwrites the real one.
 let storageReadFailed = false;
 
-const SECTIONS = ['overview', 'game', 'calendar', 'grid', 'spark', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
+const SECTIONS = ['overview', 'game', 'calendar', 'grid', 'spark', 'wrapped', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
 let currentSection = 'overview';
 // The PERPS book (pt_perps). Deliberately a separate variable from
 // `state`: nothing in this file may sum the two.
@@ -883,6 +883,7 @@ function renderSection(id) {
   else if (id === 'game') renderGame(staged);
   else if (id === 'calendar') renderCalendar(staged);
   else if (id === 'grid') renderTrenchGrid(staged);
+  else if (id === 'wrapped') renderWrapped(staged);
   else if (id === 'journal') renderJournal(staged);
   else if (id === 'rounds') renderRounds(staged);
   else if (id === 'perps') renderPerps(staged);
@@ -5350,6 +5351,78 @@ function renderTrenchGrid(el) {
     <div class="tg-year">${blocks.join('')}</div>
     ${streakHtml}
     ${legend}`;
+}
+
+/* ---- Trench Wrapped (DELIGHT-MAP.md B1) ---- */
+
+/* The monthly recap is a SYNC derivation from local journal state — no
+ * fetch, no backend. It renders through the normal staged path. */
+function renderWrapped(el) {
+  const wrapped = window.PTWrapped;
+  if (!wrapped) {
+    el.innerHTML = '<div class="dim">Wrapped module failed to load.</div>';
+    return;
+  }
+  const m = wrapped.derive(state, window.PTGamify);
+  if (!m) {
+    el.innerHTML = `<div class="wr-head"><h2>Wrapped</h2></div>
+      <p class="dim" style="margin:10px 0">No rounds closed this month yet.
+      Close a round and your monthly recap appears here — once a month,
+      not a notification stream.</p>`;
+    return;
+  }
+  const letterColor = {
+    S: '#7C3AED', A: '#34D399', B: '#6AA9FF', C: '#FF9D45', D: '#FF5F56', F: '#FF2D2D',
+  }[m.letter] || 'var(--text)';
+  const recovery = m.longestRecovery
+    ? `${m.longestRecovery.days} day${m.longestRecovery.days === 1 ? '' : 's'}`
+    : 'no losing run';
+  const symmetry = m.holdSymmetry
+    ? `green ${wrapped.fmtDuration(m.holdSymmetry.greenAvgMs)} · red ${wrapped.fmtDuration(m.holdSymmetry.redAvgMs)}`
+    : '—';
+  const gotAway = m.oneThatGotAway
+    ? `${m.oneThatGotAway.symbol || 'a coin'} ran ${Math.round(m.oneThatGotAway.maxPct)}% after you left`
+    : 'nothing ran after you left';
+
+  el.innerHTML = `
+    <div class="wr-head">
+      <h2>Wrapped — ${m.monthName} ${m.year}</h2>
+      <p class="dim" style="margin:4px 0 0">Your monthly discipline recap. Same data as the
+      grid, reflected back once a month — process, never money.</p>
+    </div>
+    <div class="wr-letter" style="color:${letterColor}">${m.letter}</div>
+    <div class="wr-letter-label">${{
+      S: 'flawless month', A: 'strong month', B: 'solid month',
+      C: 'sloppy month', D: 'broke the rules', F: 'no discipline',
+    }[m.letter] || 'month'}</div>
+    <div class="wr-stats">
+      <div class="wr-stat"><div class="wr-stat-label">Rounds</div>
+        <div class="wr-stat-value">${m.rounds}</div></div>
+      <div class="wr-stat"><div class="wr-stat-label">Journaled</div>
+        <div class="wr-stat-value">${Math.round((m.journalRate || 0) * 100)}%</div></div>
+      <div class="wr-stat"><div class="wr-stat-label">Clean exits</div>
+        <div class="wr-stat-value">${m.cleanExits}</div></div>
+      <div class="wr-stat"><div class="wr-stat-label">Longest recovery</div>
+        <div class="wr-stat-value">${recovery}</div></div>
+      <div class="wr-stat"><div class="wr-stat-label">Hold symmetry</div>
+        <div class="wr-stat-value">${symmetry}</div></div>
+      <div class="wr-stat"><div class="wr-stat-label">One that got away</div>
+        <div class="wr-stat-value">${gotAway}</div></div>
+    </div>
+    <div class="wr-share-row">
+      <button type="button" class="btn" id="wr-share">Share Wrapped card</button>
+    </div>`;
+
+  const share = el.querySelector('#wr-share');
+  if (share && window.PTPnlCard && window.PTPnlCard.drawWrappedCard) {
+    share.addEventListener('click', () => {
+      const card = window.PTPnlCard.wrappedCardModel(m, {
+        handle: (settings.leaderboardIdentity || {}).handle || '',
+      });
+      if (!card) return;
+      window.PTPnlCard.drawWrappedCard(card);
+    });
+  }
 }
 
 // D-16: catch boot failures — a bare init() left the page blank on any throw.

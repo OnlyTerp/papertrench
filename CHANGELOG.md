@@ -3,6 +3,21 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.15.0 — 2026-08-28
+
+**Trench Wrapped — your month, reflected back. Once a month, not a stream.**
+
+A new "Wrapped" tab is the monthly mirror card: your own journal data,
+formatted for sharing, timed as an event. It shows the month's discipline
+letter (worst letter wins, same tie law as the grid), rounds, journal rate,
+clean exits, longest recovery (red→green), hold-time symmetry (green vs red),
+and "the one that got away" — what a coin did after you left, from After data.
+No PnL fields anywhere: the card is process, never money. The share card
+paints the recap with the same PAPER watermark + brand bar as every other card.
+
+- Pure derivation from local journal state — no backend, no new storage.
+- The monthly window is LOCAL calendar time of closedAt, never UTC.
+
 ## v3.14.0 — 2026-08-28
 
 **Daily Spark is live — one puzzle a day, graded on process, never on P&L.**
