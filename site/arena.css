@@ -1655,3 +1655,111 @@
   .ar-segbar i,
   .ar-window i { transform: scaleX(1); }
 }
+
+/* ==================================================================== *
+ *  Leaderboard board furniture — title bar, window control, medal tone,
+ *  and the empty podium.
+ *
+ *  The board already had a podium and a ranked tower; the reason nobody
+ *  could see ranks was that both panes were display:none whenever the
+ *  entry list came back empty, which it always does right now. So the
+ *  board states its own emptiness instead of vanishing, and the seats
+ *  that have nobody in them are drawn as obviously-open seats rather
+ *  than as placeholder people.
+ * ==================================================================== */
+
+.lb-bar {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 4px 2px 14px; border-bottom: 1px solid var(--line);
+}
+.lb-title {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+}
+.lb-date {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 0.6px; color: var(--dim); text-transform: uppercase;
+}
+.lb-refresh {
+  margin-left: auto; flex: none; display: grid; place-items: center;
+  width: 32px; height: 32px; border-radius: 9px; cursor: pointer;
+  color: var(--muted); background: rgba(255,255,255,0.035); border: var(--edge);
+  transition: color .16s, background .16s, border-color .16s, transform .3s;
+}
+.lb-refresh:hover { color: var(--text); background: rgba(255,255,255,0.08); border-color: var(--line2); }
+.lb-refresh.spin svg { animation: lb-spin .7s linear; }
+@keyframes lb-spin { to { transform: rotate(360deg); } }
+
+.lb-filters {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 14px 2px 0;
+}
+.lb-scope {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 700; color: var(--muted);
+  background: rgba(255,255,255,0.035); border: var(--edge);
+  border-radius: 999px; padding: 7px 14px;
+}
+.lb-windows { margin-left: auto; display: inline-flex; gap: 4px;
+  background: rgba(0,0,0,0.28); border: var(--edge); border-radius: 999px; padding: 3px; }
+.lb-win {
+  font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  color: var(--dim); background: none; border: 0; border-radius: 999px; padding: 6px 13px;
+  transition: color .16s, background .16s;
+}
+.lb-win:hover { color: var(--text); }
+.lb-win.on { color: #2a1a05; background: var(--grad-heat); }
+.lb-winnote {
+  font-size: 12px; color: var(--dim); line-height: 1.55;
+  padding: 10px 2px 0; margin: 0;
+}
+
+/* Medal tone on 2nd and 3rd. The tokens existed and went unused, so every
+   seat but first read as the same neutral card. */
+.ar-pod.rank-2 {
+  border-color: rgba(207, 216, 230, 0.30);
+  background: linear-gradient(180deg, rgba(207, 216, 230, 0.07), rgba(255,255,255,0.012));
+}
+.ar-pod.rank-3 {
+  border-color: rgba(224, 151, 90, 0.30);
+  background: linear-gradient(180deg, rgba(224, 151, 90, 0.07), rgba(255,255,255,0.012));
+}
+.ar-pod.rank-2 .place { color: var(--silver); border-color: rgba(207,216,230,0.34); }
+.ar-pod.rank-3 .place { color: var(--bronze); border-color: rgba(224,151,90,0.34); }
+
+/* Alternating shade on the tower so a long list stays trackable across. */
+.ar-row:nth-child(even of .ar-row) { background: rgba(255,255,255,0.018); }
+
+/* ---------- the open podium ----------
+   Drawn seats with nobody in them. Deliberately not shaped like a player
+   card: no face, no handle line, no number — a greyed-out card with dashes
+   where a name goes reads as data that failed to load. */
+.lb-open-podium { display: grid; grid-template-columns: 1fr 1.18fr 1fr; gap: 14px;
+  align-items: end; padding: 26px 22px 0; }
+@media (max-width: 760px) { .lb-open-podium { grid-template-columns: 1fr; } }
+.lb-seat {
+  border: 1px dashed var(--line2); border-radius: 16px;
+  background: rgba(255,255,255,0.012);
+  padding: 20px 16px; text-align: center; min-height: 132px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+}
+.lb-seat.s1 { min-height: 168px; border-color: rgba(255,207,92,0.34); background: rgba(255,207,92,0.035); }
+.lb-seat.s2 { border-color: rgba(207,216,230,0.26); }
+.lb-seat.s3 { border-color: rgba(224,151,90,0.26); }
+.lb-seat .lbl {
+  font-family: var(--mono); font-size: 10px; font-weight: 800;
+  letter-spacing: 1.4px; text-transform: uppercase; color: var(--dim);
+}
+.lb-seat.s1 .lbl { color: var(--gold); }
+.lb-seat .mark { font-size: 22px; opacity: .5; }
+.lb-seat .txt { font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 190px; }
+
+.lb-gate { margin: 22px 2px 0; padding: 16px 18px; border-radius: 12px;
+  background: rgba(0,0,0,0.24); border: var(--edge); border-left: 2px solid var(--orange); }
+.lb-gate h4 { font-size: 13.5px; font-weight: 750; margin: 0 0 8px; }
+.lb-gate p { font-size: 12.5px; color: var(--muted); line-height: 1.65; margin: 0 0 8px; }
+.lb-gate p:last-child { margin-bottom: 0; }
+.lb-gate b { color: var(--text); font-weight: 700; }
+.lb-counts { display: flex; gap: 18px; flex-wrap: wrap; margin: 10px 0 0;
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.lb-counts b { color: var(--text); font-weight: 700; }

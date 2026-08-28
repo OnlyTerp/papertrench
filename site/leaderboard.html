@@ -113,10 +113,42 @@
         </div>
       </section>
 
-      <section class="ar-pane is-vacant" id="podium-pane" aria-labelledby="board-h">
-        <div class="ar-pane-head">
-          <span class="glyph">🛡</span><span id="board-h">The podium</span>
+      <!-- The board proper: title bar, scope/window controls, podium, tower.
+           This pane is NEVER vacant — an empty board is a fact about the
+           standings and gets said out loud, rather than the whole section
+           disappearing and leaving the visitor to conclude the page is
+           broken. That was the actual complaint: "I just see a bunch of
+           people signed in, I don't see ranks." -->
+      <section class="ar-pane" id="podium-pane" aria-labelledby="board-h">
+        <div class="lb-bar">
+          <div class="lb-title">
+            <span id="board-h">Leaderboard</span>
+            <span class="lb-date" id="lb-date"></span>
+          </div>
+          <button class="lb-refresh" id="lb-refresh" type="button" title="Reload the board" aria-label="Reload the board">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          </button>
         </div>
+
+        <div class="lb-filters">
+          <div class="lb-scope">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                 stroke-width="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/></svg>
+            <span>Global</span>
+          </div>
+          <!-- Only windows the server actually computes appear here. A 24h or
+               30d pill would have to invent a number: entry stats are lifetime,
+               and the only window the verifier folds is the Sprint's week. -->
+          <div class="lb-windows" role="tablist" aria-label="Scoring window">
+            <button class="lb-win on" type="button" role="tab" aria-selected="true"  data-window="all">All time</button>
+            <button class="lb-win"    type="button" role="tab" aria-selected="false" data-window="week">This week</button>
+          </div>
+        </div>
+        <p class="lb-winnote" id="lb-winnote"></p>
+
         <div id="podium"></div>
         <div id="plinth"></div>
       </section>
@@ -278,6 +310,10 @@
   const streamEl = document.getElementById('stream');
   const tapeEl = document.getElementById('tape');
   const roomsEl = document.getElementById('rooms');
+  const dateEl = document.getElementById('lb-date');
+  const noteEl = document.getElementById('lb-winnote');
+  const refreshEl = document.getElementById('lb-refresh');
+  const winEls = Array.from(document.querySelectorAll('.lb-win'));
   const podiumPane = document.getElementById('podium-pane');
   const towerPane = document.getElementById('tower-pane');
   const formulaPane = document.getElementById('formula-pane');
@@ -353,12 +389,74 @@
       <span class="r">Score</span>
     </div>`;
 
-  (async () => {
+  /* The seats nobody has claimed yet.
+   *
+   * Zero ranked is the CURRENT reality, not an edge case, so it gets a real
+   * design rather than a hidden section. The counts come from /api/trench —
+   * the same numbers the census strip shows — because "why is this empty"
+   * is answerable with facts we already have, and a vague "check back soon"
+   * would be hiding them. */
+  async function openPodium() {
+    podiumEl.innerHTML = `<div class="lb-open-podium">
+        <div class="lb-seat s2"><span class="lbl">Rank 02</span><span class="mark">◎</span>
+          <span class="txt">Open seat</span></div>
+        <div class="lb-seat s1"><span class="lbl">Champion</span><span class="mark">👑</span>
+          <span class="txt">First verified record to clear the bar takes it.</span></div>
+        <div class="lb-seat s3"><span class="lbl">Rank 03</span><span class="mark">◎</span>
+          <span class="txt">Open seat</span></div>
+      </div>`;
+    plinthEl.innerHTML = '';
+
+    let counts = null;
+    try { counts = await L.getOrThrow('/api/trench'); } catch { counts = null; }
+
+    const recs = counts && Array.isArray(counts.people)
+      ? counts.people.map((p) => p.record).filter(Boolean) : [];
+    const tally = (s) => recs.filter((r) => r.status === s).length;
+    const countsLine = recs.length
+      ? `<div class="lb-counts">
+           <span><b>${recs.length}</b> submitted</span>
+           <span><b>${tally('verified')}</b> verified</span>
+           <span><b>${tally('partial')}</b> partial</span>
+           <span><b>${tally('rejected')}</b> rejected</span>
+           <span><b>0</b> ranked</span>
+         </div>`
+      : '';
+
+    podiumEl.insertAdjacentHTML('beforeend', `
+      <div class="lb-gate">
+        <h4>Nobody is ranked yet — here is exactly why.</h4>
+        <p>A record ranks only when it is <b>verified</b> against real market
+        history <i>and</i> carries at least <b>five closed rounds</b>. Records
+        that fail re-pricing, or that are still short of five rounds, stay off
+        the board rather than being ranked on a weaker basis.</p>
+        <p>Everyone who has signed in is on <a href="#trench">the trench</a>
+        below. That wall is attendance, not standings — it is not a ranking and
+        does not pretend to be one.</p>
+        ${countsLine}
+      </div>`);
+    if (countEl) countEl.textContent = '0 ranked';
+    towerEl.innerHTML = L.empty('▤', 'The tower is empty.',
+      'Ranks appear here as verified records clear the bar.');
+    if (formulaPane) formulaPane.classList.add('is-vacant');
+  }
+
+  async function loadBoard(windowKey) {
+    showRanked(true);
+    if (podiumPane) podiumPane.classList.remove('is-vacant');
+
+    const isWeek = windowKey === 'week';
+    noteEl.textContent = isWeek
+      ? 'The weekly window is the Sprint’s — the only window the verifier folds. Shorter ranges would have to be invented: entry stats are lifetime.'
+      : '';
+
+    podiumEl.innerHTML = L.skeleton(1);
+    plinthEl.innerHTML = '';
+
     let body;
     try {
-      body = await L.getOrThrow('/api/leaderboard');
+      body = await L.getOrThrow(isWeek ? '/api/sprint/current' : '/api/leaderboard');
     } catch {
-      if (podiumPane) podiumPane.classList.remove('is-vacant');
       if (towerPane) towerPane.classList.add('is-vacant');
       if (formulaPane) formulaPane.classList.add('is-vacant');
       podiumEl.innerHTML = L.errorState(
@@ -369,14 +467,9 @@
     }
 
     const entries = (body && body.entries) || [];
-    if (!entries.length) {
-      showRanked(false);
-      if (countEl) countEl.textContent = '0 ranked';
-      return;
-    }
+    if (!entries.length) { await openPodium(); return; }
 
-    showRanked(true);
-    const snapshot = L.readSnapshot('global');
+    const snapshot = L.readSnapshot(isWeek ? 'week' : 'global');
     const top = entries.slice(0, 3);
     const rest = entries.slice(3);
 
@@ -405,11 +498,50 @@
     countEl.textContent = entries.length + ' ranked · ' +
       entries.filter((e) => e.status === 'verified').length + ' fully verified';
 
+    if (formulaPane) formulaPane.classList.remove('is-vacant');
     formulaEl.innerHTML = `<div style="font-weight:800;margin-bottom:10px">@${esc(entries[0].handle)}</div>`
       + L.formulaHtml(entries[0].stats);
 
-    L.writeSnapshot('global', entries);
-  })();
+    L.writeSnapshot(isWeek ? 'week' : 'global', entries);
+  }
+
+  /* ---------------- board controls ---------------- */
+
+  // The date is the reader's own, formatted in their locale — the board is
+  // live, so stamping a server date would be the less true of the two.
+  if (dateEl) {
+    dateEl.textContent = new Date().toLocaleDateString(undefined,
+      { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  let activeWindow = 'all';
+
+  if (winEls.length) {
+    winEls.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.window === activeWindow) return;
+        activeWindow = btn.dataset.window;
+        winEls.forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle('on', on);
+          b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        loadBoard(activeWindow);
+      });
+    });
+  }
+
+  if (refreshEl) {
+    refreshEl.addEventListener('click', () => {
+      refreshEl.classList.remove('spin');
+      // Reflow so the animation restarts on a second click.
+      void refreshEl.offsetWidth;
+      refreshEl.classList.add('spin');
+      loadBoard(activeWindow);
+    });
+  }
+
+  loadBoard(activeWindow);
 
   /* ---------------- the trench (everyone who showed up) ---------------- */
 
