@@ -231,6 +231,29 @@ function freshState(settings) {
   };
 }
 
+/** The gross cost basis still open on one position — engine.grossOpenCostSol's
+ * rule, duplicated here for the same reason derivedAnchor duplicates the birth
+ * rule: the popup is self-contained on purpose (no engine.js dependency).
+ *
+ * It is a DERIVED quantity, never a stored field. Reading it as `pos.
+ * grossOpenCostSol` yields undefined on every real position — the engine
+ * stores costSol / investedSol / netInvestedSol and computes the rest.
+ *
+ * costSol shrinks proportionally on partial sells while netInvestedSol (total
+ * net ever invested) does not, so costSol / netInvestedSol is the surviving
+ * fraction of the stack and invested × that fraction is its gross cost.
+ * Legacy positions predate netInvestedSol: without partial sells costSol ===
+ * net invested and the full investedSol is exact, so it is the fallback.
+ */
+function grossOpenCostSol(pos) {
+  if (!pos) return 0;
+  const invested = Number(pos.investedSol) || 0;
+  const cost = Number(pos.costSol) || 0;
+  const netInvested = Number(pos.netInvestedSol) || 0;
+  if (netInvested > 0) return invested * (cost / netInvested);
+  return invested;
+}
+
 /** jb (ideas): lifetime bought / held / sold SOL from the journal alone,
  * so historical wallets get correct numbers with no migration. Held is the
  * surviving cost basis of open positions (what actually went in and is
@@ -246,7 +269,7 @@ function journalFlow(journal, positions) {
   }
   let heldSol = 0;
   for (const p of Object.values(positions || {})) {
-    heldSol += Number(p.grossOpenCostSol) || 0;
+    heldSol += grossOpenCostSol(p);
   }
   return { boughtSol, heldSol, soldSol };
 }
