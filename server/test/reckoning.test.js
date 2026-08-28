@@ -142,7 +142,7 @@ const CLAN_ROWS = [
 
 function dbWith(markRows) {
   return fakeDB((sql) => {
-    if (/FROM clan_entries/.test(sql)) return CLAN_ROWS;
+    if (/FROM clans c/.test(sql)) return CLAN_ROWS;
     if (/FROM reckoning_posts/.test(sql)) return markRows || [];
     return null;
   });
@@ -192,7 +192,7 @@ test('lane: KILL_SWITCH polls but never sends', () => {
 test('lane: mark-is-the-claim — second firing never double-posts', () => {
   let marks = [];
   const db = fakeDB((sql) => {
-    if (/FROM clan_entries/.test(sql)) return CLAN_ROWS;
+    if (/FROM clans c/.test(sql)) return CLAN_ROWS;
     if (/FROM reckoning_posts/.test(sql)) return marks;
     if (/INSERT INTO reckoning_posts/.test(sql)) { marks.push({ clan_id: 1 }); return null; }
     return null;
@@ -224,7 +224,7 @@ test('lane: mark-is-the-claim — second firing never double-posts', () => {
 test('lane: failed POST leaves the mark (no silent re-fire next minute)', () => {
   const marks = [];
   const db = fakeDB((sql) => {
-    if (/FROM clan_entries/.test(sql)) return CLAN_ROWS;
+    if (/FROM clans c/.test(sql)) return CLAN_ROWS;
     if (/FROM reckoning_posts/.test(sql)) return marks;
     if (/INSERT INTO reckoning_posts/.test(sql)) { marks.push({ clan_id: 1 }); return null; }
     return null;

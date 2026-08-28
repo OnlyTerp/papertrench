@@ -1005,3 +1005,239 @@ test('clans directory says clansTruncated false when everything fits', async () 
   assert.equal(body.clansTruncated, false);
 });
 
+/* ============ B2 reliability wave: the reckoning doors ============ */
+
+const reckoningCore = require('../core/reckoning.js');
+/** The current week's Friday bell, as the reckoning core computes it. */
+function reckoningBellTs() { return reckoningCore.bellTs(Date.now()); }
+
+const FOUNDER_ROW = { id: 7, x_id: 'x7', handle: 'terp', display_name: 'Terp',
+  avatar_url: '', session_epoch: 1 };
+const MEMBER_OF_CLAN = {
+  clan_id: 1, joined_at: 1, role: 'founder', tag: 'TST', name: 'Test Clan',
+  motto: '', open: 1, join_code: 'CODE1234', founder_id: 7,
+  reckoning_webhook: 'https://discord.com/api/webhooks/1234567890/' + 'a'.repeat(40) + '-b',
+};
+const HOOK = MEMBER_OF_CLAN.reckoning_webhook;
+
+function clanRoute(extra) {
+  const options = extra || {};
+  return (sql) => {
+    if (sql.includes('FROM users WHERE id')) return USER_ROW;
+    if (sql.includes('INSERT INTO rate_limits')) return { count: 1 };
+    if (sql.includes('FROM clan_members m JOIN clans c')) {
+      return options.membership === null ? null : (options.membership || MEMBER_OF_CLAN);
+    }
+    if (sql.includes('SELECT COUNT(*) AS n FROM clan_members')) return { n: 4 };
+    return null;
+  };
+}
+
+async function postClan(worker, env, path, payload) {
+  const request = new Request('https://api.test' + path, {
+    method: 'POST',
+    headers: {
+      Origin: ORIGIN,
+      Authorization: 'Bearer ' + await sessionToken(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const response = await worker.fetch(request, env, { waitUntil: () => {} });
+  return { status: response.status, body: await response.json() };
+}
+
+test('founder can arm the Reckoning: a Discord webhook is stored verbatim', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(clanRoute());
+  const res = await postClan(worker, makeEnv(db), '/api/clan/update',
+    { motto: '', open: true, reckoningWebhook: HOOK });
+  assert.equal(res.status, 200);
+  const update = db.log.find((e) => /UPDATE clans SET motto/.test(e.sql));
+  assert.ok(update, 'the settings statement ran');
+  assert.ok(/reckoning_webhook = \?/.test(update.sql),
+    'the webhook rides the same founder-only door');
+  assert.equal(update.args[2], HOOK, 'stored exactly as the validator accepted it');
+});
+
+test('a malformed webhook is refused before it can dead-arm the Friday bell', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(clanRoute());
+  const res = await postClan(worker, makeEnv(db), '/api/clan/update',
+    { motto: '', open: true, reckoningWebhook: 'https://evil.example/hook' });
+  assert.equal(res.status, 422);
+  assert.equal(res.body.reason, 'webhook-format');
+  assert.equal(db.log.find((e) => /UPDATE clans/.test(e.sql)), undefined,
+    'nothing is written when the credential is bad');
+});
+
+test('an absent reckoningWebhook field never wipes an armed webhook', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(clanRoute());
+  const res = await postClan(worker, makeEnv(db), '/api/clan/update', { motto: 'gm' });
+  assert.equal(res.status, 200);
+  const update = db.log.find((e) => /UPDATE clans SET motto/.test(e.sql));
+  assert.ok(!/reckoning_webhook/.test(update.sql),
+    'the absent-field path leaves the webhook column untouched');
+});
+
+test('an explicit empty string clears the webhook (opting out is a founder right)', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(clanRoute());
+  const res = await postClan(worker, makeEnv(db), '/api/clan/update',
+    { motto: '', open: true, reckoningWebhook: '' });
+  assert.equal(res.status, 200);
+  const update = db.log.find((e) => /UPDATE clans SET motto/.test(e.sql));
+  assert.ok(/reckoning_webhook = \?/.test(update.sql));
+  assert.equal(update.args[2], '', 'cleared, not left stale');
+});
+
+test('a non-founder cannot touch the webhook door', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(clanRoute({ membership: { ...MEMBER_OF_CLAN, founder_id: 99 } }));
+  const res = await postClan(worker, makeEnv(db), '/api/clan/update',
+    { motto: '', reckoningWebhook: HOOK });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.reason, 'not-founder');
+});
+
+test('clan/mine echoes the webhook only to its founder', async () => {
+  const worker = await loadWorker();
+  const env = makeEnv(fakeDB(clanRoute()));
+
+  const founder = await worker.fetch(
+    new Request('https://api.test/api/clan/mine', {
+      headers: { Origin: ORIGIN, Authorization: 'Bearer ' + await sessionToken() },
+    }), env, { waitUntil: () => {} });
+  const fb = await founder.json();
+  assert.equal(fb.reckoningWebhookSet, true);
+  assert.equal(fb.reckoningWebhook, HOOK);
+
+  // A member (not founder) sees that the ritual is armed, never the URL.
+  const memberDb = fakeDB(clanRoute({
+    membership: { ...MEMBER_OF_CLAN, founder_id: 99 },
+  }));
+  const member = await worker.fetch(
+    new Request('https://api.test/api/clan/mine', {
+      headers: { Origin: ORIGIN, Authorization: 'Bearer ' + await sessionToken() },
+    }), makeEnv(memberDb), { waitUntil: () => {} });
+  const mb = await member.json();
+  assert.equal(mb.reckoningWebhookSet, true, 'members see the state');
+  assert.equal(mb.reckoningWebhook, undefined, 'the URL itself stays founder-only');
+});
+
+test('a disbanded clan is refused at the join door (soft flag, hard close)', async () => {
+  const worker = await loadWorker();
+  // The fake mirrors the SQL contract: disbanded clans are invisible to the
+  // join lookup. That contract itself is pinned by the structural test below.
+  const db = fakeDB((sql) => {
+    if (sql.includes('FROM users WHERE id')) return USER_ROW;
+    if (sql.includes('INSERT INTO rate_limits')) return { count: 1 };
+    if (sql.includes('FROM clans WHERE join_code')) return null;
+    if (sql.includes('FROM clan_members m JOIN clans c')) return null;
+    return null;
+  });
+  const res = await postClan(worker, makeEnv(db), '/api/clan/join', { code: 'CODE1234' });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.reason, 'not-found');
+});
+
+test('join and lookup SQL both filter disbanded_at — the soft flag is enforced', async () => {
+  const worker = await loadWorker();
+  const seen = [];
+  const db = fakeDB((sql) => {
+    seen.push(sql);
+    if (sql.includes('FROM users WHERE id')) return USER_ROW;
+    if (sql.includes('INSERT INTO rate_limits')) return { count: 1 };
+    if (sql.includes('FROM clans WHERE')) return null;
+    if (sql.includes('FROM clan_members m JOIN clans c')) return null;
+    return null;
+  });
+  await postClan(worker, makeEnv(db), '/api/clan/join', { code: 'CODE1234' });
+  await postClan(worker, makeEnv(db), '/api/clan/join', { tag: 'TST' });
+  const lookups = seen.filter((s) => /FROM clans WHERE (join_code|tag)/.test(s));
+  assert.equal(lookups.length, 2, 'both lookup forms ran');
+  for (const s of lookups) {
+    assert.ok(/AND disbanded_at IS NULL/.test(s),
+      'every clan lookup in the join door carries the disband filter: ' + s);
+  }
+});
+
+test('standings and directory both refuse disbanded clans (the flag finally has teeth)', async () => {
+  const worker = await loadWorker();
+  const seen = [];
+  const db = fakeDB((sql) => {
+    seen.push(sql);
+    if (sql.includes('FROM clans c JOIN users u')) return [];
+    if (sql.includes('SELECT COUNT(*) AS n FROM clans')) return { n: 0 };
+    return null;
+  });
+  const response = await worker.fetch(
+    new Request('https://api.test/api/clans', { headers: { Origin: ORIGIN } }),
+    makeEnv(db), { waitUntil: () => {} });
+  assert.equal(response.status, 200);
+  const dir = seen.find((s) => /FROM clans c JOIN users u/.test(s));
+  assert.ok(/WHERE c\.disbanded_at IS NULL/.test(dir),
+    'directory SELECT carries the disband filter');
+});
+
+test('a corrupted pricing-progress row stalls in place instead of starving the queue', async () => {
+  const worker = await loadWorker();
+  const waited = [];
+  let seenQueue = false;
+  const db = fakeDB((sql) => {
+    if (sql.includes('SELECT user_id, starting_sol, pricing_progress_json')) {
+      // First head-of-queue row: corrupt progress blob. A real chain is
+      // required so the drain reaches the parse at all (empty chains stall
+      // on a different, earlier branch). After the stall is written, the
+      // backoff filter in the WHERE clause removes this row from the head
+      // query — the fake models that by returning nothing afterwards.
+      if (!seenQueue) { seenQueue = true; return { user_id: 1, starting_sol: 10, pricing_progress_json: '{not json' }; }
+      return null; // queue empty: the tick is done
+    }
+    if (sql.includes('FROM chain_segments')) {
+      return [{ links_json: JSON.stringify([GENESIS]) }];
+    }
+    return null; // second SELECT: queue empty, the tick is done
+  });
+  await worker.scheduled(
+    { type: 'scheduled', cron: '* * * * *' },
+    makeEnv(db), { waitUntil: (p) => waited.push(p) });
+  await Promise.allSettled(waited);
+  const upd = db.log.filter((e) => /UPDATE records SET pricing_progress_json/.test(e.sql));
+  assert.equal(upd.length, 1, 'exactly one stall record was written');
+  assert.ok(/corrupt-progress/.test(upd[0].args[0]),
+    'the row itself records why it stalled: ' + upd[0].args[0]);
+  // The queue MOVED: the drain came back for a second row instead of dying.
+  const selects = db.log.filter((e) => /SELECT user_id, starting_sol/.test(e.sql));
+  assert.ok(selects.length >= 2, 'the drain returned for the next row');
+});
+
+test('a pricing-drain throw cannot take the reckoning lane down with it', async () => {
+  const worker = await loadWorker();
+  const errors = [];
+  const realError = console.error;
+  const realNow = Date.now;
+  // The reckoning lane is clock-gated: outside the bell window it exits
+  // before touching the broken env (that silence is CORRECT). To prove the
+  // two lanes are isolated, open the bell window so the lane actually runs.
+  Date.now = () => reckoningBellTs() + 3600000; // an hour past Friday's bell
+  console.error = (...a) => { errors.push(a.join(' ')); };
+  try {
+    const waited = [];
+    const db = fakeDB(() => { throw new Error('D1 unavailable'); });
+    await worker.scheduled(
+      { type: 'scheduled', cron: '* * * * *' },
+      makeEnv(db), { waitUntil: (p) => waited.push(p) });
+    await Promise.allSettled(waited);
+  } finally {
+    console.error = realError;
+    Date.now = realNow;
+  }
+  assert.ok(errors.some((e) => /pricing drain error/.test(e)),
+    'the pricing lane logs its own death');
+  assert.ok(errors.some((e) => /reckoning lane error/.test(e)),
+    'the reckoning lane also ran — and logged ITS death from the same broken env');
+});
+
+

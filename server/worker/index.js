@@ -973,7 +973,7 @@ function clanCode() {
 function membershipOf(env, userId) {
   return env.DB.prepare(`
     SELECT m.clan_id, m.joined_at, m.role, c.tag, c.name, c.motto, c.open,
-           c.join_code, c.founder_id
+           c.join_code, c.founder_id, c.reckoning_webhook
     FROM clan_members m JOIN clans c ON c.id = m.clan_id
     WHERE m.user_id = ?`).bind(userId).first();
 }
@@ -1055,17 +1055,28 @@ async function refreshClanEntriesFromStored(env, userId, now) {
  * score — a clan must never get a book of its own.
  */
 async function clanStandings(env, windowId, minRounds) {
+  // LEFT JOIN from clans, not an inner join from clan_entries: a clan whose
+  // members closed no rounds in the window still needs its standing row (the
+  // honest "no rounds closed" shape), and a disbanded clan must never appear
+  // in a live ranking. Driving from clans gives both for free.
   const rows = await env.DB.prepare(`
-    SELECT e.clan_id, e.entry_json, u.handle, u.avatar_url, m.joined_at, r.status
-    FROM clan_entries e
-    JOIN clan_members m ON m.user_id = e.user_id AND m.clan_id = e.clan_id
-    JOIN users u ON u.id = e.user_id
+    SELECT c.id AS clan_id, e.entry_json, u.handle, u.avatar_url, m.joined_at, r.status
+    FROM clans c
+    LEFT JOIN clan_entries e ON e.clan_id = c.id AND e.window_id = ?
+    LEFT JOIN clan_members m ON m.user_id = e.user_id AND m.clan_id = c.id
+    LEFT JOIN users u ON u.id = e.user_id
     LEFT JOIN records r ON r.user_id = e.user_id
-    WHERE e.window_id = ?`).bind(windowId).all();
+    WHERE c.disbanded_at IS NULL`).bind(windowId).all();
 
   const byClan = new Map();
   for (const row of rows.results) {
     if (!byClan.has(row.clan_id)) byClan.set(row.clan_id, []);
+    // A LEFT JOIN miss yields e.entry_json = null: that is a member-less,
+    // entry-less clan. clan.standing([]) is the honest empty shape, so skip
+    // the phantom row rather than fabricating a member with a null entry.
+    // A stale entry whose user has since left (handle null) is dropped the
+    // same way the old inner join dropped it.
+    if (row.entry_json == null || row.handle == null) continue;
     byClan.get(row.clan_id).push({
       handle: row.handle,
       avatarUrl: row.avatar_url,
@@ -1098,8 +1109,9 @@ async function handleClans(env) {
     env.DB.prepare(`
       SELECT c.id, c.tag, c.name, c.motto, c.open, c.created_at, u.handle AS founder
       FROM clans c JOIN users u ON u.id = c.founder_id
+      WHERE c.disbanded_at IS NULL
       ORDER BY c.created_at ASC LIMIT ${CLANS_DIRECTORY_CAP}`).all(),
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM clans`).first(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM clans WHERE disbanded_at IS NULL').first(),
     clanRosterSizes(env),
     clanStandings(env, SEASON_WINDOW_ID, clan.MIN_SEASON_ROUNDS),
     clanStandings(env, week.weekId, clan.MIN_WEEK_ROUNDS),
@@ -1141,7 +1153,9 @@ async function handleClanGet(env, tag) {
     SELECT c.id, c.tag, c.name, c.motto, c.open, c.created_at, c.founder_id,
            u.handle AS founder
     FROM clans c JOIN users u ON u.id = c.founder_id
-    WHERE c.tag = ?`).bind(clan.normalizeTag(tag)).first();
+    WHERE c.tag = ? AND c.disbanded_at IS NULL`).bind(clan.normalizeTag(tag)).first();
+  // A disbanded clan is history, not a 404-worthy bug: the route's honest
+  // answer is the same not-found the visitor would get for a typo.
   if (!row) return json({ ok: false, reason: 'not-found' }, 404);
 
   const week = windowOf(Date.now());
@@ -1219,6 +1233,8 @@ async function handleClanMine(request, env) {
   if (!membership) return json({ inClan: false });
   const size = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM clan_members WHERE clan_id = ?').bind(membership.clan_id).first();
+  // The webhook is echoed ONLY here — member/founder eyes, never the public
+  // clan payload (a webhook URL is a posting credential, not content).
   return json({
     inClan: true,
     tag: membership.tag,
@@ -1233,6 +1249,11 @@ async function handleClanMine(request, env) {
     // an invite-only clan. It is not on the public clan payload.
     joinCode: membership.join_code,
     isFounder: Number(membership.founder_id) === Number(user.id),
+    // Founders see the opt-in state; members see only whether the ritual is
+    // armed (the URL itself stays founder-only).
+    reckoningWebhookSet: Boolean(membership.reckoning_webhook),
+    reckoningWebhook: Number(membership.founder_id) === Number(user.id)
+      ? String(membership.reckoning_webhook || '') : undefined,
   });
 }
 
@@ -1288,11 +1309,14 @@ async function handleClanJoin(request, env) {
   try { body = await request.json(); } catch {}
 
   const code = clan.normalizeCode(body.code);
+  // disbanded_at IS NULL: membership rows survive a soft disband (restore
+  // semantics), so the clan lookup itself must refuse a disbanded clan —
+  // otherwise a moderator-closed clan quietly keeps accepting members.
   const row = code
     ? await env.DB.prepare(
-        'SELECT id, tag, open, join_code FROM clans WHERE join_code = ?').bind(code).first()
+        'SELECT id, tag, open, join_code FROM clans WHERE join_code = ? AND disbanded_at IS NULL').bind(code).first()
     : await env.DB.prepare(
-        'SELECT id, tag, open, join_code FROM clans WHERE tag = ?')
+        'SELECT id, tag, open, join_code FROM clans WHERE tag = ? AND disbanded_at IS NULL')
         .bind(clan.normalizeTag(body.tag)).first();
 
   const membership = await membershipOf(env, user.id);
@@ -1423,8 +1447,23 @@ async function handleClanUpdate(request, env) {
   }
   const problem = clan.mottoProblem(body.motto);
   if (problem) return json({ ok: false, reason: problem }, 422);
-  await env.DB.prepare('UPDATE clans SET motto = ?, open = ? WHERE id = ?')
-    .bind(clan.cleanMotto(body.motto), body.open ? 1 : 0, membership.clan_id).run();
+  // The Reckoning opt-in rides the same founder-only door. Empty/missing =
+  // clear it (an operator choice); a malformed URL is refused here rather
+  // than discovered dead on Friday night.
+  const hookProblem = clan.webhookProblem(body.reckoningWebhook);
+  if (hookProblem) return json({ ok: false, reason: hookProblem }, 422);
+  // An absent field must not wipe a webhook a founder set earlier — only an
+  // explicit empty string clears it. Two statements rather than binding
+  // `undefined`: D1 has no undefined bind type.
+  const motto = clan.cleanMotto(body.motto);
+  const open = body.open ? 1 : 0;
+  if (body.reckoningWebhook === undefined) {
+    await env.DB.prepare('UPDATE clans SET motto = ?, open = ? WHERE id = ?')
+      .bind(motto, open, membership.clan_id).run();
+  } else {
+    await env.DB.prepare('UPDATE clans SET motto = ?, open = ?, reckoning_webhook = ? WHERE id = ?')
+      .bind(motto, open, clan.cleanWebhook(body.reckoningWebhook), membership.clan_id).run();
+  }
   return json({ ok: true });
 }
 
@@ -1472,7 +1511,30 @@ async function drainPricing(env) {
       continue;
     }
 
-    const progress = row.pricing_progress_json ? JSON.parse(row.pricing_progress_json) : null;
+    // A corrupted progress blob used to throw from OUTSIDE the priceRecord
+    // try below — rethrowing from the head of the queue every tick and
+    // starving every submission behind it (the L-10 shape through a second
+    // door: the row's own state, not the candle source). Parse defensively,
+    // record the stall in the row itself, and let the queue move.
+    let progress = null;
+    try {
+      progress = row.pricing_progress_json ? JSON.parse(row.pricing_progress_json) : null;
+      if (progress !== null && typeof progress !== 'object') progress = null;
+    } catch (err) {
+      await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
+        .bind(JSON.stringify({
+          cursor: 0,
+          verdicts: [],
+          stalledUntil: now + PRICING_BACKOFF_MS,
+          stalls: 1,
+          lastStallAt: now,
+          lastError: 'corrupt-progress: ' + String(err && err.message || err).slice(0, 180),
+        }), row.user_id)
+        .run();
+      console.error('drainPricing: corrupt pricing_progress_json for', row.user_id, err);
+      records++;
+      continue;
+    }
     const before = progress && Number(progress.cursor) > 0 ? Number(progress.cursor) : 0;
     let result;
     try {
@@ -2372,7 +2434,11 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(drainPricing(env));
+    // drainPricing catches per-record internally, but a throw OUTSIDE its loop
+    // body (e.g. the head-of-queue SELECT itself failing) must not take the
+    // reckoning lane's waitUntil budget down with it — each lane is isolated,
+    // logged, and one lane's death is never another lane's silence.
+    ctx.waitUntil(drainPricing(env).catch((e) => console.error('pricing drain error:', e && e.message || e)));
     // The Friday Reckoning (B2): clock-gated inside — on 23h of every week
     // this exits without a single query, and when the bell window is open
     // it posts each opted-in clan's digest (mark-first idempotence).

@@ -2094,7 +2094,74 @@ poisoned progress state) never stopped being the oldest, and every submission be
 it starved, invisibly. A throw now records `stalledUntil` + the error, the picker
 already skips backing-off records, and the queue keeps moving.
 
+**L-14 · S2 · The Friday Reckoning was inert — no route could ever set the webhook column the cron reads, so no clan could opt in**
+`server/worker/index.js` handleClanUpdate · every clan founder since v3.16.0 ·
+found by self-audit of the B2 lane (no test covered the opt-in door because
+there was no door) · **fixed v3.16.1** (founder-only settings accepts
+`reckoningWebhook`, validated by clan.webhookProblem and refused 422
+dead-on-arrival instead of discovered dead on Friday night; empty string
+clears, absent field preserves; /api/clan/mine echoes set-state to members and
+the URL to the founder only — a webhook URL is a posting credential, not
+public content; locked by worker.test.js)
+The cron read `clans.reckoning_webhook` from day one, but the string appeared
+nowhere else in the worker: no route, no site form. The feature shipped with
+its only writer missing — a green 274-test suite that never asserted the
+opt-in path existed. Also a live-DB migration gap: DEPLOY.md now carries the
+`ALTER TABLE clans ADD COLUMN reckoning_webhook` step, because on a
+pre-B2 database the cron's clan query fails at prepare time and every
+Friday tick throws `no such column`.
+
+**L-15 · S2 · Admin-disbanded clans were read by nothing — they kept ranking, kept accepting joins, and kept their Friday slot**
+`server/worker/index.js` clans directory, handleClanGet, clanStandings,
+handleClanJoin · `server/worker/reckoning.js` weekStandings · every clan
+page and the cron · found by self-audit · **fixed v3.16.1** (`disbanded_at
+IS NULL` added to all five consumers; join attempts return not-found;
+locked by worker.test.js)
+`disbanded_at` was written by the admin handler and read by no query in the
+codebase. A soft-disbanded clan stayed publicly listed, its standing kept
+counting toward the directory map, its page stayed browsable, join codes
+kept working (membership rows are deliberately preserved for restore
+semantics), and — the sharpest edge — it would have kept receiving its
+Friday reckoning digest. Disband is now the kill switch it was designed
+to be.
+
+**L-17 · S2 · A corrupted pricing-progress blob re-threw from the HEAD of the drain queue every tick — the L-10 starvation shape through a second door**
+`server/worker/index.js` drainPricing · any record whose
+pricing_progress_json is not valid JSON · found by self-audit ·
+**fixed v3.16.1** (defensive parse: corrupt JSON stalls the row with
+`corrupt-progress:` + reason recorded in the row itself, then the queue
+moves; locked by worker.test.js)
+L-10 fixed the throw INSIDE priceRecord, but the JSON.parse of the stored
+progress sat OUTSIDE that try — a single malformed blob (crash mid-write,
+manual edit, D1 hiccup) re-throws from the head of the ORDER BY every tick
+and starves every submission behind it, forever, silently. The stall write
+rides the same backoff filter L-10 added, so the poisoned row cannot even
+re-enter the head query until its backoff expires.
+
 ### S3 — wrong presence
+
+**L-16 · S3 · A clan that opted in but closed zero rounds never got its digest — the inner join made the empty-week branch unreachable dead code**
+`server/worker/reckoning.js` weekStandings · opted-in clans with a quiet
+week · found by self-audit (the branch was literally dead code: the inner
+join on clan_entries could not produce a member-less clan) ·
+**fixed v3.16.1** (weekStandings drives from clans with a LEFT JOIN; an empty week
+digests as "no rounds closed" through the same clan.standing math the
+public page uses; stale entries from members who left are still dropped —
+handle-null rows skip; locked by reckoning.test.js)
+"Your clan held the streak, closed nothing, here's who kept the journal"
+is a real ritual message and the retention point of a weekly digest; the
+inner join silently turned every quiet week into silence, which reads
+exactly like the feature being broken.
+
+**L-18 · S3 · The two cron lanes shared one unhandled rejection — a pricing-drain crash outside its loop body could take the reckoning lane's waitUntil down with it**
+`server/worker/index.js` scheduled · Friday 20:00–24:00 UTC ticks · found
+by self-audit · **fixed v3.16.1** (`drainPricing(env).catch(...)` logs its
+own death; the reckoning lane keeps its own catch; locked by worker.test.js
+with the bell window opened via a fake clock)
+ctx.waitUntil with an uncaught promise rejection inside an isolated-lanes
+design means one lane's throw is not just a lost lane, it is an unhandled
+rejection in the shared runtime — exactly when both lanes matter most (the
+bell window, when D1 is most loaded).
 
 **L-04 · S3 · Resubmitting the SAME chain reset a verified record to pending — double-clicking Sync knocked players off the board for hours**
 `server/worker/index.js` handleSubmit · every re-sync of an unchanged record ·

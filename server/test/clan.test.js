@@ -647,3 +647,25 @@ test('every blocked entry is stored in the form the matcher actually compares', 
     assert.equal(entry, entry.toLowerCase(), entry + ' must be stored lowercase');
   }
 });
+
+/* ============ B2 rel-wrecking: the reckoning webhook validator =========== */
+
+test('webhookProblem: only a Discord webhook URL passes, anything else is named', () => {
+  const tok = 'a'.repeat(40) + '-b';
+  assert.equal(C.webhookProblem('https://discord.com/api/webhooks/1234567890/' + tok), null);
+  assert.equal(C.webhookProblem(' https://discord.com/api/webhooks/1234567890/' + tok + ' '), null,
+    'surrounding whitespace is cleaned, not punished');
+  assert.equal(C.webhookProblem('https://ptb.discord.com/api/webhooks/1234567890/' + tok), null,
+    'the ptb/canary hosts are the same credential');
+  assert.equal(C.webhookProblem(''), null, 'empty = clearing the opt-in, which is legal');
+  assert.equal(C.webhookProblem(null), null);
+  assert.equal(C.webhookProblem(undefined), null);
+  assert.ok(typeof C.webhookProblem('https://evil.example/hook') === 'string',
+    'a non-Discord URL is refused with a reason');
+  assert.ok(typeof C.webhookProblem('not a url') === 'string');
+  assert.ok(typeof C.webhookProblem('https://discord.com/api/webhooks/1234567890/short') === 'string',
+    'a truncated token is refused - a half-pasted credential must not arm the bell');
+  assert.ok(typeof C.webhookProblem('http://discord.com/api/webhooks/1234567890/' + tok) === 'string',
+    'plain http is refused (credential over cleartext)');
+});
+

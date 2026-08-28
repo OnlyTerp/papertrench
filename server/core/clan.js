@@ -621,6 +621,31 @@ function publicEntry(status, entry) {
   return status === 'verified' ? (entry || null) : null;
 }
 
+/* --------------------------------------------------------- webhook ------- */
+
+/**
+ * The Friday Reckoning (B2) opt-in: the clan founder's Discord webhook URL.
+ *
+ * A webhook URL is a posting credential — anyone who holds it can write to
+ * the clan's channel — so it is validated at the only door that can set it
+ * (the founder settings route) and echoed to nobody but the founder. Discord
+ * schemes only (including canary/ptb and the /v N api prefix), https only,
+ * id + token shape sane, length capped; empty string = opt out, which is an
+ * operator choice, not an error.
+ */
+const WEBHOOK_RE = /^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api(?:\/v\d+)?\/webhooks\/\d{5,30}\/[\w-]{30,160}$/;
+
+function cleanWebhook(raw) {
+  return String(raw == null ? '' : raw).trim();
+}
+
+function webhookProblem(raw) {
+  const url = cleanWebhook(raw);
+  if (!url) return null; // clearing the webhook is allowed
+  if (url.length > 220 || !WEBHOOK_RE.test(url)) return 'webhook-format';
+  return null;
+}
+
 module.exports = {
   COUNTING_MEMBERS, MAX_MEMBERS, MIN_SEASON_ROUNDS, MIN_WEEK_ROUNDS,
   SEASON_END_TS, SEASON_WINDOW,
@@ -631,4 +656,5 @@ module.exports = {
   tagProblem, nameProblem, mottoProblem,
   contributionWindow, memberEntry, standing, publicEntry,
   createProblem, joinProblem, kickProblem, successor,
+  cleanWebhook, webhookProblem, WEBHOOK_RE,
 };

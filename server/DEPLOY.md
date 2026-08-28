@@ -53,6 +53,20 @@ npx wrangler d1 execute papertrench --remote \
 > leaderboard` and `/api/sprint/current`, not just the clan routes. Verified
 > failure: `no such table: clan_members`.
 
+**The Friday Reckoning (v3.16.0) adds one more column** the schema re-run
+cannot add to a database that already has `clans`:
+
+```bash
+npx wrangler d1 execute papertrench --remote \
+  --command "ALTER TABLE clans ADD COLUMN reckoning_webhook TEXT"
+```
+
+> Run it before deploying the v3.16.1 Worker. The cron's clan query names the
+> column, and SQLite fails a statement that names a missing column at prepare
+> time — so on an un-migrated database every Friday tick would throw
+> `no such column: reckoning_webhook` instead of posting digests. The column
+> is nullable on purpose: NULL means the clan has not opted in.
+
 ### Why workers.dev and not api.papertrench.com
 
 papertrench.com's nameservers are at GoDaddy (`domaincontrol.com`), and

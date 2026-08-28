@@ -3,6 +3,34 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.16.1 — 2026-08-28
+
+**Reckoning hardening — the ritual now actually works, and can't fail silently.**
+
+Friday's v3.16.0 shipped the ritual, this wave audits it like production code
+and closes every door that could make it not run, post for the wrong people,
+or starve its neighbors. All found by driving the real lane, all pinned by
+tests that fail on the old code.
+
+- Clans can finally opt in: the founder-only clan settings now accepts the
+  Discord webhook (validated server-side, refused dead-on-arrival instead of
+  discovered dead on Friday night). Previously no route could set the
+  column the cron reads — the ritual was inert.
+- Disbanded clans are actually gone: they no longer appear in the directory,
+  the single-clan view, either standings map, the Friday digest, and they no
+  longer accept join attempts. The soft flag was written by admins and read
+  by nothing.
+- A clan that opted in but closed zero rounds still gets its digest — "no
+  rounds closed, streaks held" was unreachable dead code behind an inner
+  join.
+- A corrupted pricing-progress row no longer re-throws from the head of the
+  pricing queue every tick, starving every submission behind it; it stalls
+  in place with the reason recorded in the row itself.
+- One cron lane's crash can no longer take the other lane's waitUntil budget
+  down with it — each lane is isolated and logs its own death.
+- Live-DB migration note added to DEPLOY.md: run the `reckoning_webhook`
+  ALTER before deploying, or every Friday tick throws.
+
 ## v3.16.0 — 2026-08-28
 
 **The Friday Reckoning — clans get a named weekly close.**

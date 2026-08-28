@@ -35,15 +35,23 @@ function defaultPost(url, payload) {
  * the cron shares the clan.standing math without touching request-path
  * helpers. */
 async function weekStandings(env, weekId) {
+  // Two jobs, one shape. Driving from clans (LEFT JOIN) rather than from
+  // clan_entries (inner join) fixes two defects at once:
+  //   (a) an opted-in clan whose members closed no rounds this week still
+  //       gets its digest — "no rounds closed, streaks held" is a real
+  //       message, not an absence; the inner join made that branch
+  //       unreachable dead code;
+  //   (b) a disbanded clan can never post again — the soft flag was written
+  //       by admin and read by nothing.
   const rows = await env.DB.prepare(`
-    SELECT e.clan_id, c.tag, c.name, c.reckoning_webhook, c.created_at,
+    SELECT c.id AS clan_id, c.tag, c.name, c.reckoning_webhook, c.created_at,
            e.entry_json, u.handle, m.joined_at, r.status
-    FROM clan_entries e
-    JOIN clans c ON c.id = e.clan_id
-    JOIN clan_members m ON m.user_id = e.user_id AND m.clan_id = e.clan_id
-    JOIN users u ON u.id = e.user_id
+    FROM clans c
+    LEFT JOIN clan_entries e ON e.clan_id = c.id AND e.window_id = ?
+    LEFT JOIN clan_members m ON m.user_id = e.user_id AND m.clan_id = c.id
+    LEFT JOIN users u ON u.id = e.user_id
     LEFT JOIN records r ON r.user_id = e.user_id
-    WHERE e.window_id = ?`).bind(weekId).all();
+    WHERE c.disbanded_at IS NULL`).bind(weekId).all();
   const list = (rows && rows.results) || [];
 
   const byClan = new Map();
@@ -55,6 +63,13 @@ async function weekStandings(env, weekId) {
         members: [],
       });
     }
+    // LEFT JOIN miss = no entry row for this member in the window; the clan
+    // still counts its roster, the member just closed nothing. A member with
+    // a null entry is not a real member row — skip it. Same for a stale entry
+    // whose user has since left the clan (membership row gone, handle null):
+    // the old inner join dropped those, and the digest must not resurrect a
+    // departed trader's week.
+    if (row.entry_json == null || row.handle == null) continue;
     byClan.get(row.clan_id).members.push({
       handle: row.handle,
       status: row.status || 'pending',
