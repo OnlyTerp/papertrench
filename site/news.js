@@ -28,6 +28,18 @@
 
   const RELEASES = [
       {
+        v: '3.17.0', date: 'Aug 28, 2026', iso: '2026-08-28',
+        tags: ['fix'],
+        title: 'The Daily Spark becomes drift-proof, and the bot stops losing people',
+        body: 'A reliability audit of the newest live surfaces closed four defects, each pinned by a test that fails on the old code. The Daily Spark now grades against the exact chart you played: the day\u2019s candles are pinned on the server the moment the day\u2019s puzzle is, instead of being re-fetched fresh all day — before, an actively trading coin\u2019s sliding window could make the puzzle vanish mid-day, or worse, grade your fills against candles you never saw. Days pinned before this fix heal themselves: the first request backfills the pinned chart. The Spark\u2019s upstream candle budget also resets every request as designed instead of silently draining for the lifetime of a server isolate. The onboarding bot reads every page of its mentions instead of just the first — a burst of replies (a shoutout moment) used to permanently drop everyone past the first ten. And the bot\u2019s memory file is written atomically, so a crash mid-write can no longer make it forget who it already answered and double-reply.',
+      },
+      {
+        v: '3.16.1', date: 'Aug 28, 2026', iso: '2026-08-28',
+        tags: ['fix'],
+        title: 'Reckoning hardening — the ritual actually works, and can\u2019t fail silently',
+        body: 'Friday\u2019s Reckoning audited like production code, closing every door that could make it not run, post for the wrong people, or starve its neighbors. Clans can finally opt in: the founder-only clan settings accepts the Discord webhook (validated server-side) — previously no route could set the column the Friday cron reads, so the ritual was inert. Disbanded clans are actually gone: out of the directory, both standings maps, the Friday digest, and they refuse join attempts. A clan that opted in but closed zero rounds still gets its digest — that path was unreachable dead code. A corrupted pricing row no longer re-throws from the head of the queue every tick, starving every submission behind it. And one cron lane\u2019s crash can no longer take the other lane\u2019s budget down with it.',
+      },
+      {
         v: '3.13.13', date: 'Aug 26, 2026', iso: '2026-08-26',
         tags: ['feature'],
         title: 'Share debug logs — one click, one paste',
@@ -38,6 +50,18 @@
         tags: ['fix'],
         title: 'The quick-buy chip is back on compact boards',
         body: 'Two halves of "it won\'t let u buy half the time," both fixed. Padre\'s reworked Trenches board renders rows at 34px — under the 55px minimum the chip placer considered a real row — so brand-new coins never received a quick-buy chip at all: the coin was there, the price was there, and the button simply never existed. The row-height floor now matches the compact board. And the on-chain probe that prices brand-new launches crashed in its error path at the exact moment a public RPC rate-limited — the moment the retry matters most — leaving fresh coins stuck on "Fetching live price" until an aggregator caught up. The probe now survives the blip and retries on the next pass, and a live-board harness run proves the whole lane: new mint pops, chip appears, chip fills in under 2 seconds.',
+      },
+      {
+        v: '3.13.11', date: 'Aug 25, 2026', iso: '2026-08-25',
+        tags: ['fix'],
+        title: 'Brand-new coins are buyable immediately',
+        body: 'If you installed the extension and every coin sat on \u201cFetching live price\u2026\u201d — only becoming buyable once it had aged 20-30 seconds — this was why. The extension probes the chain directly for coins too new for any aggregator to know, and that probe marked an address \u201calready probed\u201d before the read came back, never un-marking it on failure. A single blip — a rate-limited public endpoint, a dropped socket — therefore switched off the only source that can price a fresh launch. A failed read is never evidence about the coin: now it retries on the very next pass instead of waiting on a safety net, and clicking Buy asks the chain whenever nothing else produced a price.',
+      },
+      {
+        v: '3.13.5', date: 'Aug 24, 2026', iso: '2026-08-24',
+        tags: ['fix'],
+        title: 'Pulse-page instant buys fill at the price the row printed',
+        body: 'Field report (Ski + sedna): quick research on the pulse page, instant buy, entry market cap flat wrong — the row showed a real 20k while the fill booked 6k. Three holes, one defect. The row-tick override looked up prices by mint while pulse frames key them by pair address, so the live print you just looked at was invisible to the fill and a stale aggregator price won by default. Even when the override fired, the market cap kept the stale value. And a FIRST buy had no price witness at all. The override now tries every identity the token answers to, the cap is rescaled to the corrected price, and a first buy must be vouched by the row\u2019s own fresh print or a same-block chain quote — otherwise it refuses with \u201cPrice unvouched\u201d instead of silently filling wrong.',
       },
       {
         v: '3.13.4', date: 'Aug 24, 2026', iso: '2026-08-24',
