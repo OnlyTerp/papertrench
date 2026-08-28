@@ -199,6 +199,43 @@ test('spark/today: memo pins the day — same mint + T across requests', async (
   }
 });
 
+test('spark/grade: legacy memo with no pinned chart is backfilled on recovery', async () => {
+  const chart = shapeChart();
+  const tTs = chart[90].ts;
+  const writes = [];
+  const db = fakeDB((sql, args) => {
+    if (sql.includes('FROM spark_days')) return { day: '2026-08-28', mint: 'MintA', t_ts: tTs };
+    if (sql.includes('INSERT INTO spark_charts')) {
+      writes.push({ sql, args });
+      return null;
+    }
+    return null;
+  });
+  const upstream = mockUpstream({ MintA: chart });
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+    const actions = [
+      { type: 'buy', ts: tTs + MIN },
+      { type: 'sell', ts: chart[150].ts },
+    ];
+    const res = await worker.fetch(new Request('https://api.test/api/spark/grade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+      body: JSON.stringify({ day: '2026-08-28', mint: 'MintA', actions }),
+    }), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200, 'recovery fetch grades honestly: ' + res.status);
+    assert.equal(writes.length, 1, 'recovery BACKFILLS spark_charts (L-19 drift-proof from next hit)');
+    assert.equal(writes[0].args[0], '2026-08-28', 'pinned under the day key');
+    assert.ok(writes[0].args[1].length > 1000, 'the whole chart is persisted, not a stub');
+    const stored = JSON.parse(writes[0].args[1]);
+    assert.equal(stored.length, chart.length, 'byte-equal chart content pinned');
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
 test('spark/grade: deterministic verdict, no PnL figure', async () => {
   const chart = shapeChart();
   const tTs = chart[90].ts;

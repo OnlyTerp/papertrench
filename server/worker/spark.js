@@ -182,10 +182,15 @@ async function handleSparkToday(request, env) {
     chart = picked.chart;
   }
 
-  // Serve from the PINNED chart when it exists; only a legacy memo (written
-  // before spark_charts did) re-fetches, and its grade path degrades honestly
-  // when the drifted upstream no longer hosts the window (see handleSparkGrade).
-  const effective = chart || (await dayChart(env, day)) || (await sparkChart(env, mint, freshBudget()));
+  // Serve from the PINNED chart when it exists; a legacy memo (written before
+  // spark_charts did) re-fetches — and BACKFILLS the pinned copy so the day's
+  // grading becomes drift-proof from the very next hit instead of staying
+  // exposed until midnight.
+  let effective = chart || (await dayChart(env, day));
+  if (!effective && memo) {
+    effective = await sparkChart(env, mint, freshBudget());
+    if (effective) await setDayChart(env, day, effective);
+  }
   if (!effective) return json({ ok: false, reason: 'no-data' }, 404);
 
   // BLIND LAW: only bars with ts <= tTs may leave this handler. A bar at
@@ -225,9 +230,13 @@ async function handleSparkGrade(request, env) {
     return json({ ok: false, reason: 'wrong-day' }, 400);
   }
   // L-19: grade against the PINNED chart — the exact bars the player saw.
-  // Upstream fetch only as recovery when both stores miss (drift relief).
-  const pinned = await dayChart(env, day);
-  const chart = pinned || (await sparkChart(env, mint, freshBudget()));
+  // Upstream fetch only as recovery when both stores miss (drift relief);
+  // a successful recovery BACKFILLS the pinned copy for every later hit.
+  let chart = await dayChart(env, day);
+  if (!chart) {
+    chart = await sparkChart(env, mint, freshBudget());
+    if (chart) await setDayChart(env, day, chart);
+  }
   if (!chart) return json({ ok: false, reason: 'no-data' }, 503);
 
   const valid = spark.validateActions(actions, memo.tTs);
