@@ -5,7 +5,7 @@ touches lives in the CONFIG block at the top of `streams.js`:
 
 | Constant | What it does |
 | --- | --- |
-| `STREAMERS` | Hand-maintained roster. Always shown; wins over an approved application with the same login. |
+| `STREAMERS` | Hand-maintained roster. Always shown; wins over an approved application with the same login. Twitch entries carry `login`; Kick and YouTube carry `platform` + `channelUrl` (plus `channelId` for a YouTube channel that should play inline). |
 | `SIGNUP_URL` | Where "Sign up as a streamer" points — the on-site form, `streamer-signup.html`. |
 | `API` | Worker origin the approved roster is read from. Same value as `arena.js`. |
 | `ROSTER_CSV_URL` | Legacy Google-Sheet CSV roster. Empty = disabled, and it should stay empty on a new deploy. |
@@ -59,8 +59,10 @@ the card within ~60 s (the edge cache window).
 
 Rules the pipeline applies:
 
-- **Every platform can be approved.** Twitch channels are embedded and play
-  inline; Kick, YouTube and anything else get a roster card that links out.
+- **Every platform can be approved.** Twitch and Kick channels embed and play
+  inline. YouTube plays inline too, but only when the entry carries the UC…
+  channel id (see *Which platforms play inline* below); without one it is a
+  link-out card. Anything else links out.
   This used to be Twitch-only — `handleStreamerRoster` filtered on
   `twitch_login IS NOT NULL`, so an approved Kick creator became a row nobody
   could see, and the queue admitted it by disabling Approve for them.
@@ -99,17 +101,57 @@ deployment keeps its roster on upgrade. To finish the move: re-enter any
 approved streamers via the form (or add them to `STREAMERS`), confirm they
 show, then set `ROSTER_CSV_URL` back to `''` and unpublish the sheet.
 
+## Which platforms play inline
+
+`PLATFORMS` in `streams.js` tracks two separate capabilities, because the
+platforms disagree about them:
+
+| Platform | Embeds a player | Reports live/offline | Needs |
+| --- | --- | --- | --- |
+| Twitch | yes | yes — preview CDN | `login` |
+| Kick | yes | yes — `kick.com/api/v2/channels/<slug>` | slug, read from `channelUrl` |
+| YouTube | yes | **no** | the UC… channel id |
+| other | no | no | — |
+
+They were one flag until multi-platform embeds landed, which forced an
+all-or-nothing call on YouTube: either claim a status nothing can back, or
+refuse to play a stream that embeds perfectly well.
+
+**YouTube needs the channel id.** `/embed/live_stream?channel=<UC…>` mounts
+whatever the channel is currently broadcasting, with no key — but it keys off
+the `UC…` id, and a `/@handle` URL cannot be resolved to one client-side. Put
+the id in the entry's `channelId` (YouTube: *Share channel → Copy channel ID*)
+or use the `/channel/UC…` form of the URL, and the card plays. Neither, and it
+stays a link-out card, which is the honest fallback rather than a player keyed
+on a guess.
+
 ## How the page decides who's "LIVE"
 
-No Twitch API key: the page checks Twitch's public preview CDN. A live
-channel's `live_user_<login>` thumbnail resolves; an offline one redirects to
-the `404_preview` image. Checked every 60 s. If Twitch ever changes this, the
-page degrades to showing no badges — never wrong ones.
+No API keys, so each platform is asked in whatever public way it answers, and
+every probe returns live / offline / **unknown** — a failed probe renders as no
+badge, never as OFFLINE, because OFFLINE is a claim.
 
-**This is a Twitch-only signal**, so non-Twitch cards show their platform name
-where the badge would be rather than a guessed status, and `refreshLive` does
-not query the CDN for them at all — a Kick login asked of Twitch's CDN answers
-about a Twitch channel that happens to share the name.
+- **Twitch** — the public preview CDN. A live channel's `live_user_<login>`
+  thumbnail resolves; an offline one redirects to the `404_preview` image.
+- **Kick** — `kick.com/api/v2/channels/<slug>` answers a cross-origin fetch
+  with CORS headers. `livestream` is `null` when the channel is off and an
+  object when it is on, and it carries a real preview frame, so a live Kick
+  card gets a thumbnail exactly like a Twitch one.
+- **YouTube** — nothing. The channel `/live` page and the RSS feed are both
+  CORS-blocked, and oEmbed 404s on the `live_stream` URL. Real status needs a
+  Data API key this static site has nowhere to keep, so a YouTube card shows
+  its platform name where the badge would be, forever.
+
+Checked every 60 s. If a platform changes its endpoint the page degrades to
+showing no badge for it — never a wrong one.
+
+Each platform is asked its own way and never another's: a Kick slug put to
+Twitch's CDN answers about a Twitch channel that happens to share the name.
+
+**A platform with no live signal is never auto-promoted into the featured
+player.** It would sit there autoplaying "video unavailable" for every visitor
+whenever the channel is off. Clicking its card still plays it — that is the
+visitor asking, and the embed then reports its own truth.
 
 ### Card order
 

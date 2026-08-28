@@ -16,9 +16,15 @@
 
   // Hand-maintained roster. Entries here always show, and they win over a
   // sheet row with the same login — useful for pinning or fixing a blurb.
-  // `login` is the Twitch login and means "embeddable inline". Kick and
-  // YouTube entries carry `platform` + `channelUrl` instead and render as
-  // link-out cards — there is no login to invent for a player we cannot mount.
+  // `login` is the Twitch login. Kick and YouTube entries carry `platform` +
+  // `channelUrl`; what can be mounted from that is decided per platform in
+  // PLATFORMS below, not by the presence of a Twitch login.
+  //
+  // YouTube is the one platform that needs more than a channel URL: the embed
+  // keys off the UC… channel id, which cannot be derived from a /@handle URL
+  // without the Data API. Give such an entry an explicit `channelId` (copy it
+  // from the channel's "Share channel → Copy channel ID"), or leave it off and
+  // accept a link-out card.
   const STREAMERS = [
     {
       login: 'onlyterp',                 // twitch.tv/<login> — lowercase
@@ -46,9 +52,9 @@
       blurb: 'Streaming PaperTrench on a regular schedule.',
     },
     {
-      // Kick: no embeddable player, so this renders as a link-out card.
-      // `login` stays absent on purpose — inventing one would mount a dead
-      // Twitch player for a channel that does not exist there.
+      // Kick: plays inline. `login` stays absent on purpose — it is the Twitch
+      // login, and inventing one would mount a dead Twitch player. The Kick
+      // slug is read from channelUrl.
       name: 'Ark1317',
       platform: 'kick',
       channelUrl: 'https://kick.com/ark1317',
@@ -118,38 +124,110 @@
 
   /* ---------- platforms ----------
    *
-   * Only Twitch can be embedded, so only Twitch cards act as a player button.
-   * The rest are links, and are drawn as links — a card that looks identical
-   * to a playable one but silently opens a new tab teaches the visitor that
-   * the whole grid is unpredictable. Live/offline is a Twitch-only signal too
-   * (it comes from Twitch's preview CDN), so the other platforms show their
-   * platform name where the badge would be rather than a guessed status.
+   * Two capabilities, deliberately separate, because they are not the same
+   * question and the platforms disagree about them:
+   *
+   *   embeddable — can a player be mounted on this page at all?
+   *   liveSignal — can live/offline be OBSERVED without a server-side key?
+   *
+   * They used to be one flag, which forced an all-or-nothing call on YouTube:
+   * either claim a live status nothing can back, or refuse to play a stream
+   * that embeds perfectly well. Splitting them lets each platform be handled
+   * for what it actually supports (verified live from this origin, 2026-08-26):
+   *
+   *   Twitch  embed + live. Live comes from the public preview CDN.
+   *   Kick    embed + live. player.kick.com mounts, and kick.com/api/v2 answers
+   *           a cross-origin fetch with CORS headers — livestream:null offline,
+   *           a livestream object (with a real thumbnail) when live.
+   *   YouTube embed only. /embed/live_stream?channel=<UC id> always mounts the
+   *           channel's current broadcast without a key, but NOTHING key-free
+   *           reports whether that broadcast exists: the channel /live page and
+   *           the RSS feed are both CORS-blocked, and oEmbed 404s on the
+   *           live_stream URL. Real status needs a Data API key this static
+   *           site has nowhere to keep.
+   *
+   * A platform with no live signal never claims one and is never auto-promoted
+   * into the featured player — an autoplaying "video unavailable" shown to
+   * every visitor is exactly the confident-wrong-answer this project refuses.
+   * Its card plays on a click, which is the visitor asking, and the embed
+   * itself then reports the truth.
    */
   const PLATFORMS = {
     twitch: {
-      label: 'Twitch', host: 'twitch.tv/', embeddable: true,
+      label: 'Twitch', host: 'twitch.tv/', embeddable: true, liveSignal: true, chat: true,
+      // The Twitch login IS the embed handle.
+      handle: (s) => s.login || null,
       url: (s) => 'https://twitch.tv/' + encodeURIComponent(s.login),
+      player: (h) => 'https://player.twitch.tv/?channel=' + encodeURIComponent(h) +
+        '&parent=' + encodeURIComponent(PARENT) + '&muted=true&autoplay=true',
+      chatUrl: (h) => 'https://www.twitch.tv/embed/' + encodeURIComponent(h) +
+        '/chat?parent=' + encodeURIComponent(PARENT) + '&darkpopout',
     },
     kick: {
-      label: 'Kick', host: 'kick.com/', embeddable: false,
-      url: (s) => s.channelUrl,
+      label: 'Kick', host: 'kick.com/', embeddable: true, liveSignal: true, chat: false,
+      // kick.com/<slug> — the slug is the embed handle and the API key alike.
+      handle: (s) => s.channel || slugFromUrl(s.channelUrl, 'kick.com'),
+      url: (s) => s.channelUrl || ('https://kick.com/' + encodeURIComponent(s.channel || '')),
+      player: (h) => 'https://player.kick.com/' + encodeURIComponent(h) + '?muted=true&autoplay=true',
     },
     youtube: {
-      label: 'YouTube', host: 'youtube.com/', embeddable: false,
+      label: 'YouTube', host: 'youtube.com/', embeddable: true, liveSignal: false, chat: false,
+      // Only a UC… id can be embedded. A /@handle URL has no client-side route
+      // to one, so such an entry stays a link-out rather than mounting a player
+      // keyed on a guess.
+      handle: (s) => ytChannelId(s),
       url: (s) => s.channelUrl,
+      player: (h) => 'https://www.youtube.com/embed/live_stream?channel=' +
+        encodeURIComponent(h) + '&autoplay=1&mute=1',
     },
     other: {
-      label: 'Stream', host: '', embeddable: false,
+      label: 'Stream', host: '', embeddable: false, liveSignal: false, chat: false,
+      handle: () => null,
       url: (s) => s.channelUrl,
     },
   };
 
   const platformOf = (s) => PLATFORMS[s && s.platform] || PLATFORMS.twitch;
 
+  /** First path segment of a URL on `host` — "kick.com/Ark1317?x=1" -> "ark1317". */
+  function slugFromUrl(raw, host) {
+    try {
+      const url = new URL(String(raw || ''));
+      if (!url.hostname.replace(/^www\./i, '').toLowerCase().endsWith(host)) return null;
+      const seg = url.pathname.split('/').filter(Boolean)[0] || '';
+      const slug = seg.toLowerCase();
+      return /^[a-z0-9_-]{1,60}$/.test(slug) ? slug : null;
+    } catch { return null; }
+  }
+
+  /** The UC… channel id for a YouTube entry, from `channelId` or a /channel/ URL. */
+  function ytChannelId(s) {
+    const explicit = String((s && s.channelId) || '').trim();
+    if (/^UC[A-Za-z0-9_-]{22}$/.test(explicit)) return explicit;
+    try {
+      const url = new URL(String((s && s.channelUrl) || ''));
+      const parts = url.pathname.split('/').filter(Boolean);
+      const i = parts.indexOf('channel');
+      const id = i >= 0 ? parts[i + 1] : '';
+      return /^UC[A-Za-z0-9_-]{22}$/.test(id || '') ? id : null;
+    } catch { return null; }
+  }
+
+  /** The handle this entry plays under, or null when it cannot be mounted. */
+  const embedHandle = (s) => {
+    const spec = platformOf(s);
+    return spec.embeddable ? (spec.handle(s) || null) : null;
+  };
+
+  /** Can this entry mount a player on the page? */
+  const canEmbed = (s) => embedHandle(s) !== null;
+
+  /** Can live/offline be observed for this entry? */
+  const hasLiveSignal = (s) => platformOf(s).liveSignal && canEmbed(s);
+
   /** The href a card points at, or null when there is nothing safe to link. */
   function channelHref(s) {
     const spec = platformOf(s);
-    if (spec.embeddable) return s.login ? spec.url(s) : null;
     const raw = spec.url(s);
     if (!raw) return null;
     // The roster is server-normalized, but this is the point where a string
@@ -164,7 +242,7 @@
   /** What to print under the name: "twitch.tv/name", or the bare host+path. */
   function channelLabel(s) {
     const spec = platformOf(s);
-    if (spec.embeddable && s.login) return spec.host + s.login;
+    if (spec === PLATFORMS.twitch && s.login) return spec.host + s.login;
     const href = channelHref(s);
     if (!href) return spec.label;
     return href.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '');
@@ -178,14 +256,19 @@
   }, { threshold: 0.12 });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 
-  /* ---------- state ---------- */
-  const live = new Map();       // login -> true | false | null (unknown)
+  /* ---------- state ----------
+   * Keyed by keyOf(), not by Twitch login: a Kick entry has no login, and two
+   * platforms can carry the same name. */
+  const live = new Map();       // key -> true | false | null (unknown)
+  const preview = new Map();    // key -> live thumbnail URL, when the platform gives one
   let roster = [...STREAMERS];  // manual entries + approved sheet rows
 
   /** Identity for dedupe: a Twitch login, else the channel it points at. */
   const keyOf = (s) => (s.login ? 'twitch:' + s.login : 'url:' + String(s.channelUrl || '').toLowerCase());
-  let featured = null;          // login currently in the big player
+  let featured = null;          // key currently in the big player
   let userPinned = false;       // stop auto-promotion once the viewer chose
+
+  const entryFor = (key) => roster.find((s) => keyOf(s) === key) || null;
 
   $('signupBtn').href = SIGNUP_URL;
 
@@ -273,12 +356,16 @@
           login: login || null,
           platform,
           channelUrl: String(row.channelUrl || '').trim() || null,
+          // Optional and YouTube-only: the UC… id that makes an entry
+          // playable. Absent, a YouTube row is still a perfectly good
+          // link-out card.
+          channelId: String(row.channelId || '').trim() || null,
           name: String(row.name || '').trim() || login || '',
           blurb: String(row.blurb || '').trim(),
         };
         // An entry we can neither embed nor link is not a card, it is a
         // name with nowhere to go — drop it rather than render a dead tile.
-        if (!entry.login && !channelHref(entry)) continue;
+        if (!canEmbed(entry) && !channelHref(entry)) continue;
         if (!entry.name) continue;
         const key = keyOf(entry);
         if (seen.has(key)) continue;
@@ -324,11 +411,15 @@
   }
 
   /* ---------- live detection ----------
-   * No Twitch API key on a static page, so we lean on the public preview CDN:
+   * Per platform, and only where a status can actually be observed without a
+   * key. Every probe returns true / false / null, and null means "unknown" —
+   * a failed probe must never render as OFFLINE, which is a claim.
+   *
+   * Twitch: no API key on a static page, so we lean on the public preview CDN:
    * a live channel's thumbnail resolves normally, an offline one redirects to
    * Twitch's 404_preview image. If the CDN ever stops sending CORS headers
    * this degrades to "unknown" and the page simply shows no live badges. */
-  async function isLive(login) {
+  async function isLiveTwitch(login) {
     try {
       const r = await fetch(
         `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(login)}-80x45.jpg?t=${Date.now()}`,
@@ -339,8 +430,47 @@
     } catch (_) { return null; }
   }
 
-  function thumbUrl(login) {
-    return `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(login)}-440x248.jpg?t=${Math.floor(Date.now() / LIVE_POLL_MS)}`;
+  /* Kick answers a cross-origin GET with CORS headers, so the status is a
+   * plain read rather than an inference: `livestream` is null when the channel
+   * is off and an object (carrying a real preview frame) when it is on. A 404
+   * is a channel that does not exist — false, not unknown. Anything else, and
+   * any thrown fetch, stays unknown. */
+  async function isLiveKick(slug, key) {
+    try {
+      const r = await fetch('https://kick.com/api/v2/channels/' + encodeURIComponent(slug), {
+        mode: 'cors', cache: 'no-store',
+      });
+      if (r.status === 404) return false;
+      if (!r.ok) return null;
+      const body = await r.json();
+      const stream = body && body.livestream;
+      if (!stream || stream.is_live !== true) return false;
+      const thumb = stream.thumbnail && (stream.thumbnail.url || stream.thumbnail);
+      if (typeof thumb === 'string' && /^https:\/\//i.test(thumb)) preview.set(key, thumb);
+      return true;
+    } catch (_) { return null; }
+  }
+
+  /** Dispatch to the probe for `s`'s platform. Unknown when there is none. */
+  async function probeLive(s) {
+    const spec = platformOf(s);
+    const handle = embedHandle(s);
+    if (!spec.liveSignal || !handle) return null;
+    if (spec === PLATFORMS.twitch) return isLiveTwitch(handle);
+    if (spec === PLATFORMS.kick) return isLiveKick(handle, keyOf(s));
+    return null;
+  }
+
+  /** The live preview frame for a card, or null when the platform gives none. */
+  function thumbUrl(s) {
+    const spec = platformOf(s);
+    if (spec === PLATFORMS.twitch) {
+      const login = embedHandle(s);
+      return login
+        ? `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(login)}-440x248.jpg?t=${Math.floor(Date.now() / LIVE_POLL_MS)}`
+        : null;
+    }
+    return preview.get(keyOf(s)) || null;
   }
 
   function initials(name) {
@@ -369,42 +499,72 @@
       return;
     }
 
-    const s = roster.find((x) => x.login === featured);
-    const login = esc(featured);
-    $('playerWho').textContent = s ? s.name : featured;
-    $('playerHandle').textContent = 'twitch.tv/' + featured;
-    $('playerOut').href = 'https://twitch.tv/' + encodeURIComponent(featured);
+    const s = entryFor(featured);
+    if (!s) { featured = null; renderFeatured(); return; }
+
+    const spec = platformOf(s);
+    const handle = embedHandle(s);
+    const href = channelHref(s);
+    const label = esc(channelLabel(s));
+    const who = esc(s.name);
+
+    $('playerWho').textContent = s.name;
+    $('playerHandle').textContent = channelLabel(s);
+    $('playerOut').textContent = `Watch on ${spec.label} ↗`;
+    if (href) { $('playerOut').href = href; $('playerOut').style.display = ''; }
+    else { $('playerOut').removeAttribute('href'); $('playerOut').style.display = 'none'; }
     bar.style.display = '';
 
-    if (!PARENT) {
-      // Opened from disk — Twitch refuses embeds without a parent domain.
-      chatShell.style.display = 'none';
+    // Twitch is the only platform whose chat embeds, and its chat — like its
+    // player — needs the parent domain.
+    const wantChat = spec.chat && !!PARENT;
+    chatShell.style.display = wantChat ? '' : 'none';
+    if (!wantChat) $('chatFrame').innerHTML = '';
+
+    // Twitch refuses embeds without a parent domain, which file:// has no way
+    // to supply. Kick and YouTube do not take a parent, so they still play.
+    if (spec === PLATFORMS.twitch && !PARENT) {
       frame.innerHTML = `
         <div class="player-empty">
           <div class="inner">
             ${MARK_EXTERNAL}
             <h3>Embeds need a web origin</h3>
             <p>Open this page from papertrench.com (or localhost) to watch inline,
-            or head straight to <a href="https://twitch.tv/${login}" target="_blank" rel="noopener">twitch.tv/${login}</a>.</p>
+            ${href ? `or head straight to <a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>.` : 'or open the channel directly.'}</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    if (!handle || !spec.player) {
+      frame.innerHTML = `
+        <div class="player-empty">
+          <div class="inner">
+            ${MARK_EXTERNAL}
+            <h3>${who} streams on ${esc(spec.label)}</h3>
+            <p>This channel cannot be played here.
+            ${href ? `Watch it at <a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>.` : ''}</p>
           </div>
         </div>`;
       return;
     }
 
     frame.innerHTML = `<iframe
-      src="https://player.twitch.tv/?channel=${encodeURIComponent(featured)}&parent=${encodeURIComponent(PARENT)}&muted=true&autoplay=true"
+      src="${esc(spec.player(handle))}"
       allowfullscreen allow="autoplay; fullscreen"
-      title="Twitch stream: ${login}"></iframe>`;
-    chatShell.style.display = '';
-    $('chatFrame').innerHTML = `<iframe
-      src="https://www.twitch.tv/embed/${encodeURIComponent(featured)}/chat?parent=${encodeURIComponent(PARENT)}&darkpopout"
-      title="Twitch chat: ${login}"></iframe>`;
+      title="${esc(spec.label)} stream: ${who}"></iframe>`;
+
+    if (wantChat) {
+      $('chatFrame').innerHTML = `<iframe
+        src="${esc(spec.chatUrl(handle))}"
+        title="${esc(spec.label)} chat: ${who}"></iframe>`;
+    }
   }
 
-  function setFeatured(login, { pinned = false, scroll = false } = {}) {
+  function setFeatured(key, { pinned = false, scroll = false } = {}) {
     if (pinned) userPinned = true;
-    if (featured === login) return;
-    featured = login;
+    if (featured === key) return;
+    featured = key;
     renderFeatured();
     if (scroll) $('watch').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -441,8 +601,8 @@
    */
   function orderedRoster() {
     const rank = (s) => {
-      if (live.get(s.login) === true) return 0;     // live now
-      if (platformOf(s).embeddable) return 1;       // playable, currently off
+      if (live.get(keyOf(s)) === true) return 0;    // live now
+      if (canEmbed(s)) return 1;                    // playable, status off or unknown
       return 2;                                     // link-out
     };
     return [...roster].sort((a, b) =>
@@ -455,19 +615,22 @@
     const cards = orderedRoster().map((s) => {
       const spec = platformOf(s);
       const href = channelHref(s);
-      const status = spec.embeddable ? live.get(s.login) : undefined;
+      const key = keyOf(s);
+      const plat = PLATFORMS[s.platform] ? s.platform : 'twitch';
+      const status = hasLiveSignal(s) ? live.get(key) : undefined;
       const isUp = status === true;
+      const frame = isUp ? thumbUrl(s) : null;
 
-      // Live/offline is a Twitch-only fact. Off Twitch the slot names the
-      // platform instead of guessing a status we cannot observe.
+      // A status is only ever printed where one can be observed. Everywhere
+      // else the slot names the platform rather than guessing.
       const badge = isUp
         ? '<span class="s-live on"><span class="dot"></span>LIVE</span>'
         : status === false
           ? '<span class="s-live off">OFFLINE</span>'
-          : `<span class="s-live plat ${esc(s.platform || 'twitch')}">${esc(spec.label)}</span>`;
+          : `<span class="s-live plat ${esc(plat)}">${esc(spec.label)}</span>`;
 
-      const thumb = isUp
-        ? `<img src="${thumbUrl(s.login)}" alt="Live preview of ${esc(s.name)}" loading="lazy">`
+      const thumb = frame
+        ? `<img src="${esc(frame)}" alt="Live preview of ${esc(s.name)}" loading="lazy">`
         : `<div class="ph">${esc(initials(s.name))}</div>`;
 
       const body = (handleLine) => `
@@ -481,13 +644,13 @@
       // its own link so reaching someone's actual channel does not mean
       // promoting them into the player first (two clicks and a scroll for
       // what is just a URL). stopPropagation keeps it from doing both.
-      if (spec.embeddable && s.login) {
+      if (canEmbed(s)) {
         const handleLine = href
           ? `<a class="s-handle" href="${esc(href)}" target="_blank" rel="noopener"
                data-out title="Open ${esc(channelLabel(s))}">${esc(channelLabel(s))} ↗</a>`
           : `<span class="s-handle">${esc(channelLabel(s))}</span>`;
         return `
-        <div class="s-card" data-login="${esc(s.login)}" role="button" tabindex="0"
+        <div class="s-card plat-${esc(plat)}" data-key="${esc(key)}" role="button" tabindex="0"
              title="Watch ${esc(s.name)} here">
           <div class="s-thumb">${thumb}${badge}${MARK_PLAY}</div>
           ${body(handleLine)}
@@ -498,7 +661,7 @@
       // a span. An <a> inside an <a> is not nestable markup: the parser closes
       // the outer one early and splits a single card into two broken tiles.
       return `
-        <a class="s-card link" href="${esc(href)}" target="_blank" rel="noopener"
+        <a class="s-card link plat-${esc(plat)}" href="${esc(href)}" target="_blank" rel="noopener"
            title="Open ${esc(s.name)} on ${esc(spec.label)}">
           <div class="s-thumb">${thumb}${badge}${MARK_OUT}</div>
           ${body(`<span class="s-handle">${esc(channelLabel(s))} ↗</span>`)}
@@ -513,8 +676,8 @@
       a.addEventListener('click', (e) => e.stopPropagation());
     });
 
-    grid.querySelectorAll('.s-card[data-login]').forEach((card) => {
-      const open = () => setFeatured(card.dataset.login, { pinned: true, scroll: true });
+    grid.querySelectorAll('.s-card[data-key]').forEach((card) => {
+      const open = () => setFeatured(card.dataset.key, { pinned: true, scroll: true });
       card.addEventListener('click', open);
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
@@ -525,12 +688,13 @@
   /* ---------- live badge refresh loop ---------- */
   async function refreshLive() {
     if (!roster.length) return;
-    // Only Twitch has a live signal; asking the preview CDN about a Kick
-    // login would answer about a Twitch channel of the same name.
-    const checkable = roster.filter((s) => platformOf(s).embeddable && s.login);
-    await Promise.all(checkable.map(async (s) => live.set(s.login, await isLive(s.login))));
+    // Only platforms with a real signal are probed, and each is asked its own
+    // way — putting a Kick slug to Twitch's preview CDN would answer about a
+    // Twitch channel that happens to share the name.
+    const checkable = roster.filter(hasLiveSignal);
+    await Promise.all(checkable.map(async (s) => live.set(keyOf(s), await probeLive(s))));
 
-    const liveCount = checkable.filter((s) => live.get(s.login) === true).length;
+    const liveCount = checkable.filter((s) => live.get(keyOf(s)) === true).length;
     $('liveCountLabel').textContent = liveCount > 0
       ? `${liveCount} streamer${liveCount === 1 ? '' : 's'} live right now`
       : 'The PaperTrench Challenge';
@@ -543,8 +707,8 @@
     // the one to feature — and when exactly one channel is live, that is the
     // channel, which is the behaviour a single streamer should get for free.
     if (!userPinned) {
-      const firstLive = orderedRoster().find((s) => live.get(s.login) === true);
-      if (firstLive && live.get(featured) !== true) setFeatured(firstLive.login);
+      const firstLive = orderedRoster().find((s) => live.get(keyOf(s)) === true);
+      if (firstLive && live.get(featured) !== true) setFeatured(keyOf(firstLive));
     }
     renderGrid();
   }
@@ -554,14 +718,25 @@
     const requested = normalizeLogin(new URLSearchParams(location.search).get('channel'));
 
     const pickFeatured = () => {
-      if (requested && roster.some((s) => s.login === requested)) {
+      // ?channel=<login> stays a Twitch deep link — it shipped that way and
+      // the links are in the wild.
+      const asked = requested && roster.find((s) => s.login === requested);
+      if (asked) {
         userPinned = true;
-        featured = requested;
+        featured = keyOf(asked);
       } else if (!featured) {
-        // Only an embeddable entry can go in the player; a Kick card at the
-        // top of the order must not blank the player out.
-        const first = orderedRoster().find((s) => platformOf(s).embeddable && s.login);
-        if (first) featured = first.login;
+        // The opening pick happens before any probe has answered, so prefer a
+        // platform that can eventually report one. A signal-less platform in
+        // the player autoplays "video unavailable" whenever the channel is off,
+        // which is a bad thing to hand every visitor unasked.
+        //
+        // It is still the fallback when the roster has nothing better, because
+        // the alternative is the "roster is forming" empty state sitting above
+        // a grid full of streamers — and that is a plainly false statement,
+        // where YouTube's own player at least reports its real status.
+        const order = orderedRoster();
+        const first = order.find(hasLiveSignal) || order.find(canEmbed);
+        if (first) featured = keyOf(first);
       }
     };
 

@@ -115,12 +115,22 @@
   @media (max-width: 980px) { .streamer-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 640px) { .streamer-grid { grid-template-columns: 1fr; } }
 
+  /* One accent pair per card, set by the platform class streams.js puts on it.
+     The badge always spoke the platform's colour; everything else on the card
+     was hardcoded Twitch purple, so a Kick card and a Twitch card were
+     identical below the badge. --accent carries it through the handle, the
+     hover border, the hover glow and the placeholder. The rgb triple exists
+     because rgba() cannot take a hex var. */
   .s-card {
+    --accent: var(--twitch2); --accent-rgb: 191,148,255;
     position: relative; text-align: left; cursor: pointer; overflow: hidden; padding: 0;
     background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
     font: inherit; color: inherit; display: block; width: 100%;
     transition: transform .22s cubic-bezier(.2,.8,.2,1), border-color .22s, box-shadow .22s;
   }
+  .s-card.plat-kick    { --accent: var(--kick);  --accent-rgb: 83,252,24; }
+  .s-card.plat-youtube { --accent: var(--yt);    --accent-rgb: 255,78,69; }
+  .s-card.plat-other   { --accent: var(--muted); --accent-rgb: 141,151,169; }
   .s-card:hover { border-color: rgba(255,157,69,0.42); }
   .s-card:hover .s-play { opacity: 1; transform: scale(1); }
 
@@ -130,14 +140,14 @@
     position: absolute; inset: 0; display: grid; place-items: center;
     font-family: var(--mono);
     font-size: 30px; font-weight: 800; color: rgba(255,255,255,0.18); letter-spacing: 2px;
-    background: linear-gradient(145deg, rgba(145,70,255,0.15), rgba(145,70,255,0.02));
+    background: linear-gradient(145deg, rgba(var(--accent-rgb),0.15), rgba(var(--accent-rgb),0.02));
   }
   /* A play affordance on hover — the card is a button, so it should look
      like one the moment a pointer is on it. */
   .s-play {
     position: absolute; inset: 0; margin: auto; width: 52px; height: 52px;
     display: grid; place-items: center; pointer-events: none;
-    border-radius: 50%; background: rgba(10,6,20,0.72); border: 1px solid rgba(191,148,255,0.5);
+    border-radius: 50%; background: rgba(10,6,20,0.72); border: 1px solid rgba(var(--accent-rgb),0.5);
     color: #fff; opacity: 0; transform: scale(.86);
     transition: opacity .22s, transform .22s;
     backdrop-filter: blur(3px);
@@ -170,12 +180,10 @@
   .s-name { font-size: 15px; font-weight: 800; letter-spacing: -0.2px; }
   .s-handle {
     display: inline-block; font-family: var(--mono); font-size: 11.5px;
-    color: var(--twitch2); font-weight: 500; margin-top: 3px;
+    color: var(--accent); font-weight: 500; margin-top: 3px;
     border-bottom: 1px solid transparent; word-break: break-all;
   }
   a.s-handle:hover { border-bottom-color: currentColor; }
-  .s-card.link .s-handle { color: var(--muted); }
-  .s-card[data-login] .s-handle { color: var(--twitch2); }
   .s-blurb { margin-top: 9px; font-size: 13px; color: var(--muted); line-height: 1.55; }
 
   /* The open slot is an invitation, not a fake streamer — it never borrows
@@ -183,7 +191,7 @@
   .s-card.open { border-style: dashed; border-color: rgba(145,70,255,0.3); background: rgba(145,70,255,0.02); }
   .s-card.open:hover { border-color: rgba(145,70,255,0.55); }
   .s-card.open .s-thumb { background: transparent; }
-  .s-card.open .ph { background: linear-gradient(145deg, rgba(145,70,255,0.09), transparent); color: rgba(191,148,255,0.3); }
+  .s-card.open .ph { background: linear-gradient(145deg, rgba(var(--accent-rgb),0.09), transparent); color: rgba(var(--accent-rgb),0.3); }
 
   .signup-rail {
     margin-top: 2.25rem; padding: 1.25rem 0 0;
@@ -236,6 +244,22 @@
   .obs-sec { padding: 28px 0 8px; }
   .obs-lead { margin-bottom: 8px; }
   .obs-lead h2 { margin: 0 0 0.4rem; }
+
+  /* ---------- platform accent on hover ----------
+     Last, because .s-card:hover above sets one flat brand colour for every
+     card and this has to win over it.
+
+     No lift and no drop shadow: the card hover was deliberately flattened —
+     the translate and the black box-shadow were removed — so the platform is
+     carried by the border and a soft tint of its own colour instead. A
+     link-out card tints more quietly than a playable one rather than
+     promising a player it does not have. */
+  .s-card:hover      { border-color: rgba(var(--accent-rgb),0.5); }
+  .s-card.link:hover { border-color: rgba(var(--accent-rgb),0.34); }
+  .s-card[data-key]:hover { box-shadow: 0 0 24px -10px rgba(var(--accent-rgb),0.55); }
+  /* The open slot is an invitation, not a platform — it keeps the brand. */
+  .s-card.open { --accent: var(--orange2); --accent-rgb: 255,192,129; }
+  .s-card.open:hover { border-color: rgba(255,157,69,0.55); }
 </style>
 </head>
 <body>
@@ -353,8 +377,11 @@
         for the minute a fill claims. Newest launches often have none. Those
         fills come back <i>unpriced</i> rather than passing, and a record
         carrying too many of them is labelled instead of ranked. Live/offline
-        badges on this page are inferred from Twitch's public preview images,
-        not an official Twitch API. Treat them as a hint. The full protocol,
+        badges come from each platform's own public endpoint — Twitch's preview
+        images, Kick's channel API — not from official partner APIs, so treat
+        them as a hint. A YouTube card never shows one at all: nothing public
+        reports that channel's status without a key, and a guess is worse than
+        a blank. The full protocol,
         including what it refuses to claim, is in
         <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">LEADERBOARD.md</a>.
       </p>
