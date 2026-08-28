@@ -201,3 +201,16 @@ recorded as a law: **always diff the live DB schema against schema.sql before
 any deploy — runbooks list what the NEWEST release needs, not what the live
 database is missing.**
 
+**2026-08-28 — v3.17.0 live** (`c694ae70`, after `45695161`). Reliability wave
+found by auditing the newest surfaces. Deploy sequence followed the law:
+schema.sql diffed against live first (only `spark_charts` missing), applied
+idempotently pre-deploy, read-back verified, THEN `wrangler deploy`. Smoke:
+all public routes 200, spark serving blind-correct bars (95 bars, none past
+the reveal). L-19's live gap — today's day was pinned before `spark_charts`
+existed — proved closed in production: one real spark request backfilled the
+pinned chart into D1 (33,420 bytes), read back from the live DB. Release
+asset re-hashed from the GitHub zip: SHA256 matches SHA256SUMS.txt exactly.
+Live tail: 8/8 invocations `outcome: ok`, zero exceptions. All 4 fixes were
+negative-control proven (fix stashed → new tests red → restored → green);
+suites 2443/2443 (ext 2134, server 289, bot 20).
+
