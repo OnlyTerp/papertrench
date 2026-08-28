@@ -99,7 +99,7 @@ test('the permission list is pinned — scripting is the one deliberate addition
   // entry would have destroyed. Least privilege is a release property
   // (load.test.js pins the list too; this states the why).
   assert.deepEqual([...manifest.permissions].sort(),
-    ['activeTab', 'alarms', 'offscreen', 'scripting', 'storage', 'tabs', 'unlimitedStorage'].sort());
+    ['activeTab', 'alarms', 'offscreen', 'scripting', 'sidePanel', 'storage', 'tabs', 'unlimitedStorage'].sort());
 });
 
 test('press-time and trajectory prefetch are hints only — a press never claims the click', () => {

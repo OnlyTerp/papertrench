@@ -882,6 +882,30 @@
     .cal-nav-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-2); }
     .cal-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
+
+    /* ---- Trench Grid (A1) ---- */
+    .tg-year { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 6px; }
+    .tg-month { min-width: 150px; }
+    .tg-month-name { font-size: 11px; color: var(--muted, #8b93a7); margin-bottom: 4px; }
+    .tg-days { display: grid; grid-template-columns: repeat(7, 15px); grid-auto-flow: column;
+      grid-template-rows: repeat(6, 15px); gap: 2px; }
+    .tg-days .tg-cell { grid-row: calc(var(--tg-off) + 1) / span 1; }
+    .tg-cell { width: 15px; height: 15px; border-radius: 3px; display: inline-block;
+      border: 1px solid rgba(255,255,255,0.06); }
+    .tg-empty { background: transparent; border-color: rgba(255,255,255,0.08); }
+    .tg-s { background: var(--green); }
+    .tg-a { background: color-mix(in srgb, var(--green) 72%, transparent); }
+    .tg-b { background: color-mix(in srgb, var(--green) 44%, transparent); }
+    .tg-c { background: color-mix(in srgb, var(--red) 38%, transparent); }
+    .tg-d { background: color-mix(in srgb, var(--red) 66%, transparent); }
+    .tg-f { background: var(--red); }
+    .tg-streaks { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+    .tg-chip { border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+      padding: 3px 10px; font-size: 12px; }
+    .tg-legend { display: flex; align-items: center; gap: 4px; font-size: 11px; margin-top: 6px; }
+    .tg-legend .tg-cell { width: 12px; height: 12px; }
+    .tg-sub { max-width: 720px; margin: 4px 0 10px; }
+
     .cal-summary {
       display: flex; flex-wrap: wrap; gap: 7px 20px;
       margin-bottom: 15px; font-size: 12px; color: var(--dim);
@@ -957,6 +981,7 @@
       <button class="active" data-section="overview">Overview</button>
       <button data-section="game">Game</button>
       <button data-section="calendar">Calendar</button>
+      <button data-section="grid">Trench Grid</button>
       <button data-section="journal">Journal</button>
       <button data-section="rounds">Rounds</button>
       <button data-section="perps">Perps</button>
@@ -973,6 +998,7 @@
       <section id="overview" class="section"></section>
       <section id="game" class="section hidden"></section>
       <section id="calendar" class="section hidden"></section>
+      <section id="grid" class="section hidden"></section>
       <section id="journal" class="section hidden"></section>
       <section id="rounds" class="section hidden"></section>
       <section id="perps" class="section hidden"></section>
@@ -994,6 +1020,7 @@
   <script src="perps.js"></script>
   <script src="mastery.js"></script>
   <script src="gamify.js"></script>
+  <script src="trench-grid.js"></script>
   <!-- The modal must exist before dashboard.js runs (D-53): bindShareCard
        silently disables the composer if #card-modal is missing, and the old
        order was safe only by accident of init() being async. -->

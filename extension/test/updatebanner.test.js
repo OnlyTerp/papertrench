@@ -58,7 +58,7 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
     return el;
   }
   const els = {};
-  for (const id of ['dash','toggle','reset','backup','restore','restoreFile','overlay-window',
+  for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
                     'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
     els[id] = makeEl(id);
@@ -179,7 +179,7 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
       setAttribute() {},
     };
   }
-  for (const id of ['dash','toggle','reset','backup','restore','restoreFile','overlay-window',
+  for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
                     'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
     els[id] = makeEl(id);

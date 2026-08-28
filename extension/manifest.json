@@ -10,7 +10,8 @@
     "tabs",
     "activeTab",
     "scripting",
-    "alarms"
+    "alarms",
+    "sidePanel"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -233,6 +234,9 @@
     ]
   },
   "options_page": "dashboard.html",
+  "side_panel": {
+    "default_path": "panel.html"
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PaperTrench Desk</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 12px; font: 13px/1.45 system-ui, sans-serif;
+      background: #0b0e14; color: #e7ebf3;
+    }
+    h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: 0.04em; }
+    .sub { color: #8b93a7; font-size: 11px; margin: 0 0 12px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .chip {
+      border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+      padding: 2px 9px; font-size: 11px; color: #c6cdd9;
+    }
+    .chip strong { color: #e7ebf3; }
+    h2 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #8b93a7; margin: 14px 0 6px;
+    }
+    .card {
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+      padding: 10px; background: rgba(255,255,255,0.03);
+    }
+    .card .sym { font-weight: 700; font-size: 14px; }
+    .card .meta { color: #8b93a7; font-size: 11px; margin-top: 2px; }
+    .nudge {
+      margin-top: 8px; font-size: 11px; color: #f5c451;
+      border: 1px dashed rgba(245,196,81,0.45); border-radius: 6px; padding: 5px 7px;
+    }
+    .empty { color: #8b93a7; font-size: 12px; font-style: italic; }
+    .feed { display: flex; flex-direction: column; gap: 6px; }
+    .row {
+      display: flex; justify-content: space-between; gap: 8px;
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 6px 8px;
+    }
+    .row .sym { font-weight: 600; }
+    .row .what { color: #8b93a7; font-size: 11px; }
+    .pos { color: #34D399; } .neg { color: #FF5F56; } .amber { color: #f5c451; }
+    footer { margin-top: 16px; }
+    a { color: #7dd3fc; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>PAPER TRENCH · DESK</h1>
+  <div class="sub">Your round, your discipline, and what the coin did after you left.</div>
+  <div class="chips" id="chips"></div>
+  <h2>Active round</h2>
+  <div id="active"></div>
+  <h2>After feed</h2>
+  <div class="feed" id="after"></div>
+  <footer><a href="#" id="dash">Open full dashboard →</a></footer>
+  <script src="gamify.js"></script>
+  <script src="panel-data.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

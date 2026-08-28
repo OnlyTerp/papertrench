@@ -237,7 +237,7 @@ const store = {
 // overwrites the real one.
 let storageReadFailed = false;
 
-const SECTIONS = ['overview', 'game', 'calendar', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
+const SECTIONS = ['overview', 'game', 'calendar', 'grid', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
 let currentSection = 'overview';
 // The PERPS book (pt_perps). Deliberately a separate variable from
 // `state`: nothing in this file may sum the two.
@@ -877,6 +877,7 @@ function renderSection(id) {
   if (id === 'overview') renderOverview(staged);
   else if (id === 'game') renderGame(staged);
   else if (id === 'calendar') renderCalendar(staged);
+  else if (id === 'grid') renderTrenchGrid(staged);
   else if (id === 'journal') renderJournal(staged);
   else if (id === 'rounds') renderRounds(staged);
   else if (id === 'perps') renderPerps(staged);
@@ -5254,6 +5255,96 @@ function formatDuration(ms) {
   if (hours) return `${hours}h ${minutes}m`;
   if (minutes) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
+}
+
+
+/* ---------------- Trench Grid (DELIGHT-MAP.md A1) ----------------
+ * Year-scale discipline heatmap: one cell per LOCAL day, colored by the
+ * dominant PROCESS grade (S..F) of rounds closed that day — never P&L.
+ * Pure derivation from state via PTGrid; the calendar owns month scale,
+ * this owns the year. Same D-49 local-day bucketing, same ties-round-down
+ * law for a split day. */
+
+const GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function renderTrenchGrid(el) {
+  const grid = window.PTGrid;
+  if (!grid) { el.innerHTML = '<div class="dim">Grid module failed to load.</div>'; return; }
+  const d = grid.derive(state, window.PTGamify);
+  const byMonth = new Map();
+  for (const c of d.cells) {
+    const m = Number(c.date.slice(5, 7)) - 1;
+    if (!byMonth.has(m)) byMonth.set(m, []);
+    byMonth.get(m).push(c);
+  }
+
+  const tier = (n) => {
+    const T = window.PTGamify && window.PTGamify.STREAK_TIERS;
+    if (!T || !n) return null;
+    let out = null;
+    for (const t of T) if (n >= t.at) out = t;
+    return out;
+  };
+  const j = d.streak.journal, ce = d.streak.cleanExit;
+  const jt = tier(j.current), ct = tier(ce.current);
+
+  const tip = (c) => c.grade
+    ? `${c.date} — ${c.count} round${c.count > 1 ? 's' : ''}, grade ${c.grade}`
+    : `${c.date} — no rounds closed`;
+
+  // 12 month blocks; each block lays its days down Mon-first columns.
+  const blocks = [];
+  for (let m = 0; m < 12; m++) {
+    const days = byMonth.get(m) || [];
+    if (!days.length && d.cells.length && m > Number(d.cells[d.cells.length - 1].date.slice(5, 7)) - 1) {
+      break; // months entirely in the future render nothing
+    }
+    const offs = grid.monthOffsets(d.year)[m];
+    const cellsHtml = days.map((c) =>
+      `<div class="${grid.cellClass(c)}" data-date="${c.date}" title="${tip(c)}"></div>`
+    ).join('');
+    blocks.push(`
+      <div class="tg-month">
+        <div class="tg-month-name">${GRID_MONTHS[m]}</div>
+        <div class="tg-days" style="--tg-off:${offs}">
+          ${cellsHtml}
+        </div>
+      </div>`);
+  }
+
+  const legend = `
+    <div class="tg-legend">
+      <span class="dim">less</span>
+      <span class="tg-cell tg-empty"></span>
+      <span class="tg-cell tg-s"></span>
+      <span class="tg-cell tg-a"></span>
+      <span class="tg-cell tg-b"></span>
+      <span class="tg-cell tg-c"></span>
+      <span class="tg-cell tg-d"></span>
+      <span class="tg-cell tg-f"></span>
+      <span class="dim">process grade, worst letter wins the day — never P&L</span>
+    </div>`;
+
+  const streakHtml = `
+    <div class="tg-streaks">
+      <span class="tg-chip" title="Rounds with a written thesis, current run">
+        <strong>${j.current}</strong> journal${jt ? ` · ${jt.label}` : ''}
+      </span>
+      <span class="tg-chip" title="Clean exits (no round-trip), current run">
+        <strong>${ce.current}</strong> clean exit${ct ? ` · ${ct.label}` : ''}
+      </span>
+      <span class="tg-chip dim">best run: ${d.totals.bestRun} day${d.totals.bestRun === 1 ? '' : 's'} in the grid</span>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="cal-head-row"><h2>Trench Grid ${d.year}</h2></div>
+    <p class="dim tg-sub">Every day you closed rounds this year, colored by your <strong>process</strong> grade —
+    discipline is the asset the grid protects. Empty days are honest gaps, not zeros.
+    Streaks count rounds, not days: a week off costs nothing; an undisciplined round breaks the run.</p>
+    <div class="tg-year">${blocks.join('')}</div>
+    ${streakHtml}
+    ${legend}`;
 }
 
 // D-16: catch boot failures — a bare init() left the page blank on any throw.

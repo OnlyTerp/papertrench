@@ -276,7 +276,7 @@ test('the manifest requests only the permissions the extension actually uses', (
   // check (users had no way to learn a release shipped) and the limit-buy
   // TTL sweep. Any OTHER alarm use must extend this allowlist consciously.
   assert.deepEqual([...manifest.permissions].sort(),
-    ['activeTab', 'alarms', 'offscreen', 'scripting', 'storage', 'tabs', 'unlimitedStorage'].sort());
+    ['activeTab', 'alarms', 'offscreen', 'scripting', 'sidePanel', 'storage', 'tabs', 'unlimitedStorage'].sort());
   const bg = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
   const alarmNames = [...bg.matchAll(/chrome\.alarms\.create\('([^']+)'/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(alarmNames)].sort(), ['pt_pending_buy_sweep', 'pt_update_check'],

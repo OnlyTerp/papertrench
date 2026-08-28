@@ -29,6 +29,19 @@ const AT = (typeof window !== 'undefined' && window.PTAttest) || null;
 function chainGet(keys) { return chrome.storage.local.get(keys); }
 
 $('dash').addEventListener('click', () => chrome.runtime.openOptionsPage());
+$('desk').addEventListener('click', async () => {
+  // Docked desk (DELIGHT-MAP.md D1): open the side panel for the current
+  // window. chrome.sidePanel.open requires a user gesture — this click is
+  // one. Falls back to nothing if the API is unavailable (older Chrome).
+  try {
+    const win = await chrome.windows.getCurrent();
+    await chrome.sidePanel.open({ windowId: win.id });
+    await chrome.sidePanel.setOptions({ path: 'panel.html', enabled: true });
+  } catch (e) {
+    console.warn('[papertrench] side panel unavailable', e);
+  }
+  window.close();
+});
 $('toggle').addEventListener('click', toggleOverlay);
 $('reset').addEventListener('click', resetWallet);
 $('backup').addEventListener('click', backupWallet);
