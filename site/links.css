@@ -1,7 +1,7 @@
 @font-face {
-  font-family: Syne;
-  src: url("/assets/fonts/syne.ttf") format("truetype");
-  font-weight: 400 800;
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/plexsans.woff2") format("woff2");
+  font-weight: 400 700;
   font-display: swap;
 }
 @font-face {
@@ -22,7 +22,7 @@
   --orange-ink: #1a0c00;
   --pill: 999px;
   --rail: 12px;
-  --font: Syne, ui-sans-serif, system-ui, sans-serif;
+  --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 

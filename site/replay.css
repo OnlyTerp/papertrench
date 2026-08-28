@@ -22,7 +22,7 @@
 }
 .rp-mast h1 {
   margin: 10px 0 8px;
-  font-family: Syne, var(--font); font-weight: 800;
+  font-family: var(--font); font-weight: 700;
   font-size: clamp(34px, 5vw, 58px); line-height: 1.02; letter-spacing: -0.03em;
 }
 .rp-mast h1 .accent { color: var(--orange); }
@@ -280,7 +280,7 @@
 @media (max-width: 860px) { .rp-how { grid-template-columns: 1fr; } }
 .rp-how > div { background: #0a0d13; padding: 20px 22px; }
 .rp-how .n {
-  font: 800 24px Syne, var(--font); color: var(--orange); letter-spacing: -0.02em;
+  font: 700 24px var(--font); color: var(--orange); letter-spacing: -0.02em;
 }
 .rp-how h3 { margin: 8px 0 6px; font: 800 15px var(--font); letter-spacing: -0.01em; }
 .rp-how p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
