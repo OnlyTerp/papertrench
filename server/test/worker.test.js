@@ -319,8 +319,13 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
       qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 10 * MIN },
   ]);
   let stallWrite = null;
+  let picked7 = false;
   const db = fakeDB((sql, args) => {
     if (sql.includes("status = 'pending'")) {
+      // The drain now loops until the queue is empty or the run budget is
+      // gone, so this fake must model depletion: one pick, then nothing.
+      if (picked7) return null;
+      picked7 = true;
       return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
     }
     if (sql.includes('FROM chain_segments')) {
@@ -347,6 +352,173 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
   // that filter is what turns the recorded stall into liveness.
   const pick = db.log.find((e) => e.sql.includes("status = 'pending'")).sql;
   assert.ok(pick.includes('stalledUntil'), 'the picker must honour the backoff');
+});
+
+/* ---------------- pricing drain throughput (defect A3-1) ---------------- */
+
+test('one cron tick drains every pending record the candle budget allows', async () => {
+  const worker = await loadWorker();
+  const chainA = await chainOf([
+    { id: 'p1', sessionId: 's', mint: 'M1', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 10 * MIN },
+  ]);
+  const chainB = await chainOf([
+    { id: 'p2', sessionId: 's', mint: 'M2', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 20 * MIN },
+  ]);
+  const verified = [];
+  let picks = 0;
+  const db = fakeDB((sql, args) => {
+    if (sql.includes("status = 'pending'")) {
+      picks++;
+      if (picks === 1) return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
+      if (picks === 2) return { user_id: 8, starting_sol: 10, pricing_progress_json: null };
+      return null;
+    }
+    if (sql.includes('FROM chain_segments')) {
+      return [{ links_json: JSON.stringify(Number(args[0]) === 7 ? chainA : chainB) }];
+    }
+    if (sql.includes('FROM candle_cache')) {
+      // A warm cache: every minute answered from D1, zero external spend —
+      // so nothing but the queue itself may stop the second record.
+      // NOTE: .first() reads expect ONE ROW OBJECT, not an array of rows —
+      // an array here silently reads as a miss and drags in the network.
+      return { candles_json: JSON.stringify({ low: 1, high: 1000 }), fetched_at: Date.now() };
+    }
+    if (sql.includes('UPDATE records SET status')) {
+      verified.push(args[4]);
+      return { meta: { changes: 1 } };
+    }
+    return null;
+  });
+
+  const waits = [];
+  await worker.scheduled({}, makeEnv(db), { waitUntil: (p) => waits.push(p) });
+  await Promise.all(waits);
+
+  assert.deepEqual(verified.sort(), [7, 8],
+    'both pending records must reach a verdict inside ONE cron firing');
+});
+
+test('a record whose candles fail no longer eats the whole cron tick', async () => {
+  const worker = await loadWorker();
+  const chainA = await chainOf([
+    { id: 'p1', sessionId: 's', mint: 'M1', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 10 * MIN },
+  ]);
+  const chainB = await chainOf([
+    { id: 'p2', sessionId: 's', mint: 'M2', side: 'buy',
+      qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: 20 * MIN },
+  ]);
+  let stallWrite = null;
+  const verified = [];
+  let picks = 0;
+  const db = fakeDB((sql, args) => {
+    if (sql.includes("status = 'pending'")) {
+      picks++;
+      if (picks === 1) return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
+      if (picks === 2) return { user_id: 8, starting_sol: 10, pricing_progress_json: null };
+      return null;
+    }
+    if (sql.includes('FROM chain_segments')) {
+      return [{ links_json: JSON.stringify(Number(args[0]) === 7 ? chainA : chainB) }];
+    }
+    if (sql.includes('FROM candle_cache')) {
+      if (args[0] === 'M1') throw new Error('d1-down'); // user 7's token lookup dies
+      // One ROW OBJECT (see note in the test above): arrays read as a miss.
+      return { candles_json: JSON.stringify({ low: 1, high: 1000 }), fetched_at: Date.now() };
+    }
+    if (sql.includes('UPDATE records SET pricing_progress_json')) {
+      stallWrite = args;
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes('UPDATE records SET status')) {
+      verified.push(args[4]);
+      return { meta: { changes: 1 } };
+    }
+    return null;
+  });
+
+  const waits = [];
+  await worker.scheduled({}, makeEnv(db), { waitUntil: (p) => waits.push(p) });
+  await Promise.all(waits);
+
+  assert.ok(stallWrite, 'the dying record must still record its stall');
+  assert.deepEqual(verified, [8],
+    'the healthy record behind the dying one must be verified in the SAME tick');
+});
+
+test('a run budget spent across records pauses the tick without blaming a record', async () => {
+  const worker = await loadWorker();
+  // 7 records x 2 fills of distinct mints/minutes = 4 spends per record on a
+  // cold cache: records 1-6 spend 24 of 25, record 7 exhausts the budget.
+  const chains = new Map();
+  for (let i = 1; i <= 7; i++) {
+    const uid = 100 + i;
+    chains.set(uid, await chainOf([
+      { id: 'a' + i, sessionId: 's', mint: 'A' + i, side: 'buy',
+        qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: (40 + 2 * i) * MIN },
+      { id: 'b' + i, sessionId: 's', mint: 'B' + i, side: 'sell',
+        qty: 1000, priceNative: 0.001, solGross: 1, solNet: 0.99, ts: (41 + 2 * i) * MIN },
+    ]));
+  }
+  let stallWrite = null;
+  const verified = [];
+  let picks = 0;
+  const realFetch = globalThis.fetch;
+  const fetchLog = [];
+  globalThis.fetch = async (url) => {
+    fetchLog.push(String(url));
+    const m = String(url).match(/before_timestamp=(\d+)/);
+    if (m) {
+      const tsSec = Number(m[1]) - 1000 * 60; // the anchored minute
+      return { ok: true, status: 200, json: async () => ({
+        data: [{ attributes: { ohlcv_list: [[tsSec, 0.0001, 0.01, 0.00005, 0.005, 10]] } }] }) };
+    }
+    return { ok: true, status: 200, json: async () => ({
+      data: [{ attributes: { address: 'pool-x' } }] }) };
+  };
+  try {
+    const db = fakeDB((sql, args) => {
+      if (sql.includes("status = 'pending'")) {
+        picks++;
+        if (picks <= 7) return { user_id: 100 + picks, starting_sol: 10, pricing_progress_json: null };
+        return null;
+      }
+      if (sql.includes('FROM chain_segments')) {
+        return [{ links_json: JSON.stringify(chains.get(Number(args[0])) || []) }];
+      }
+      // Every candle_cache read misses: spends are deterministic, 2 per fill.
+      if (sql.includes('FROM candle_cache')) return null;
+      if (sql.includes('FROM pools')) return null;
+      if (sql.includes('INSERT INTO pools')) return null;
+      if (sql.includes('UPDATE records SET pricing_progress_json')) {
+        stallWrite = args;
+        return { meta: { changes: 1 } };
+      }
+      if (sql.includes('UPDATE records SET status')) {
+        verified.push(args[4]);
+        return { meta: { changes: 1 } };
+      }
+      return null;
+    });
+    const waits = [];
+    await worker.scheduled({}, makeEnv(db), { waitUntil: (p) => waits.push(p) });
+    await Promise.all(waits);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  assert.deepEqual(verified.sort(), [101, 102, 103, 104, 105, 106],
+    'records the budget could fully price must be verified in this tick');
+  assert.ok(stallWrite, 'the budget-stopped record must persist its cursor');
+  const progress = JSON.parse(stallWrite[0]);
+  assert.equal(progress.stalledUntil, 0,
+    'budget exhaustion is a global stop, not this record\'s stall — it must resume next tick');
+  assert.equal(picks, 7,
+    'the tick must stop at the budget instead of re-picking records it cannot price');
+  assert.ok(fetchLog.length > 0 && fetchLog.length <= 40,
+    'the candle budget must bound external calls for the whole run');
 });
 
 /* ---------------- public feed hygiene (DEFECT L-12) ---------------- */
@@ -781,3 +953,55 @@ test('the upstream leash is per IP and never blocks what the cache can answer', 
   assert.equal(served.body.posts[0].text, 'served anyway',
     'the limit protects the upstream fetch; a cached answer costs it nothing');
 });
+
+/* ---------------- clans directory truncation is told, not silent ========
+ * The directory query caps at CLANS_DIRECTORY_CAP rows. A silent cap makes an
+ * existing clan look nonexistent to the people in it. The payload must say
+ * when it is a window, not the world: clansTruncated + clansTotal.
+ */
+test('clans directory admits truncation when more clans exist than the cap', async () => {
+  const worker = await loadWorker();
+  const clansRoute = (sql) => {
+    if (sql.includes('FROM clans c JOIN users u')) {
+      // 301 clans exist; D1 enforces the LIMIT the way the fake must too.
+      const cap = Number((sql.match(/LIMIT (\d+)/) || [])[1] || Infinity);
+      return Array.from({ length: 301 }, (_, i) => ({
+        id: i + 1, tag: 'T' + String(i + 1).padStart(3, '0'), name: 'Clan ' + (i + 1),
+        motto: '', open: 1, created_at: i, founder: 'f' + (i + 1),
+      })).slice(0, cap);
+    }
+    if (sql.includes('SELECT COUNT(*) AS n FROM clans')) return { n: 301 };
+    return null;
+  };
+  const response = await worker.fetch(
+    new Request('https://api.test/api/clans', { headers: { Origin: ORIGIN } }),
+    makeEnv(fakeDB(clansRoute)), { waitUntil: () => {} });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.entries.length, 300, 'cap still bounds the payload');
+  assert.equal(body.clansTotal, 301, 'the truth about how many exist');
+  assert.equal(body.clansTruncated, true, 'truncation is declared, not silent');
+});
+
+test('clans directory says clansTruncated false when everything fits', async () => {
+  const worker = await loadWorker();
+  const clansRoute = (sql) => {
+    if (sql.includes('FROM clans c JOIN users u')) {
+      const cap = Number((sql.match(/LIMIT (\d+)/) || [])[1] || Infinity);
+      return Array.from({ length: 12 }, (_, i) => ({
+        id: i + 1, tag: 'T' + String(i + 1).padStart(3, '0'), name: 'Clan ' + (i + 1),
+        motto: '', open: 1, created_at: i, founder: 'f' + (i + 1),
+      })).slice(0, cap);
+    }
+    if (sql.includes('SELECT COUNT(*) AS n FROM clans')) return { n: 12 };
+    return null;
+  };
+  const response = await worker.fetch(
+    new Request('https://api.test/api/clans', { headers: { Origin: ORIGIN } }),
+    makeEnv(fakeDB(clansRoute)), { waitUntil: () => {} });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.clansTotal, 12);
+  assert.equal(body.clansTruncated, false);
+});
+

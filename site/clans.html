@@ -325,13 +325,21 @@
     }).join('');
 
     const ranked = entries.filter((e) => pick(e).ranked).length;
-    noteEl.innerHTML = mode === 'season'
+    // The directory is a capped window, not the world. When the store holds
+    // more clans than the cap, say so — an omitted clan must never read as a
+    // clan that does not exist.
+    const total = Number(payload.clansTotal);
+    const shown = Number(payload.entries.length);
+    const truncNote = (Number.isFinite(total) && total > shown)
+      ? ` Showing ${esc(String(shown))} of ${esc(String(total))} — the oldest ${esc(String(shown))}.`
+      : '';
+    noteEl.innerHTML = (mode === 'season'
       ? `${esc(String(entries.length))} clans · ${esc(String(ranked))} ranked. All-time, counted from each
          member's join date. A clan needs ${esc(String(payload.countingMembers))} members with
          ${esc(String(payload.minSeasonRounds))} closed rounds apiece before it ranks.`
       : `${esc(String(entries.length))} clans · ${esc(String(ranked))} ranked this week
          (${esc(payload.weekId)}). Rounds must have opened and closed inside the window, after you
-         joined. One closed round qualifies a member for the week.`;
+         joined. One closed round qualifies a member for the week.`) + truncNote;
   }
 
   function setMode(next) {

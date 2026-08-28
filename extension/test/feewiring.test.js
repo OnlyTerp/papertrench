@@ -148,3 +148,25 @@ test('the context actually changes what a fill is charged', () => {
 
   global.self = prevSelf;
 });
+
+/* ---------------- the shipped default is the product ---------------- */
+
+test('the fee default is pinned in BOTH modules that ship it', () => {
+  const E = require(path.join(ROOT, 'engine.js'));
+  // engine.js: the DEFAULT_SETTINGS table itself, not a merged copy.
+  assert.equal(E.DEFAULT_SETTINGS.feeBps, 100,
+    'engine default fee must stay 100 bps; change the test on purpose, never by accident');
+
+  // background.js: engine.js is not loaded in the service worker, so it keeps
+  // its own DEFAULTS copy. It is not exported, so pin the SOURCE LINE — a
+  // second literal that must drift with the first, never silently.
+  const bg = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  const bgDefault = bg.match(/^\s*feeBps:\s*(\d+),\s*$/m);
+  assert.ok(bgDefault, 'background.js DEFAULTS must declare feeBps');
+  assert.equal(Number(bgDefault[1]), 100,
+    'background default fee must equal the engine default (100 bps)');
+
+  // And the two modules must agree with each other, wherever they move.
+  assert.equal(Number(bgDefault[1]), E.DEFAULT_SETTINGS.feeBps,
+    'the two defaults must never diverge');
+});

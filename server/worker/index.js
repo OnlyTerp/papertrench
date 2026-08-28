@@ -33,6 +33,7 @@ import xfeed from './xfeed.js';
 
 const SEG_SIZE = 500;
 const SUBMITS_PER_HOUR = 6;
+const CLANS_DIRECTORY_CAP = 300; // payload bound; truncation is DECLARED, never silent
 const DUELS_PER_HOUR = 10;
 const CLAN_ACTIONS_PER_HOUR = 12;
 // Streamer signups need no account, so the leash is per-IP and deliberately
@@ -48,6 +49,10 @@ const SEASON_WINDOW_ID = 'season';
 const CANDLE_BUDGET_PER_RUN = 25;
 // How long a record that made no pricing progress steps aside for.
 const PRICING_BACKOFF_MS = 5 * 60 * 1000;
+// A hard cap on records touched per cron firing. The budget usually stops
+// the drain first; this bounds the D1 round-trips when every record's candles
+// are already cached and the queue is huge.
+const MAX_RECORDS_PER_TICK = 50;
 const BOARD_CACHE_SEC = 60;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
@@ -1087,17 +1092,19 @@ async function clanRosterSizes(env) {
 
 async function handleClans(env) {
   const week = windowOf(Date.now());
-  const [clans, sizes, season, weekly] = await Promise.all([
+  const [clans, clansCount, sizes, season, weekly] = await Promise.all([
     env.DB.prepare(`
       SELECT c.id, c.tag, c.name, c.motto, c.open, c.created_at, u.handle AS founder
       FROM clans c JOIN users u ON u.id = c.founder_id
-      ORDER BY c.created_at ASC LIMIT 300`).all(),
+      ORDER BY c.created_at ASC LIMIT ${CLANS_DIRECTORY_CAP}`).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM clans`).first(),
     clanRosterSizes(env),
     clanStandings(env, SEASON_WINDOW_ID, clan.MIN_SEASON_ROUNDS),
     clanStandings(env, week.weekId, clan.MIN_WEEK_ROUNDS),
   ]);
 
-  const empty = { roster: 0, active: 0, qualified: 0, needed: clan.COUNTING_MEMBERS,
+  const clansTotal = (clansCount && clansCount.n) || 0;
+const empty = { roster: 0, active: 0, qualified: 0, needed: clan.COUNTING_MEMBERS,
                   ranked: false, score: null, counting: [], rounds: 0, pnlSol: 0 };
   const entries = clans.results.map((row) => {
     const roster = sizes.get(row.id) || 0;
@@ -1121,6 +1128,8 @@ async function handleClans(env) {
     countingMembers: clan.COUNTING_MEMBERS,
     maxMembers: clan.MAX_MEMBERS,
     minSeasonRounds: clan.MIN_SEASON_ROUNDS,
+    clansTotal,
+    clansTruncated: clansTotal > entries.length,
     entries,
   });
 }
@@ -1420,88 +1429,128 @@ async function handleClanUpdate(request, env) {
 /* ---------------- pricing cron ---------------- */
 
 async function drainPricing(env) {
-  const now = Date.now();
-  // Oldest pending record that is not backing off. Without the stall filter a
-  // single record whose candles cannot be fetched would sit at the head of the
-  // queue forever and no other record would ever be verified.
-  const row = await env.DB.prepare(
-    `SELECT user_id, starting_sol, pricing_progress_json FROM records
-     WHERE status = 'pending'
-       AND COALESCE(json_extract(pricing_progress_json, '$.stalledUntil'), 0) <= ?
-     ORDER BY submitted_at ASC LIMIT 1`).bind(now).first();
-  if (!row) return;
-  const chain = await loadChain(env, row.user_id);
-  if (!chain.length) return;
-
+  // The drain is a LOOP, not a single row: one record per cron firing meant a
+  // burst of submissions aged out one per minute while the backlog grew
+  // without bound (defect A3-1). The candle budget is now shared across the
+  // whole tick, so total external spend is unchanged — the same
+  // CANDLE_BUDGET_PER_RUN bounds the run — it is just no longer abandoned
+  // after the first record.
   const budget = { used: 0, max: CANDLE_BUDGET_PER_RUN };
-  const progress = row.pricing_progress_json ? JSON.parse(row.pricing_progress_json) : null;
-  const before = progress && Number(progress.cursor) > 0 ? Number(progress.cursor) : 0;
-  let result;
-  try {
-    result = await priceRecord({ chain }, makeGetCandles(env, budget), progress, {
-      // A lookup can cost up to three external calls (pool resolve, token
-      // candle, SOL candle), so the per-run lookup cap is a third of the
-      // call budget. Passing it is what makes priceChain pause cleanly at a
-      // resumable cursor instead of running into the budget's own throw.
-      maxLookups: Math.max(1, Math.floor(CANDLE_BUDGET_PER_RUN / 3)),
-    });
-  } catch (err) {
-    // A throw here (candle source down, malformed stored progress) used to
-    // return silently — which kept this record at the HEAD of the queue,
-    // because the ORDER BY picks the oldest pending record and this one never
-    // stopped being it. One permanently-throwing record therefore starved
-    // every submission behind it, invisibly, forever (DEFECT L-10). Record a
-    // stall so the queue moves on and the failure is visible in the row.
-    const stalls = progress ? (Number(progress.stalls) || 0) + 1 : 1;
-    await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
-      .bind(JSON.stringify({
-        cursor: before,
-        verdicts: progress && Array.isArray(progress.verdicts) ? progress.verdicts : [],
-        stalledUntil: now + PRICING_BACKOFF_MS,
-        stalls,
-        lastStallAt: now,
-        lastError: String(err && err.message || err).slice(0, 200),
-      }), row.user_id)
-      .run();
-    // Log it too — a cron that silently returns is indistinguishable from a
-    // cron that is not firing, and the difference decides whether anyone
-    // goes looking.
-    console.error('drainPricing failed for user', row.user_id, err);
-    return;
-  }
+  let records = 0;
 
-  if (!result.done) {
-    // A run that priced nothing new is stalling on something outside our
-    // control. Back it off so the queue keeps moving, but keep every verdict
-    // already earned — and record WHY, because a record parked at `pending`
-    // with no explanation is indistinguishable from one that is progressing
-    // slowly, and the difference decides whether anyone goes looking.
-    const stalled = result.cursor <= before;
-    let stalls = 0;
-    if (stalled && progress) stalls = (Number(progress.stalls) || 0) + 1;
-    await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
-      .bind(JSON.stringify({
-        cursor: result.cursor,
-        verdicts: result.verdicts,
-        stalledUntil: stalled ? now + PRICING_BACKOFF_MS : 0,
-        stalls,
-        lastStallAt: stalled ? now : 0,
-      }), row.user_id)
+  while (records < MAX_RECORDS_PER_TICK) {
+    const now = Date.now();
+    // Oldest pending record that is not backing off. Without the stall filter a
+    // single record whose candles cannot be fetched would sit at the head of the
+    // queue forever and no other record would ever be verified.
+    const row = await env.DB.prepare(
+      `SELECT user_id, starting_sol, pricing_progress_json FROM records
+       WHERE status = 'pending'
+         AND COALESCE(json_extract(pricing_progress_json, '$.stalledUntil'), 0) <= ?
+       ORDER BY submitted_at ASC LIMIT 1`).bind(now).first();
+    if (!row) return; // queue empty: the tick is done
+    const chain = await loadChain(env, row.user_id);
+    if (!chain.length) {
+      // A pending record with no chain can never be priced (submit refuses
+      // empty chains, so this is corrupted state, not a normal path). The
+      // single-record drain ended the whole tick here; in a loop it would
+      // spin on the same row forever. Back it off so the queue moves and
+      // the broken state is visible in the row itself.
+      await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
+        .bind(JSON.stringify({
+          cursor: 0,
+          verdicts: [],
+          stalledUntil: now + PRICING_BACKOFF_MS,
+          stalls: 1,
+          lastStallAt: now,
+          lastError: 'empty-chain',
+        }), row.user_id)
+        .run();
+      records++;
+      continue;
+    }
+
+    const progress = row.pricing_progress_json ? JSON.parse(row.pricing_progress_json) : null;
+    const before = progress && Number(progress.cursor) > 0 ? Number(progress.cursor) : 0;
+    let result;
+    try {
+      result = await priceRecord({ chain }, makeGetCandles(env, budget), progress, {
+        // A lookup can cost up to three external calls (pool resolve, token
+        // candle, SOL candle), so the per-run lookup cap is a third of the
+        // call budget. Passing it is what makes priceChain pause cleanly at a
+        // resumable cursor instead of running into the budget's own throw.
+        maxLookups: Math.max(1, Math.floor(CANDLE_BUDGET_PER_RUN / 3)),
+      });
+    } catch (err) {
+      // A throw here (candle source down, malformed stored progress) used to
+      // return silently — which kept this record at the HEAD of the queue,
+      // because the ORDER BY picks the oldest pending record and this one never
+      // stopped being it. One permanently-throwing record therefore starved
+      // every submission behind it, invisibly, forever (DEFECT L-10). Record a
+      // stall so the queue moves on and the failure is visible in the row.
+      const stalls = progress ? (Number(progress.stalls) || 0) + 1 : 1;
+      await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
+        .bind(JSON.stringify({
+          cursor: before,
+          verdicts: progress && Array.isArray(progress.verdicts) ? progress.verdicts : [],
+          stalledUntil: now + PRICING_BACKOFF_MS,
+          stalls,
+          lastStallAt: now,
+          lastError: String(err && err.message || err).slice(0, 200),
+        }), row.user_id)
+        .run();
+      // Log it too — a cron that silently returns is indistinguishable from a
+      // cron that is not firing, and the difference decides whether anyone
+      // goes looking.
+      console.error('drainPricing failed for user', row.user_id, err);
+      records++;
+      continue;
+    }
+
+    if (!result.done) {
+      // A run that priced nothing new is stalling on something outside our
+      // control. Back it off so the queue keeps moving, but keep every verdict
+      // already earned — and record WHY, because a record parked at `pending`
+      // with no explanation is indistinguishable from one that is progressing
+      // slowly, and the difference decides whether anyone goes looking.
+      //
+      // Budget exhaustion is the one exception: the tick's SHARED budget ran
+      // out mid-queue, which says nothing about this record's health. Persist
+      // its cursor so the next tick resumes exactly here, but never stamp a
+      // backoff on it — candles.js documents budget-exhausted as "stop here,
+      // resume next run", and blaming a healthy record would hide it.
+      const budgetGone = budget.used >= budget.max;
+      const stalled = !budgetGone && result.cursor <= before;
+      let stalls = 0;
+      if (stalled && progress) stalls = (Number(progress.stalls) || 0) + 1;
+      await env.DB.prepare('UPDATE records SET pricing_progress_json = ? WHERE user_id = ?')
+        .bind(JSON.stringify({
+          cursor: result.cursor,
+          verdicts: result.verdicts,
+          stalledUntil: stalled ? now + PRICING_BACKOFF_MS : 0,
+          stalls,
+          lastStallAt: stalled ? now : 0,
+        }), row.user_id)
+        .run();
+      records++;
+      if (budgetGone) return; // budget spent: resume from this cursor next tick
+      continue;
+    }
+
+    // Re-award badges now that verification has a verdict: 'unbroken' is only
+    // earnable by a record whose every fill actually survived re-pricing.
+    const badges = awarded({
+      chain, startingSol: row.starting_sol, chainLen: chain.length,
+      pricingStatus: result.verdict.status, coverage: result.verdict.coverage,
+    });
+    await env.DB.prepare(`
+      UPDATE records SET status = ?, pricing_json = ?, pricing_progress_json = NULL,
+                         badges_json = ?, verified_at = ? WHERE user_id = ?`)
+      .bind(result.verdict.status, JSON.stringify(result.verdict),
+        JSON.stringify(badges), Date.now(), row.user_id)
       .run();
-    return;
+    records++;
   }
-  // Re-award badges now that verification has a verdict: 'unbroken' is only
-  // earnable by a record whose every fill actually survived re-pricing.
-  const badges = awarded({
-    chain, startingSol: row.starting_sol, chainLen: chain.length,
-    pricingStatus: result.verdict.status, coverage: result.verdict.coverage,
-  });
-  await env.DB.prepare(`
-    UPDATE records SET status = ?, pricing_json = ?, pricing_progress_json = NULL,
-                       badges_json = ?, verified_at = ? WHERE user_id = ?`)
-    .bind(result.verdict.status, JSON.stringify(result.verdict),
-      JSON.stringify(badges), Date.now(), row.user_id)
-    .run();
 }
 
 /* ---------------- streamer applications ---------------- */
