@@ -149,6 +149,11 @@
 
   .state { text-align: center; padding: 54px 20px; color: var(--muted); font-size: 14px; }
   .state .big { font-size: 34px; margin-bottom: 12px; opacity: 0.8; }
+
+  .pager { display: flex; align-items: center; gap: 14px; justify-content: center;
+    flex-wrap: wrap; padding: 18px 4px 4px; }
+  .pager-count { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.4px;
+    color: var(--dim); }
 </style>
 </head>
 <body>
@@ -223,10 +228,17 @@
       </div>
 
       <div class="searchbar" id="searchbar">
-        <input class="ar-input" type="search" id="q" placeholder="Search by handle or X user id…" autocomplete="off">
+        <input class="ar-input" type="search" id="q" placeholder="Search by handle, display name or X user id…" autocomplete="off">
       </div>
 
       <div class="rowset" id="rows"></div>
+
+      <!-- What is on screen out of what exists. A truncated list that looks
+           complete is the bug this replaced, so the count is always shown. -->
+      <div class="pager" id="pager" hidden>
+        <span class="pager-count" id="pagerCount"></span>
+        <button class="ar-btn" type="button" id="moreBtn" hidden>Load more</button>
+      </div>
 
       <div class="ledger">
         <h2>Moderation ledger</h2>

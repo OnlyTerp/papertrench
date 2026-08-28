@@ -244,35 +244,76 @@
 
   let view = 'accounts';
   let term = '';
+  let shown = 0;        // rows already on screen, and the offset of the next page
 
-  async function loadRows() {
+  function setPager(page) {
+    const pager = $('pager');
+    const more = $('moreBtn');
+    // No page block from the server means an older Worker: say nothing rather
+    // than invent a total.
+    if (!page) { pager.hidden = true; more.hidden = true; return; }
+    const noun = view === 'accounts' ? 'account' : 'clan';
+    pager.hidden = false;
+    $('pagerCount').textContent = page.total === shown
+      ? `${shown} ${noun}${shown === 1 ? '' : 's'}`
+      : `Showing ${shown} of ${page.total} ${noun}${page.total === 1 ? '' : 's'}`;
+    more.hidden = !page.hasMore;
+    more.disabled = false;
+    more.textContent = 'Load more';
+  }
+
+  /**
+   * Load a page of rows.
+   *
+   * `append` continues the current list; without it this is a fresh read and
+   * the offset goes back to zero. Both views paginate, because the cap used to
+   * be silent — and for clans, which have no search box, paging is the only
+   * route to a row past the first page.
+   */
+  async function loadRows({ append = false } = {}) {
     const box = $('rows');
-    box.innerHTML = '<div class="state"><div class="big">⏳</div>Loading…</div>';
+    if (!append) {
+      shown = 0;
+      box.innerHTML = '<div class="state"><div class="big">⏳</div>Loading…</div>';
+      $('pager').hidden = true;
+    }
     $('searchbar').hidden = (view !== 'accounts');
 
-    const path = view === 'accounts'
-      ? '/api/admin/users?q=' + encodeURIComponent(term)
-      : '/api/admin/clans';
+    const query = new URLSearchParams({ offset: String(append ? shown : 0) });
+    if (view === 'accounts') query.set('q', term);
+    const path = (view === 'accounts' ? '/api/admin/users?' : '/api/admin/clans?') + query;
     const { status, body } = await api(path);
 
     if (status === 403) { await boot(); return; }
     if (status < 200 || status >= 300 || !body || !body.ok) {
       // Say the read failed. "No accounts" would be a claim about the data,
       // made while we cannot see it.
+      if (append) {
+        const more = $('moreBtn');
+        more.disabled = false;
+        more.textContent = 'Couldn’t load more — retry';
+        return;
+      }
       box.innerHTML = '<div class="state"><div class="big">⚠️</div>'
         + 'Couldn’t load that. Refresh to try again.</div>';
       return;
     }
 
     const list = view === 'accounts' ? (body.users || []) : (body.clans || []);
-    if (!list.length) {
+    if (!append && !list.length) {
       box.innerHTML = `<div class="state"><div class="big">🗂️</div>${
         view === 'accounts'
           ? (term ? 'No account matches that.' : 'No accounts yet.')
           : 'No clans yet.'}</div>`;
+      $('pager').hidden = true;
       return;
     }
-    box.innerHTML = list.map(view === 'accounts' ? accountRow : clanRow).join('');
+
+    const html = list.map(view === 'accounts' ? accountRow : clanRow).join('');
+    if (append) box.insertAdjacentHTML('beforeend', html);
+    else box.innerHTML = html;
+    shown += list.length;
+    setPager(body.page);
   }
 
   async function loadLog() {
@@ -349,6 +390,13 @@
     box.querySelectorAll('button[data-do]').forEach((b) => { b.disabled = false; });
     msg.textContent = REASONS[body && body.reason] || 'That didn’t save — try again.';
     msg.className = 'act-msg err';
+  });
+
+  $('moreBtn').addEventListener('click', async () => {
+    const more = $('moreBtn');
+    more.disabled = true;
+    more.textContent = 'Loading…';
+    await loadRows({ append: true });
   });
 
   $('tabs').addEventListener('click', (event) => {
