@@ -2242,6 +2242,22 @@ one tester's week-old session into a permanent facade of a product on fire.
 
 ### S5 — latent hazards
 
+**L-19 · S1 · The Daily Spark graded against a sliding window — the chart a player played was not the chart the grader saw, and by late day the puzzle vanished entirely**
+`server/worker/spark.js` handleSparkToday/handleSparkGrade · every spark hit after the day's first, worst late-day · found by reliability audit (2026-08-28) · **fixed v3.17.0** (the day's chart is PINNED into D1 (`spark_charts`, day-keyed) at the same instant the day is pinned; `/today` and `/grade` serve/grade the pinned copy byte-for-byte; upstream fetch only as recovery when both stores miss; locked by spark-worker.test.js 'pinned chart survives upstream drift' + negative control: fix stashed → 5/7 fail → restored byte-identical)
+The day's puzzle is pinned at first hit (mint + tTs in spark_days), but both chart sources anchor their window to NOW — Indeix `to: Date.now()`, GeckoTerminal most-recent-N. For an actively trading mint the 720-bar window slides forward as the day passes: hours later tTs can exit the fetched window (puzzle 404s with `no-window` mid-day), and grading compares fills against DIFFERENT candles than the player saw — breaking the module's own determinism doctrine silently. Pin time is the only instant the full window is guaranteed; so that instant is when the chart is persisted.
+
+**L-20 · S2 · The spark lane's upstream budget was module-scoped — after 6 upstream calls in an isolate's lifetime the lane silently lost its primary source forever**
+`server/worker/spark.js` SPARK_BUDGET · every isolate living past 6 spark requests (production isolates live minutes-hours under traffic) · found by reliability audit (2026-08-28) · **fixed v3.17.0** (budget is created per REQUEST, matching indeix.js's own 'bounds a single request's upstream spend' contract; locked by spark-worker.test.js asserting the new /today gets a fresh 6-call budget after the old lane is drained — demonstrated live: with the module-scoped budget, the second test's mock saw ZERO primary-source hits because earlier tests in the same process had exhausted it)
+The comment said per-request; the wiring was isolate-lifetime. After the budget drained, every spark request silently downgraded to the fallback source — not an error, a quality collapse nobody would ever see in logs.
+
+**L-21 · S2 · The onboarding bot read exactly one page of mentions and advanced since_id past the rest — a mention burst permanently dropped most of the community**
+`bot/run.js` fetchMentions · any cycle receiving more than ~10 mentions (streamer shoutout, viral thread) · found by reliability audit (2026-08-28) · **fixed v3.17.0** (follows meta.next_token up to 5 pages per cycle and requests max_results=100; locked by run.test.js 'fetchMentions follows meta.next_token pages' — two-page fixture must return all three mentions; negative control: pre-fix code returned 2/3 and the test failed)
+X's mentions endpoint pages (~10 default). The loop fetched page one, then set since_id to the newest id seen — everything on page two was skipped in that cycle and never seen again, because every later cycle's since_id was already past it. The exact moment a community grows fast is the moment replies went missing.
+
+**L-22 · S3 · The bot's state file was written in place — a crash or full disk mid-write corrupted the only guard against duplicate replies**
+`bot/run.js` saveState · power loss / ENOSPC during a save · found by reliability audit (2026-08-28) · **fixed v3.17.0** (write-then-rename: the write lands on state.json.tmp and a single atomic rename swaps it in; a failed write leaves the previous state byte-perfect; locked by run.test.js 'saveState leaves the previous state readable when a write fails mid-way' — ENOSPC injected at the fs boundary, real state path redirected to scratch, negative control: direct-write code fails this test)
+The `replied` map in state.json is the only thing standing between the bot and answering the same person twice. Truncate-then-write means a mid-write death left invalid JSON (loadState falls back to empty) and every reply ever sent forgotten.
+
 **L-09 · S5 · Re-pricing hardcoded Solana's candle network — the chain label v2 links COMMIT was never consulted by the verifier it was committed for**
 `server/core/pricing.js` priceChain · `server/worker/candles.js` makeGetCandles ·
 latent (the multichain gate is closed; no foreign-chain fill exists) · found by audit ·

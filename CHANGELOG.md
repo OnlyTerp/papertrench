@@ -3,6 +3,28 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.17.0 — 2026-08-28
+
+**Reliability wave — the Daily Spark becomes drift-proof, and the bot stops
+losing people.**
+
+Four defects found by the reliability audit of the newest live surfaces,
+every one pinned by a test that fails on the old code (verified by stashing
+the fix and watching the suite go red).
+
+- The Daily Spark now grades against the exact chart you played: the day's
+  candles are pinned to the server the moment the day's puzzle is, instead
+  of being re-fetched fresh all day. Before, an actively trading coin's
+  sliding window could make the puzzle vanish mid-day — or worse, grade
+  your fills against different candles than the ones you saw.
+- The Spark's upstream candle budget no longer silently drains for the
+  lifetime of a server isolate; it resets every request as designed.
+- The onboarding bot now reads every page of its mentions instead of just
+  the first — a burst of replies (a shoutout moment) used to permanently
+  drop everyone past the first ten.
+- The bot's memory file is written atomically, so a crash mid-write can no
+  longer make it forget who it already answered and double-reply.
+
 ## v3.16.1 — 2026-08-28
 
 **Reckoning hardening — the ritual now actually works, and can't fail silently.**

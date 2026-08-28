@@ -47,8 +47,15 @@ function loadState() {
 }
 
 function saveState(state) {
+  /* R-02: the direct write truncated state.json BEFORE writing, so a crash /
+   * ENOSPC mid-write left a corrupt file — and the `replied` map it holds is
+   * the only thing standing between the community and duplicate replies.
+   * Write-then-rename is atomic on POSIX and Windows: readers see either the
+   * old state or the new one, never a half-file. */
   if (!fs.existsSync(STATE_DIR)) fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + '\n');
+  const tmp = STATE_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
+  fs.renameSync(tmp, STATE_FILE);
 }
 
 function envConfig() {
@@ -146,19 +153,37 @@ async function botUserId(cfg) {
 }
 
 async function fetchMentions(userId, sinceId, cfg) {
-  const url = new URL('https://api.x.com/2/users/' + userId + '/mentions');
-  url.searchParams.set('tweet.fields', 'conversation_id,author_id,created_at');
-  if (sinceId) url.searchParams.set('since_id', sinceId);
-  /* VERIFY against current X API docs: the endpoint path, pagination keys, and
-   * field names change over time. */
-  const data = await xGet(url.toString(), cfg);
-  return (data.data || []).map((m) => ({
-    id: m.id,
-    author_id: m.author_id,
-    conversation_id: m.conversation_id,
-    created_at: m.created_at,
-    text: m.text,
-  }));
+  /* R-01: X pages mentions (~10 per page by default) and this loop used to
+   * fetch exactly one page. since_id advances to the newest id in the SAME
+   * cycle, so everything past page one was skipped now and never seen
+   * again — a mention burst (a streamer shoutout, a viral thread) silently
+   * dropped most of the community's replies. Follow meta.next_token until
+   * X says the pages are done (capped for safety). */
+  const MAX_PAGES = 5;
+  const out = [];
+  let pageToken = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = new URL('https://api.x.com/2/users/' + userId + '/mentions');
+    url.searchParams.set('tweet.fields', 'conversation_id,author_id,created_at');
+    url.searchParams.set('max_results', '100');
+    if (sinceId) url.searchParams.set('since_id', sinceId);
+    if (pageToken) url.searchParams.set('pagination_token', pageToken);
+    /* VERIFY against current X API docs: the endpoint path, pagination keys, and
+     * field names change over time. */
+    const data = await xGet(url.toString(), cfg);
+    for (const m of data.data || []) {
+      out.push({
+        id: m.id,
+        author_id: m.author_id,
+        conversation_id: m.conversation_id,
+        created_at: m.created_at,
+        text: m.text,
+      });
+    }
+    pageToken = data.meta && data.meta.next_token;
+    if (!pageToken) break;
+  }
+  return out;
 }
 
 function delay(ms) {
@@ -226,7 +251,10 @@ async function runLoop() {
       saveState(state);
       console.log('cycle done', result);
     } catch (e) {
-      console.error('bot cycle error:', e.message || e);
+      /* R-03: cycle errors used to log as "[object Object]" when the thrown
+       * value was one of the retry-shaped objects (xGet/xPost throw those on
+       * 429/5xx) — diagnostics went blind exactly during rate limits. */
+      console.error('bot cycle error:', e && e.status ? 'HTTP ' + e.status : (e && e.message) || e);
     }
     await delay(cfg.POLL_SECONDS * 1000);
   }

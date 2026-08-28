@@ -82,7 +82,10 @@ function fakeDB(route) {
 }
 
 function makeEnv(db) {
-  return { DB: db, SITE_ORIGIN: ORIGIN, SITE_ORIGIN_ALT: '' };
+  // INDEIX_API_KEY present so tests drive the REAL primary chart lane —
+  // without it indeixJson throws 'indeix-not-configured' before any fetch
+  // and every test silently exercises only the GeckoTerminal fallback.
+  return { DB: db, SITE_ORIGIN: ORIGIN, SITE_ORIGIN_ALT: '', INDEIX_API_KEY: 'test-key' };
 }
 
 async function loadWorker() {
@@ -282,6 +285,129 @@ test('spark/today: no upstream data is an honest 404, not a fabrication', async 
     const res = await worker.fetch(new Request('https://api.test/api/spark/today'), env, { waitUntil: () => {} });
     assert.equal(res.status, 404);
     assert.equal((await res.json()).reason, 'no-data');
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
+/* ---------------- L-19: the pinned chart, not today's chart ----------------
+ *
+ * The memo pins (mint, T) but the chart was re-fetched on every request,
+ * anchored to NOW. For a mint that keeps trading, the 720-bar window slides
+ * forward: hours later T falls out of the fetched window, /today 404s with
+ * 'no-window', and a grade would run against DIFFERENT candles than the
+ * player saw. The fix stores the chart AT PIN TIME and serves every later
+ * request from that stored copy — determinism becomes structural.
+ */
+
+test('spark/today: pinned chart survives upstream drift (same bars all day)', async () => {
+  const chartA = shapeChart({ bars: 400 });
+  const charts = { MintA: chartA };
+  const store = { memo: null, charts: {} };
+  const db = fakeDB((sql, args) => {
+    if (sql.includes('FROM pools')) return [{ mint: 'MintA' }];
+    if (sql.includes('FROM spark_days')) return store.memo;
+    if (sql.includes('FROM spark_charts')) {
+      return store.charts[args[0]] ? { chart_json: store.charts[args[0]] } : null;
+    }
+    if (sql.includes('INSERT INTO spark_days')) {
+      store.memo = { day: args[0], mint: args[1], t_ts: args[2] };
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes('INSERT INTO spark_charts')) {
+      store.charts[args[0]] = args[1];
+      return { meta: { changes: 1 } };
+    }
+    return null;
+  });
+  const upstream = mockUpstream(charts);
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+
+    // Request 1: pick + pin. The stored chart must land in spark_charts.
+    let res = await worker.fetch(new Request('https://api.test/api/spark/today'), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200);
+    const body1 = await res.json();
+    assert.ok(store.charts[body1.day], 'chart is persisted at pin time');
+    const stored = JSON.parse(store.charts[body1.day]);
+    assert.ok(stored.length >= 160, 'stored chart hosts the full window');
+    const bar1 = JSON.stringify(body1.bars);
+
+    // The mint keeps trading: upstream now serves a chart shifted 360 bars
+    // forward (the pinned T is gone from the fresh fetch entirely).
+    charts.MintA = chartA.slice(360);
+
+    // Request 2 (memo path): must serve the PINNED bars, byte-identical.
+    res = await worker.fetch(new Request('https://api.test/api/spark/today'), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200, 'post-drift /today must not 404');
+    const body2 = await res.json();
+    assert.equal(body2.mint, body1.mint);
+    assert.equal(body2.tTs, body1.tTs);
+    assert.equal(JSON.stringify(body2.bars), bar1, 'players all day see the SAME chart');
+
+    // Grade after drift: same actions, same verdict — the stored chart is
+    // what grades, never the drifted upstream.
+    const actions = [
+      { type: 'buy', ts: body1.tTs + MIN },
+      { type: 'sell', ts: body1.tTs + 30 * MIN },
+    ];
+    const gradeReq = () => worker.fetch(new Request('https://api.test/api/spark/grade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+      body: JSON.stringify({ day: body1.day, mint: body1.mint, actions }),
+    }), env, { waitUntil: () => {} });
+    let g = await (await gradeReq()).json();
+    assert.equal(g.ok, true, 'grade works right after pin');
+    charts.MintA = chartA.slice(360); // (already drifted; be explicit)
+    const g2 = await (await gradeReq()).json();
+    assert.equal(g2.ok, true, 'grade still works after upstream drift');
+    assert.equal(g2.verdict.grade, g.verdict.grade, 'same actions => same grade, all day');
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
+/* ---------------- L-20: the upstream budget is per-request ----------------
+ *
+ * SPARK_BUDGET was module-scoped: 6 Indeix calls per ISOLATE LIFETIME, never
+ * reset — after the sixth call the spark lane silently lost its primary
+ * source for the rest of the isolate's life (days). The budget's own
+ * contract ("bounds a single request's upstream spend") is the law: a fresh
+ * budget per request. Proven at the wire: 8 legacy-memo grades => 8 Indeix
+ * hits, not a count that flatlines at 6.
+ */
+
+test('spark/grade: upstream budget does not poison across requests', async () => {
+  const chart = shapeChart({ bars: 400 });
+  const tTs = chart[90].ts;
+  const store = { memo: { day: '2026-08-28', mint: 'MintA', t_ts: tTs }, charts: {} };
+  const db = fakeDB((sql, args) => {
+    if (sql.includes('FROM spark_days')) return store.memo;
+    if (sql.includes('FROM spark_charts')) {
+      return store.charts[args[0]] ? { chart_json: store.charts[args[0]] } : null;
+    }
+    return null;
+  });
+  const upstream = mockUpstream({ MintA: chart });
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+    const actions = [{ type: 'buy', ts: tTs + MIN }];
+    // 8 sequential grades with NO stored chart (legacy memo) — each must be
+    // free to reach Indeix on its own budget.
+    for (let i = 0; i < 8; i++) {
+      const res = await worker.fetch(new Request('https://api.test/api/spark/grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+        body: JSON.stringify({ day: '2026-08-28', mint: 'MintA', actions }),
+      }), env, { waitUntil: () => {} });
+      assert.equal(res.status, 200, 'grade ' + i + ' must not silently degrade');
+    }
+    const indeixHits = upstream.calls.filter((u) => u.includes('/2/token/ohlcv-history')).length;
+    assert.equal(indeixHits, 8, 'every request gets a fresh upstream budget (got ' + indeixHits + ')');
   } finally {
     upstream.restore();
     delete globalThis.caches;

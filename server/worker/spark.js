@@ -30,7 +30,16 @@ function json(data, status) {
 }
 
 const SPARK_CHAIN = 'solana';
-const SPARK_BUDGET = { used: 0, max: 6 };
+
+/** Fresh upstream budget per REQUEST — indeix.js's own contract is "bounds a
+ * single request's upstream spend". A module-scoped budget never resets, so
+ * the sixth upstream call of an isolate's life would silently strip the spark
+ * lane of its primary source for the rest of the isolate's life (days). Each
+ * handler mints its own; the /today candidate loop shares one across its
+ * bounded 5-candidate scan. (L-20) */
+function freshBudget() {
+  return { used: 0, max: 6 };
+}
 
 /* How far back the blind window reaches. The core pick needs a chart with
  * enough bars that the interesting shape lives inside the playable window;
@@ -81,15 +90,42 @@ async function setDayMemo(env, day, mint, tTs) {
 }
 
 /**
+ * The day's PINNED CHART: the exact candles fetched at pick time, stored next
+ * to the memo. This is what makes the puzzle deterministic for real: the memo
+ * alone pinned (mint, T) but every later request re-fetched the chart
+ * anchored to NOW, so a still-trading mint's 720-bar window slid forward —
+ * hours later T left the window, /today 404'd with 'no-window', and a grade
+ * would have run against different candles than the player saw. (L-19)
+ */
+async function dayChart(env, day) {
+  const row = await env.DB.prepare(
+    'SELECT chart_json FROM spark_charts WHERE day = ?').bind(day).first();
+  if (!row || !row.chart_json) return null;
+  try {
+    const chart = JSON.parse(row.chart_json);
+    return Array.isArray(chart) && chart.length ? chart : null;
+  } catch {
+    return null; // corrupt row: behave as absent, re-pin below
+  }
+}
+
+async function setDayChart(env, day, chart) {
+  await env.DB.prepare(
+    'INSERT INTO spark_charts (day, chart_json, created_at) VALUES (?, ?, ?) ' +
+    'ON CONFLICT(day) DO UPDATE SET chart_json = excluded.chart_json')
+    .bind(day, JSON.stringify(chart), Date.now()).run();
+}
+
+/**
  * Load the chart for a mint via the same lane the replay uses: Indeix first,
  * GeckoTerminal fallback. Returns [{ts,o,h,l,c,v}] ascending, or null.
  */
-async function sparkChart(env, mint) {
+async function sparkChart(env, mint, budget) {
   const { chartBars: gtBars } = require('./candles.js');
   const indeix = require('./indeix.js');
   let candles = null;
   try {
-    candles = await indeix.ohlcv(env, SPARK_CHAIN, mint, 0, SPARK_BUDGET, SPARK_BARS);
+    candles = await indeix.ohlcv(env, SPARK_CHAIN, mint, 0, budget || freshBudget(), SPARK_BARS);
   } catch (e) {
     candles = null;
   }
@@ -118,34 +154,44 @@ async function handleSparkToday(request, env) {
   const memo = await dayMemo(env, day);
   let mint = memo ? memo.mint : null;
   let tTs = memo ? memo.tTs : 0;
+  let chart = await dayChart(env, day);
 
   if (!mint) {
     const mints = await candidateMints(env);
     if (!mints.length) return json({ ok: false, reason: 'no-pool' }, 404);
     // Load charts for candidates until the core pick succeeds. Bound the
     // work: 5 candidates is plenty for a deterministic pick, and each chart
-    // is a real upstream call.
+    // is a real upstream call (shared budget bounds the whole scan).
+    const budget = freshBudget();
     const candidates = [];
     for (const m of mints.slice(0, 5)) {
-      const chart = await sparkChart(env, m);
+      const chart = await sparkChart(env, m, budget);
       if (chart) candidates.push({ mint: m, chart });
     }
     if (!candidates.length) return json({ ok: false, reason: 'no-data' }, 404);
     const pick = spark.pickForDay(day, candidates);
     if (!pick) return json({ ok: false, reason: 'no-pick' }, 404);
+    const picked = candidates.find((c) => c.mint === pick.mint);
     mint = pick.mint;
     tTs = pick.window.tTs;
+    // Pin EVERYTHING the puzzle needs at pick time: (mint, T) in spark_days
+    // and the exact chart in spark_charts. From here on, the day plays and
+    // grades against THIS copy — upstream drift cannot touch it.
     await setDayMemo(env, day, mint, tTs);
+    await setDayChart(env, day, picked.chart);
+    chart = picked.chart;
   }
 
-  // Load the chart (memo path may have a mint but no chart in this request).
-  const chart = await sparkChart(env, mint);
-  if (!chart) return json({ ok: false, reason: 'no-data' }, 404);
+  // Serve from the PINNED chart when it exists; only a legacy memo (written
+  // before spark_charts did) re-fetches, and its grade path degrades honestly
+  // when the drifted upstream no longer hosts the window (see handleSparkGrade).
+  const effective = chart || (await dayChart(env, day)) || (await sparkChart(env, mint, freshBudget()));
+  if (!effective) return json({ ok: false, reason: 'no-data' }, 404);
 
   // BLIND LAW: only bars with ts <= tTs may leave this handler. A bar at
   // exactly tTs is the reveal bar — the client may see it (it is the moment
   // they act on), but nothing after.
-  const blind = chart.filter((c) => c.ts <= tTs);
+  const blind = effective.filter((c) => c.ts <= tTs);
   if (!blind.length) return json({ ok: false, reason: 'no-window' }, 404);
 
   return json({
@@ -178,8 +224,11 @@ async function handleSparkGrade(request, env) {
   if (!memo || memo.mint !== mint) {
     return json({ ok: false, reason: 'wrong-day' }, 400);
   }
-  const chart = await sparkChart(env, mint);
-  if (!chart) return json({ ok: false, reason: 'no-data' }, 404);
+  // L-19: grade against the PINNED chart — the exact bars the player saw.
+  // Upstream fetch only as recovery when both stores miss (drift relief).
+  const pinned = await dayChart(env, day);
+  const chart = pinned || (await sparkChart(env, mint, freshBudget()));
+  if (!chart) return json({ ok: false, reason: 'no-data' }, 503);
 
   const valid = spark.validateActions(actions, memo.tTs);
   if (!valid || !valid.ok) {

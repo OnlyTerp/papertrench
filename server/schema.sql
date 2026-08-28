@@ -216,6 +216,17 @@ CREATE TABLE IF NOT EXISTS spark_days (
   created_at INTEGER NOT NULL
 );
 
+-- L-19: the day's PINNED chart. Written once at pin time (first /today hit),
+-- read on every later /today and /grade. This is what makes the game
+-- deterministic: every player all day sees the exact bars the first player
+-- saw, even if upstream later loses or rewrites history. Serve-stale is the
+-- design, not a fallback: the pinned window is the product.
+CREATE TABLE IF NOT EXISTS spark_charts (
+  day TEXT PRIMARY KEY,
+  chart_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Cached, ingest-sanitized X posts per handle (lowercased). One row per
 -- trader; the JSON is the already-clean output of worker/xfeed.js, never
 -- upstream markup. Fresh for ~20 minutes, servable stale for days.
