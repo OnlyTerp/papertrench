@@ -789,6 +789,10 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
    pull the eye off the page content they sit under. */
 .foot-btn.discord:hover { color: #b9a5ff; background: rgba(88, 101, 242, 0.14); border-color: rgba(88, 101, 242, 0.45); }
 .foot-btn.x:hover { background: rgba(255, 255, 255, 0.11); border-color: rgba(255, 255, 255, 0.3); }
+/* TikTok’s mark is two-tone (cyan/magenta); a single-colour glyph cannot carry
+   that, so the hover takes the cyan alone rather than faking a gradient at
+   15px where both tones would just read as mud. */
+.foot-btn.tiktok:hover { color: #6ff3ee; background: rgba(37, 244, 238, 0.12); border-color: rgba(37, 244, 238, 0.42); }
 @media (prefers-reduced-motion: reduce) { .foot-btn:hover { transform: none; } }
 @media (max-width: 720px) { .foot-social { justify-content: center; } }
 
