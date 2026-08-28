@@ -41,6 +41,46 @@
   // An endpoint that fails is benched, not discarded; transient 429s recover.
   const COOLDOWN_MS = 60_000;
   const PROBE_TIMEOUT_MS = 4000;
+  // Heavy reads (getProgramAccounts over the whole PumpSwap program) legiti-
+  // mately take longer than the ordinary 4s ceiling from THIS machine. A
+  // timeout on such a read is OUR ceiling being wrong, not the endpoint dying
+  // — measured 2026-08-28: one real gPA benched all three endpoints inside
+  // two calls purely via 'This operation was aborted'. Methods that match
+  // get a longer ceiling. (DEFECT F-62)
+  const PROBE_TIMEOUT_SLOW_MS = 15_000;
+  const SLOW_METHODS = new Set(['getProgramAccounts', 'getMultipleAccounts', 'getSignatureStatuses']);
+  function timeoutFor(method) {
+    return SLOW_METHODS.has(method) ? PROBE_TIMEOUT_SLOW_MS : PROBE_TIMEOUT_MS;
+  }
+  // A policy refusal (HTTP 403) is not a transient strike: it is the endpoint
+  // saying 'not for you', and it does not heal. Treating it as transient made
+  // one gPA-403 from the pool head drag the whole pool into cooldown while
+  // the honest calls kept failing over into the same bench (ark_trades13
+  // 2026-08-27 debug log: 56 error groups, 'rpc pool cooling down' x243).
+  // (DEFECT F-63)
+  const METHOD_BLOCK_MS = 30 * 60_000;
+  // Evidence law for method blocks (feed4/final2 lessons, 2026-08-28): these
+  // keyless endpoints run WAFs that burst-block ANY method under rapid
+  // multi-call traffic — publicnode served getMultipleAccounts fine when calm
+  // and 403'd it seconds later mid-prewatch. So ONE 403 must NOT bench the
+  // endpoint and must NOT hard-block the method: it DEMOTES the endpoint to
+  // the back of the ranking for DEMOTE_MS (hostile-to-this-client-right-now)
+  // and arms pending evidence. A SECOND 403 on the same (endpoint, method)
+  // inside the evidence window confirms real policy and blocks the method
+  // for METHOD_BLOCK_MS. Any success clears the demotion and the pending
+  // evidence instantly. (DEFECT F-63, refined twice)
+  const METHOD_EVIDENCE_MS = 10 * 60_000;
+  const DEMOTE_MS = 45_000;
+  // Failed strikes forgive after two quiet minutes: a single blip right
+  // after a bench expiry used to re-bench an endpoint for another full
+  // minute, forever. (part of F-63)
+  const FAILURE_DECAY_MS = 120_000;
+  // The half-open probe rotates through the pool instead of always trusting
+  // the head; one dead head used to re-probe itself forever while healthy
+  // endpoints stayed benched behind it. The F-09 contract ('exactly one
+  // endpoint touched') still holds — rotation changes WHICH one, not HOW
+  // MANY. (part of F-63)
+  let probeCursor = 0;
 
   const health = new Map(); // id -> { failures, benchedUntil, latencyMs, samples }
   let userEndpoint = null;
@@ -61,7 +101,7 @@
         healthSaveTimer = null;
         const out = {};
         for (const [id, s] of health) {
-          out[id] = { latencyMs: s.latencyMs, failures: s.failures, samples: s.samples || 0 };
+          out[id] = { latencyMs: s.latencyMs, failures: s.failures, samples: s.samples || 0, methodBlocks: s.methodBlocks || {} };
         }
         try { chrome.storage.local.set({ [HEALTH_KEY]: out }); } catch (_) {}
       }, 500);
@@ -82,13 +122,16 @@
           const cur = stateFor(id);
           if (cur.latencyMs == null && typeof s.latencyMs === 'number') cur.latencyMs = s.latencyMs;
           if (typeof s.samples === 'number') cur.samples = Math.max(cur.samples || 0, s.samples);
+          if (s.methodBlocks && typeof s.methodBlocks === 'object') {
+            cur.methodBlocks = Object.assign({}, cur.methodBlocks, s.methodBlocks);
+          }
         }
       });
     } catch (_) {}
   })();
 
   function stateFor(id) {
-    if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, latencyMs: null, samples: 0 });
+    if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, demotedUntil: 0, lastFailureAt: 0 });
     return health.get(id);
   }
 
@@ -114,6 +157,7 @@
    */
   function ranked(opts) {
     const needsWs = Boolean(opts && opts.websocket);
+    const method = opts && opts.method ? String(opts.method) : null;
     const now = Date.now();
     const list = [];
     if (userEndpoint && (!needsWs || userEndpoint.ws)) list.push(userEndpoint);
@@ -127,6 +171,18 @@
         const benchedA = sa.benchedUntil > now ? 1 : 0;
         const benchedB = sb.benchedUntil > now ? 1 : 0;
         if (benchedA !== benchedB) return benchedA - benchedB;
+        // A method-block is worse than a bench: even after the bench lapses
+        // this endpoint still refuses this method, so for THIS call it ranks
+        // behind endpoints that merely throttled. (F-63)
+        const blockedA = method && sa.methodBlocks[method] > now ? 1 : 0;
+        const blockedB = method && sb.methodBlocks[method] > now ? 1 : 0;
+        if (blockedA !== blockedB) return blockedA - blockedB;
+        // A fresh 403 demotes to the back of the line for DEMOTE_MS: the
+        // endpoint just called this client hostile — the next call should
+        // start elsewhere. Any success lifts it. (F-63 refined)
+        const demotedA = sa.demotedUntil > now ? 1 : 0;
+        const demotedB = sb.demotedUntil > now ? 1 : 0;
+        if (demotedA !== demotedB) return demotedA - demotedB;
         if (sa.failures !== sb.failures) return sa.failures - sb.failures;
         // Prefer a measured-fast endpoint; unmeasured sorts after measured.
         const la = sa.latencyMs == null ? Infinity : sa.latencyMs;
@@ -141,6 +197,11 @@
     const state = stateFor(id);
     state.failures = 0;
     state.benchedUntil = 0;
+    state.lastFailureAt = 0;
+    // A success is proof the endpoint serves — pending method-block evidence
+    // was a WAF blip, not policy. Disarm it, and lift the 403 demotion.
+    if (state.methodEvidence && Object.keys(state.methodEvidence).length) state.methodEvidence = {};
+    if (state.demotedUntil) state.demotedUntil = 0;
     if (latencyMs != null) {
       // Smooth the estimate so one slow response cannot demote a good endpoint.
       state.latencyMs = state.latencyMs == null
@@ -151,12 +212,55 @@
     persistHealthSoon();
   }
 
-  function reportFailure(id) {
+  function reportFailure(id, opts) {
     const state = stateFor(id);
+    const now = Date.now();
+    const kind = opts && opts.kind ? opts.kind : 'transient';
+    const method = opts && opts.method ? String(opts.method) : null;
+
+    if (kind === 'method') {
+      // Policy refusal, evidence-gated (F-63 refined twice): ONE 403 = a
+      // DEMOTION to the back of the line for DEMOTE_MS (the endpoint just
+      // called this client hostile) + pending evidence. It does NOT take a
+      // transient strike — that is what re-benched publicnode twice and
+      // left the whole pool benched in the ark_trades13 spiral. A SECOND
+      // 403 on the same (endpoint, method) inside the evidence window
+      // confirms real policy: block the method for METHOD_BLOCK_MS.
+      state.lastFailureAt = now;
+      state.demotedUntil = now + DEMOTE_MS;
+      if (method) {
+        state.methodEvidence = state.methodEvidence || {};
+        const armedAt = state.methodEvidence[method];
+        if (armedAt && now - armedAt <= METHOD_EVIDENCE_MS) {
+          // CONFIRMED policy: hard-block this method on this endpoint.
+          state.methodBlocks = state.methodBlocks || {};
+          state.methodBlocks[method] = now + METHOD_BLOCK_MS;
+          delete state.methodEvidence[method];
+        } else {
+          // First offence: demotion only, evidence armed, no block.
+          state.methodEvidence[method] = now;
+        }
+      }
+      persistHealthSoon();
+      return;
+    }
+
+    // Strikes forgive: a failure older than the decay window stops counting.
+    // Without this, one blip right after a bench expiry re-benched the
+    // endpoint for another full minute, forever.
+    if (state.lastFailureAt && now - state.lastFailureAt > FAILURE_DECAY_MS) state.failures = 0;
+    state.lastFailureAt = now;
     state.failures += 1;
     // Two strikes benches an endpoint; a single blip is not worth losing it.
-    if (state.failures >= 2) state.benchedUntil = Date.now() + COOLDOWN_MS;
+    if (state.failures >= 2) state.benchedUntil = now + COOLDOWN_MS;
     persistHealthSoon();
+  }
+
+  /** True when every pool endpoint currently refuses this method (F-63). */
+  function methodBlockedEverywhere(method) {
+    if (!method) return false;
+    const now = Date.now();
+    return PUBLIC_ENDPOINTS.every((e) => (stateFor(e.id).methodBlocks[method] || 0) > now);
   }
 
   /**
@@ -193,6 +297,17 @@
   let lastBenchedProbeAt = 0;
   const BENCHED_PROBE_MS = 5000;
 
+  /* Flight recorder: the last ATTEMPT_LOG_MAX attempts, for forensics. The
+   * ark_trades13 debug export showed errors with no attempt context, which
+   * turned a 5-minute diagnosis into an archaeology dig. Exposed via
+   * _attempts() for scenarios and the share-debug blob; capped, no growth. */
+  const ATTEMPT_LOG_MAX = 60;
+  const attemptLog = [];
+  function logAttempt(entry) {
+    attemptLog.push(Object.assign({ t: Date.now() }, entry));
+    if (attemptLog.length > ATTEMPT_LOG_MAX) attemptLog.shift();
+  }
+
   // Hedged failover: a HANGING endpoint is worse than a failing one — a hard
   // failure steps to the next endpoint immediately, but a hang used to eat
   // the full PROBE_TIMEOUT before failover. Measured live on the sniping
@@ -204,24 +319,73 @@
   // so the extra traffic exists exactly when the pool is misbehaving.
   const HEDGE_MS = 500;
 
-  function attemptEndpoint(endpoint, method, params, controllers) {
+  function attemptEndpoint(endpoint, method, params, controllers, race) {
     const started = Date.now();
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     if (controller && controllers) controllers.push(controller);
-    const timer = controller ? setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutFor(method)) : null;
+    const isLoser = () => Boolean(race && race.winner != null && race.winner !== endpoint.id);
     return fetch(endpoint.http, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
       signal: controller ? controller.signal : undefined,
     }).then(async (response) => {
-      if (!response.ok) throw new Error('http ' + response.status);
+      if (!response.ok) {
+        // 403 is a policy refusal, not a throttle (F-63): record it as a
+        // method block rather than a transient strike. The error carries
+        // method+endpoint so debug exports name the culprit (ark_trades13
+        // taught this: 'http 403' with no method cost a full diagnosis).
+        if (response.status === 403) {
+          logAttempt({ endpoint: endpoint.id, method, status: 403, ms: Date.now() - started });
+          reportFailure(endpoint.id, { kind: 'method', method });
+          const err = new Error('http 403 ' + method + ' @ ' + endpoint.id);
+          err.kind = 'method';
+          // Already classified + reported + logged: the catch below must not
+          // reportFailure AGAIN, or one WAF blip arms evidence twice and
+          // confirms a 30-minute block from a single 403 (caught by F-63 NC).
+          err.reported = true;
+          err.logged = true;
+          throw err;
+        }
+        logAttempt({ endpoint: endpoint.id, method, status: response.status, ms: Date.now() - started });
+        throw new Error('http ' + response.status + ' ' + method + ' @ ' + endpoint.id);
+      }
       const json = await response.json();
-      if (json.error) throw new Error(json.error.message || 'rpc error');
+      if (json.error) {
+        // Some providers answer 200 with an rpc-level policy refusal
+        // (tatum: 'paid plans only'). Message-shape classification keeps
+        // those out of the transient bucket too.
+        const msg = String((json.error && json.error.message) || 'rpc error');
+        if (/method not found|not allowed|forbidden|blocked|unauthor|paid plan/i.test(msg)) {
+          logAttempt({ endpoint: endpoint.id, method, status: 'rpc-policy', ms: Date.now() - started });
+          reportFailure(endpoint.id, { kind: 'method', method });
+          const err = new Error(msg);
+          err.kind = 'method';
+          // Same double-report guard as the HTTP-403 branch above.
+          err.reported = true;
+          err.logged = true;
+          throw err;
+        }
+        logAttempt({ endpoint: endpoint.id, method, status: 'rpc-error', ms: Date.now() - started });
+        throw new Error(msg);
+      }
+      race && (race.winner = endpoint.id);
+      logAttempt({ endpoint: endpoint.id, method, status: 200, ms: Date.now() - started });
       reportSuccess(endpoint.id, Date.now() - started);
       return json.result;
     }).catch((error) => {
-      reportFailure(endpoint.id);
+      // A hedged LOSER was aborted because a sibling already answered —
+      // that says nothing about this endpoint's health, and striking it
+      // made winning a race cost the loser a bench (F-63). Timeouts and
+      // real rejections still report.
+      if (isLoser()) { throw error; }
+      if (!(error && error.logged)) {
+        logAttempt({ endpoint: endpoint.id, method, status: error && error.name === 'AbortError' ? 'timeout' : 'rejected', ms: Date.now() - started });
+      }
+      if (!(error && error.reported)) {
+        reportFailure(endpoint.id, { kind: error && error.kind, method });
+      }
       throw error;
     }).finally(() => {
       // The abort timer must clear on EVERY path — a rejected fetch used
@@ -231,18 +395,31 @@
   }
 
   async function call(method, params, opts) {
-    let endpoints = ranked(opts);
+    // A method every pool endpoint refuses is a known policy, not a flake —
+    // burning the hedge walk on it every 800ms detect tick only rebuilt the
+    // cooldown chatter (ark_trades13: 'rpc pool cooling down' x243). Fail
+    // honestly and instantly; the callers own the fallback. (F-63)
+    if (!hasUserEndpoint() && methodBlockedEverywhere(method)) {
+      throw new Error('rpc method blocked by every endpoint: ' + method);
+    }
+    let endpoints = ranked(Object.assign({}, opts, { method }));
     const now = Date.now();
     if (endpoints.length && endpoints.every((e) => stateFor(e.id).benchedUntil > now)) {
       if (now - lastBenchedProbeAt < BENCHED_PROBE_MS) {
         throw new Error('rpc pool cooling down');
       }
       lastBenchedProbeAt = now;
-      endpoints = endpoints.slice(0, 1); // the single half-open probe
+      // The single half-open probe ROTATES (F-63): one dead head used to
+      // re-probe itself forever while healthy endpoints sat benched behind
+      // it. Still exactly one endpoint per probe window (F-09 contract).
+      const probeIndex = probeCursor % endpoints.length;
+      probeCursor += 1;
+      endpoints = endpoints.slice(probeIndex, probeIndex + 1);
     }
     if (!endpoints.length) throw new Error('no rpc endpoint available');
 
     const controllers = [];
+    const race = { winner: null };
     return await new Promise((resolve, reject) => {
       let settled = false;
       let pending = 0;
@@ -265,7 +442,7 @@
         if (settled || index >= endpoints.length) return;
         const endpoint = endpoints[index++];
         pending += 1;
-        attemptEndpoint(endpoint, method, params, controllers).then(
+        attemptEndpoint(endpoint, method, params, controllers, race).then(
           (result) => { pending -= 1; finish(resolve, result); },
           (error) => {
             pending -= 1;
@@ -293,9 +470,10 @@
     PUBLIC_ENDPOINTS, COOLDOWN_MS,
     setUserEndpoint, hasUserEndpoint,
     ranked, call, websocketUrls, poolLatency,
-    reportSuccess, reportFailure,
+    reportSuccess, reportFailure, methodBlockedEverywhere,
     _health: health,
-    _reset: () => { health.clear(); userEndpoint = null; },
+    _attempts: () => attemptLog.slice(),
+    _reset: () => { health.clear(); userEndpoint = null; probeCursor = 0; },
   };
 
   if (typeof self !== 'undefined') self.PTRpcPool = api;

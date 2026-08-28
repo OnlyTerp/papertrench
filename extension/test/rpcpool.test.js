@@ -234,3 +234,69 @@ test("F-27: the abort timer clears on every path, including a rejected fetch", (
   assert.match(block, /\.finally\(\(\) => \{[\s\S]*?clearTimeout\(timer\)/,
     "clearTimeout must live in a finally so a rejected fetch cannot leak the abort timer");
 });
+
+const FAKE_ADDR = '4w2cysotX6czaUGmmWg13hDpY4QEMG2CzeKYEQyK9Ama';
+const blockedResponse = () => ({ ok: false, status: 403 });
+
+test("F-63 refined: one 403 demotes to the back of the line, no bench, evidence armed", async () => {
+  // Scripted WAF: only publicnode refuses, every other endpoint serves.
+  // The call must still SUCCEED via failover — that is the demotion design:
+  // the next call starts elsewhere without the endpoint leaving the pool.
+  const P = loadPool(async (url) => {
+    if (String(url).includes('publicnode')) throw new TypeError('no network in unit tests');
+    return okResponse('ok');
+  });
+  const urlOf = (id) => P.PUBLIC_ENDPOINTS.find((e) => e.id === id).http;
+  const P403 = loadPool(async (url) => {
+    if (String(url).includes('publicnode')) return blockedResponse();
+    return okResponse('ok');
+  });
+  await P403.call('getMultipleAccounts', [[FAKE_ADDR], { encoding: 'base64' }]);
+  const s = P403._health.get('publicnode');
+  assert.equal(s.benchedUntil, 0, 'a single 403 must not bench the endpoint');
+  assert.ok(s.methodEvidence.getMultipleAccounts > 0, 'evidence must be armed after one 403');
+  assert.ok(s.demotedUntil > Date.now(), 'the endpoint must be demoted after a 403');
+  const order = P403.ranked({ method: 'getSlot' }).map((e) => e.id);
+  assert.notEqual(order[0], 'publicnode',
+    'the demoted endpoint must not lead the next call for any method');
+  // A success on the endpoint lifts the demotion and disarms the evidence.
+  P403.reportSuccess('publicnode', 120);
+  assert.equal(P403._health.get('publicnode').demotedUntil, 0,
+    'a success must lift the 403 demotion');
+  assert.ok(!P403._health.get('publicnode').methodEvidence.getMultipleAccounts,
+    'a success must disarm pending method evidence');
+  // Pool isolation: vm-scoped instances must not share health state — the
+  // untouched pool must have an empty health map after the other pool
+  // served a 403 and two successes.
+  assert.equal(P._health.size, 0,
+    'separate pool instances must not share health state');
+});
+
+test("F-63 refined: a second 403 on the same method confirms the block; 403s never take transient strikes", async () => {
+  // Every endpoint refuses getMultipleAccounts but serves everything else —
+  // exactly a keyless WAF policy against heavy scans.
+  let fetchCalls = 0;
+  const P = loadPool(async (url, init) => {
+    const body = init && init.body ? String(init.body) : '';
+    fetchCalls += 1;
+    if (body.includes('getMultipleAccounts')) return blockedResponse();
+    return okResponse(12345);
+  });
+  // Two gMA attempts: the first arms evidence, the second confirms policy.
+  await assert.rejects(() => P.call('getMultipleAccounts', [[FAKE_ADDR], {}]), /403/);
+  await assert.rejects(() => P.call('getMultipleAccounts', [[FAKE_ADDR], {}]), /403/);
+  const s = P._health.get('publicnode');
+  assert.ok(s.methodBlocks.getMultipleAccounts > Date.now(),
+    'two 403s on one method must confirm the method block');
+  assert.equal(s.benchedUntil, 0,
+    'method 403s must never take transient strikes (the ark_trades13 spiral)');
+  // A confirmed block must not poison other methods: getSlot still serves.
+  const slot = await P.call('getSlot', []);
+  assert.equal(slot, 12345, 'a method block must leave other methods working');
+  // With every endpoint confirmed-blocked for gMA, the pool fails fast with
+  // ZERO new network traffic — the anti-hammer contract.
+  const callsBefore = fetchCalls;
+  await assert.rejects(() => P.call('getMultipleAccounts', [[FAKE_ADDR], {}]), /403|blocked/);
+  assert.equal(fetchCalls, callsBefore,
+    'a fully method-blocked pool must fail fast without network traffic');
+});

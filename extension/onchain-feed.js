@@ -726,7 +726,11 @@
         commitment: COMMITMENT,
         filters: [{ memcmp: { offset: O.PUMPSWAP_BASE_MINT, bytes: mint } }],
       }]);
-    } catch (_) { return null; }
+    } catch (_) {
+      // The scan is refused (method-blocked pool-wide, F-63) or failed —
+      // fall back to the aggregator hint, re-verified on-chain below (F-64).
+      return findPoolViaAggregator(mint);
+    }
     // Some providers answer gPA with the payload stripped; re-read by address
     // rather than trusting a shape we did not get.
     const entries = Array.isArray(found) ? found : (found && found.value) || [];
@@ -759,6 +763,68 @@
       if (!best || token.amount > best.amount) best = { pool: candidates[i].pool, amount: token.amount };
     }
     return best ? best.pool : candidates[0].pool;
+  }
+
+  /**
+   * Aggregator-assisted pool discovery — the fallback when the chain refuses
+   * the program scan. (DEFECT F-64, ark_trades13 2026-08-27.)
+   *
+   * `getProgramAccounts` is the heaviest read this module makes and the ONE
+   * method keyless public endpoints routinely refuse outright: publicnode
+   * answers HTTP 403 'Request blocked', tatum demands a paid plan, and
+   * api.mainnet-beta began 403ing it from residential IPs as of 2026-08-28.
+   * A graduated coin's prewatch therefore used to die exactly where its
+   * price lives. The dexscreener public API (keyless, verified live
+   * 2026-08-28) names the pair addresses for a mint — but an aggregator
+   * claim is a HINT, never a fact. Every candidate is re-verified on-chain
+   * with the same bar as the scan above: a known pool program owner, a
+   * decoded PumpSwap layout, the requested base mint, a WSOL quote. The
+   * aggregator can lie; the chain cannot.
+   */
+  const AGG_CACHE = new Map(); // mint -> { pool, at }
+  const AGG_POS_TTL_MS = 10 * 60_000;
+  const AGG_NEG_TTL_MS = 60_000;
+
+  async function findPoolViaAggregator(mint) {
+    const cached = AGG_CACHE.get(mint);
+    if (cached) {
+      const ttl = cached.pool ? AGG_POS_TTL_MS : AGG_NEG_TTL_MS;
+      if (Date.now() - cached.at < ttl) return cached.pool;
+    }
+    let pool = null;
+    try {
+      const response = await fetch('https://api.dexscreener.com/latest/dex/tokens/' + encodeURIComponent(mint), {
+        headers: { accept: 'application/json' },
+      });
+      if (response.ok) {
+        const json = await response.json();
+        const pairs = json && Array.isArray(json.pairs) ? json.pairs : [];
+        const solana = pairs.filter((p) => p && p.chainId === 'solana' && isAddress(p.pairAddress));
+        // Deepest first (defensive re-sort: the API presorts, but the hint
+        // must not be trusted for ordering either), WSOL-quoted first since
+        // only those can pass verification below.
+        solana.sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0));
+        const ordered = solana
+          .filter((p) => p.quoteToken && p.quoteToken.address === O.WSOL_MINT)
+          .map((p) => p.pairAddress);
+        const addresses = [...new Set(ordered)].slice(0, 6);
+        if (addresses.length) {
+          const accounts = await getAccounts(addresses);
+          for (let i = 0; i < addresses.length; i++) {
+            const account = accounts[i];
+            if (!account || O.poolKindForOwner(account.owner) !== 'cp-vaults') continue;
+            const decoded = O.decodePumpSwapPool(O.bytesFromBase64(account.data[0]));
+            if (!decoded) continue;
+            if (decoded.baseMint !== mint) continue;
+            if (decoded.quoteMint !== O.WSOL_MINT) continue;
+            pool = addresses[i];
+            break;
+          }
+        }
+      }
+    } catch (_) { /* aggregator down or blocked: honest null, never a guess */ }
+    AGG_CACHE.set(mint, { pool, at: Date.now() });
+    return pool;
   }
 
   /**

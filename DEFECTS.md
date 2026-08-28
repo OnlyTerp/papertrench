@@ -1850,6 +1850,56 @@ dead-end paths; `decodePumpSwapPool` + verified offsets in onchain.js, layout
 transcript in `docs/POOL-LAYOUTS.md`; locked by `test/migratedprice.test.js`,
 whose WSOL, verified-owner and pool-depth guards each fail when the
 corresponding check is removed)
+**v3.13.14 hardening:** the chain scan itself can be refused (F-63 WAF 403s
+on `getProgramAccounts`), so discovery now falls back to a keyless
+dexscreener search for the mint's WSOL pairs — the aggregator is only ever a
+HINT: every candidate is still decoded and verified on-chain (owned by the
+verified PumpSwap program, base-mint match, WSOL quote) before use, deepest
+pool wins, and a chain refusal still means no price rather than an invented
+one. Locked by the ark13 harness scenario driving the real feed end-to-end.
+
+**F-63 · S1 · The keyless RPC pool treated a WAF 403 as three different things — a method ban, a transient strike, and (worst) two of them at once**
+`rpc-pool.js` (attemptEndpoint, reportFailure, ranked) · every user on keyless
+RPC when a graduated-coin scan trips the endpoint WAF · ark_trades13 debug
+export 2026-08-27 (56 error clusters, 243x "rpc pool cooling down") + harness
+runs ark13-feed4/final2 2026-08-28 · **fixed v3.13.14** (evidence-gated
+demotion law; locked by `test/rpcpool.test.js` F-63 pair, negative-control
+proven — removing the double-report guard re-fails both)
+
+The D-59 fix made graduated-coin pricing depend on `getProgramAccounts`, and
+the keyless endpoints (publicnode, solana-labs, tatum) 403 that method under
+policy. The first cut of the F-63 fix classified every HTTP 403 as a per-method
+policy block — and the live harness immediately falsified that: publicnode
+serves `getMultipleAccounts` fine from node (200 on every burst, verified
+repeatedly) but WAF-403s it from the extension context under prewatch's burst
+(gPA scan + dexscreener + gMA inside ~2s). A 403 from these hosts means
+"hostile client right now", not "method banned forever". Worse, the first cut
+double-reported: the 403 branch called `reportFailure(kind:'method')` AND the
+catch below reported the thrown error again — one WAF blip armed evidence
+twice and confirmed a 30-minute method block from a single refusal.
+
+Final law, each clause live- or NC-verified: ONE 403 = demotion to the back of
+the line for 15s (all methods) + pending evidence, never a general strike;
+a SECOND 403 same (endpoint, method) = 30-min method block; any success clears
+demotion and pending evidence; 429s stay transient with failure decay; heavy
+gPA probes get their own timeout instead of striking every endpoint at 4s;
+hedged-race losers never report a failure at all; every attempt lands in a
+ring-buffer flight recorder (`_attempts()`) so the next debug export carries
+endpoint/method/status/duration instead of a bare "http 403".
+
+**F-64 · S2 · A failed prewatch retried on an 800ms loop — the resolver's storm amplifier**
+`content.js` (prewatchPending) · users on coins the probe cannot price ·
+ark_trades13 log (243 cooling-down events), 01jb unpriced-coin reports ·
+**fixed v3.13.14** (exponential backoff, first retry 2s, cap 6 attempts,
+address-keyed reset; locked by `test/freshlaunch.test.js` D-60 + D-60S, the
+latter NC-proven against the ungated hammer)
+
+D-60 taught the probe to release its latch on failure — and the detect loop
+obligingly re-fired it every pass. Sniping latency is sacred (a NEW address
+must never inherit an old backoff), so the gate is keyed per address: first
+failure re-arms at 2s, each subsequent failure doubles (cap 6), any success or
+a different pending address resets to zero. Over the 90s window where the old
+loop fired hundreds of probes, the new law allows at most six.
 
 **D-57 · S1 · An armed stop or take-profit was only ever judged on a price CHANGE — a level armed after the last move never fired on a flat or rugging tape**
 `content.js` (handlePageTick, startPriceLoop) · every trader running a stop or

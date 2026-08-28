@@ -852,6 +852,27 @@
   // One prewatch per pending address; a failed prewatch is not retried — the
   // resolver's own retry loop stays the fallback path.
   let prewatchedAddress = null;
+  // D-60 keeps a failed probe from latching, but that release lets the 800ms
+  // detect loop re-probe immediately — and with the keyless pool refusing
+  // heavy reads, the released latch became a retry STORM (ark_trades13
+  // 2026-08-27: 56 background error groups, 'rpc pool cooling down' x243).
+  // Back off per address, exponentially, with a cap: a coin that cannot be
+  // priced on-chain yet stays pending on the page's own feed (or resolves
+  // normally) instead of paying a failed probe twice a second. State is
+  // keyed to the address being probed — a NEW address resets it, so one
+  // coin's storm can never delay the next coin's first (fast) probe.
+  let prewatchAttempts = 0;
+  let prewatchLastTryAt = 0;
+  let prewatchBackoffFor = null;
+  const PREWATCH_BASE_MS = 2_000;
+  const PREWATCH_MAX_MS = 30_000;
+
+  function prewatchBackoffMs(address) {
+    if (prewatchBackoffFor !== address) return 0; // new address: no inherited delay
+    if (!prewatchAttempts) return 0;
+    const wait = Math.min(PREWATCH_BASE_MS * Math.pow(2, prewatchAttempts - 1), PREWATCH_MAX_MS);
+    return Math.max(0, prewatchLastTryAt + wait - Date.now());
+  }
 
   /** Pre-index launch: identify and watch the on-chain market behind a
    * PENDING page right now, instead of waiting for an aggregator to index the
@@ -870,7 +891,14 @@
    */
   function prewatchPending(candidate) {
     if (!candidate || prewatchedAddress === candidate.address) return;
+    // Backoff gate (D-60 companion): a probe that failed moments ago is not
+    // re-paid on every detect tick. The backoff is keyed to the address —
+    // a different address is never delayed by a previous coin's failures.
+    const backoff = prewatchBackoffMs(candidate.address);
+    if (backoff > 0) return;
+    prewatchBackoffFor = candidate.address;
     prewatchedAddress = candidate.address;
+    prewatchLastTryAt = Date.now();
     const ids = candidate.kind === 'pair'
       ? { pool: candidate.address }
       : { mint: candidate.address };
@@ -886,8 +914,14 @@
       // loop probe again on its next pass.
       if (!found || !found.mint) {
         if (prewatchedAddress === candidate.address) prewatchedAddress = null;
+        // Re-arm the backoff from THIS failure: without this stamp the gate
+        // only muzzles the loop INSIDE a window — the moment it expires,
+        // every detect tick re-probes again (the D-60S test caught it).
+        prewatchLastTryAt = Date.now();
+        prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
         return;
       }
+      prewatchAttempts = 0; // a positive probe restores the fast cadence
       if (!token || !token.pending) return;
       if (token.srcAddress !== candidate.address && token.mint !== candidate.address) return;
 
@@ -945,8 +979,10 @@
     }).catch(() => {
       // Same rule as the empty answer above: a thrown probe is a failure of
       // the READ, never proof about the coin. Release the latch so the next
-      // detect pass can try again instead of stranding the token.
+      // detect pass can try again instead of stranding the token — under the
+      // exponential backoff, not the old 800ms hammer.
       if (prewatchedAddress === candidate.address) prewatchedAddress = null;
+      prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
     });
   }
 

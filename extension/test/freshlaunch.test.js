@@ -1059,17 +1059,19 @@ test('D-60: a failed chain probe does not permanently strand the coin', async ()
   // re-navigates and that would pass by accident. It is HOW LONG the coin
   // sits unpriced after a transient failure.
   //
-  // There is a slow safety-net re-probe at `pendingAttempts % 5` on the
-  // 800ms detect loop: a retry only every ~4s, first firing on the 5th
-  // attempt. That net is why a stranded coin eventually recovered at all,
-  // and its cadence is the reported "20-30 seconds". Releasing the latch on
-  // failure lets the very next detect pass re-probe instead, so the coin is
-  // priced within a pass or two rather than several seconds later.
+  // BOUND AMENDED 2026-08-28 (ark_trades13 debug log, 2026-08-27): the
+  // original bound (<=800ms, "retry on the very next detect pass") was the
+  // exact behavior that became a retry STORM once the keyless RPC pool
+  // started refusing heavy reads — 56 background error groups,
+  // "rpc pool cooling down" x243. The release-on-failure latch now backs
+  // off exponentially per address (2s first step, 30s cap; D-60S below
+  // pins the backoff itself). 2s + one detect pass (~2.4s observed) is
+  // still >10x faster than the 20-30s stranding this test exists for.
   assert.ok(calls >= 2, `the probe must be retried after a failure; ran ${calls}x`);
   assert.ok(pricedAfterMs !== null,
     'the coin must end up priced once the chain answers');
-  assert.ok(pricedAfterMs <= 800,
-    `the retry must be prompt, not the ~4s safety net; took ${pricedAfterMs}ms`);
+  assert.ok(pricedAfterMs <= 3000,
+    `the retry must be the 2s backoff step, not the ~4s safety net or worse; took ${pricedAfterMs}ms`);
 });
 
 test('D-60: the click asks the chain whenever no source priced it', () => {
@@ -1096,3 +1098,47 @@ test('D-60: the click asks the chain whenever no source priced it', () => {
   assert.match(condition, /priceNative/,
     'it stays gated on "no source produced a price", which is the real condition');
 });
+
+test('D-60S: a failing prewatch backs off instead of hammering (ark_trades13 storm)', async () => {
+  // ark_trades13 debug log, 2026-08-27: after the keyless RPC pool began
+  // refusing getProgramAccounts, D-60's released latch let the 800ms detect
+  // loop re-probe immediately and endlessly — 56 background error groups and
+  // "rpc pool cooling down" x243 in one session. The latch release was RIGHT
+  // (it fixed D-60's stranding); what was missing was a per-address backoff
+  // so a probe that cannot succeed YET is not retried twice a second.
+  const ov = runFreshLaunch({
+    // The chain NEVER answers for this coin — the honest model of a
+    // graduated coin during an RPC outage, not of a dead coin.
+    resolvePrice: null,
+    onchainPrewatch: () => null,
+  });
+  await ov.settle();
+
+  const at = async (ms) => { await ov.advance(ms); return ov.prewatchCalls(); };
+
+  // First probe fires promptly (sniping latency is sacred — a NEW address
+  // must never inherit a previous coin's backoff).
+  const first = await at(1200);
+  assert.ok(first >= 1, 'the first probe must fire immediately');
+
+  // Inside the 2s backoff window (measured from the failure, which lands
+  // almost immediately) the 800ms loop must stay silent.
+  const c1 = await at(700);
+  assert.ok(c1 === first, `no re-probe inside the 2s backoff; went ${first}->${c1}`);
+
+  // When it elapses, exactly ONE retry lands — not one per detect tick.
+  const c2 = await at(800);
+  assert.ok(c2 === first + 1, `exactly one retry after the backoff; got ${c2 - first}`);
+
+  // The retry's own failure re-arms the backoff at the doubled step (4s):
+  // through the next 1.6s (two detect ticks) still nothing further.
+  const c3 = await at(1600);
+  assert.ok(c3 === first + 1, `the retry must re-arm the doubled backoff; got ${c3 - first}`);
+
+  // And the storm is dead: over a further 90s the probe runs at the
+  // exponential cadence (8s+16s+30s+30s+30s after that = ~5 more), not the
+  // ~112 calls the 800ms loop produced.
+  const c4 = await at(90_000);
+  assert.ok(c4 <= 10, `90s of failures must cost <=10 probes, got ${c4}`);
+});
+

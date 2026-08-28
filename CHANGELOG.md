@@ -3,6 +3,27 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.13.14 — 2026-08-28
+
+**Fixed the "Fetching live price…" freeze on migrated coins — for real this
+time.** The D-59 fix taught PaperTrench to find a graduated coin's PumpSwap
+pool, but the public RPC endpoints that lookup depends on have started
+refusing it (403), and one refusal used to bench the whole pool — every coin
+you opened went unpriceable and "rpc pool cooling down" spam filled the logs.
+The pool now knows the difference between a policy refusal, a throttle, and a
+real outage: refusals demote instead of bench, proven bans require two
+strikes, throttles decay, and any success forgives. When the chain refuses
+the scan entirely, discovery falls back to a dexscreener hint that is still
+verified on-chain before it's trusted. And a price probe that comes up empty
+now backs off (2s doubling, max 6 tries) instead of hammering every 800ms.
+Live-verified end to end on a real graduated coin through the test harness:
+pool found, price ticking, zero cooling-down events.
+
+**Every RPC attempt is now on the record.** The debug-log export (🐞) carries
+a flight recorder of the last RPC attempts — endpoint, method, status, how
+long it took — so the next "it was stuck on fetching price" report arrives
+with the evidence instead of a bare error.
+
 ## v3.13.13 — 2026-08-26
 
 **Share debug logs — one click, one paste.** Settings now has a 🐞 button
