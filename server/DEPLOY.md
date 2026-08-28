@@ -184,3 +184,20 @@ GeckoTerminal's free OHLCV API, consumed at ≤25 lookups/minute by the cron
 with permanent candle caching in D1. Expected bill on Workers Free: $0.
 If sustained load ever exceeds the free tier, Workers Paid is $5/mo — that
 is the whole worst case.
+
+## Deploy log
+
+**2026-08-28 — v3.16.1 live** (`49a928e1`). The live D1 had drifted two-plus
+releases behind: `spark_days`, `moderation_log`, and `reckoning_posts` did not
+exist and `clans` had none of the three ALTER columns — meaning
+`/api/spark/today` was already answering `{"ok":false,"reason":"not-found"}`
+in production and the cron's clan queries would have failed at prepare time.
+Caught by diffing live `pragma_table_info`/`sqlite_master` against schema.sql
+BEFORE deploying, not by an alarm after. Applied: schema.sql re-run (idempotent,
+created the 3 missing tables) + all three clan ALTERs in one command, then
+deployed. Smoke: every public route 200x5 including cold-vs-warm, spark
+returns real bars, live tail across a cron tick showed zero errors. Lesson
+recorded as a law: **always diff the live DB schema against schema.sql before
+any deploy — runbooks list what the NEWEST release needs, not what the live
+database is missing.**
+
