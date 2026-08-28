@@ -1,7 +1,18 @@
+/* Display face. Was Syne, which is a genuine variable font correctly declared
+   — the problem was not packaging, it was the design at the weights this site
+   actually uses. Measured, "PAPERTRENCH" at 64px:
+   Syne 400=443px, 700=568px, 800=841px — the extrabold is 90% wider than the
+   regular, and nearly every heading here asks for 800 or 900. That width jump
+   is what reads as "stretched".
+   IBM Plex Sans is 438 → 457 across the same range, and it is the designed
+   sibling of the IBM Plex Mono already carrying every number, ticker and hash
+   on the site, so headings and data finally come from one family.
+   Its axis tops out at 700; the existing font-weight: 800/900 rules clamp
+   there, which is the intended direction of travel rather than a loss. */
 @font-face {
-  font-family: Syne;
-  src: url("/assets/fonts/syne.ttf") format("truetype");
-  font-weight: 400 800;
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/plexsans.woff2") format("woff2");
+  font-weight: 400 700;
   font-display: swap;
 }
 @font-face {
@@ -36,7 +47,7 @@
      agree, or the content pillars drift out from under the navbar. Bumped
      from 1180px after ultrawide users reported the homepage pillar-boxing. */
   --wrap-max: 1440px;
-  --font: Syne, ui-sans-serif, system-ui, sans-serif;
+  --font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
