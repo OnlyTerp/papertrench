@@ -188,7 +188,7 @@
         <div class="ev-item">
           <span class="dot"></span>
           <span class="nm">${e.handle ? '@' + esc(e.handle) : 'A record'}</span>
-          <span class="ev-sub" style="font-size:12px">${esc(KIND_LABEL[e.kind] || e.kind || '')}</span>
+          <span class="ev-sub" style="font-size:12px">${esc(KIND_LABEL[e.kind] || e.kind || '')}${e.detail ? ' — ' + esc(e.detail) : ''}</span>
           <span class="mt">${esc(ago(e.ts))}</span>
         </div>`).join('')
       + '</div>';

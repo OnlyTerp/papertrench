@@ -46,7 +46,9 @@
 
   .gate { max-width: 560px; margin: 0 auto 90px; text-align: center;
     background: var(--panel); border: 1px solid var(--line2); border-radius: var(--radius); padding: 40px 32px; }
-  .gate .big { font-size: 42px; margin-bottom: 14px; }
+  /* Same flat-glyph treatment as /admin (vision audit). */
+  .gate .big { font-size: 30px; margin-bottom: 14px; font-family: var(--mono);
+    filter: grayscale(1) brightness(1.6); opacity: 0.85; }
   .gate h2 { font-size: 20px; font-weight: 800; margin-bottom: 10px; }
   .gate p { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 18px; }
   .gate code { font-family: var(--mono); font-size: 12.5px; color: var(--orange2);

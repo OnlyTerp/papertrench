@@ -485,6 +485,10 @@
       headEl.innerHTML = '<section class="ar-pane"><div class="pad">' +
         L.empty('⚔', 'No clan named.', 'Pick one from <a href="/clans">the clan board</a>.') +
         '</div></section>';
+      // Without a clan there is no roster to list and no number to compute:
+      // the two shell panes below would sit empty beside the notice (vision
+      // audit called this a ghost-town), so the whole grid collapses.
+      document.querySelector('.ar-shell').style.display = 'none';
       return;
     }
     headEl.innerHTML = '<section class="ar-pane"><div class="pad">' + L.skeleton(2) + '</div></section>';
@@ -502,6 +506,9 @@
       ) + '</div></section>';
       rosterEl.innerHTML = '';
       noteEl.textContent = '';
+      // Same ghost-town rule as the no-tag case: a nonexistent or unreachable
+      // clan has no roster and no number, so the shell panes collapse too.
+      document.querySelector('.ar-shell').style.display = 'none';
       return;
     }
     clan = body;

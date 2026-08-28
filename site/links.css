@@ -161,7 +161,9 @@ button:focus-visible {
   pointer-events: none;
   opacity: 0.22;
   mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Same chroma-speckle fix as .home-grain: colored feTurbulence noise shows
+   * green/cyan over the black gutters (mobile vision audit). */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
 }
 
@@ -678,6 +680,12 @@ button:focus-visible {
     min-height: 0;
     aspect-ratio: auto;
     border-radius: 10px;
+    /* Video frames bleed a neon edge at clipped corners on mobile GPUs; the
+     * 1px inset mask keeps the radius cut off the decode buffer (vision audit
+     * on mobile 390px: green slivers at card seams). */
+    outline: 1px solid var(--bg);
+    outline-offset: -1px;
+    transform: translateZ(0);
   }
   .lt-door.is-on,
   .lt-door:hover,

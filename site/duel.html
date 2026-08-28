@@ -1158,6 +1158,10 @@
 
   function render() {
     if (!view) return;
+    // Undo any collapse fail() performed on the right column: a view existing
+    // again means the seat/window/share panes have something to say.
+    const rightStack = windowEl.closest('.ar-stack');
+    if (rightStack && rightStack.hidden) rightStack.hidden = false;
     // The view carries no volatile fields, so its own JSON is an honest change
     // detector: identical response, untouched DOM — which keeps the clock's
     // nodes (and any focus in them) alive across a poll.
@@ -1219,6 +1223,12 @@
     windowEl.innerHTML = '';
     tapeStampEl.innerHTML = '';
     cardSubEl.textContent = '';
+    // A duel that does not exist has no seat, window or share link. Leaving
+    // those right-column panes standing around an empty hole read as a page
+    // that forgot to render; collapse the stack so the empty state stands
+    // alone (restored the moment a real view paints again).
+    const rightStack = windowEl.closest('.ar-stack');
+    if (rightStack) rightStack.hidden = true;
   }
 
   async function refresh() {

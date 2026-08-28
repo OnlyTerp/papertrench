@@ -41,7 +41,9 @@
   font: 500 13px var(--mono); letter-spacing: 0.01em;
   transition: border-color var(--t-base, 220ms) var(--e-out, ease);
 }
-.rp-loader input::placeholder { color: rgba(141,151,169,.55); }
+/* Placeholder brightness: 0.55 alpha failed contrast on non-OLED panels
+ * (vision audit on /replay); ~#b2bac9 at 0.85 reads cleanly everywhere. */
+.rp-loader input::placeholder { color: rgba(178,186,201,.85); }
 .rp-loader input:focus { outline: none; border-color: var(--orange); }
 .rp-loader .rp-in-mint { flex: 2 1 340px; }
 .rp-loader .rp-in-wallet { flex: 1.5 1 260px; }

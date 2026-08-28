@@ -63,11 +63,9 @@
           <div role="listitem"><div class="k">Chain · extend-only</div><div class="v">SHA-256</div></div>
           <div role="listitem"><div class="k">Self-reported</div><div class="v zero">Nothing</div></div>
         </div>
-        <p class="ar-census" id="census" aria-label="Who is on the Arena">
-          <span><b id="c-id">-</b> signed in</span>
-          <span><b id="c-tape">-</b> on the tape</span>
-          <span><b id="c-rank">-</b> ranked</span>
-        </p>
+        <!-- census lives in the trench pane header, next to the numbers it
+             describes — the hero strip was the same three figures 16px above
+             in different type (vision audit: pointless immediate redundancy). -->
       </div>
 
       <!-- The verifier's real work. This is the hero visual because it is the
@@ -625,6 +623,8 @@
       trenchCountEl.textContent = signedIn + ' signed in · ' + submitted + ' on the tape · ' + ranked + ' ranked';
     }
     const setTxt = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = String(n); };
+    // Census targets removed from the hero (duplication fix) — setTxt is a
+    // no-op on missing ids, so this stays safe either way.
     setTxt('c-id', signedIn);
     setTxt('c-tape', submitted);
     setTxt('c-rank', ranked);

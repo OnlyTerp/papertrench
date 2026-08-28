@@ -88,6 +88,9 @@
 }
 
 .ar-stack { display: grid; gap: 22px; }
+/* The UA's [hidden]{display:none} loses to .ar-stack's explicit display:grid —
+ * the duel page's fail() collapse depends on this rule actually applying. */
+.ar-stack[hidden] { display: none; }
 
 .ar-pane {
   background: var(--pane);
@@ -123,7 +126,7 @@
 
 /* ============================================================== hero ===== */
 
-.ar-hero { padding: 118px 0 26px; position: relative; overflow: hidden; }
+.ar-hero { padding: 104px 0 22px; position: relative; overflow: hidden; }
 .ar-hero .wrap { position: relative; z-index: 1; }
 .ar-pane.is-vacant { display: none; }
 
@@ -326,7 +329,12 @@
   letter-spacing: 0.8px;
   text-transform: uppercase;
 }
-.ar-stream li .what { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-stream li .what {
+  color: var(--muted);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  /* Two lines before ellipsis: the tape's most interesting entries (multi-fill
+   * re-prices) were cut mid-fact at one line (vision audit). */
+}
 .ar-stream li .what b { color: var(--text); font-weight: 700; }
 .ar-stream li .when { color: var(--dim); font-size: 10px; white-space: nowrap; }
 
@@ -1354,9 +1362,12 @@
   font-size: 10.5px;
   color: var(--dim);
   margin-top: 3px;
+  /* Two lines beat a mid-handle ellipsis: the sub packs tag · visibility ·
+   * founder into one line, so long founder names were cut with spare column
+   * width sitting idle (vision audit on live /clans). Rows are min-height
+   * 68px — a second line fits. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .ar-clan-row .val { font-family: var(--mono); font-weight: 700; font-size: 13px; text-align: right; }
 .ar-clan-row .val.dim { color: var(--muted); font-weight: 600; }
@@ -1531,12 +1542,26 @@
   border: var(--edge); border-radius: 14px;
   background: var(--pane);
   min-width: 0;
+  transition: border-color 160ms ease, transform 160ms ease;
 }
+.ar-trench-card:hover { border-color: rgba(255, 157, 69, 0.35); transform: translateY(-1px); }
 .ar-trench-card.is-you { border-color: rgba(255, 157, 69, 0.45); }
 .ar-trench-who {
   display: flex; align-items: center; gap: 10px; min-width: 0;
   color: inherit; text-decoration: none;
 }
+/* Avatars always occupy their slot — the initials fallback renders inside the
+ * same box, so rows with and without images align on the same grid line.
+ * (Vision audit: avatarless cards shifted the handle flush-left.) */
+.ar-trench-who .ar-face {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  overflow: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+}
+.ar-trench-who img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ar-trench-who b { font-size: 14px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
 .ar-trench-who span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .ar-trench-meta { margin: 0; font-size: 12px; line-height: 1.45; color: var(--dim); }
@@ -1544,8 +1569,12 @@
   align-self: flex-start;
   font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
   color: var(--muted);
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  transition: color 140ms ease, border-color 140ms ease;
 }
-.ar-trench-x:hover { color: var(--orange); }
+.ar-trench-x:hover { color: var(--orange); border-color: rgba(255, 157, 69, 0.5); }
 .ar-trench-foot {
   margin: 0; padding: 4px 18px 16px;
   font-size: 12px; line-height: 1.5; color: var(--dim);

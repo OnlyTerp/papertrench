@@ -94,11 +94,17 @@
   function face(entry, className) {
     const cls = className || 'ar-face';
     if (entry && entry.avatarUrl) {
+      // onerror swaps a dead avatar URL for the initials tile instead of the
+      // browser's broken-image glyph (vision audit on live trench cards).
+      const [bg, fg] = tone(entry && entry.handle);
+      const fallback = `<span style="background:${bg};color:${fg};font-size:12px;font-weight:700;` +
+        `width:100%;height:100%;display:flex;align-items:center;justify-content:center">${esc(initials(entry && entry.handle))}</span>`;
       return `<span class="${cls}"><img src="${esc(entry.avatarUrl)}" alt="" loading="lazy"
-        referrerpolicy="no-referrer"></span>`;
+        referrerpolicy="no-referrer"
+        onerror="this.outerHTML=${JSON.stringify(fallback).replace(/"/g, '&quot;')}"></span>`;
     }
-    const [bg, fg] = tone(entry && entry.handle);
-    return `<span class="${cls}" style="background:${bg};color:${fg}">${esc(initials(entry && entry.handle))}</span>`;
+    const [bg2, fg2] = tone(entry && entry.handle);
+    return `<span class="${cls}" style="background:${bg2};color:${fg2}">${esc(initials(entry && entry.handle))}</span>`;
   }
 
   /* --------------------------------------------------------------- clans */

@@ -5,7 +5,9 @@
 
 .film-mast {
   position: relative;
-  min-height: 72dvh;
+  /* 52dvh: streams is a watch page — the player is the content. 72dvh of
+   * hero pushed the video 70% off the fold (vision audit, 1440x900). */
+  min-height: 52dvh;
   display: grid;
   align-items: end;
   overflow: hidden;
@@ -90,6 +92,10 @@
   text-decoration: none; color: inherit;
   min-width: 0;
 }
+.ed-row:hover, .latest-card:hover { background: rgba(255, 255, 255, 0.02); }
+/* Rows have no horizontal padding, so a hover wash needs gutters to breathe —
+   otherwise the tint runs flush to the text and reads as a mistake. */
+.ed-row { padding-inline: 10px; margin-inline: -10px; border-radius: 8px; }
 .ed-row:hover .ed-ttl, .latest-card:hover h3 { color: var(--orange); }
 .ed-ver, .latest-card .ver-chip {
   font-family: var(--mono); font-size: 12px; color: var(--orange2);
