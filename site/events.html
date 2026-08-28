@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench | Events</title>
+<meta name="description" content="What is running on PaperTrench right now: the open Sprint window, streamers live in the trenches, and the verifier tape as records land.">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
+<link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/assets/icon192.png">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+  /* ================================================================== *
+   *  /events — what is running right now.
+   *
+   *  FIRST PASS, and deliberately an aggregator rather than a new system.
+   *  PaperTrench already has time-bound things: the Sprint runs in weekly
+   *  windows the verifier actually folds, streamers go live, and records
+   *  land on the tape. None of that was collected anywhere, so "events"
+   *  is read here as "the calendar those already imply" rather than as a
+   *  new events table nobody has specified.
+   *
+   *  Every panel is backed by a real endpoint. Nothing on this page is a
+   *  placeholder event, because a fake scheduled event is a promise the
+   *  project has not made.
+   * ================================================================== */
+  .ev-head { padding: 128px 0 10px; }
+  .ev-head h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 700; letter-spacing: -0.02em; }
+  .ev-head p { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 660px; line-height: 1.65; }
+
+  .ev-grid { display: grid; gap: 16px; grid-template-columns: 1.25fr 1fr; align-items: start; }
+  @media (max-width: 900px) { .ev-grid { grid-template-columns: 1fr; } }
+
+  .ev-now { padding: 22px 24px; }
+  .ev-kicker { font-family: var(--mono); font-size: 10.5px; font-weight: 800;
+    letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
+  .ev-title { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; margin: 8px 0 4px; }
+  .ev-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  .ev-clock { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 4px; }
+  .ev-unit { min-width: 68px; padding: 10px 12px; border-radius: 12px;
+    background: rgba(0,0,0,0.28); border: var(--edge); text-align: center; }
+  .ev-unit b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 700;
+    color: var(--text); font-variant-numeric: tabular-nums; }
+  .ev-unit span { font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--dim); }
+
+  .ev-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.07);
+    overflow: hidden; margin-top: 16px; }
+  .ev-bar i { display: block; height: 100%; border-radius: 999px; background: var(--grad-heat); }
+  .ev-barnote { display: flex; justify-content: space-between; gap: 10px;
+    font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 7px; }
+
+  .ev-list { display: grid; gap: 9px; }
+  .ev-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px;
+    border-radius: 11px; background: rgba(255,255,255,0.022); border: var(--edge); }
+  .ev-item .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
+  .ev-item.on .dot { background: var(--red); box-shadow: 0 0 9px var(--red); animation: pulse 1.6s infinite; }
+  .ev-item .nm { font-weight: 700; font-size: 13.5px; }
+  .ev-item .mt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-left: auto; }
+
+  .ev-firstpass { margin-top: 20px; padding: 14px 18px; border-radius: 12px;
+    background: rgba(255,157,69,0.05); border: 1px solid rgba(255,157,69,0.22);
+    border-left: 2px solid var(--orange); font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+  .ev-firstpass b { color: var(--text); font-weight: 700; }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<nav aria-label="Primary">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <div class="nav-links">
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint" aria-current="page">Sprint</a>
+      <a href="/events">Events</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/replay">Replay</a>
+      <a href="/news">News</a>
+      <a href="/links">Links</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
+      <span id="nav-wallet"></span>
+      <span id="nav-profile"></span>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main" class="wrap" style="padding-bottom:96px">
+  <header class="ev-head">
+    <h1>Events</h1>
+    <p>What is actually running right now. The Sprint window below is the one the
+    verifier folds; the streams are checked live; the tape is the verifier talking.
+    Nothing here is a scheduled placeholder.</p>
+  </header>
+
+  <div class="ev-grid">
+    <section class="ar-pane" aria-labelledby="ev-now-h">
+      <div class="ar-pane-head"><span class="glyph" style="color:var(--orange2)">◷</span>
+        <span id="ev-now-h">The open window</span></div>
+      <div class="ev-now" id="ev-now"><p class="ar-note">Reading the Sprint window…</p></div>
+    </section>
+
+    <div style="display:grid;gap:16px">
+      <section class="ar-pane" aria-labelledby="ev-live-h">
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--red)">▶</span>
+          <span id="ev-live-h">Live in the trenches</span></div>
+        <div class="pad" id="ev-live"><p class="ar-note">Checking who is live…</p></div>
+      </section>
+
+      <section class="ar-pane" aria-labelledby="ev-tape-h">
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--green)">▸</span>
+          <span id="ev-tape-h">The tape</span></div>
+        <div class="pad" id="ev-tape"><p class="ar-note">Reading the tape…</p></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="ev-firstpass"><b>First pass.</b> "Events" had no spec, so this page
+  collects the time-bound things PaperTrench already runs rather than inventing an
+  events system. If what was wanted is scheduled, announced events — tournaments with
+  a start date, prize pools, sign-ups — that needs somewhere to store them and a way
+  for a moderator to post one, which is a bigger build than this page.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
+      </div>
+    </div>
+        <nav class="term-dock" aria-label="Paper terminals">
+      <span class="term-lbl">Open a terminal</span>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
+      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
+      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
+      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
+    </nav>
+    <div class="foot-social">
+      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.198.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"/></svg>Join the Discord
+      </a>
+      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
+      </a>
+      <a class="foot-btn tiktok" href="https://www.tiktok.com/@papertrench" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>@papertrench
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script src="arena.js?v=trench2"></script>
+<script src="events.js"></script>
+<script src="/nav-wallet.js"></script>
+<script src="/nav-profile.js"></script>
+</body>
+</html>
