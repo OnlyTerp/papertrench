@@ -1,18 +1,18 @@
 {
-  "version": "3.15.0",
+  "version": "3.16.0",
   "date": "2026-08-28",
   "entries": [
     {
-      "title": "Trench Wrapped — your month, reflected back. Once a month, not a stream.",
+      "title": "The Friday Reckoning — clans get a named weekly close.",
       "text": ""
     },
     {
       "title": null,
-      "text": "A new \"Wrapped\" tab is the monthly mirror card: your own journal data, formatted for sharing, timed as an event. It shows the month's discipline letter (worst letter wins, same tie law as the grid), rounds, journal rate, clean exits, longest recovery (red→green), hold-time symmetry (green vs red), and \"the one that got away\" — what a coin did after you left, from After data. No PnL fields anywhere: the card is process, never money. The share card paints the recap with the same PAPER watermark + brand bar as every other card."
+      "text": "Every Friday at 20:00 UTC, each clan that opted in gets one digest posted to its Discord: the week's score, rounds closed, and the top board — the same facts the public clan page shows, never a PnL figure. One anchored weekly ritual, not a notification stream. A clan joins by wiring its webhook from the clan page; no webhook, no post — silence is an operator choice, not an error."
     },
     {
       "title": null,
-      "text": "- Pure derivation from local journal state — no backend, no new storage. - The monthly window is LOCAL calendar time of closedAt, never UTC."
+      "text": "- Bell window stays open 24 hours (through Saturday 20:00 UTC) so a Friday   night outage doesn't skip the ritual; after that the week is left unposted,   never posted late. - The claim is written before the send: a retried cron can never double-post   a clan's week. - Digests are derived from the standing data that already exists — nothing new   is stored and nothing new is trusted."
     }
   ]
 }

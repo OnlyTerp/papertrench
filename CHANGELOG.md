@@ -3,6 +3,24 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.16.0 — 2026-08-28
+
+**The Friday Reckoning — clans get a named weekly close.**
+
+Every Friday at 20:00 UTC, each clan that opted in gets one digest posted to
+its Discord: the week's score, rounds closed, and the top board — the same
+facts the public clan page shows, never a PnL figure. One anchored weekly
+ritual, not a notification stream. A clan joins by wiring its webhook from the
+clan page; no webhook, no post — silence is an operator choice, not an error.
+
+- Bell window stays open 24 hours (through Saturday 20:00 UTC) so a Friday
+  night outage doesn't skip the ritual; after that the week is left unposted,
+  never posted late.
+- The claim is written before the send: a retried cron can never double-post
+  a clan's week.
+- Digests are derived from the standing data that already exists — nothing new
+  is stored and nothing new is trusted.
+
 ## v3.15.0 — 2026-08-28
 
 **Trench Wrapped — your month, reflected back. Once a month, not a stream.**

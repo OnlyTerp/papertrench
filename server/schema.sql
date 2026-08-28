@@ -126,7 +126,12 @@ CREATE TABLE IF NOT EXISTS clans (
   founder_id INTEGER NOT NULL REFERENCES users(id),
   join_code TEXT NOT NULL UNIQUE,     -- invite code; never in a public payload
   open INTEGER NOT NULL DEFAULT 0,    -- 1 = anyone signed in may join
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- Per-clan Discord webhook for the Friday Reckoning (B2). Set by the clan
+  -- founder from the clan page; NULL = the clan has not opted in and the
+  -- cron skips it silently. Never served by any public route — a webhook
+  -- URL is a posting credential.
+  reckoning_webhook TEXT
 );
 
 -- One clan per trader, enforced structurally: user_id is the whole primary
@@ -218,6 +223,17 @@ CREATE TABLE IF NOT EXISTS x_feed_cache (
   handle TEXT PRIMARY KEY,
   fetched_at INTEGER NOT NULL,
   posts_json TEXT NOT NULL
+);
+
+-- The Friday Reckoning (DELIGHT-MAP.md B2): one mark per (week, clan). The
+-- mark IS the claim — written before the webhook POST fires, so a retried
+-- cron firing can never double-post a clan's week. No digest content is
+-- stored: the digest is re-derived from clan_entries every time.
+CREATE TABLE IF NOT EXISTS reckoning_posts (
+  week_id TEXT NOT NULL,
+  clan_id INTEGER NOT NULL,
+  posted_at INTEGER NOT NULL,
+  PRIMARY KEY (week_id, clan_id)
 );
 
 -- Streamer applications (site/streamer-signup.html), replacing the Google

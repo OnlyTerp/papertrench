@@ -18,6 +18,7 @@ import { awarded } from '../core/achievements.js';
 import * as duel from '../core/duel.js';
 import * as adminCore from '../core/admin.js';
 import * as clan from '../core/clan.js';
+import { postDueReckonings } from './reckoning.js';
 import * as streamer from '../core/streamer.js';
 // Default-imported, not named: core/chain.js re-exports attest.js by property
 // assignment (`GENESIS: AT.GENESIS`), which Node's CJS named-export lexer
@@ -2372,5 +2373,14 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(drainPricing(env));
+    // The Friday Reckoning (B2): clock-gated inside — on 23h of every week
+    // this exits without a single query, and when the bell window is open
+    // it posts each opted-in clan's digest (mark-first idempotence).
+    ctx.waitUntil(
+      postDueReckonings(env, {
+        dryRun: env.RECKONING_DRY_RUN !== 'false',
+        killSwitch: env.KILL_SWITCH === 'true',
+      }).catch((e) => console.error('reckoning lane error:', e && e.message))
+    );
   },
 };
