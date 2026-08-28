@@ -1,14 +1,18 @@
 {
-  "version": "3.13.14",
+  "version": "3.14.0",
   "date": "2026-08-28",
   "entries": [
     {
-      "title": "Fixed the \"Fetching live price…\" freeze on migrated coins — for real this time.",
-      "text": "The D-59 fix taught PaperTrench to find a graduated coin's PumpSwap pool, but the public RPC endpoints that lookup depends on have started refusing it (403), and one refusal used to bench the whole pool — every coin you opened went unpriceable and \"rpc pool cooling down\" spam filled the logs. The pool now knows the difference between a policy refusal, a throttle, and a real outage: refusals demote instead of bench, proven bans require two strikes, throttles decay, and any success forgives. When the chain refuses the scan entirely, discovery falls back to a dexscreener hint that is still verified on-chain before it's trusted. And a price probe that comes up empty now backs off (2s doubling, max 6 tries) instead of hammering every 800ms. Live-verified end to end on a real graduated coin through the test harness: pool found, price ticking, zero cooling-down events."
+      "title": "Daily Spark is live — one puzzle a day, graded on process, never on P&L.",
+      "text": ""
     },
     {
-      "title": "Every RPC attempt is now on the record.",
-      "text": "The debug-log export (🐞) carries a flight recorder of the last RPC attempts — endpoint, method, status, how long it took — so the next \"it was stuck on fetching price\" report arrives with the evidence instead of a bare error."
+      "title": null,
+      "text": "A new \"Daily Spark\" tab in the dashboard serves the same coin to every player each UTC day. You see the chart blind — bars stop at the reveal moment — then you call the buy and the sell. The verdict is a process grade (S→F) with tone axes (entry read, exit read, nerve) and a plain-language story of what your call actually was. No P&L figure is ever shown or painted: the point is the discipline of the call, not the money on it."
+    },
+    {
+      "title": null,
+      "text": "- The day's puzzle is picked deterministically from real candle data (the   same replay lane), pinned in a day-memo so everyone faces the same window. - The share card (Share P&L card → Spark) paints the grade story with the   same PAPER watermark + brand bar as every other card. - The blind law is enforced server-side: the API never returns a bar after   the reveal moment, so the future can't leak through the wire."
     }
   ]
 }

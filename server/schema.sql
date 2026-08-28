@@ -200,6 +200,17 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   count INTEGER NOT NULL
 );
 
+-- Daily Spark (DELIGHT-MAP.md A2): one puzzle per UTC day. The memo pins
+-- the day's mint + reveal moment so every player faces the SAME window all
+-- day, even if upstream candle data drifts. The pick itself is
+-- deterministic (core/spark.js); this row is belt-and-braces.
+CREATE TABLE IF NOT EXISTS spark_days (
+  day TEXT PRIMARY KEY,
+  mint TEXT NOT NULL,
+  t_ts INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
 -- Cached, ingest-sanitized X posts per handle (lowercased). One row per
 -- trader; the JSON is the already-clean output of worker/xfeed.js, never
 -- upstream markup. Fresh for ~20 minutes, servable stale for days.

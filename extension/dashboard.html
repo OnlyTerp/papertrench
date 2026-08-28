@@ -906,6 +906,35 @@
     .tg-legend .tg-cell { width: 12px; height: 12px; }
     .tg-sub { max-width: 720px; margin: 4px 0 10px; }
 
+    /* ---- Daily Spark (A2) ---- */
+    .spark-head { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 10px; }
+    .spark-title { font-size: 13px; font-weight: 800; letter-spacing: 1.4px; color: var(--text); }
+    .spark-date { font-size: 12px; color: var(--dim); }
+    .spark-body { max-width: 720px; }
+    .spark-chart { position: relative; border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 10px; padding: 10px; background: rgba(10,13,19,0.5); }
+    .spark-canvas { width: 100%; height: auto; display: block; }
+    .spark-chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--dim); }
+    .spark-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .spark-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .spark-actions { display: flex; gap: 8px; margin: 12px 0 6px; }
+    .spark-btn { border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;
+      padding: 8px 14px; font-size: 12.5px; font-weight: 750; letter-spacing: 0.8px;
+      background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
+    .spark-btn:hover:not(:disabled) { border-color: var(--accent, #FF9D45); color: var(--accent, #FF9D45); }
+    .spark-btn:disabled { opacity: 0.4; cursor: default; }
+    .spark-btn.armed { border-color: var(--green); color: var(--green); }
+    .spark-buy.armed { border-color: var(--green); color: var(--green); }
+    .spark-sell.armed { border-color: var(--red); color: var(--red); }
+    .spark-verdict { margin-top: 14px; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; padding: 14px; background: rgba(10,13,19,0.5); }
+    .spark-grade { font-size: 64px; font-weight: 800; line-height: 1; }
+    .spark-grade-label { font-size: 15px; font-weight: 750; margin-top: 4px; }
+    .spark-axis-line { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
+    .spark-story { font-size: 12.5px; color: var(--muted, #8b93a7); margin-top: 10px; line-height: 1.5; }
+    .spark-share-row { margin-top: 12px; }
+    .spark-error { color: var(--red); font-size: 12.5px; }
+
     .cal-summary {
       display: flex; flex-wrap: wrap; gap: 7px 20px;
       margin-bottom: 15px; font-size: 12px; color: var(--dim);
@@ -982,6 +1011,7 @@
       <button data-section="game">Game</button>
       <button data-section="calendar">Calendar</button>
       <button data-section="grid">Trench Grid</button>
+      <button data-section="spark">Daily Spark</button>
       <button data-section="journal">Journal</button>
       <button data-section="rounds">Rounds</button>
       <button data-section="perps">Perps</button>
@@ -999,6 +1029,7 @@
       <section id="game" class="section hidden"></section>
       <section id="calendar" class="section hidden"></section>
       <section id="grid" class="section hidden"></section>
+      <section id="spark" class="section hidden"></section>
       <section id="journal" class="section hidden"></section>
       <section id="rounds" class="section hidden"></section>
       <section id="perps" class="section hidden"></section>
@@ -1021,6 +1052,7 @@
   <script src="mastery.js"></script>
   <script src="gamify.js"></script>
   <script src="trench-grid.js"></script>
+  <script src="spark.js"></script>
   <!-- The modal must exist before dashboard.js runs (D-53): bindShareCard
        silently disables the composer if #card-modal is missing, and the old
        order was safe only by accident of init() being async. -->

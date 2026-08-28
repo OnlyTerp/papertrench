@@ -928,6 +928,94 @@
     ctx.restore();
   }
 
+  /** Spark share-card model: process-grade story ONLY, never a PnL figure.
+   * Mirrors PTSpark.sparkCardModel but lives here so the painter has one
+   * source of truth for card geometry. */
+  function sparkCardModel(verdict, day, opts) {
+    if (!verdict || typeof verdict !== 'object') return null;
+    const grade = String(verdict.grade || '').toUpperCase();
+    const style = {
+      S: { color: '#7C3AED', label: 'S — flawless read' },
+      A: { color: '#34D399', label: 'A — strong read' },
+      B: { color: '#6AA9FF', label: 'B — solid' },
+      C: { color: '#FF9D45', label: 'C — sloppy' },
+      D: { color: '#FF5F56', label: 'D — broke the rules' },
+      F: { color: '#FF2D2D', label: 'F — no discipline' },
+    }[grade];
+    if (!style) return null;
+    const axes = Array.isArray(verdict.axes) ? verdict.axes : [];
+    const axisLine = axes
+      .map((a) => `${a.label}: ${({ green: 'good', yellow: 'okay', red: 'bad' })[a.tone] || 'good'}`)
+      .join(' · ');
+    const options = opts || {};
+    return {
+      kind: 'spark',
+      grade,
+      gradeColor: style.color,
+      gradeLabel: style.label,
+      axisLine,
+      day: String(day || ''),
+      story: typeof verdict.story === 'string' ? verdict.story : '',
+      handle: options.handle ? `@${String(options.handle).replace(/^@+/, '')}` : '',
+      trim: ACCENTS[(options.prefs && options.prefs.accent) || 'amber'] || COLORS.amber,
+    };
+  }
+
+  /** Spark painter: grade word huge, axis line, story, brand bar. NO PnL. */
+  function drawSparkCard(ctx, model) {
+    if (!ctx || !model || model.kind !== 'spark') return;
+    ctx.save();
+    paintBackground(ctx, model.background || 'void', WIDTH, HEIGHT);
+    drawBrandingSafe(ctx, model);
+    const cx = 64;
+    let y = 150;
+    // Grade, huge
+    ctx.font = '800 120px Inter, system-ui, sans-serif';
+    ctx.fillStyle = model.gradeColor;
+    ctx.fillText(model.grade, cx, y);
+    y += 64;
+    ctx.font = '700 34px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(model.gradeLabel, cx, y);
+    y += 44;
+    ctx.font = '600 22px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLORS.dim;
+    ctx.fillText(model.axisLine, cx, y);
+    y += 36;
+    if (model.story) {
+      ctx.font = '500 20px Inter, system-ui, sans-serif';
+      ctx.fillStyle = COLORS.faint;
+      // Wrap the story to the card width.
+      const words = model.story.split(' ');
+      let line = '';
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (ctx.measureText(test).width > WIDTH - 128) {
+          ctx.fillText(line, cx, y);
+          y += 28;
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if (line) ctx.fillText(line, cx, y);
+    }
+    if (model.day) {
+      y += 40;
+      ctx.font = '600 18px ui-monospace, Menlo, monospace';
+      ctx.fillStyle = COLORS.faint;
+      ctx.fillText(model.day, cx, y);
+    }
+    if (model.handle) {
+      ctx.font = '600 16px Inter, system-ui, sans-serif';
+      ctx.fillStyle = COLORS.dim;
+      ctx.textAlign = 'right';
+      ctx.fillText(model.handle, WIDTH - 200, 40);
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+
   /** Branding helper reusing drawBranding if present, else minimal. */
   function drawBrandingSafe(ctx, model) {
     try {
@@ -946,6 +1034,7 @@
     cardModel, drawCard, coverRect, paintBackground, admitUpload, usdTotal,
     roundCardSource, positionCardSource,
     seasonCardSource, seasonCardModel, drawSeasonCard,
+    sparkCardModel, drawSparkCard,
     formatPrice, formatMarketCap, formatSol, formatUsd, formatHeld, shortMint,
   };
 

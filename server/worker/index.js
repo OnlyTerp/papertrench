@@ -26,6 +26,7 @@ import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
 import { makeGetCandles, chartBars } from './candles.js';
 import * as indeix from './indeix.js';
+import * as sparkWorker from './spark.js';
 import * as solana from './solana.js';
 import * as replay from '../core/replay.js';
 // Default-imported for the same CJS-lexer reason as core/chain.js above.
@@ -2320,6 +2321,16 @@ export default {
       }
       else if (path === '/api/replay/wallet') {
         response = await edgeCached(request, ctx, 60, () => handleReplayWallet(request, env));
+      }
+      // Daily Spark (DELIGHT-MAP.md A2). /today is a blind puzzle — the
+      // bars stop at the reveal moment, so it caches per-day; /grade is a
+      // deterministic verdict on submitted actions, never cached (it is
+      // cheap and must reflect the exact actions sent).
+      else if (path === '/api/spark/today') {
+        response = await edgeCached(request, ctx, 60, () => sparkWorker.handleSparkToday(request, env));
+      }
+      else if (path === '/api/spark/grade' && request.method === 'POST') {
+        response = await sparkWorker.handleSparkGrade(request, env);
       }
       // Moderation. Every one of these re-checks `moderator()` itself — the
       // routing table is not the gate, the handler is.

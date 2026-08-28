@@ -3,6 +3,24 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.14.0 — 2026-08-28
+
+**Daily Spark is live — one puzzle a day, graded on process, never on P&L.**
+
+A new "Daily Spark" tab in the dashboard serves the same coin to every player
+each UTC day. You see the chart blind — bars stop at the reveal moment — then
+you call the buy and the sell. The verdict is a process grade (S→F) with tone
+axes (entry read, exit read, nerve) and a plain-language story of what your
+call actually was. No P&L figure is ever shown or painted: the point is the
+discipline of the call, not the money on it.
+
+- The day's puzzle is picked deterministically from real candle data (the
+  same replay lane), pinned in a day-memo so everyone faces the same window.
+- The share card (Share P&L card → Spark) paints the grade story with the
+  same PAPER watermark + brand bar as every other card.
+- The blind law is enforced server-side: the API never returns a bar after
+  the reveal moment, so the future can't leak through the wire.
+
 ## v3.13.14 — 2026-08-28
 
 **Fixed the "Fetching live price…" freeze on migrated coins — for real this

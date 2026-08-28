@@ -237,7 +237,7 @@ const store = {
 // overwrites the real one.
 let storageReadFailed = false;
 
-const SECTIONS = ['overview', 'game', 'calendar', 'grid', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
+const SECTIONS = ['overview', 'game', 'calendar', 'grid', 'spark', 'journal', 'rounds', 'perps', 'replay', 'leaderboard', 'coach', 'settings'];
 let currentSection = 'overview';
 // The PERPS book (pt_perps). Deliberately a separate variable from
 // `state`: nothing in this file may sum the two.
@@ -871,6 +871,11 @@ function renderSection(id) {
   if (!el) return;
 
   if (id === 'replay') { renderReplay(el); return; }
+  // Spark owns its DOM lifecycle exactly like replay: it fetches the day's
+  // puzzle asynchronously and renders into the LIVE section (a detached
+  // staged div would be swapped out before the fetch resolves, and the
+  // chart would land in a node that is no longer in the document).
+  if (id === 'spark') { renderSpark(el); return; }
 
   // Build into a detached element: nothing here is ever painted.
   const staged = document.createElement('div');
@@ -5349,3 +5354,37 @@ function renderTrenchGrid(el) {
 
 // D-16: catch boot failures — a bare init() left the page blank on any throw.
 init().catch(renderInitError);
+
+/* ---- Daily Spark (DELIGHT-MAP.md A2) ---- */
+
+/* Lazy-load the day's puzzle the first time the Spark section is shown.
+ * The fetch is a blind read: the server truncates bars at the reveal
+ * moment, so nothing here can leak the future. */
+let sparkLoaded = false;
+function renderSpark(el) {
+  const spark = window.PTSpark;
+  if (!spark) {
+    el.innerHTML = '<div class="dim">Spark module failed to load.</div>';
+    return;
+  }
+  if (sparkLoaded) return; // already rendered this session
+  el.innerHTML = '<p class="dim" style="margin:10px 0">Loading today\'s puzzle…</p>';
+  fetch(spark.API + '/api/spark/today', { credentials: 'omit', cache: 'no-store' })
+    .then((res) => {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then((body) => {
+      const model = spark.sparkModel(body);
+      if (!model) throw new Error('unexpected shape');
+      sparkLoaded = true;
+      spark.renderSpark(el, model);
+    })
+    .catch((err) => {
+      console.warn('PaperTrench: spark unavailable —', err.message);
+      el.innerHTML = `<p class="dim" style="margin:10px 0">Couldn't load today's puzzle just now.
+        <button type="button" class="linkish" id="spark-retry">Try again</button></p>`;
+      const retry = el.querySelector('#spark-retry');
+      if (retry) retry.addEventListener('click', () => { sparkLoaded = false; renderSpark(el); });
+    });
+}
