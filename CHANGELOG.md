@@ -3,6 +3,27 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.17.1 — 2026-08-28
+
+**New-pair prices load in seconds, not minutes (Discord reports from 4… and Gio).**
+
+Two users reported buying on Axiom new pairs waiting 1-2 minutes for a live
+price, while Padre was instant. The chain probe that prices a brand-new coin
+(no aggregator knows it yet) backed off after a failed read — 2s, then 4s,
+8s, up to 30s — even while the page's own mcap ticks proved the coin was
+actively trading. The anti-storm timer exists for coins that CANNOT be
+priced; a live market is the opposite case.
+
+- While fresh mcap ticks prove the coin trades, the probe now retries
+  immediately instead of waiting out the backoff.
+- The detect loop re-asks every pass while the market is live, not every
+  5th attempt.
+- D-60S (the anti-storm guard) still holds: a quiet coin with no ticks
+  keeps the exponential backoff, so the retry-storm regression stays dead.
+
+Tested: new LIVE-MARKET test fails on the old code and passes on the fix
+(negative control verified); full suite 2444/2444.
+
 ## v3.17.0 — 2026-08-28
 
 **Reliability wave — the Daily Spark becomes drift-proof, and the bot stops
