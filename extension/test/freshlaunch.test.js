@@ -1141,4 +1141,39 @@ test('D-60S: a failing prewatch backs off instead of hammering (ark_trades13 sto
   const c4 = await at(90_000);
   assert.ok(c4 <= 10, `90s of failures must cost <=10 probes, got ${c4}`);
 });
+test('LIVE-MARKET: a failing prewatch re-probes immediately while mcap ticks prove the coin trades', async () => {
+  // Discord 2026-08-28 (4…/Gio): on Axiom new pairs the price took 1-2
+  // minutes to load. The chain probe backed off (2s->30s) after a failed
+  // read even though the page's own mcap ticks proved the coin was trading
+  // — the anti-storm timer benched the only source that could turn those
+  // mcap ticks into a fillable price. The backoff exists to stop a storm on
+  // a coin that CANNOT be priced; a live market is the opposite case.
+  const ov = runFreshLaunch({
+    resolvePrice: null,
+    // The chain fails every read — but the page keeps printing mcap ticks.
+    onchainPrewatch: () => null,
+  });
+  await ov.settle();
+
+  // The page proves the market is alive: fresh mcap ticks keep flowing.
+  // NEW_MINT is the mint the harness detects (default Padre mint URL).
+  ov.emitTick(mcapOnlyTick(NEW_MINT, 12_000));
+  await ov.advance(300);
+
+  const at = async (ms) => { await ov.advance(ms); return ov.prewatchCalls(); };
+
+  // First probe fires promptly.
+  const first = await at(1200);
+  assert.ok(first >= 1, 'the first probe must fire immediately');
+
+  // Inside the 2s backoff window, the loop must NOT stay silent — the
+  // market is provably trading, so the probe re-fires on the next pass.
+  const c1 = await at(900);
+  assert.ok(c1 > first, `a live market must not wait on the backoff; went ${first}->${c1}`);
+
+  // And it keeps re-probing while mcap ticks stay fresh — never benched.
+  const c2 = await at(2000);
+  assert.ok(c2 > c1, `the live-market probe must keep re-firing; went ${c1}->${c2}`);
+});
+
 

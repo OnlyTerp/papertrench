@@ -894,8 +894,17 @@
     // Backoff gate (D-60 companion): a probe that failed moments ago is not
     // re-paid on every detect tick. The backoff is keyed to the address —
     // a different address is never delayed by a previous coin's failures.
+    //
+    // LIVE-MARKET EXCEPTION (Discord 2026-08-28, 4…/Gio): a coin whose
+    // mcap ticks are FRESH is provably trading — the page's own feed says
+    // so — so a failed probe must not bench its only on-chain price source
+    // on the anti-storm timer. The backoff exists to stop a retry STORM on
+    // a coin that cannot be priced; a live market is the opposite case.
+    // While mcap ticks flow, probe immediately: the chain read is the only
+    // thing that can turn those mcap ticks into a fillable price.
     const backoff = prewatchBackoffMs(candidate.address);
-    if (backoff > 0) return;
+    const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
+    if (backoff > 0 && !liveMarket) return;
     prewatchBackoffFor = candidate.address;
     prewatchedAddress = candidate.address;
     prewatchLastTryAt = Date.now();
@@ -1085,8 +1094,14 @@
         // net. Waiting ~4s to re-ask after a throttled RPC is what left
         // fresh coins on "Fetching live price" for 20-30 seconds.
         const probeFailed = prewatchedAddress === null;
+        // LIVE-MARKET (Discord 2026-08-28): while fresh mcap ticks prove the
+        // coin trades, a probe is always worth re-asking — the chain read is
+        // the only thing that turns those ticks into a fillable price. The
+        // every-5th net is for a coin whose feed is quiet; a live market is
+        // the opposite case.
+        const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
         if (token && token.pending
-          && (probeFailed || pendingAttempts % 5 === 0)
+          && (probeFailed || pendingAttempts % 5 === 0 || liveMarket)
           && (!candidate.chain || candidate.chain === 'solana')) {
           prewatchedAddress = null;
           prewatchPending(candidate);
