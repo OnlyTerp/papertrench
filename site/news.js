@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.17.1', date: 'Aug 28, 2026', iso: '2026-08-28',
+        tags: ['fix'],
+        title: 'New-pair prices load in seconds, not minutes',
+        body: 'Two Discord reports (4…, Gio): buying on Axiom new pairs waited 1-2 minutes for a live price while Padre was instant. The chain probe that prices a brand-new coin backed off after a failed read — 2s, then 4s, up to 30s — even while the page\u2019s own mcap ticks proved the coin was actively trading. The anti-storm timer exists for coins that cannot be priced; a live market is the opposite case. While fresh mcap ticks prove the coin trades, the probe now retries immediately, and the detect loop re-asks every pass instead of every 5th attempt. The anti-storm guard still holds for quiet coins, so the retry-storm regression stays dead.',
+      },
+      {
         v: '3.17.0', date: 'Aug 28, 2026', iso: '2026-08-28',
         tags: ['fix'],
         title: 'The Daily Spark becomes drift-proof, and the bot stops losing people',
