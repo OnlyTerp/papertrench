@@ -1514,6 +1514,36 @@ message dispatch.
 
 Community report covered: "things not properly displaying on the dashboards".
 
+**D-61 · S2 · Live-market coins sat on "Fetching live price" for 1-2 min after a failed chain probe**
+`content.js` (prewatchPending, detect loop)
+
+4… and Gio, Discord #general 2026-08-28: *"does it take ages for anybody's
+live price to load? it literally takes me 1-2 minutes before im able to buy
+a coin on new pairs"* and *"the price loads slow for me on axiom. works
+right away on padre though"*.
+
+D-60 released the probe latch on failure (good), and D-60S added the
+per-address exponential backoff (2s->30s) to stop ark_trades13's retry
+storm. But the backoff then re-imposed the wait on the very case that
+needs the chain most: a coin whose page feed is emitting FRESH mcap ticks
+is provably trading — the anti-storm timer exists for coins that CANNOT be
+priced, and a live market is the opposite case. With the backoff blocking
+re-probes and the detect loop's every-5th-attempt net, a coin that failed
+one probe could wait minutes even though the chain would answer now.
+
+Fix: while fresh mcap ticks prove the market is alive (<=15s since last
+tick), the backoff is bypassed and the detect loop re-asks every pass.
+D-60S still holds: a quiet coin keeps the exponential backoff, so the
+retry storm stays dead.
+
+Measured in the harness: new LIVE-MARKET test fails on the old code
+(probe stays benched inside the backoff window) and passes on the fix.
+Negative control verified by stashing the fix.
+
+**fixed v3.17.1** (`test/freshlaunch.test.js` — "LIVE-MARKET: a failing
+prewatch re-probes immediately while mcap ticks prove the coin trades")
+
+
 ### S1 — displayed number is wrong
 
 **D-01 · S1 · Equity curve sits above true equity by cumulative buy fees — two disagreeing numbers on one screen**
