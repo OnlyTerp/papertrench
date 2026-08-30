@@ -1144,6 +1144,9 @@
     site = S.currentSite();
     const candidate = site.detect();
     if (!candidate) { lastHref = location.href; swapStash = null; setToken(null); return; }
+    // D-66: a detection tick that acts (or proves the current token belongs
+    // to this URL) re-stamps the quick-buy identity anchor.
+    tokenHref = location.href;
     if (settled && (token.mint === candidate.address || token.pairAddress === candidate.address || token.srcAddress === candidate.address)) { lastHref = location.href; return; }
     // lastHref is only committed once this tick actually acts on the URL. If a
     // resolve is still in flight, leave it uncommitted so a navigation that
@@ -3435,8 +3438,38 @@
    * here so the pending-token arming and the in-flight guard apply equally.
    * `amt` is in PANEL units: SOL normally, dollars on a foreign-chain panel.
    */
+  // D-66: the URL the panel's current token was detected on. requestBuy
+  // compares it against the live URL before an instant fill: on a brand-new
+  // pair page there is a window where the URL already changed but the detect
+  // loop has not swapped the token yet — the panel still holds the PREVIOUS,
+  // fully-priced coin, and a quick-buy fired in that window used to fill the
+  // token the user had already left (harisx1: "u end up buying wrong quick
+  // buy"). detectLoop commits lastHref whenever it acts, so equality here
+  // means "the panel's token belongs to the page on screen".
+  let tokenHref = null;
+
+  // D-66: one gate for every panel quick-buy entry point (preset chips in
+  // instant mode, the BUY button, Enter in the amount box, shortcuts — all
+  // funnel through requestBuy). When the page navigated to a new pair and
+  // the detect loop has not swapped the token yet, the panel's token is the
+  // previous coin: an instant fill would book the WRONG token, so the click
+  // is refused visibly. Arming is untouched — once the pending token is in
+  // (same URL), a click on an unpriced coin arms exactly as before (D-39).
+  function quickBuyIdentityStale() {
+    if (!token) return false;
+    // A settled token whose URL we never stamped (defensive) is trusted.
+    if (tokenHref == null) return false;
+    return location.href !== tokenHref;
+  }
+
   async function requestBuy(amt) {
     if (!(amt > 0)) return toast(panelUsd() ? 'Pick a dollar amount first' : 'Pick a SOL amount first');
+    // D-66: never fill the previous coin on a fresh pair page. The refusal
+    // costs one detect tick (~the page's own navigation beat) — after the
+    // swap the same click arms or fills correctly.
+    if (quickBuyIdentityStale()) {
+      return toast('New pair still loading — quick buy paused until the token is identified');
+    }
     if (buyInFlight) return toast('Buy already in progress…');
     // Dollar panels convert to SOL book units at the recorded rate before
     // anything else sees the amount — the engine and guardrails only ever

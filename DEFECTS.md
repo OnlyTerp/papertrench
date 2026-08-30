@@ -2116,6 +2116,15 @@ the same message the entry guard uses).
 
 ---
 
+**D-66 · S1 · Quick-buy on a NEW PAIR could fill the PREVIOUS token — the instant-fill gate never checked token identity against the page**
+`extension/content.js` (requestBuy, detectLoop — tokenHref identity anchor)
+
+harisx1, Discord 🐛-bug-reports 2026-08-30T11:15Z: *"Can we have the new pairs pause for quick buy? it doesnt pause when quick buying so u end up buying wrong quick buy."* On a brand-new pair page there is a window between the URL changing and the detect loop's next tick (~800 ms) where the panel's `token` is still the PREVIOUS coin — fully resolved and priced. In instant mode every panel entry point (preset chips, BUY button, Enter in the amount box) funnels through `requestBuy`, which filled INSTANTLY against that stale identity: the user taps a quick-buy on the new coin's page and the fill books the coin they just left. A fill against the wrong token corrupts the paper book (S1). The pending path itself was already safe — a click on a genuinely pending token arms (D-38/D-39) and re-keys onto the discovered mint — so the defect was precisely the stale-identity instant-fill window.
+
+**fixed** (identity-gated quick buy: detectLoop stamps a `tokenHref` anchor every tick that inspects the page; `quickBuyIdentityStale()` compares it against `location.href` and `requestBuy` refuses the fill with a visible toast ("New pair still loading — quick buy paused until the token is identified") until the detect tick swaps the pending token in — after which the same click arms or fills exactly as before. Arming doctrine, discovery re-keying (F-51) and the list quick-buy's row-bound identity (F-59/F-61) are untouched — the row path is pinned, not changed. Locked by `test/d66_quickbuy_gate.test.js` — 6 tests: 3 structural pins + 3 behavioral (real content script in the vm harness: no fill while unindexed, armed fill lands under the DISCOVERED mint, navigation refuses the old-token instant fill); negative control: stashed fix = 4/6 (D-66/1, D-66/2 red), restored = 6/6. Contract: `.contracts/validation-contract-d66.md`.)
+
+---
+
 ## V — Visual polish
 
 *(Phase 4 screenshot sweep pending. Already queued from code audits: O-27, O-28, C-27,
