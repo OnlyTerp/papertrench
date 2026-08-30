@@ -110,6 +110,11 @@
   // Its live React chart manager exposes `getActiveChart().createOrderLine()`.
   let gmgnChart = null;
   let gmgnLineSpec = null;
+  // Why the GMGN lines last failed to draw. The paper path has had
+  // lastLineSyncReason since F-41 and D-63 extended it; the GMGN path had no
+  // diagnostic at all, which is why portifly's report (D-64) arrived as
+  // "they never show up" with nothing to say which of the causes it was.
+  let lastGmgnLineReason = null;
   let gmgnRetryTimer = null;
   // DEFECT C-08: the newest close from GMGN's own mcap-candle feed. GMGN's
   // cap definition can differ from the resolver's (circulating vs total,
@@ -2750,18 +2755,71 @@
     return null;
   }
 
+  /** D-64's want-rule, in one place. The sweep and the sync both have to
+   * decide "is a line wanted here", and they have to agree: the sweep calling
+   * a sync that then disagrees is how a line gets re-armed forever without
+   * ever being drawn. Either level source counts, because either can produce
+   * a level (mcap directly, or the native ratio lane). */
+  function gmgnWants(side) {
+    const spec = gmgnLineSpec;
+    if (!spec) return false;
+    return Number(spec['avg' + side + 'Mcap']) > 0 || Number(spec['avg' + side + 'Native']) > 0;
+  }
+
   function syncGmgnAverageLines() {
+    lastGmgnLineReason = null;
     if (!gmgnLineSpec || !gmgnLineSpec.enabled) {
       clearGmgnAverageLines();
       return true;
     }
     const chart = findGmgnChart();
-    if (!chart) return false;
+    if (!chart) { lastGmgnLineReason = 'no-chart'; return false; }
     if (gmgnChart && gmgnChart !== chart) { clearLineSlot(gmgnBuySlot); clearLineSlot(gmgnSellSlot); }
     gmgnChart = chart;
-    const buyOk = syncLineSlot(gmgnBuySlot, chart, gmgnLineLevel('Buy'), gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399');
-    const sellOk = syncLineSlot(gmgnSellSlot, chart, gmgnLineLevel('Sell'), gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56');
-    return buyOk && sellOk;
+
+    const wantsBuy = gmgnWants('Buy');
+    const wantsSell = gmgnWants('Sell');
+    const buyLevel = gmgnLineLevel('Buy');
+    const sellLevel = gmgnLineLevel('Sell');
+
+    // D-63 parity. That fix landed on syncPaperAverageLines only, but GMGN
+    // draws through the SAME createOrderLine on the SAME TradingView chart,
+    // so an off-range GMGN average line feeds GMGN's autoscale exactly the
+    // way dashgirn's and ark_trades13's did on Padre/Axiom — axis dragged
+    // through zero into negative mcaps, candles squashed into a corner.
+    // Same remedy: don't draw it, clear the slot so it stops feeding
+    // autoscale, name the reason, let the sweep bring it back when the axis
+    // scrolls to it. offVisibleRange fails safe — a chart it cannot measure
+    // accuses nothing.
+    const buyOffRange = offVisibleRange(chart, [buyLevel]) === 'off-range';
+    const sellOffRange = offVisibleRange(chart, [sellLevel]) === 'off-range';
+    if (buyOffRange) clearLineSlot(gmgnBuySlot);
+    if (sellOffRange) clearLineSlot(gmgnSellSlot);
+
+    // The sixth argument is `wanted`, and omitting it was its own defect:
+    // syncLineSlot reads it to tell "there is no line to draw" (clear it)
+    // from "a line IS wanted but its level is momentarily uncomputable"
+    // (keep what is drawn, retry) — F-41's split, which the paper path has
+    // had since. undefined is falsy, so every uncomputable tick CLEARED a
+    // correct line and reported success. D-64 made levels computable far
+    // more often; it did not make them always computable — gmgnLastCandleClose
+    // resets to 0 on every token switch, and both level lanes need it.
+    const buyOk = buyOffRange ? false
+      : syncLineSlot(gmgnBuySlot, chart, buyLevel, gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399', wantsBuy);
+    const sellOk = sellOffRange ? false
+      : syncLineSlot(gmgnSellSlot, chart, sellLevel, gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56', wantsSell);
+
+    const missingBuy = wantsBuy && !(buyLevel > 0);
+    const missingSell = wantsSell && !(sellLevel > 0);
+    if (buyOffRange || sellOffRange) {
+      lastGmgnLineReason = 'off-range'
+        + (buyOffRange ? ':buy' : '') + (sellOffRange ? ':sell' : '');
+    } else if (missingBuy || missingSell) {
+      lastGmgnLineReason = 'no-level' + (gmgnLastCandleClose > 0 ? '' : ':no-close');
+    } else if (!(buyOk && sellOk)) {
+      lastGmgnLineReason = 'draw-refused';
+    }
+    return buyOk && sellOk && !missingBuy && !missingSell;
   }
 
   function retryGmgnAverageLines() {
@@ -2769,7 +2827,14 @@
     let attempts = 0;
     const retry = () => {
       gmgnRetryTimer = null;
-      if (syncGmgnAverageLines() || ++attempts >= 30) return;
+      if (syncGmgnAverageLines()) return;
+      if (++attempts >= 30) {
+        // Giving up silently after 15s is how "the Avg lines never show up"
+        // reached us with nothing to act on (D-64). Say which cause it was,
+        // once — the sweep still keeps trying afterwards.
+        emit('gmgn-lines-status', { action: 'sync', ok: false, reason: lastGmgnLineReason || 'unknown' });
+        return;
+      }
       gmgnRetryTimer = setTimeout(retry, 500);
     };
     retry();
@@ -3876,8 +3941,8 @@
       // D-64: want-detection must consider every level source — a side whose
       // mcap candidate is null but whose native average exists (C-16 lane)
       // wants a line just as much, and previously never re-armed the sync.
-      const wantsBuy = Number(gmgnLineSpec.avgBuyMcap) > 0 || Number(gmgnLineSpec.avgBuyNative) > 0;
-      const wantsSell = Number(gmgnLineSpec.avgSellMcap) > 0 || Number(gmgnLineSpec.avgSellNative) > 0;
+      const wantsBuy = gmgnWants('Buy');
+      const wantsSell = gmgnWants('Sell');
       const buyMissing = wantsBuy && !gmgnBuySlot.adapter && !gmgnBuySlot.pending;
       const sellMissing = wantsSell && !gmgnSellSlot.adapter && !gmgnSellSlot.pending;
       if (buyMissing || sellMissing) syncGmgnAverageLines();
