@@ -8913,6 +8913,57 @@
       toggleOverlayEnabled().catch(() => {});
       return undefined;
     }
+    if (msg?.type === 'pt_price_debug') {
+      /* Share-debug-logs pull: why is this coin not priced?
+       *
+       * The recorder already carries the two error rings and the chip map,
+       * and that is enough for anything that THROWS. The most-reported bug
+       * we have throws nothing: the panel sits on "Fetching live price…"
+       * while every path quietly declines to produce a number, so the report
+       * a user attaches to that ticket contains no evidence about it at all
+       * (CHENG, 2026-08-29, v3.17.1 — the third report of this symptom, each
+       * time with nothing to read).
+       *
+       * These are the states that decide whether a price arrives: whether the
+       * page feed is alive (which is also what D-61's live-market bypass
+       * keys off), how far into the D-60S exponential backoff the chain probe
+       * has walked, and whether the probe is latched or released.
+       *
+       * NO ADDRESSES. errors.js strips keys, tokens and addresses at RECORD
+       * time so the report is safe by construction rather than by an
+       * export-time scrub — this snapshot keeps that property by emitting
+       * ages, counters and booleans only, never a mint or pool. */
+      const now = Date.now();
+      const age = (t) => (t > 0 ? now - t : null);
+      try {
+        respond({
+          ok: true,
+          price: {
+            site: (site && site.id) || null,
+            hasToken: Boolean(token),
+            pending: Boolean(token && token.pending),
+            priceSource: (token && token.priceSource) || null,
+            hasPriceNative: Boolean(token && Number(token.priceNative) > 0),
+            hasMcap: Boolean(token && Number(token.mcap) > 0),
+            // Feed liveness — the input to D-61's live-market exception.
+            lastPriceAgeMs: age(lastPriceAt),
+            lastPageTickAgeMs: age(lastPageTickAt),
+            lastMcapTickAgeMs: age(lastMcapTickAt),
+            // Chain probe: the D-60/D-60S/D-61 path itself.
+            prewatchAttempts,
+            prewatchBackoffRemainingMs: token && token.srcAddress
+              ? prewatchBackoffMs(token.srcAddress)
+              : null,
+            prewatchLatched: prewatchedAddress !== null,
+            prewatchLastTryAgeMs: age(prewatchLastTryAt),
+            onchainLive: Boolean(onchainLive),
+            // An intent waiting on a first quote is the user-visible symptom.
+            armedBuy: armedBuy ? { ageMs: age(armedBuy.at), fromClick: Boolean(armedBuy.fromClick) } : null,
+          },
+        });
+      } catch (_) { /* popup gone */ }
+      return undefined;
+    }
     if (msg?.type === 'pt_chip_debug') {
       // Share-debug-logs pull: the chip map lives in the MAIN-world bridge,
       // so relay the request over the postMessage bridge and hand back the

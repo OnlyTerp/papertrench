@@ -101,6 +101,12 @@ async function shareDebugLogs() {
           const chips = await chrome.tabs.sendMessage(tab.id, { type: 'pt_chip_debug' });
           if (chips && chips.ok) report.chips = chips.chips || null;
         } catch (_) { /* chip bridge absent (non-screener page) */ }
+        // The price path answers the report this recorder exists for and
+        // that the error rings cannot: "Fetching live price…" throws nothing.
+        try {
+          const price = await chrome.tabs.sendMessage(tab.id, { type: 'pt_price_debug' });
+          if (price && price.ok) report.price = price.price || null;
+        } catch (_) { /* no content script on this tab */ }
       }
     } catch (_) { /* tabs query denied: report still carries the worker half */ }
     const text = JSON.stringify(report, null, 1);
