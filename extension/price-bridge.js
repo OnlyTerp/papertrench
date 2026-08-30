@@ -2106,8 +2106,23 @@
     // pane, live 2026-08-06) — a level off by more than that is drawn
     // perfectly and seen by nobody, which is exactly how "the line isn't
     // showing" reported ok:true for a whole day. Name it instead.
-    const offRange = offVisibleRange(charts[0], [buyLevel, sellLevel]);
-    if (offRange && !lastLineSyncReason) lastLineSyncReason = offRange;
+    // D-63 (dashgirn + ark_trades13, 2026-08-29/30): WORSE than unseen — a
+    // drawn off-range line ENTERS the host autoscale. A snipe-era fill mcap
+    // (200 vs a 5-60K candle band) dragged the y-axis through zero into
+    // negative padding (-4.71K / -175K ticks on the reports), squashing the
+    // candles and detaching the bubbles. An off-range wanted level is now
+    // NOT drawn: its slot is cleared (it stops feeding autoscale, the axis
+    // springs back), the reason is named, and the next sweep retries — a
+    // level legitimately re-enters range as the axis moves.
+    const buyOffRange = offVisibleRange(charts[0], [buyLevel]) === 'off-range';
+    const sellOffRange = offVisibleRange(charts[0], [sellLevel]) === 'off-range';
+    if (buyOffRange) clearLineSlot(averageFillSlot);
+    if (sellOffRange) clearLineSlot(averageExitSlot);
+    if ((buyOffRange || sellOffRange) && !lastLineSyncReason) {
+      lastLineSyncReason = 'off-range'
+        + (buyOffRange ? ':buy' : '') + (sellOffRange ? ':sell' : '');
+    }
+    if (buyOffRange && sellOffRange) return false; // nothing drawable this sweep
     if (missingBuy && missingSell) return false;
     // The best-ranked chart can still refuse (Axiom's preload chart throws
     // "Value is null" until a series loads); fall through the ranking — but
@@ -2131,8 +2146,14 @@
       const sellLabel = typeof spec.sellLabel === 'string' ? spec.sellLabel : 'PAPER Avg. Exit';
       const buyColor = typeof spec.buyColor === 'string' ? spec.buyColor : '#90A8FA99';
       const sellColor = typeof spec.sellColor === 'string' ? spec.sellColor : '#F7DC8599';
-      const buyOk = syncLineSlot(averageFillSlot, chart, buyLevel, buyLabel, buyColor, wantsBuy);
-      const sellOk = syncLineSlot(averageExitSlot, chart, sellLevel, sellLabel, sellColor, wantsSell);
+      // D-63: an off-range side is not passed to syncLineSlot at all — the
+      // helper would happily (re)create an order line for any positive
+      // number, and recreating it would re-enter autoscale one sweep after
+      // the clear above.
+      const buyOk = buyOffRange ? false
+        : syncLineSlot(averageFillSlot, chart, buyLevel, buyLabel, buyColor, wantsBuy);
+      const sellOk = sellOffRange ? false
+        : syncLineSlot(averageExitSlot, chart, sellLevel, sellLabel, sellColor, wantsSell);
       if (buyOk && sellOk) {
         // Every wanted level drew, or one is still waiting on a close —
         // ok only when nothing wanted is missing.
@@ -2714,8 +2735,19 @@
   /** C-08: line level on GMGN's own axis (see gmgnCapScale). */
   function gmgnLineLevel(side) {
     const avg = numberValue(gmgnLineSpec && gmgnLineSpec['avg' + side + 'Mcap']);
-    if (!(avg > 0)) return null;
-    return avg * gmgnCapScale();
+    if (avg > 0) return avg * gmgnCapScale();
+    // D-64 (portifly, 2026-08-28): C-16 parity for LINES. A fresh token with
+    // no mcap/priceUsd yet — supply null, so avg{Side}Mcap arrived null —
+    // still has its SOL averages. The candle close x native ratio lands the
+    // line on GMGN's axis exactly the way the fill markers' C-16 lane does;
+    // before this, "Marks work but Avg lines never show up" was the honest
+    // report of exactly that gap.
+    const native = numberValue(gmgnLineSpec && gmgnLineSpec['avg' + side + 'Native']);
+    const currentNative = numberValue(gmgnLineSpec && gmgnLineSpec.currentPriceNative);
+    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
+      return gmgnLastCandleClose * (native / currentNative);
+    }
+    return null;
   }
 
   function syncGmgnAverageLines() {
@@ -2927,6 +2959,9 @@
         enabled: Boolean(payload && payload.enabled),
         avgBuyMcap: numberValue(payload && payload.avgBuyMcap),
         avgSellMcap: numberValue(payload && payload.avgSellMcap),
+        // D-64: the SOL averages — the C-16 native-ratio lane's inputs.
+        avgBuyNative: numberValue(payload && payload.avgBuyNative),
+        avgSellNative: numberValue(payload && payload.avgSellNative),
         avgBuyText: typeof (payload && payload.avgBuyText) === 'string' ? payload.avgBuyText : 'PT Avg Buy',
         avgSellText: typeof (payload && payload.avgSellText) === 'string' ? payload.avgSellText : 'PT Avg Sell',
         // C-08/C-16: the resolver's CURRENT view of the token, re-posted by
@@ -3838,8 +3873,13 @@
     // GMGN recovery is driven by its own chart manager, not the TradingView
     // widget scan, so it runs whenever specs/queues exist.
     if (gmgnLineSpec && gmgnLineSpec.enabled && !gmgnRetryTimer) {
-      const buyMissing = Number(gmgnLineSpec.avgBuyMcap) > 0 && !gmgnBuySlot.adapter && !gmgnBuySlot.pending;
-      const sellMissing = Number(gmgnLineSpec.avgSellMcap) > 0 && !gmgnSellSlot.adapter && !gmgnSellSlot.pending;
+      // D-64: want-detection must consider every level source — a side whose
+      // mcap candidate is null but whose native average exists (C-16 lane)
+      // wants a line just as much, and previously never re-armed the sync.
+      const wantsBuy = Number(gmgnLineSpec.avgBuyMcap) > 0 || Number(gmgnLineSpec.avgBuyNative) > 0;
+      const wantsSell = Number(gmgnLineSpec.avgSellMcap) > 0 || Number(gmgnLineSpec.avgSellNative) > 0;
+      const buyMissing = wantsBuy && !gmgnBuySlot.adapter && !gmgnBuySlot.pending;
+      const sellMissing = wantsSell && !gmgnSellSlot.adapter && !gmgnSellSlot.pending;
       if (buyMissing || sellMissing) syncGmgnAverageLines();
     }
     if (gmgnMarkerQueue.length && !gmgnMarkerTimer) scheduleGmgnMarkerDrain();

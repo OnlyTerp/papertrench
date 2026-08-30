@@ -96,12 +96,89 @@
     return POOL.call(method, params);
   }
 
+  // D-62 (ark_trades13/cheng.4848/giovinastro exports, 2026-08-26..30): the
+  // free endpoints price getMultipleAccounts by weight and start REFUSING it
+  // (HTTP 403 'Request blocked') for heavy sessions — 65 grouped refusals
+  // across 3.5 hours in one export, in BOTH prewatch and watch, all on
+  // v3.17.1 — while a light-IP probe of the same endpoints passes. Every
+  // HTTP read in this feed rode that ONE method, so a refused user could not
+  // classify an address, could not watch a pool, and sat on "Fetching live
+  // price…" for the 20-30s+ an aggregator needs to index a fresh coin.
+  // Two hardenings, both honest:
+  //   - no getMultipleAccounts carries more than GMA_MAX_KEYS keys (the
+  //     oversized payload is what a weight-based refusal hits first);
+  //   - a METHOD refusal falls back to per-account getAccountInfo — a
+  //     cheaper read in a different weight class the same WAF did not
+  //     block (the exports carry zero getAccountInfo errors; this build
+  //     simply never issued any). Slow beats dead on the sniping path.
+  const GMA_MAX_KEYS = 20;
+  const GAI_CONCURRENCY = 4;
+
+  /** A method-policy refusal (HTTP 403 / rpc 'not allowed' / the pool's
+   * blocked-everywhere fast-fail), as opposed to a transient fault. */
+  function isMethodRefusal(error) {
+    return Boolean(error && error.kind === 'method');
+  }
+
+  /** Read accounts in size-capped batches, keeping the highest response slot.
+   * On a method refusal mid-walk, the remaining keys fall back to the
+   * per-account lane — already-answered batches are kept. */
+  async function getAccountsResilient(addresses) {
+    const out = [];
+    let slot = 0;
+    let i = 0;
+    while (i < addresses.length) {
+      const chunk = addresses.slice(i, i + GMA_MAX_KEYS);
+      let result = null;
+      try {
+        result = await rpc('getMultipleAccounts', [
+          chunk, { encoding: 'base64', commitment: COMMITMENT },
+        ]);
+      } catch (error) {
+        if (!isMethodRefusal(error)) throw error;
+        noteFeedError(error, { fn: 'getAccounts-fallback', offset: i, keys: chunk.length });
+        const individual = await getAccountsIndividually(chunk);
+        for (const value of individual) out.push(value);
+        i += chunk.length;
+        continue;
+      }
+      const chunkSlot = Number(result && result.context && result.context.slot) || 0;
+      if (chunkSlot > slot) slot = chunkSlot;
+      const values = (result && result.value) || [];
+      for (const value of values) out.push(value);
+      i += chunk.length;
+    }
+    return { slot, accounts: out };
+  }
+
+  /** Per-account fallback lane (D-62): one getAccountInfo per address, with
+   * bounded concurrency. A failed single read is null — the caller's honest
+   * "not found" — never a thrown batch. */
+  async function getAccountsIndividually(addresses) {
+    const out = new Array(addresses.length).fill(null);
+    let next = 0;
+    async function worker() {
+      while (next < addresses.length) {
+        const index = next++;
+        let result = null;
+        try {
+          result = await rpc('getAccountInfo', [
+            addresses[index], { encoding: 'base64', commitment: COMMITMENT },
+          ]);
+        } catch (_) { result = null; }
+        out[index] = (result && result.value) || null;
+      }
+    }
+    const workers = [];
+    for (let w = 0; w < Math.min(GAI_CONCURRENCY, addresses.length); w++) workers.push(worker());
+    await Promise.all(workers);
+    return out;
+  }
+
   async function getAccounts(addresses) {
     if (!addresses.length) return [];
-    const result = await rpc('getMultipleAccounts', [
-      addresses, { encoding: 'base64', commitment: COMMITMENT },
-    ]);
-    return (result && result.value) || [];
+    const { accounts } = await getAccountsResilient(addresses);
+    return accounts;
   }
 
   /** Like getAccounts, but keeps the response's slot — needed when a read is
@@ -109,13 +186,7 @@
    * the per-leg ordering guard the moment live frames arrive). */
   async function getAccountsWithSlot(addresses) {
     if (!addresses.length) return { slot: 0, accounts: [] };
-    const result = await rpc('getMultipleAccounts', [
-      addresses, { encoding: 'base64', commitment: COMMITMENT },
-    ]);
-    return {
-      slot: Number(result && result.context && result.context.slot) || 0,
-      accounts: (result && result.value) || [],
-    };
+    return await getAccountsResilient(addresses);
   }
 
   /* ---------------- pool resolution ---------------- */
@@ -1008,6 +1079,8 @@
   const api = {
     configure, watch, unwatch, currentQuote, isLive, onQuote, activeEndpoint,
     prewatch, reserveAccounts,
+    _getAccountsForTest: getAccounts,
+    _getAccountsWithSlotForTest: getAccountsWithSlot,
     QUOTE_STALE_MS, COMMITMENT,
     // Exposed for tests.
     _describePool: describePool,

@@ -400,7 +400,11 @@
     // cooldown chatter (ark_trades13: 'rpc pool cooling down' x243). Fail
     // honestly and instantly; the callers own the fallback. (F-63)
     if (!hasUserEndpoint() && methodBlockedEverywhere(method)) {
-      throw new Error('rpc method blocked by every endpoint: ' + method);
+      const blocked = new Error('rpc method blocked by every endpoint: ' + method);
+      // D-62: stamped so callers can distinguish policy (fallback lanes may
+      // engage) from a transient fault (retry is the honest move).
+      blocked.kind = 'method';
+      throw blocked;
     }
     let endpoints = ranked(Object.assign({}, opts, { method }));
     const now = Date.now();

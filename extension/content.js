@@ -2970,6 +2970,11 @@
           enabled: true,
           avgBuyMcap: supply && avgBuyUsd ? avgBuyUsd * supply : null,
           avgSellMcap: supply && avgSellUsd ? avgSellUsd * supply : null,
+          // D-64: the SOL averages — the bridge's native-ratio lane (C-16
+          // parity) prices the line when the mcap average could not be
+          // computed (fresh token, no priceUsd/mcap yet).
+          avgBuyNative: Number(averages.avgBuyNative) > 0 ? averages.avgBuyNative : null,
+          avgSellNative: Number(averages.avgSellNative) > 0 ? averages.avgSellNative : null,
           // GMGN's axis IS market cap, so the label states the cap the line
           // sits at — the same figure the trader would quote out loud.
           avgBuyText: supply && avgBuyUsd ? `PT Avg Buy ${Q.formatMarketCap(avgBuyUsd * supply)}` : '',

@@ -3,6 +3,43 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.18.0 — 2026-08-30
+
+**The community bug-sweep: buying works again for everyone, and the chart axis
+can no longer be wrecked by an entry line.**
+
+Every report in the Discord (195 messages across 4 days) was triaged against
+live debug exports; three defects shipped fixed here, each pinned by a test
+that fails on the old code.
+
+- **"Fetching live price" for heavy users is dead (D-62).** ark_trades13,
+  cheng.4848 and giovinastro's debug logs told the story: the free Solana RPC
+  endpoints started refusing the `getMultipleAccounts` call (HTTP 403) once a
+  session's request weight ran high — 65 grouped refusals across 3.5 hours in
+  one export — and EVERY on-chain read rode that one method, so those users
+  could not price a coin at all while light users were fine. Reads now go out
+  in smaller batches (the oversized request is what the limit hits first) and
+  a refused batch falls back to per-account `getAccountInfo` reads — a
+  cheaper call in a different weight class that none of the logs show being
+  blocked. Slow beats dead on the sniping path.
+- **An off-range average line can no longer stretch the chart axis (D-63).**
+  dashgirn ("if price goes below 5k the avg entry goes off the charts") and
+  ark_trades13 ("Avg fill line is not correct"): TradingView's autoscale
+  includes order lines, so a snipe-era fill market cap (e.g. $200 on a $60K
+  chart) dragged the y-axis through zero into negative territory, squashing
+  the candles and detaching the bubbles. An average that falls outside the
+  visible range is now simply not drawn — the axis springs back, the reason
+  is named in the debug log, and the line returns on its own the moment the
+  axis scrolls back to it.
+- **GMGN average lines now draw on fresh launches (D-64).** portifly's
+  report: marks worked but the Avg Price / Avg Exit lines never appeared. The
+  line level needed the token's market cap, which a brand-new coin doesn't
+  have yet — the fill markers already had a price-ratio fallback for exactly
+  this case, the lines didn't. Now they do.
+
+Tested: three new defect suites (13 tests) all fail on the old code and pass
+on the fix (negative controls verified); full extension suite 2148/2148.
+
 ## v3.17.1 — 2026-08-28
 
 **New-pair prices load in seconds, not minutes (Discord reports from 4… and Gio).**

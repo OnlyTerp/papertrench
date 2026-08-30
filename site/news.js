@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.18.0', date: 'Aug 30, 2026', iso: '2026-08-30',
+        tags: ['fix'],
+        title: 'The community bug-sweep: buying works for everyone again',
+        body: 'Every report in the Discord was triaged against live debug exports, and three defects died. Heavy users (ark_trades13, cheng.4848, giovinastro) were being refused by the free Solana RPC endpoints on the one call every price read used — the fix splits reads into smaller batches and falls back to a cheaper per-account call, so “Fetching live price” no longer locks out the people who trade the most. dashgirn and ark_trades13’s stretched chart axes — dragged into negative numbers by an off-range average line feeding the autoscale — spring back: a line outside the visible range is now not drawn until the axis reaches it. And portifly’s GMGN report is fixed: the Avg Price / Avg Exit lines now draw on fresh launches via the same price-ratio fallback the fill markers always had.',
+      },
+      {
         v: '3.17.1', date: 'Aug 28, 2026', iso: '2026-08-28',
         tags: ['fix'],
         title: 'New-pair prices load in seconds, not minutes',

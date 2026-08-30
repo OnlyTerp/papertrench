@@ -2034,6 +2034,33 @@ Writers: content.js:1107 ✔ · dashboard.js:166 ✔ (but RMW, D-22) · dashboar
 
 ---
 
+**D-62 · S1 · The free RPC endpoints' weight WAF refused getMultipleAccounts for heavy users — every on-chain read rode that one method**
+`extension/onchain-feed.js` (getAccounts/getAccountsWithSlot → getAccountsResilient), `extension/rpc-pool.js` (blocked-everywhere fast-fail now stamped `kind:'method'`)
+
+ark_trades13, cheng.4848, giovinastro — Discord 🐛-bug-reports 2026-08-27..30, five debug exports on v3.13.13 AND v3.17.1: *"Why do I still have to wait 30 seconds to buy on the new trading pair and the migrated token?"*, *"Sometimes even slower"*; chimbarj (general, 08-30): *"it keeps saying fetching live price and it never buys"*. The exports carry `http 403 getMultipleAccounts @ publicnode` in BOTH `fn:prewatch` (40+29+14 grouped refusals) and `fn:watch` — 3.5 hours of them — while the same endpoints answer a light-IP probe with 200s. publicnode's WAF prices that method by request weight and starts refusing once a session's credit runs low; ark streams PaperTrench all day. Every HTTP read in the feed (describePool, prewatch, vault discovery, prime) used getMultipleAccounts exclusively, so those users could not classify an address, could not watch a pool, and waited on aggregator indexing (20-30s+) for every coin.
+
+**fixed v3.18.0** (three lanes: no getMultipleAccounts carries more than 20 keys — the oversized payload is what a weight refusal hits first; a METHOD refusal mid-walk falls back to per-account getAccountInfo reads at bounded concurrency — a cheaper call in a different weight class that appears in ZERO of the five exports, because the build never issued any; the pool's blocked-everywhere fast-fail is stamped `kind:'method'` so the fallback engages on the instant-throw path too. Locked by `test/d62_gma_fallback.test.js` — 5 tests incl. chunking on the happy path and fallback-only-after-real-failure; negative control: stashed fix = 0/5, restored = 5/5.)
+
+---
+
+**D-63 · S2 · An off-range average line fed the host autoscale — the y-axis stretched through zero into negative mcaps and squashed the candles**
+`extension/price-bridge.js` (syncPaperAverageLines)
+
+dashgirn, Discord 🐛-bug-reports 2026-08-30: *"nor sure if someone addressed this btu if price goes below 5k the avg rentry goes of the charts"* — screenshot shows the PAPER Avg. Fill line at 200.35 (a real snipe-era entry mcap) with axis ticks running 9.42K, 4.71K, 200.35, **-4.71K**; ark_trades13 2026-08-29: *"Avg fill line is not correct"* — screenshot shows ticks down to **-175K**, candles compressed into the top quarter, bubbles desynced above their bars. TradingView autoscale INCLUDES order lines in the visible range; F-41's offVisibleRange existed but only NAMED the condition — the line was still created, still entered autoscale, and a fill two orders of magnitude below the band wrecked the whole chart. The line VALUE was correct; drawing it was the defect.
+
+**fixed v3.18.0** (per-side: a wanted level that offVisibleRange proves off-range is not passed to syncLineSlot at all — its slot is cleared so it stops feeding autoscale and the axis springs back; the reason is named (`off-range:buy`/`:sell`) per the status-honesty law; the sweep retries, so the line returns on its own when the axis scrolls back to it. Locked by `test/d63_linelevel.test.js` — 4 tests; negative control: stashed fix = 1/4, restored = 4/4; bridge neighborhood 53/53.)
+
+---
+
+**D-64 · S2 · GMGN average lines never drew on fresh launches — the level required a market cap the coin didn't have yet, and the want-detection never re-armed**
+`extension/price-bridge.js` (gmgnLineLevel, gmgn-lines handler, sweep want-detection), `extension/content.js` (gmgn-lines spec)
+
+portifly, Discord 🐛-bug-reports 2026-08-28: *"I'm having an issue on GMGN. The Marks feature is definitely enabled, but the 'Avg Price' and 'Avg Exit' lines never show up. Is that normal? I'm definitely using the latest version."* The spec computed avgBuyMcap as `avgBuyUsd * supply` where supply = mcap/priceUsd — null on a fresh launch whose resolver record has priceNative but no priceUsd/mcap yet. gmgnLineLevel returned null with NO fallback, unlike fill markers which have the C-16 native-ratio lane (candleClose × fillNative/currentNative) for exactly this case — hence "marks work, lines never show". Worse, the periodic sweep only re-armed while `avgBuyMcap > 0`, so the state never retried and never reported why. (GMGN's current production bundle still mounts `global-tv-overlay` + the widgetSubject chart manager — selector verified live 2026-08-30, not the breakage.)
+
+**fixed v3.18.0** (C-16 parity: when avg{Side}Mcap is absent but avg{Side}Native and currentPriceNative are present, the level is gmgnLastCandleClose × (avgNative/currentNative); the spec carries avg{Side}Native; the sweep re-arms while ANY level source wants a line. Locked by `test/d64_gmgnlines.test.js` — 4 tests; negative control: stashed fix = 0/4, restored = 4/4.)
+
+---
+
 ## V — Visual polish
 
 *(Phase 4 screenshot sweep pending. Already queued from code audits: O-27, O-28, C-27,
