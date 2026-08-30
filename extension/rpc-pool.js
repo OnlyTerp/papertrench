@@ -72,6 +72,15 @@
   // for METHOD_BLOCK_MS. Any success clears the demotion and the pending
   // evidence instantly. (DEFECT F-63, refined twice)
   const METHOD_EVIDENCE_MS = 10 * 60_000;
+  // D-65 refusal memory: a HARD policy refusal (ark_trades13 2026-08-30: 1801
+  // identical 'http 403 getMultipleAccounts @ publicnode' across 6.5h) should
+  // not be re-paid every batch read while the two-strike evidence law waits
+  // for confirmation. The FIRST 403 on (endpoint, method) records a sliding
+  // refusal-memory entry: the endpoint ranks LAST for that method (behind the
+  // healthy hedge) until the window lapses. Any later 403 refreshes it; any
+  // success clears it. Unlike methodBlocks this never feeds the pool-wide
+  // fast-fail — the other endpoints stay first-class.
+  const REFUSAL_MEMORY_MS = 10 * 60_000;
   const DEMOTE_MS = 45_000;
   // Failed strikes forgive after two quiet minutes: a single blip right
   // after a bench expiry used to re-bench an endpoint for another full
@@ -133,8 +142,8 @@
   })();
 
   function stateFor(id) {
-    if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, throttledUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, demotedUntil: 0, lastFailureAt: 0 });
-    return health.get(id);
+  if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, throttledUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, refusals: {}, demotedUntil: 0, lastFailureAt: 0 });
+  return health.get(id);
   }
 
   /** A user-supplied endpoint always wins over the public pool. */
@@ -179,6 +188,13 @@
         const blockedA = method && sa.methodBlocks[method] > now ? 1 : 0;
         const blockedB = method && sb.methodBlocks[method] > now ? 1 : 0;
         if (blockedA !== blockedB) return blockedA - blockedB;
+        // D-65 refusal memory: a live (endpoint, method) refusal entry ranks
+        // the endpoint behind any healthy one — same treatment as a confirmed
+        // method block, but armed by the FIRST 403, not the second. Sliding:
+        // any later 403 refreshes the window; a 200 clears it.
+        const refusedA = method && (sa.refusals[method] || 0) > now ? 1 : 0;
+        const refusedB = method && (sb.refusals[method] || 0) > now ? 1 : 0;
+        if (refusedA !== refusedB) return refusedA - refusedB;
         // A fresh 403 demotes to the back of the line for DEMOTE_MS: the
         // endpoint just called this client hostile — the next call should
         // start elsewhere. Any success lifts it. (F-63 refined)
@@ -207,6 +223,9 @@
     // A success is proof the endpoint serves — pending method-block evidence
     // was a WAF blip, not policy. Disarm it, and lift the 403 demotion.
     if (state.methodEvidence && Object.keys(state.methodEvidence).length) state.methodEvidence = {};
+    // D-65: a 200 also clears refusal memory — the batch lane is restored
+    // the moment the endpoint actually answers.
+    if (state.refusals && Object.keys(state.refusals).length) state.refusals = {};
     if (state.demotedUntil) state.demotedUntil = 0;
     if (latencyMs != null) {
       // Smooth the estimate so one slow response cannot demote a good endpoint.
@@ -235,6 +254,12 @@
       state.lastFailureAt = now;
       state.demotedUntil = now + DEMOTE_MS;
       if (method) {
+        // D-65: first offence ALSO records refusal memory (sliding window) —
+        // the endpoint drops behind the healthy hedge for this method right
+        // away, instead of after the two-strike confirmation. Every later 403
+        // refreshes the window; a 200 clears it entirely.
+        state.refusals = state.refusals || {};
+        state.refusals[method] = now + REFUSAL_MEMORY_MS;
         state.methodEvidence = state.methodEvidence || {};
         const armedAt = state.methodEvidence[method];
         if (armedAt && now - armedAt <= METHOD_EVIDENCE_MS) {
@@ -278,6 +303,18 @@
     if (!method) return false;
     const now = Date.now();
     return PUBLIC_ENDPOINTS.every((e) => (stateFor(e.id).methodBlocks[method] || 0) > now);
+  }
+
+  /** D-65: true when every POOL endpoint carries LIVE refusal memory for this
+   * method (the sliding 10-minute entries). Softer than
+   * methodBlockedEverywhere: it says the batch attempt is currently hopeless
+   * and callers with a cheaper fallback lane should skip straight to it. A
+   * user endpoint is deliberately excluded — it outranks the pool and may
+   * serve the method fine. */
+  function refusalMemoryLive(method) {
+    if (!method) return false;
+    const now = Date.now();
+    return PUBLIC_ENDPOINTS.length > 0 && PUBLIC_ENDPOINTS.every((e) => (stateFor(e.id).refusals[method] || 0) > now);
   }
 
   /**
@@ -540,7 +577,7 @@
     PUBLIC_ENDPOINTS, COOLDOWN_MS, THROTTLE_DEFAULT_MS, THROTTLE_MAX_MS,
     setUserEndpoint, hasUserEndpoint,
     ranked, call, websocketUrls, poolLatency, poolStress,
-    reportSuccess, reportFailure, methodBlockedEverywhere,
+    reportSuccess, reportFailure, methodBlockedEverywhere, refusalMemoryLive,
     _health: health,
     _attempts: () => attemptLog.slice(),
     _reset: () => { health.clear(); userEndpoint = null; probeCursor = 0; },

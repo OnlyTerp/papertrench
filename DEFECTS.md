@@ -2084,7 +2084,7 @@ Clearing on a genuine switch was racy in the other direction too: the new token'
 candles routinely arrive BEFORE its paper-axis, so the clear destroyed a close that
 had just been captured for the token being moved to.
 
-**fixed** (the close is tagged with the token its own request named —
+**fixed v3.18.1** (the close is tagged with the token its own request named —
 `/api/v1/token_mcap_candles/<chain>/<address>` — and staleness is judged at USE time
 through `gmgnAxisAnchor()`, which every lane now reads; ownership is decided on
 address needles only, since a short symbol can appear inside an unrelated base58
@@ -2111,17 +2111,26 @@ sees: no fill, no armed buy, and no message explaining either — the click simp
 vanished. On the fresh launches this path serves, that is indistinguishable from
 "my buy didn't go through".
 
-**fixed** (the arming fall-through re-checks `token` after the await and refuses with
+**fixed v3.18.1** (the arming fall-through re-checks `token` after the await and refuses with
 the same message the entry guard uses).
 
 ---
 
-**D-66 · S1 · Quick-buy on a NEW PAIR could fill the PREVIOUS token — the instant-fill gate never checked token identity against the page**
+**D-67 · S1 · Quick-buy on a NEW PAIR could fill the PREVIOUS token — the instant-fill gate never checked token identity against the page**
 `extension/content.js` (requestBuy, detectLoop — tokenHref identity anchor)
 
 harisx1, Discord 🐛-bug-reports 2026-08-30T11:15Z: *"Can we have the new pairs pause for quick buy? it doesnt pause when quick buying so u end up buying wrong quick buy."* On a brand-new pair page there is a window between the URL changing and the detect loop's next tick (~800 ms) where the panel's `token` is still the PREVIOUS coin — fully resolved and priced. In instant mode every panel entry point (preset chips, BUY button, Enter in the amount box) funnels through `requestBuy`, which filled INSTANTLY against that stale identity: the user taps a quick-buy on the new coin's page and the fill books the coin they just left. A fill against the wrong token corrupts the paper book (S1). The pending path itself was already safe — a click on a genuinely pending token arms (D-38/D-39) and re-keys onto the discovered mint — so the defect was precisely the stale-identity instant-fill window.
 
-**fixed** (identity-gated quick buy: detectLoop stamps a `tokenHref` anchor every tick that inspects the page; `quickBuyIdentityStale()` compares it against `location.href` and `requestBuy` refuses the fill with a visible toast ("New pair still loading — quick buy paused until the token is identified") until the detect tick swaps the pending token in — after which the same click arms or fills exactly as before. Arming doctrine, discovery re-keying (F-51) and the list quick-buy's row-bound identity (F-59/F-61) are untouched — the row path is pinned, not changed. Locked by `test/d66_quickbuy_gate.test.js` — 6 tests: 3 structural pins + 3 behavioral (real content script in the vm harness: no fill while unindexed, armed fill lands under the DISCOVERED mint, navigation refuses the old-token instant fill); negative control: stashed fix = 4/6 (D-66/1, D-66/2 red), restored = 6/6. Contract: `.contracts/validation-contract-d66.md`.)
+**fixed v3.18.1** (identity-gated quick buy: detectLoop stamps a `tokenHref` anchor every tick that inspects the page; `quickBuyIdentityStale()` compares it against `location.href` and `requestBuy` refuses the fill with a visible toast ("New pair still loading — quick buy paused until the token is identified") until the detect tick swaps the pending token in — after which the same click arms or fills exactly as before. Arming doctrine, discovery re-keying (F-51) and the list quick-buy's row-bound identity (F-59/F-61) are untouched — the row path is pinned, not changed. Locked by `test/d66_quickbuy_gate.test.js` — 6 tests: 3 structural pins + 3 behavioral (real content script in the vm harness: no fill while unindexed, armed fill lands under the DISCOVERED mint, navigation refuses the old-token instant fill); negative control: stashed fix = 4/6 (D-66/1, D-66/2 red), restored = 6/6. Contract: `.contracts/validation-contract-d66.md`.)
+
+---
+
+**D-68 · S1 · A persistently policy-refused endpoint re-paid a full 403 round trip on EVERY getMultipleAccounts batch, and the fallback logged the same transition thousands of times per session**
+`extension/rpc-pool.js` (ranked, reportFailure, reportSuccess, refusalMemoryLive), `extension/onchain-feed.js` (getAccountsResilient, noteFallbackErrorOnce)
+
+ark_trades13, Discord debug exports on v3.18.0, 2026-08-30: the 12:39 export carried 294x *"http 403 getMultipleAccounts @ publicnode"* + 27x 429 publicnode + 14x 429 tatum; the 19:06 export (6.5h later) carried 1801x 403 gMA @ publicnode + 272x *"rpc pool cooling down"* + 64x 429 tatum + 57x 403 solana-labs; fn breakdown getAccounts-fallback 1858, prewatch 339, watch 45. D-62's per-account fallback WORKED (reads succeeded), but F-63's two-strike evidence law kept re-probing the hard-blocked endpoint on every batch read — the fail-then-fallback toll drove the 429 storm and the cooldown windows, and 2,242 error events hit one session, almost all identical fallback-transition notes logged per attempt.
+
+**fixed v3.18.1** (refusal memory: a FIRST 403 on (endpoint, method) records a sliding 10-minute entry — any later 403 refreshes it, a 200 clears it — that ranks the endpoint behind the healthy hedge for that method WITHOUT the two-strike requirement and WITHOUT feeding methodBlockedEverywhere; when every pool endpoint carries live refusal memory for getMultipleAccounts, getAccountsResilient skips the doomed batch entirely and goes straight to getAccountsIndividually; fallback-transition noteFeedError is throttled to once per (fn, minute). D-62 chunking at GMA_MAX_KEYS=20 preserved; a decayed trial restores the batch lane. Locked by `test/d65_refusal_memory.test.js` — 8 tests; negative control: stashed fix = 3/8, restored = 8/8. Contract: `.contracts/validation-contract-d65.md`.)
 
 ---
 

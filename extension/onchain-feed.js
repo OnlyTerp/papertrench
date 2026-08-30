@@ -120,6 +120,21 @@
     return Boolean(error && error.kind === 'method');
   }
 
+  // D-65: the ark_trades13 export carried 2,242 error events in one session,
+  // nearly all identical fallback-transition notes repeated per attempt. The
+  // transition is one FACT, not one per chunk: log it at most once per
+  // (fn, minute) window.
+  const lastFallbackNoteAt = new Map(); // fn -> epoch minute noted
+  function noteFallbackErrorOnce(error, context) {
+    try {
+      const fn = (context && context.fn) || '';
+      const minute = Math.floor(Date.now() / 60_000);
+      if (lastFallbackNoteAt.get(fn) === minute) return;
+      lastFallbackNoteAt.set(fn, minute);
+      noteFeedError(error, context);
+    } catch (_) { /* never load-bearing */ }
+  }
+
   /** Read accounts in size-capped batches, keeping the highest response slot.
    * On a method refusal mid-walk, the remaining keys fall back to the
    * per-account lane — already-answered batches are kept. */
@@ -127,8 +142,27 @@
     const out = [];
     let slot = 0;
     let i = 0;
+    // D-65 fast path: when EVERY pool endpoint carries live refusal memory
+    // for getMultipleAccounts, the batch attempt is a guaranteed 403 round
+    // trip (ark_trades13 paid it 1,801 times in 6.5h). Skip straight to the
+    // per-account lane. One 200 anywhere clears the memory and the batch
+    // lane returns on its own — no sticky state here.
+    const batchRefused = Boolean(
+      POOL && typeof POOL.refusalMemoryLive === 'function'
+        && POOL.refusalMemoryLive('getMultipleAccounts'),
+    );
     while (i < addresses.length) {
       const chunk = addresses.slice(i, i + GMA_MAX_KEYS);
+      if (batchRefused) {
+        noteFallbackErrorOnce(
+          new Error('getMultipleAccounts refused by every pool endpoint — per-account fast path (D-65)'),
+          { fn: 'getAccounts-fallback', offset: i, keys: chunk.length },
+        );
+        const individual = await getAccountsIndividually(chunk);
+        for (const value of individual) out.push(value);
+        i += chunk.length;
+        continue;
+      }
       let result = null;
       try {
         result = await rpc('getMultipleAccounts', [
@@ -136,7 +170,7 @@
         ]);
       } catch (error) {
         if (!isMethodRefusal(error)) throw error;
-        noteFeedError(error, { fn: 'getAccounts-fallback', offset: i, keys: chunk.length });
+        noteFallbackErrorOnce(error, { fn: 'getAccounts-fallback', offset: i, keys: chunk.length });
         const individual = await getAccountsIndividually(chunk);
         for (const value of individual) out.push(value);
         i += chunk.length;
