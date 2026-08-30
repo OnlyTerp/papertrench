@@ -2350,9 +2350,16 @@
       const rpcNotice = changes.pt_rpc_notice;
       if (rpcNotice && rpcNotice.newValue && !rpcNotice.oldValue) {
         const ms = Number(rpcNotice.newValue.bestMs) || 0;
-        toast('Heads-up: the public price connection is slow from your region'
-          + (ms ? ` (~${ms}ms)` : '')
-          + '. A free personal endpoint makes new coins instant — Dashboard → Settings → Price connection.');
+        // Two different faults, one fix. Saying "slow from your region" to
+        // someone whose endpoints are returning 429/403 describes something
+        // they can see is not happening, and a fix introduced by a wrong
+        // diagnosis reads as irrelevant.
+        const why = rpcNotice.newValue.reason === 'failing'
+          ? 'the public price connection is being throttled or refused where you are'
+          : 'the public price connection is slow from your region'
+            + (ms ? ` (~${ms}ms)` : '');
+        toast(`Heads-up: ${why}. A free personal endpoint makes new coins instant`
+          + ' — Dashboard → Settings → Price connection.');
       }
 
       const stateChange = changes[E.STORAGE_KEYS.state];

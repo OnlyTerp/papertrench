@@ -272,6 +272,35 @@
    * public endpoints slow; a free personal endpoint made launches
    * instant). Null until anything is measured.
    */
+  /**
+   * How much of the pool's RECENT traffic is failing.
+   *
+   * poolLatency() below can only see calls that SUCCEEDED — latencyMs and
+   * samples are written in reportSuccess() and nowhere else — so a throttled
+   * or policy-blocked endpoint contributes no sample at all. That makes the
+   * pool look FAST precisely when it is failing: the one endpoint still
+   * answering reports its own healthy latency while the others 429/403 into
+   * the bench, and any measure built on latency alone reads "fine".
+   *
+   * The attempt log is the honest record, because a failure is written there
+   * with its status. A user whose console is full of
+   * "http 429 getMultipleAccounts @ tatum" / "http 403 … @ publicnode"
+   * (ticket-0010, fomo.family, 2026-08-29) is in exactly that state, and
+   * nothing keyed off latency will ever notice.
+   */
+  function poolStress() {
+    const attempts = attemptLog.length;
+    if (!attempts) return { attempts: 0, failures: 0, failRate: 0 };
+    let failures = 0;
+    for (const entry of attemptLog) {
+      // 200 is the only success the log records; every other status is a
+      // failed attempt (403/429/5xx, 'rpc-policy', 'rpc-error', 'timeout',
+      // 'rejected'). Counting anything-not-200 keeps new statuses honest.
+      if (entry && entry.status !== 200) failures += 1;
+    }
+    return { attempts, failures, failRate: failures / attempts };
+  }
+
   function poolLatency() {
     let best = null;
     let samples = 0;
@@ -473,7 +502,7 @@
   const api = {
     PUBLIC_ENDPOINTS, COOLDOWN_MS,
     setUserEndpoint, hasUserEndpoint,
-    ranked, call, websocketUrls, poolLatency,
+    ranked, call, websocketUrls, poolLatency, poolStress,
     reportSuccess, reportFailure, methodBlockedEverywhere,
     _health: health,
     _attempts: () => attemptLog.slice(),
