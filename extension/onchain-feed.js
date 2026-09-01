@@ -1033,7 +1033,9 @@
         return found ? { mint: found, pool: address } : null;
       }
       const facts = mintFactsFromAccount(account, address);
-      return facts ? { ...facts, mint: address } : null;
+      if (facts) return { ...facts, mint: address };
+      const found = await discoverPoolMint(bytes);
+      return found ? { mint: found, pool: address } : null;
     } catch (error) {
       try { console.debug('PaperTrench: identify failed:', error && error.message); } catch (_) {}
       noteFeedError(error, { fn: 'identify', pool: address || null });
