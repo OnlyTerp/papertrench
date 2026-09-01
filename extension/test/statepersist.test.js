@@ -313,6 +313,8 @@ function runOverlay(priceSeries, opts) {
     failGets: (n) => { failGets = n; },
     /** A write from "another tab" whose adoption event this tab misses. */
     externalWriteSilently: (obj) => Object.assign(storage, obj),
+    /** A write from "another tab" that reaches this tab's storage listener. */
+    externalWrite: (obj) => sandbox.chrome.storage.local.set(obj),
     setValue: (id, v) => { if (shadowNodes[id]) shadowNodes[id].value = String(v); },
     clickById: (id) => { if (shadowNodes[id]) shadowNodes[id].click(); },
     nextPrice: () => { priceIdx++; },
@@ -400,10 +402,54 @@ test('the panel flow line mirrors engine totals after a real panel fill', async 
   const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
   const state = ov.storage().pt_state;
   const stats = E.sessionStats(state, settings);
+  assert.equal(stats.flowTruncated, false);
   assert.equal(
     ov.shadowNodes['pt-flow'].textContent,
     `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
   );
+});
+
+test('an adopted external fill refreshes the lifetime flow immediately', async () => {
+  const ov = runOverlay([0.001, 0.0012]);
+  await ov.advance(1200);
+  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
+  const foreign = E.defaultState(settings);
+  const amount = settings.presetsBuy[0];
+  E.buy(foreign, settings, {
+    ts: 1_500_000, mint: BONK, symbol: 'BONK', site: 'axiom',
+    priceNative: 0.001, priceUsd: 0.2, solAmount: amount,
+  });
+  await ov.externalWrite({ pt_state: foreign });
+  const stats = E.sessionStats(foreign, settings);
+  assert.equal(
+    ov.shadowNodes['pt-flow'].textContent,
+    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
+  );
+});
+
+test('a capped journal qualifies bought and sold while holding stays exact', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200);
+  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
+  settings.balanceStartSol = (E.JOURNAL_CAP + 1) * settings.presetsBuy[0] * 2;
+  const capped = E.defaultState(settings);
+  const amount = settings.presetsBuy[0];
+  for (let i = 0; i <= E.JOURNAL_CAP; i++) {
+    E.buy(capped, settings, {
+      ts: i + 1, mint: BONK, symbol: 'BONK', site: 'axiom',
+      priceNative: 0.001, priceUsd: 0.2, solAmount: amount,
+    });
+  }
+  await ov.externalWrite({ pt_state: capped });
+  const stats = E.sessionStats(capped, settings);
+  assert.equal(stats.flowTruncated, true);
+  assert.match(ov.shadowNodes['pt-flow'].textContent,
+    new RegExp(`bought/sold cover newest ${E.JOURNAL_CAP} fills`));
+  assert.match(ov.shadowNodes['pt-flow'].textContent,
+    new RegExp(`holding ${E.fmt(stats.heldSol, 2)}`));
+  assert.match(ov.shadowNodes['pt-flow'].title,
+    new RegExp(`newest ${E.JOURNAL_CAP} fills`));
+  assert.match(ov.shadowNodes['pt-flow'].title, /holding remains exact/);
 });
 
 test('the panel flow line updates when a position is sold', async () => {
