@@ -189,7 +189,7 @@ const UPDATER = (() => {
     let seen = {};
     try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
     let lastBackup = null;
-    try { lastBackup = (await chainGet(['pt_last_backup']))['pt_last_backup'] || null; } catch (_) { return; }
+    try { lastBackup = (await chainGet(['pt_last_backup']))['pt_last_backup'] || null; } catch (_) { lastBackup = null; }
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
     version.textContent = 'v' + info.latest + ' is out';

@@ -298,14 +298,19 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
   assert.ok(els['update-banner'].innerHTML === '' || true);
 });
 
-test('popup update nudge: storage read failure leaves the banner hidden', async () => {
-  const { sandbox } = loadPopupPage({
+test('popup update nudge: storage read failure still shows the warning and arms the link', async () => {
+  const { sandbox, click } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
     manifestVersion: '3.6.1',
     storageGetThrows: true,
   });
   await settle();
-  assert.equal(sandbox._els['update-banner'].hidden, true);
+  assert.equal(sandbox._els['update-banner'].hidden, false);
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    'No backup yet — updating into a new folder looks like a fresh install.');
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
 });
 
 /* ------------------------------------------------------------------------
