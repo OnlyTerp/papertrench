@@ -275,7 +275,7 @@ test('a refusal emits no busy state and uses the refusal bridge message', () => 
   assert.match(click, /const decision = rowChipTapDecision\(entry, currentRowAddress\(entry\), Date\.now\(\)\)/);
   assert.match(click, /entry\.pressedAt = 0;\s*\n\s*entry\.pressedAddress = null;/,
     'every click decision must consume the press authorization');
-  assert.match(click, /if \(decision\.address\) \{[\s\S]*chip\.classList\.add\('busy'\)[\s\S]*emit\('row-buy', \{ address: decision\.address \}\)/);
+  assert.match(click, /if \(decision\.address\) \{[\s\S]*chip\.classList\.add\('busy'\)[\s\S]*emit\('row-buy', \{[\s\S]*address: decision\.address,[\s\S]*quote: typeof rowQuoteFromFiber/s);
   const refusalStart = click.indexOf("else {\n          emit('row-buy-refused'");
   assert.ok(refusalStart >= 0, 'refusal branch must emit row-buy-refused');
   assert.doesNotMatch(click.slice(refusalStart), /classList\.add\('busy'\)/,

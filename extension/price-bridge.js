@@ -3782,11 +3782,20 @@
     if (ev.type !== 'click') return;
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
-        chip.classList.add('busy');
-        emit('row-buy', {
-          address: entry.address,
-          quote: rowQuoteFromFiber(entry.row, entry.address),
-        });
+        const decision = rowChipTapDecision(entry, currentRowAddress(entry), Date.now());
+        entry.pressedAt = 0;
+        entry.pressedAddress = null;
+        if (decision.address) {
+          chip.classList.add('busy');
+          emit('row-buy', {
+            address: decision.address,
+            quote: typeof rowQuoteFromFiber === 'function'
+              ? rowQuoteFromFiber(entry.row, decision.address)
+              : undefined,
+          });
+        } else {
+          emit('row-buy-refused', decision.refuse);
+        }
         break;
       }
     }
