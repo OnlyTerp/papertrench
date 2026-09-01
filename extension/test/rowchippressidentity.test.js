@@ -60,10 +60,11 @@ this.handleRowChipTap = handleRowChipTap;`, ctx);
     verifiedAt: Date.now(),
   };
   ctx.rowChips.set(row, entry);
-  const dispatch = (type, key) => {
+  const dispatch = (type, key, repeat = false) => {
     const event = {
       type,
       key,
+      repeat,
       target: chip,
       preventDefault() { this.prevented = true; },
       stopPropagation() { this.propagated = true; },
@@ -77,7 +78,7 @@ this.handleRowChipTap = handleRowChipTap;`, ctx);
     emitted,
     busy,
     setHref(next) { href = next; },
-    key(key) { return dispatch('keydown', key); },
+    key(key, repeat) { return dispatch('keydown', key, repeat); },
     click() { return dispatch('click'); },
   };
 }
@@ -163,6 +164,21 @@ test('a row recycled between keyboard press and activation refuses', () => {
   assert.deepEqual(h.busy, []);
 });
 
+test('a repeated Enter cannot rebind a recycled row', () => {
+  const pressed = 'MintEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE';
+  const current = 'MintFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF';
+  const h = tapHarness({ href: `/trade/${pressed}` });
+  h.key('Enter');
+  h.setHref(`/trade/${current}`);
+  h.key('Enter', true);
+  h.click();
+  assert.equal(h.emitted[0].type, 'row-buy-refused');
+  assert.equal(h.emitted[0].payload.reason, 'row-changed');
+  assert.equal(h.emitted[0].payload.was, pressed);
+  assert.equal(h.emitted[0].payload.now, current);
+  assert.deepEqual(h.busy, []);
+});
+
 test('an unreadable press refuses even when sweep verification is fresh', () => {
   const h = tapHarness({
     href: null,
@@ -245,7 +261,7 @@ test('the bridge records current row identity on pointerdown', () => {
 
 test('keyboard activation records identity without swallowing native click', () => {
   assert.match(bridge, /if \(ev\.type === 'keydown'\) \{[\s\S]{0,420}entry\.pressedAddress = currentRowAddress\(entry\);[\s\S]{0,180}return;/);
-  assert.match(bridge, /ev\.key !== 'Enter' && ev\.key !== ' ' && ev\.key !== 'Spacebar'/);
+  assert.match(bridge, /if \(ev\.repeat \|\| \(ev\.key !== 'Enter' && ev\.key !== ' ' && ev\.key !== 'Spacebar'\)\) return;/);
   assert.match(bridge, /'click', 'keydown'\]/);
   const start = bridge.indexOf("if (ev.type === 'keydown')");
   const end = bridge.indexOf("\n    if (ev.type === 'pointerdown')", start);

@@ -3294,7 +3294,7 @@
     // row underneath from navigating; the later press events stay swallowed
     // entirely.
     if (ev.type === 'keydown') {
-      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      if (ev.repeat || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
       for (const entry of rowChips.values()) {
         if (entry.el === chip) {
           entry.pressedAddress = currentRowAddress(entry);
