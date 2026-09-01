@@ -6603,8 +6603,17 @@
       ? payload.candidates.find((c) => c && c.unit === 'usd' && Number(c.value) > 0)
       : null;
     if (!cand) return;
+    const now = Date.now();
+    const candidateAt = Number(payload.at);
+    const frameAt = Number.isFinite(candidateAt)
+      && candidateAt > now - 30_000
+      && candidateAt <= now
+      ? candidateAt
+      : now;
+    const prev = recentRowPrices.get(payload.mint);
+    if (prev && frameAt < prev.at) return;
     recentRowPrices.set(payload.mint, {
-      usd: Number(cand.value), at: Date.now(),
+      usd: Number(cand.value), at: frameAt,
       symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       name: typeof payload.name === 'string' ? payload.name : null,
       mcap: Number(payload.mcap) > 0 ? Number(payload.mcap) : null,

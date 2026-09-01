@@ -473,7 +473,11 @@
   const ACTIVITY_TICK_MIN_MS = 100;
   const activityLastEmitByMint = new Map();
 
-  function forwardTokenActivity(parsed) {
+  function withReceivedAt(payload, receivedAt) {
+    return Number.isFinite(receivedAt) ? { ...payload, at: receivedAt } : payload;
+  }
+
+  function forwardTokenActivity(parsed, receivedAt) {
     if (!parsed || parsed.channel !== 'token_activity' || !Array.isArray(parsed.data)) return false;
     const now = Date.now();
     const latestByMint = new Map();
@@ -490,14 +494,14 @@
     const due = (mint) => now - (activityLastEmitByMint.get(mint) || 0) >= ACTIVITY_TICK_MIN_MS;
     const emitTick = (mint, priceUsd) => {
       activityLastEmitByMint.set(mint, now);
-      emit('tick', {
+      emit('tick', withReceivedAt({
         candidates: [{ value: priceUsd, unit: 'usd', key: 'tokenActivityPriceUsd' }],
         mcap: null,
         mint,
         symbol: currentSymbolInfo.mint === mint ? currentSymbolInfo.symbol : null,
         name: null,
         source: 'gmgn-ws-trade',
-      });
+      }, receivedAt));
     };
     const watchedMint = currentSymbolInfo.mint;
     if (watchedMint && latestByMint.has(watchedMint) && due(watchedMint)) {
@@ -522,7 +526,7 @@
     return true;
   }
 
-  function forwardJson(raw, source, url) {
+  function forwardJson(raw, source, url, receivedAt) {
     // No consumer, no parse — the cheapest frame is the one never read.
     if (!feedActive()) return;
     let parsed = raw;
@@ -538,7 +542,7 @@
       // forwardTokenActivity still validates the parsed shape.
       if (trimmed.length > 15 && trimmed.slice(0, 120).indexOf('"token_activity"') !== -1) {
         try { parsed = JSON.parse(raw); } catch (_) { return; }
-        forwardTokenActivity(parsed);
+        forwardTokenActivity(parsed, receivedAt);
         return;
       }
       if (url && /\/api\/v1\/token_mcap_candles\//.test(url)) {
@@ -577,13 +581,13 @@
         // C-08: this close IS the value on GMGN's Y axis — the scale anchor
         // for every GMGN line and fill shape (see gmgnCapScale).
         gmgnLastCandleClose = mcap;
-        emit('tick', {
+        emit('tick', withReceivedAt({
           candidates: [],
           mcap,
           mint: currentSymbolInfo.mint,
           symbol: currentSymbolInfo.symbol,
           source: 'gmgn-mcap-candle',
-        });
+        }, receivedAt));
         return;
       }
     }
@@ -597,18 +601,21 @@
         || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
         || null;
       let emitted = 0;
-      if (watched && hasContent(watched)) { emit('tick', { ...watched, source }); emitted++; }
+      if (watched && hasContent(watched)) {
+        emit('tick', withReceivedAt({ ...watched, source }, receivedAt));
+        emitted++;
+      }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', { ...rec, source });
+        emit('tick', withReceivedAt({ ...rec, source }, receivedAt));
       }
       if (emitted) return;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
     if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', { ...top, source });
+    emit('tick', withReceivedAt({ ...top, source }, receivedAt));
   }
 
   /* ---------------- SPA navigation signal ----------------
@@ -672,34 +679,27 @@
     };
   }
 
+  // Padre's binary socket frames are MessagePack, not protobuf. Capture the
+  // receive time before a Blob's asynchronous body conversion so consumers
+  // can reject an older frame that completes after a newer one.
   const OriginalWebSocket = window.WebSocket;
   if (typeof OriginalWebSocket === 'function') {
     const WrappedWebSocket = function (url, protocols) {
       const socket = protocols === undefined
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
-      let socketSeq = 0;
-      let lastForwardedSeq = 0;
       socket.addEventListener('message', (event) => {
-        const seq = ++socketSeq;
+        const receivedAt = Date.now();
         if (typeof event.data === 'string') {
-          if (seq >= lastForwardedSeq) {
-            lastForwardedSeq = seq;
-            forwardJson(event.data, 'ws');
-          }
+          forwardJson(event.data, 'ws', undefined, receivedAt);
         } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
           const decoded = decodeMsgpack(new Uint8Array(event.data));
-          if (decoded !== null && seq >= lastForwardedSeq) {
-            lastForwardedSeq = seq;
-            forwardJson(decoded, 'ws');
-          }
+          if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt);
         } else if (hostIsPadre && feedActive()
           && typeof Blob === 'function' && event.data instanceof Blob) {
           Promise.resolve(event.data.arrayBuffer()).then((buffer) => {
             const decoded = decodeMsgpack(new Uint8Array(buffer));
-            if (decoded === null || seq < lastForwardedSeq) return;
-            lastForwardedSeq = seq;
-            forwardJson(decoded, 'ws');
+            if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt);
           }, () => {});
         }
       });

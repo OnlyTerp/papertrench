@@ -333,6 +333,7 @@ function bootRace(options = {}) {
     getRowBuyInFlightAt: () => rowBuyInFlightAt,
     getRowBuyOwner: () => rowBuyOwner,
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
+    getRecentRowPrice: (mint) => recentRowPrices.get(mint) || null,
   };
 `
     + CONTENT.slice(end);
@@ -377,6 +378,7 @@ function bootRace(options = {}) {
       releaseSolUsd(100);
     },
     messages,
+    now: () => clock,
     setNow(next) { clock = next; },
     advance,
   };
@@ -572,6 +574,44 @@ test('a priced row click still commits without an armed intent', async () => {
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
   assert.equal(harness.getRowArmed(), null, 'a priced click does not create an armed intent');
+});
+
+test('row ticks use bounded frame times and reject older same-mint ticks', () => {
+  const race = bootRace();
+  const { harness } = race;
+  const now = race.now();
+
+  harness.noteRowPrice({
+    mint: A,
+    at: now - 1_000,
+    candidates: [{ unit: 'usd', value: 100 }],
+    mcap: 100_000,
+  });
+  harness.noteRowPrice({
+    mint: A,
+    at: now - 2_000,
+    candidates: [{ unit: 'usd', value: 90 }],
+    mcap: 90_000,
+  });
+  const retained = harness.getRecentRowPrice(A);
+  assert.equal(retained.usd, 100);
+  assert.equal(retained.at, now - 1_000);
+  assert.equal(retained.symbol, null);
+  assert.equal(retained.name, null);
+  assert.equal(retained.mcap, 100_000);
+
+  harness.noteRowPrice({
+    mint: B,
+    at: now + 60_000,
+    candidates: [{ unit: 'usd', value: 200 }],
+  });
+  harness.noteRowPrice({
+    mint: C,
+    at: now - 60_000,
+    candidates: [{ unit: 'usd', value: 300 }],
+  });
+  assert.equal(harness.getRecentRowPrice(B).at, now);
+  assert.equal(harness.getRecentRowPrice(C).at, now);
 });
 
 test('a fresh Padre row tick wins before the resolver and carries its cap', async () => {

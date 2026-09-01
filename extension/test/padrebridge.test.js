@@ -21,12 +21,17 @@ const PADRE_NEWER_UPDATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wqnByaWNlSW5Vc2TLQCP64UeuFHuoZmR2SW5Vc2TNJwY=',
   'base64',
 ));
+const PADRE_OTHER_UPDATE_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZIDExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExqnByaWNlSW5Vc2TLQB4AAAAAAACoZmR2SW5Vc2TPAAAAAb8I6wA=',
+  'base64',
+));
 const PADRE_NATIVE_RATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqx0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wsm5hdGl2ZVByaWNlSW5Vc2RVactAWZfzf6mDcg==',
   'base64',
 ));
 
 function runBridge(opts = {}) {
+  let clock = Date.now();
   const timers = [];
   const emitted = [];
   const listeners = {};
@@ -37,6 +42,11 @@ function runBridge(opts = {}) {
   let refreshMarksCount = 0;
   const orderLines = [];
   const NativeDataView = DataView;
+
+  class TestDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [clock])); }
+    static now() { return clock; }
+  }
 
   class TestBlob {
     constructor(parts) {
@@ -172,7 +182,7 @@ function runBridge(opts = {}) {
       return { href, hostname: new URL(href).hostname };
     })(),
     console,
-    Date,
+    Date: TestDate,
     Math,
     Number,
     String,
@@ -217,6 +227,7 @@ function runBridge(opts = {}) {
     Blob: TestBlob,
     dataViewCalls: () => dataViewCalls,
     pendingBlobs,
+    advanceNow(ms) { clock += ms; },
     send(type, payload) {
       listeners.message({
         source: win,
@@ -270,39 +281,48 @@ test('Padre Blob frames are decoded without blocking the WebSocket handler', asy
     'a Padre Blob frame must reach the same generic tick pipeline');
 });
 
-test('Padre Blob frames preserve receive order when conversions complete backwards', async () => {
+test('Padre Blob frames carry their receive time when conversions complete backwards', async () => {
   const env = runBridge({ deferBlobs: true });
   const socket = env.openSocket();
   socket.emit(new env.Blob([PADRE_UPDATE_FRAME]));
+  env.advanceNow(10);
   socket.emit(new env.Blob([PADRE_NEWER_UPDATE_FRAME]));
   assert.equal(env.pendingBlobs.length, 2);
 
   env.resolveBlob(1);
   await Promise.resolve();
   assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 1);
-  assert.equal(
-    env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws').payload.candidates[0].value,
-    9.99,
-  );
   env.resolveBlob(0);
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 1,
-    'an older Blob completion must be discarded after a newer frame publishes');
+  const ticks = env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.equal(ticks.length, 2);
+  assert.equal(ticks[0].payload.candidates[0].value, 9.99);
+  assert.equal(ticks[0].payload.at, ticks[1].payload.at + 10);
 });
 
-test('Padre binary frame sequence state is independent per socket', async () => {
-  const env = runBridge({ deferBlobs: true });
-  const socketA = env.openSocket();
-  const socketB = env.openSocket();
-  socketA.emit(new env.Blob([PADRE_UPDATE_FRAME]));
-  socketB.emit(PADRE_UPDATE_FRAME.buffer);
-  env.resolveBlob(0);
-  await Promise.resolve();
+test('a later Padre frame without a quote does not suppress a valid tick', () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  socket.emit(PADRE_UPDATE_FRAME.buffer);
+  socket.emit(PADRE_NATIVE_RATE_FRAME.buffer);
 
-  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 2,
-    'one socket must not suppress a frame from another socket');
+  const ticks = env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.equal(ticks.length, 1);
+  assert.equal(ticks[0].payload.mint, 'FQTkgq6GkYzkrQF3B1crhfvYGkn2uLyME28xSHbppump');
+});
+
+test('a Padre frame for another mint does not suppress the first mint', () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  socket.emit(PADRE_UPDATE_FRAME.buffer);
+  socket.emit(PADRE_OTHER_UPDATE_FRAME.buffer);
+
+  const ticks = env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.equal(ticks.length, 2);
+  assert.equal(ticks[0].payload.mint, 'FQTkgq6GkYzkrQF3B1crhfvYGkn2uLyME28xSHbppump');
+  assert.equal(ticks[1].payload.mint, '11111111111111111111111111111111');
 });
 
 test('Padre binary frames are gated before decoding when feed demand is off', () => {
