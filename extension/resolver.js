@@ -81,6 +81,13 @@
   var solUsdCache = { at: 0, value: 0 };
   var SOL_USD_TTL_MS = 30000;
 
+  function cachedSolUsd() {
+    var now = Date.now();
+    return now - solUsdCache.at < SOL_USD_TTL_MS && solUsdCache.value > 0
+      ? solUsdCache.value
+      : 0;
+  }
+
   function jupiterUrl(query) {
     return JUP + '?query=' + encodeURIComponent(query);
   }
@@ -90,14 +97,15 @@
    * Returns { record, solUsd } — record is null when Jupiter doesn't know it.
    */
   async function resolveViaJupiter(address) {
-    var fresh = Date.now() - solUsdCache.at < SOL_USD_TTL_MS && solUsdCache.value > 0;
+    var cachedRate = cachedSolUsd();
+    var fresh = cachedRate > 0;
     // Bundle WSOL into the same query when the cached rate is stale, so a
     // brand-new coin still costs exactly one request.
     var query = fresh ? address : address + ',' + Q.WSOL_MINT;
     var payload = await getJson(jupiterUrl(query), 4000);
-    if (!payload) return { record: null, solUsd: fresh ? solUsdCache.value : 0 };
+    if (!payload) return { record: null, solUsd: cachedRate };
 
-    var solUsd = fresh ? solUsdCache.value : Q.solUsdFromJupiter(payload);
+    var solUsd = fresh ? cachedRate : Q.solUsdFromJupiter(payload);
     if (solUsd > 0) solUsdCache = { at: Date.now(), value: solUsd };
     if (!(solUsd > 0)) return { record: null, solUsd: 0 };
 
@@ -147,7 +155,23 @@
     var viaJup = results[2] || { record: null };
 
     // A pair lookup is unambiguous, so prefer it when it returned something.
-    var dexData = Q.tokenFromPayload(byPair, address) || Q.tokenFromPayload(byToken, address);
+    // Jupiter's combined request may already have supplied a fresh SOL/USD
+    // rate even when its token leg timed out; keep that rate for Dexscreener.
+    var dexRate = cachedSolUsd() || Number(viaJup.solUsd) || 0;
+    var dexOpts = { solUsd: dexRate };
+    var dexData = Q.tokenFromPayload(byPair, address, dexOpts)
+      || Q.tokenFromPayload(byToken, address, dexOpts);
+    // A Dexscreener payload can arrive while the bundled Jupiter rate is
+    // unavailable. Give one cache-first rate request a chance before
+    // abandoning a USD-quoted pool for the venue fallback.
+    if (!dexData && !(dexRate > 0) && (byPair || byToken)) {
+      dexRate = await solUsd().catch(function () { return 0; });
+      if (dexRate > 0) {
+        dexOpts = { solUsd: dexRate };
+        dexData = Q.tokenFromPayload(byPair, address, dexOpts)
+          || Q.tokenFromPayload(byToken, address, dexOpts);
+      }
+    }
     var data = Q.preferResolved(dexData, viaJup.record);
     if (!data) {
       // Aggregators silent: the terminal's own quotation API may already
@@ -193,7 +217,11 @@
     var json = token.pairAddress
       ? await getJson(BASE + '/pairs/solana/' + token.pairAddress)
       : await getJson(BASE + '/tokens/' + token.mint);
-    var data = json ? Q.tokenFromPayload(json, token.mint) : null;
+    var rate = cachedSolUsd();
+    if (!(rate > 0)) rate = await solUsd().catch(function () { return 0; });
+    var data = json
+      ? Q.tokenFromPayload(json, token.mint, { solUsd: rate })
+      : null;
     if (data) { cachePut(data); return data; }
 
     // Last resort for a token neither source indexed under its pair address.
@@ -233,8 +261,7 @@
       var chain = (chainByMint && chainByMint[unique[g]]) || 'solana';
       (groups[chain] = groups[chain] || []).push(unique[g]);
     }
-    var anyForeign = Object.keys(groups).some(function (c) { return c !== 'solana'; });
-    var rate = anyForeign ? await solUsd().catch(function () { return 0; }) : 0;
+    var rate = await solUsd().catch(function () { return 0; });
 
     var out = {};
     var chainNames = Object.keys(groups);
@@ -248,7 +275,8 @@
       var payloads = await Promise.all(chunks.map(function (chunk) {
         return getJson(BASE + '/tokens/' + chunk.join(','), 6000);
       }));
-      var parseOpts = chainName === 'solana' ? null : { chain: chainName, solUsd: rate };
+      var parseOpts = { solUsd: rate };
+      if (chainName !== 'solana') parseOpts.chain = chainName;
       for (var k = 0; k < payloads.length; k++) {
         var parsed = Q.pricesFromBatch(payloads[k], parseOpts);
         for (var mint in parsed) {
@@ -269,7 +297,8 @@
    */
   async function solUsd() {
     var now = Date.now();
-    if (now - solUsdCache.at < SOL_USD_TTL_MS && solUsdCache.value > 0) return solUsdCache.value;
+    var cachedRate = cachedSolUsd();
+    if (cachedRate > 0) return cachedRate;
 
     var payload = await getJson(jupiterUrl(Q.WSOL_MINT), 4000);
     if (!payload) return 0;

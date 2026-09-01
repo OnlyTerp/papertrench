@@ -82,6 +82,11 @@
    * 1. Identity + anchor quote from a Dexscreener payload
    * ------------------------------------------------------------------ */
 
+  function pairLiquidityUsd(pair) {
+    const value = Number(pair && pair.liquidity && pair.liquidity.usd);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
   /**
    * Choose the pair a trading UI would actually quote: the Solana pair with a
    * usable price and the deepest liquidity. Shallow pools produce wild prices,
@@ -91,8 +96,8 @@
    * base, or where it is the quote against wrapped SOL. This stops a stablecoin
    * or unrelated token from being returned as the resolved identity.
    */
-  function pickBestPair(pairs, requestedAddress, chainId) {
-    if (!Array.isArray(pairs)) return null;
+  function rankPairs(pairs, requestedAddress, chainId) {
+    if (!Array.isArray(pairs)) return [];
     // Multichain: filter to the REQUESTED chain (default solana). On EVM
     // chains Dexscreener's priceNative is denominated in that chain's gas
     // token, not SOL — priceUsd is the number that is true everywhere, so
@@ -100,7 +105,7 @@
     const wantChain = chainId || 'solana';
     const usable = pairs.filter((p) => p && p.chainId === wantChain
       && (wantChain === 'solana' ? Number(p.priceNative) > 0 : Number(p.priceUsd) > 0));
-    if (!usable.length) return null;
+    if (!usable.length) return [];
 
     const requested = typeof requestedAddress === 'string'
       && (BASE58_RE.test(requestedAddress) || EVM_RE.test(requestedAddress))
@@ -115,19 +120,23 @@
         return false;
       });
       if (relevant.length) {
-        return relevant.reduce((best, p) => {
-          const a = Number((p.liquidity && p.liquidity.usd) || 0);
-          const b = Number((best.liquidity && best.liquidity.usd) || 0);
-          return a > b ? p : best;
+        return relevant.slice().sort((a, b) => {
+          const left = pairLiquidityUsd(a);
+          const right = pairLiquidityUsd(b);
+          return right - left;
         });
       }
     }
 
-    return usable.reduce((best, p) => {
-      const a = Number((p.liquidity && p.liquidity.usd) || 0);
-      const b = Number((best.liquidity && best.liquidity.usd) || 0);
-      return a > b ? p : best;
+    return usable.slice().sort((a, b) => {
+      const left = pairLiquidityUsd(a);
+      const right = pairLiquidityUsd(b);
+      return right - left;
     });
+  }
+
+  function pickBestPair(pairs, requestedAddress, chainId) {
+    return rankPairs(pairs, requestedAddress, chainId)[0] || null;
   }
 
   /**
@@ -173,6 +182,7 @@
     const priceUsd = pair.priceUsd != null ? Number(pair.priceUsd) : null;
     const usdOk = Number.isFinite(priceUsd) && priceUsd > 0;
     let priceNative;
+    let normalizedPriceUsd = usdOk ? priceUsd : null;
     let solUsdAtResolve = null;
     if (foreign) {
       const rate = Number(opts && opts.solUsd);
@@ -180,17 +190,32 @@
       priceNative = priceUsd / rate;
       solUsdAtResolve = rate;
     } else {
-      priceNative = isQuote ? 1 / rawPrice : rawPrice;
+      const solQuoted = isQuote
+        ? sameAddress(base.address, WSOL_MINT)
+        : sameAddress(quote.address, WSOL_MINT);
+      if (solQuoted) {
+        priceNative = isQuote ? 1 / rawPrice : rawPrice;
+        if (isQuote) {
+          normalizedPriceUsd = usdOk ? priceNative * priceUsd : null;
+          solUsdAtResolve = usdOk ? priceUsd : null;
+        }
+      } else {
+        const rate = Number(opts && opts.solUsd);
+        if (!usdOk || !(rate > 0)) return null;
+        priceNative = priceUsd / rate;
+        solUsdAtResolve = rate;
+      }
     }
     const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
 
+    const liquidityUsd = pairLiquidityUsd(pair);
     return {
       mint: token.address || fallbackAddress || null,
       pairAddress: pair.pairAddress || null,
       symbol: token.symbol || null,
       name: token.name || token.symbol || null,
       priceNative,
-      priceUsd: usdOk ? priceUsd : null,
+      priceUsd: normalizedPriceUsd,
       mcap: Number.isFinite(mcap) && mcap > 0 && !isQuote ? mcap : null,
       dex: pair.dexId || null,
       priceSource: 'resolver',
@@ -200,8 +225,7 @@
       // F-55: surfaced so a drained pool can be told from a trading one. A
       // rug empties liquidity; a real runner's pool deepens. Null when the
       // source reports none — the mark guard stands aside rather than guess.
-      liquidityUsd: Number(pair.liquidity && pair.liquidity.usd) > 0
-        ? Number(pair.liquidity.usd) : null,
+      liquidityUsd: liquidityUsd > 0 ? liquidityUsd : null,
     };
   }
 
@@ -215,8 +239,15 @@
   function tokenFromPayload(payload, fallbackAddress, opts) {
     if (!payload || typeof payload !== 'object') return null;
     const chainId = chainIdFor(opts && opts.chain);
-    const pair = payload.pair || pickBestPair(payload.pairs, fallbackAddress, chainId);
-    const token = normalizePair(pair, fallbackAddress, opts);
+    const pair = payload.pair;
+    const candidates = pair
+      ? [pair]
+      : rankPairs(payload.pairs, fallbackAddress, chainId);
+    let token = null;
+    for (const candidate of candidates) {
+      token = normalizePair(candidate, fallbackAddress, opts);
+      if (token) break;
+    }
     // F-61: surface EVERY pool the source lists for this base mint. A Pulse
     // row buy can commit under a bonding-era PAIR stand-in (the row-feed
     // fallback echoes the click address as the key); after graduation the
@@ -1393,15 +1424,23 @@
       if (foreign ? !(Number(pair.priceUsd) > 0) : !(Number(pair.priceNative) > 0)) continue;
       const mint = pair.baseToken && pair.baseToken.address;
       if (!mint) continue;
-      const prev = byMint.get(mint);
-      const liq = Number((pair.liquidity && pair.liquidity.usd) || 0);
-      const prevLiq = prev ? Number((prev.liquidity && prev.liquidity.usd) || 0) : -1;
-      if (!prev || liq > prevLiq) byMint.set(mint, pair);
+      if (!byMint.has(mint)) byMint.set(mint, []);
+      byMint.get(mint).push(pair);
     }
 
-    for (const [mint, pair] of byMint) {
-      const quote = normalizePair(pair, mint, opts);
-      if (quote) out[mint] = quote;
+    for (const [mint, candidates] of byMint) {
+      candidates.sort((a, b) => {
+        const left = pairLiquidityUsd(a);
+        const right = pairLiquidityUsd(b);
+        return right - left;
+      });
+      for (const candidate of candidates) {
+        const quote = normalizePair(candidate, mint, opts);
+        if (quote) {
+          out[mint] = quote;
+          break;
+        }
+      }
     }
     return out;
   }

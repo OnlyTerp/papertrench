@@ -180,6 +180,7 @@ function runOverlay(priceSeries, opts) {
         pair: {
           chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
           baseToken: { address: BONK, symbol: 'BONK', name: 'Bonk' },
+          quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
           priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 }, marketCap: 1e8,
         },
       };
@@ -470,7 +471,7 @@ test('the buy-section switch still outranks the custom-amount setting', async ()
 
 test('instant preset tap fills once and an empty BUY does not fill again', async () => {
   const ov = runOverlay([0.001]);
-  await ov.advance(1200);
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
 
   assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
     'instant presets are the visible order buttons when custom sizing is off');
@@ -497,7 +498,7 @@ test('instant BUY uses a typed custom amount once when enabled', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
   });
-  await ov.advance(1200);
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
 
   assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
     'custom sizing keeps BUY available in instant mode');
@@ -516,7 +517,7 @@ test('two-step BUY still uses the selected preset once', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { instantBuyEnabled: false, settingsRevision: E.SETTINGS_REVISION },
   });
-  await ov.advance(1200);
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
 
   assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
     'two-step mode needs the BUY trigger');

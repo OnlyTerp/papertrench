@@ -26,6 +26,7 @@ function pair(mint, symbol, priceNative, liquidityUsd, priceUsd) {
     chainId: 'solana',
     pairAddress: `pair-${symbol}-${liquidityUsd}`,
     baseToken: { address: mint, symbol, name: symbol },
+    quoteToken: { address: Q.WSOL_MINT, symbol: 'SOL', name: 'Wrapped SOL' },
     priceNative: String(priceNative),
     priceUsd: priceUsd === undefined ? String(priceNative * 200) : String(priceUsd),
     liquidity: { usd: liquidityUsd },
@@ -172,6 +173,31 @@ test('O-30: the bar wires the page feed through, and setToken clears the stale c
     'the injected quote must be bounded by the same staleness mark the header uses');
   assert.match(contentSrc, /delete livePositionPrices\[token\.mint\]/,
     'a token coming ON screen must shed whatever batch quote was cached while it was off-screen');
+});
+
+test('position marks retain batch and resolver quote provenance', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+
+  assert.match(contentSrc, /priceSource: quote\.priceSource,\s*\n\s*pairAddress: quote\.pairAddress/,
+    'batch quotes carry their source and pair into the live mark');
+  assert.match(contentSrc, /E\.markPosition\(state, mint, quote\.priceNative, quote\.priceUsd, \{\s*\n\s*priceSource: quote\.priceSource,\s*\n\s*pairAddress: quote\.pairAddress/,
+    'batch marks pass quote provenance to the engine');
+  assert.match(contentSrc, /E\.markPosition\(state, token\.mint, fresh\.priceNative, fresh\.priceUsd, \{\s*\n\s*priceSource: fresh\.priceSource,\s*\n\s*pairAddress: fresh\.pairAddress/,
+    'resolver refresh marks pass quote provenance to the engine');
+});
+
+test('requote adopts refreshed SOL/USD rates on both feed and anchor paths', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+  const requote = contentSrc.slice(
+    contentSrc.indexOf('async function requote'),
+    contentSrc.indexOf('function stopPriceLoop'),
+  );
+  assert.match(requote, /const freshRate = Number\(fresh\.solUsdAtResolve\) > 0/,
+    'requote must prefer the resolver-recorded rate');
+  assert.match(requote, /token\.solUsdAtResolve = freshRate/,
+    'requote must retain a newly observed rate');
+  assert.match(requote, /if \(freshRate > 0\) token\.priceUsd = token\.priceNative \* freshRate/,
+    'feed-live refreshes must use the refreshed rate without moving native price');
 });
 
 /* ---------------- portfolio totals ---------------- */

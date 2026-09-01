@@ -1729,6 +1729,12 @@
       if (!token || token.mint !== forMint) return;
       if (!fresh || !(fresh.priceNative > 0)) return;
       if (fresh.mint && fresh.mint !== token.mint) return;
+      const freshRate = Number(fresh.solUsdAtResolve) > 0
+        ? Number(fresh.solUsdAtResolve)
+        : (Number(fresh.priceUsd) > 0 && Number(fresh.priceNative) > 0
+            ? Number(fresh.priceUsd) / Number(fresh.priceNative)
+            : 0);
+      if (freshRate > 0) token.solUsdAtResolve = freshRate;
       // F-61: a refresh re-quotes /tokens/<mint> — EVERY pool for this base
       // mint, including graduated bonding-era pairs. An initial resolve via
       // /pairs/<addr> carried only that one pool; adopt the full list so the
@@ -1758,8 +1764,7 @@
         && Number(token.priceNative) > 0
         && token.priceSource !== 'resolver';
       if (feedLive) {
-        const rate = Number(fresh.priceUsd) > 0 ? fresh.priceUsd / fresh.priceNative : null;
-        if (rate) token.priceUsd = token.priceNative * rate;
+        if (freshRate > 0) token.priceUsd = token.priceNative * freshRate;
         if (Number(fresh.mcap) > 0 && Number(fresh.priceUsd) > 0 && Number(token.priceUsd) > 0) {
           const supply = fresh.mcap / fresh.priceUsd;
           token.mcap = token.priceUsd * supply;
@@ -1793,7 +1798,10 @@
             + ' from a collapsed pool (resolver refresh, ' + fresh.liquidityUsd
             + ' USD liq) F-55');
         } else {
-          E.markPosition(state, token.mint, fresh.priceNative, fresh.priceUsd);
+          E.markPosition(state, token.mint, fresh.priceNative, fresh.priceUsd, {
+            priceSource: fresh.priceSource,
+            pairAddress: fresh.pairAddress,
+          });
         }
       }
       maybeProfitAlert(token.mint);
@@ -2494,7 +2502,12 @@
       }
       for (const mint of Object.keys(livePositionPrices)) {
         const p = livePositionPrices[mint];
-        if (p && Number(p.priceNative) > 0) E.markPosition(state, mint, p.priceNative, p.priceUsd);
+        if (p && Number(p.priceNative) > 0) {
+          E.markPosition(state, mint, p.priceNative, p.priceUsd, {
+            priceSource: p.priceSource,
+            pairAddress: p.pairAddress,
+          });
+        }
       }
       if (remutate) await remutate();
     }
@@ -3274,7 +3287,12 @@
         }
         for (const mint of Object.keys(livePositionPrices)) {
           const p = livePositionPrices[mint];
-          if (p && Number(p.priceNative) > 0) E.markPosition(state, mint, p.priceNative, p.priceUsd);
+          if (p && Number(p.priceNative) > 0) {
+            E.markPosition(state, mint, p.priceNative, p.priceUsd, {
+              priceSource: p.priceSource,
+              pairAddress: p.pairAddress,
+            });
+          }
         }
       }
       // Heartbeat persistence must never surface as a pageerror: under
@@ -7998,10 +8016,18 @@
               + ' from a collapsed pool (' + quote.liquidityUsd + ' USD liq, '
               + pos55.lastPriceNative + ' -> ' + quote.priceNative + ') F-55');
           } else {
-            livePositionPrices[mint] = { priceNative: quote.priceNative, priceUsd: quote.priceUsd };
+            livePositionPrices[mint] = {
+              priceNative: quote.priceNative,
+              priceUsd: quote.priceUsd,
+              priceSource: quote.priceSource,
+              pairAddress: quote.pairAddress,
+            };
             // Mark the engine too, so peak/trough and equity stay truthful for
             // positions the user never has on screen.
-            E.markPosition(state, mint, quote.priceNative, quote.priceUsd);
+            E.markPosition(state, mint, quote.priceNative, quote.priceUsd, {
+              priceSource: quote.priceSource,
+              pairAddress: quote.pairAddress,
+            });
             changed = true;
           }
         }
