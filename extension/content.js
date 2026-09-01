@@ -804,10 +804,13 @@
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
     token.priceSource = payload.source || 'page-feed';
-    token.hostSupplySource = verdict.supplyBasis === 'host' ? 'site-facts' : null;
-    token.hostSupplyFillWitness = verdict.supplyBasis === 'host'
-      && token.hostSupplyWitness
-      ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
+    if (verdict.supplyBasis === 'host') {
+      token.hostSupplySource = 'site-facts';
+      token.hostSupplyFillWitness = token.hostSupplyWitness
+        ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
+    } else if (verdict.supplyBasis) {
+      clearHostSupplyLineage();
+    }
     // Market evidence for the fill witness (F-47): only prices the validator
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
@@ -1058,6 +1061,7 @@
       // Re-anchor the bridge with the full identity so chart ticks match.
       sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
       if (Number(found.priceNative) > 0) {
+        clearHostSupplyLineage();
         handlePageTick({
           mint: found.mint,
           source: 'onchain-prewatch',
@@ -1375,6 +1379,12 @@
     });
   }
 
+  function clearHostSupplyLineage() {
+    if (!token) return;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
+  }
+
   function rekeyLiveState(oldMint, newMint) {
     if (!oldMint || !newMint || oldMint === newMint) return;
     const cached = livePositionPrices[oldMint];
@@ -1410,6 +1420,9 @@
       hostSupplyRefusalCounts.clear();
     }
     token = data;
+    // Resolver adoption is an independent price basis. Do not carry a
+    // host-derived fill label onto the newly resolved token record.
+    if (token && Number(token.priceNative) > 0) clearHostSupplyLineage();
     // Keep a separate resolver anchor for validation. This is the price we
     // trust until a newer resolver quote or a first on-chain observation
     // confirms the live level. Live chart ticks validate against this, so one
@@ -1631,6 +1644,7 @@
       if (!token || token.mint !== forMint) return;
       if (!fresh || !(fresh.priceNative > 0)) return;
       if (fresh.mint && fresh.mint !== token.mint) return;
+      clearHostSupplyLineage();
       // F-61: a refresh re-quotes /tokens/<mint> — EVERY pool for this base
       // mint, including graduated bonding-era pairs. An initial resolve via
       // /pairs/<addr> carried only that one pool; adopt the full list so the
@@ -3256,6 +3270,10 @@
       if (token.srcAddress !== token.mint && token.pairAddress && token.pairAddress !== freshMint) return null;
       token.mint = freshMint;
     }
+    if (data.priceSource === 'resolver' || data.priceSource === 'chain'
+      || data.priceSource === 'row-onchain') {
+      clearHostSupplyLineage();
+    }
     token.priceNative = Number(data.priceNative);
     if (data.priceUsd) token.priceUsd = Number(data.priceUsd);
     if (data.mcap) token.mcap = Number(data.mcap);
@@ -3634,11 +3652,6 @@
         let filled = null;
         const mutate = () => {
           if (!token || token.mint !== fillQuote.mint) throw new Error('Token changed before the paper sell could be filled');
-          if (fillQuote.supplySource === 'site-facts' && token.hostSupplyRejected) {
-            refuseDisprovedHostFill(fillQuote);
-            filled = null;
-            return;
-          }
           filled = E.sell(state, settings, {
             ts: Date.now(), mint: token.mint, site: site.id,
             qtyFraction: fraction, priceNative: fillQuote.priceNative, priceUsd: fillQuote.priceUsd, mcap: fillQuote.mcap,
@@ -3653,9 +3666,7 @@
           drawnFillIds.add(filled.trade.id);
         };
         mutate();
-        if (!filled) return null;
         await persistStateNow(mutate);
-        if (!filled) return null;
         const { trade, position, round } = filled;
         // Chain append after the wallet commit — see doBuy for the ordering.
         await commitFill(trade);
@@ -3675,9 +3686,6 @@
         return { trade, position, round };
       });
       const tCommitted = perfNow();
-      if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
-        toast(lastQuoteRefusal);
-      }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
         lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };

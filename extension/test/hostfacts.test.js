@@ -22,6 +22,8 @@ function loadContentHarness() {
       "const url = options.url || `https://axiom.trade/meme/${BONK}`;")
     .replace("if (msg.type === 'pt_resolve') return R.resolve(msg.address);",
       "if (msg.type === 'pt_resolve') return Promise.resolve(null);")
+    .replace("if (msg.type === 'pt_refresh') return R.refresh(msg.token);",
+      "if (msg.type === 'pt_refresh') return Promise.resolve(typeof options.refresh === 'function' ? options.refresh(msg.token) : R.refresh(msg.token));")
     .replace("if (msg.type === 'pt_sol_usd') return R.solUsd();",
       "if (msg.type === 'pt_sol_usd') return R.solUsd();\n"
         + "          if (msg.type === 'pt_onchain_prewatch') return Promise.resolve(typeof options.onchainPrewatch === 'function' ? options.onchainPrewatch(msg) : null);")
@@ -39,8 +41,10 @@ function loadContentHarness() {
         ' getArmed: () => armedBuy,',
         ' pageTick: (payload) => handlePageTick(payload),',
         ' doBuy: (amount, quotedUsd) => doBuy(amount, quotedUsd),',
+        ' doSell: (fraction) => doSell(fraction),',
         ' reconcile: (measured) => reconcileHostSupply(measured),',
         ' prewatch: (candidate) => prewatchPending(candidate),',
+        ' requote: () => requote(),',
         ' resetPrewatch: () => { prewatchedAddress = null; prewatchAttempts = 0; prewatchLastTryAt = 0; prewatchBackoffFor = null; }',
         ' };',
         '\n})();\n',
@@ -520,6 +524,40 @@ test('accepted bootstrap basis resets stale host provenance', async () => {
   }
 });
 
+test('resolver replacement clears host-supply lineage', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], {
+      url: 'https://axiom.trade/meme/' + PAIR,
+      refresh: () => ({
+        mint: MINT, priceNative: 0.00002, priceUsd: 0.004,
+        mcap: 0.4, priceSource: 'resolver',
+      }),
+    });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    api.getToken().mint = MINT;
+    api.getToken().hostSupplyUi = 100;
+    api.getToken().hostSupplyWitness = { source: 'axiom', url: 'page' };
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.00001, priceUsd: 0.002,
+      mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    assert.equal(api.getToken().hostSupplySource, 'site-facts');
+
+    await api.requote();
+    await settleOverlay(ov);
+    assert.equal(api.getToken().hostSupplySource, null);
+    assert.equal(api.getToken().hostSupplyFillWitness, null);
+    Q.bootstrapTick = originalBootstrap;
+  } finally {
+    loader.restore();
+  }
+});
+
 test('an in-flight host-supply buy is refused after reconciliation disproves it', async () => {
   const loader = loadContentHarness();
   try {
@@ -540,6 +578,8 @@ test('an in-flight host-supply buy is refused after reconciliation disproves it'
       mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
     });
     api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', mcap: 0.2, candidates: [] });
+    assert.equal(api.getToken().hostSupplySource, 'site-facts');
     Q.needsFillWitness = () => true;
     Q.witnessAgrees = () => {
       api.reconcile(110);
@@ -550,6 +590,51 @@ test('an in-flight host-supply buy is refused after reconciliation disproves it'
     const state = api.getState();
     assert.equal(state.journal.filter((trade) => trade.mint === MINT).length, 0);
     assert.ok(diagnostics.some((entry) => entry.details && entry.details.kind === 'host-facts-fill-refused'));
+    Q.bootstrapTick = originalBootstrap;
+    Q.needsFillWitness = originalNeedsWitness;
+    Q.witnessAgrees = originalWitnessAgrees;
+  } finally {
+    loader.restore();
+  }
+});
+
+test('an in-flight host-supply sell still commits after reconciliation disproves it', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const E = ov.win.PaperEngine;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    const originalNeedsWitness = Q.needsFillWitness;
+    const originalWitnessAgrees = Q.witnessAgrees;
+    api.getToken().mint = MINT;
+    api.getToken().hostSupplyUi = 100;
+    api.getToken().hostSupplyWitness = { source: 'axiom', url: 'page' };
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.0001, priceUsd: 0.002,
+      mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    const settings = E.defaultSettings();
+    E.buy(api.getState(), settings, {
+      ts: Date.now(), mint: MINT, symbol: 'FACT', site: 'axiom',
+      priceNative: 0.0001, priceUsd: 0.002, solAmount: 1,
+    });
+    ov.storage().pt_state = JSON.parse(JSON.stringify(api.getState()));
+    Q.needsFillWitness = () => true;
+    Q.witnessAgrees = () => {
+      api.reconcile(110);
+      return true;
+    };
+    await api.doSell(1);
+    await settleOverlay(ov);
+    const trades = api.getState().journal.filter((trade) => trade.mint === MINT);
+    const sell = trades.find((trade) => trade.side === 'sell');
+    assert.ok(sell);
+    assert.equal(sell.supplySource, 'site-facts');
+    assert.ok(sell.hostSupplyWitness);
     Q.bootstrapTick = originalBootstrap;
     Q.needsFillWitness = originalNeedsWitness;
     Q.witnessAgrees = originalWitnessAgrees;
@@ -669,6 +754,8 @@ test('bridge stops emitting facts after content publishes factsWanted false', as
   env.sendContent('page-state', { wantsTicks: true, factsWanted: false });
   await env.fetch();
   assert.equal(env.emitted.filter((message) => message.type === 'facts').length, 0);
+  assert.ok(env.emitted.some((message) => message.type === 'tick'),
+    'tick collection must remain active when facts are not wanted');
 });
 
 test('bootstrapSupply precedence is measured, pump constant, then host', () => {

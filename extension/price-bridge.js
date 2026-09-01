@@ -266,7 +266,7 @@
     // in `top` (frames with no identifier at all), which downstream
     // anchor-banding still validates before use.
     const records = new Map();
-    const factSnapshots = [];
+    const factSnapshots = factsWanted ? [] : null;
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
@@ -319,7 +319,7 @@
           }
           target.addresses = Array.from(addresses);
         }
-        if (!Array.isArray(node) && target) {
+        if (factsWanted && !Array.isArray(node) && target) {
           nodeSnapshot = {
             candidates: [], mcap: null, mint: target.mint, symbol: null, name: null,
             supply: null, decimals: null, poolAddress: null, addresses: [],
