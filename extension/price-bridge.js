@@ -194,6 +194,11 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
+  // Historical snapshots are not the live market. Padre's pump.fun
+  // `callouts[0].marketCap` ($204.53M) showed $204.53M while the live BONK
+  // cap was about $263M (captured defect), so these subtrees must not feed
+  // prices, caps, or host-facts arithmetic.
+  const HISTORICAL_SUBTREE_KEY = /^(callouts?|history|historical|snapshots?|previous|prev|ath|candles?|bars?|ohlc|past)$/i;
   const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
   const SUPPLY_KEY = /^(supply|totalSupply|circulatingSupply|tokenSupply)$/i;
   const DECIMALS_KEY = /^decimals$/i;
@@ -344,7 +349,8 @@
           // USER, not the market: entry averages and cost bases inside it
           // must never tick the price (DEFECT F-30). Identity fields still
           // flow; prices and caps do not.
-          walk(value, depth + 1, target, tainted || POSITION_SUBTREE_KEY.test(key));
+          walk(value, depth + 1, target,
+            tainted || POSITION_SUBTREE_KEY.test(key) || HISTORICAL_SUBTREE_KEY.test(key));
           continue;
         }
         const rec = target || top;
@@ -358,10 +364,10 @@
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
-          if (n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
+          if (!tainted && n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
             nodeSnapshot.mcap = n;
           }
-        } else if (SUPPLY_KEY.test(key)) {
+        } else if (!tainted && SUPPLY_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.supply === null) rec.supply = n;
           if (n > 0 && nodeSnapshot && nodeSnapshot.supply === null) {

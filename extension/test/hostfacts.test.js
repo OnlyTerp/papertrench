@@ -142,6 +142,23 @@ test('host identity facts are emitted for a pair-tied record', async () => {
   assert.equal(facts.payload.priceUsd, 0.000001);
 });
 
+test('historical callout caps do not tick or become fact evidence', async () => {
+  const historical = runBridge({
+    mint: MINT,
+    callouts: [{ marketCap: 204526509 }],
+  });
+  await historical.fetch();
+  assert.equal(historical.emitted.filter((message) => message.type === 'tick').length, 0);
+  assert.equal(historical.emitted.filter((message) => message.type === 'facts'
+    && message.payload.mcap !== null).length, 0);
+
+  const current = runBridge({ mint: MINT, marketCap: 204526509 });
+  await current.fetch();
+  const tick = current.emitted.find((message) => message.type === 'tick');
+  assert.ok(tick);
+  assert.equal(tick.payload.mcap, 204526509);
+});
+
 test('quote-side host facts cannot rekey the page token', async () => {
   const loader = loadContentHarness();
   try {
@@ -372,6 +389,39 @@ test('pending content ignores screener facts not tied to the page address', asyn
     });
     assert.equal(api.getToken().mint, PAIR);
     assert.equal(api.getToken().hostSupplyUi, undefined);
+  } finally {
+    loader.restore();
+  }
+});
+
+test('uncorroborated host supply emits a bounded diagnostic', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const records = [];
+    ov.win.PTErrors = { record: (message, details) => records.push({ message, details }) };
+    const facts = {
+      mint: MINT, addresses: [PAIR, MINT], supply: 1000000000, decimals: 9,
+      priceUsd: null, mcap: null, source: 'axiom', url: 'https://api6.axiom.trade/pair-info',
+    };
+    ov.dispatchBridge('facts', facts);
+    ov.dispatchBridge('facts', facts);
+    assert.equal(api.getToken().hostSupplyUi, undefined);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].details.kind, 'host-facts-supply-uncorroborated');
+    assert.equal(records[0].details.missing.priceUsd, true);
+    assert.equal(records[0].details.missing.mcap, true);
+
+    ov.dispatchBridge('facts', {
+      ...facts,
+      source: 'gmgn',
+      mcap: 100,
+    });
+    assert.equal(records.length, 2);
+    assert.equal(records[1].details.missing.priceUsd, true);
+    assert.equal(records[1].details.missing.mcap, false);
   } finally {
     loader.restore();
   }

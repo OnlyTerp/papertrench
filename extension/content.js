@@ -544,12 +544,12 @@
     } catch (_) { /* diagnostics must never affect the trading path */ }
   }
 
-  function refuseHostSupply(mint, facts) {
+  function hostSupplyEvidenceKey(mint, facts) {
     const keyPart = (value) => {
       const number = Number(value);
       return Number.isFinite(number) ? number.toPrecision(12) : String(value);
     };
-    const key = [
+    return [
       mint,
       facts && facts.source,
       keyPart(facts && facts.priceUsd),
@@ -557,20 +557,41 @@
       keyPart(facts && facts.supply),
       keyPart(facts && facts.decimals),
     ].join('|');
+  }
+
+  function recordHostSupplyDiagnostic(mint, facts, message, kind, details) {
+    const key = hostSupplyEvidenceKey(mint, facts);
     if (hostSupplyRefusals.has(key)) return;
     const count = hostSupplyRefusalCounts.get(mint) || 0;
     if (count >= 8) return;
     hostSupplyRefusals.add(key);
     hostSupplyRefusalCounts.set(mint, count + 1);
-    recordHostFactsDiagnostic('refused host supply for ' + mint
-      + ' (no supply reading agreed with mcap/priceUsd within 1%)', 'host-facts-supply-refused', {
+    recordHostFactsDiagnostic(message, kind, {
       source: facts && facts.source,
       url: facts && facts.url,
       values: facts ? {
         priceUsd: facts.priceUsd, mcap: facts.mcap,
         supply: facts.supply, decimals: facts.decimals,
       } : null,
+      ...(details || {}),
     });
+  }
+
+  function refuseHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts, 'refused host supply for ' + mint
+      + ' (no supply reading agreed with mcap/priceUsd within 1%)',
+    'host-facts-supply-refused');
+  }
+
+  function noteUncorroboratedHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts,
+      'host supply for ' + mint + ' lacks corroborating USD price and live market cap',
+      'host-facts-supply-uncorroborated', {
+        missing: {
+          priceUsd: !(Number(facts && facts.priceUsd) > 0),
+          mcap: !(Number(facts && facts.mcap) > 0),
+        },
+      });
   }
 
   function handleHostFacts(facts) {
@@ -586,6 +607,10 @@
     }
     if (decision.refused) {
       refuseHostSupply(token.mint, facts);
+      return;
+    }
+    if (decision.reason === 'no-united-price') {
+      noteUncorroboratedHostSupply(token.mint, facts);
       return;
     }
     if (!(decision.supplyUi > 0)) return;
