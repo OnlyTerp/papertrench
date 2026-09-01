@@ -124,26 +124,43 @@ function canonicalBackupValue(value) {
   return JSON.stringify(value);
 }
 
-function stateFingerprint(state) {
-  if (!state || typeof state !== 'object') return null;
-  const copy = { ...state };
-  // seq and updatedAt move on every heartbeat, not on durable wallet edits.
-  delete copy.seq;
-  delete copy.updatedAt;
-  // markPosition writes these on price ticks; they are not backup content.
-  if (copy.positions && typeof copy.positions === 'object') {
-    copy.positions = Object.fromEntries(Object.entries(copy.positions).map(([key, position]) => {
-      if (!position || typeof position !== 'object') return [key, position];
-      const durable = { ...position };
-      delete durable.lastPriceNative;
-      delete durable.lastPriceUsd;
-      delete durable.peakPnlSol;
-      delete durable.troughPnlSol;
-      return [key, durable];
-    }));
+function backupFingerprint(data) {
+  if (!data || typeof data !== 'object') return null;
+  const state = data.pt_state && typeof data.pt_state === 'object'
+    ? { ...data.pt_state } : data.pt_state;
+  if (state && typeof state === 'object') {
+    // seq and updatedAt move on every heartbeat, not on durable wallet edits.
+    delete state.seq;
+    delete state.updatedAt;
+    // markPosition writes these on price ticks; they are not backup content.
+    if (state.positions && typeof state.positions === 'object') {
+      state.positions = Object.fromEntries(Object.entries(state.positions).map(([key, position]) => {
+        if (!position || typeof position !== 'object') return [key, position];
+        const durable = { ...position };
+        delete durable.lastPriceNative;
+        delete durable.lastPriceUsd;
+        delete durable.peakPnlSol;
+        delete durable.troughPnlSol;
+        return [key, durable];
+      }));
+    }
+    // attestChain is embedded into the exported copy for downgrade safety.
+    delete state.attestChain;
   }
-  // attestChain is embedded into the exported copy for downgrade safety.
-  delete copy.attestChain;
+  const frames = Array.isArray(data.pt_frames) ? data.pt_frames.map((frame) => {
+    if (!frame || typeof frame !== 'object') return frame;
+    const metadata = { ...frame };
+    // Frame data is a large JPEG; append-and-evict metadata still detects
+    // every add or eviction without hashing megabytes on each popup open.
+    delete metadata.dataUrl;
+    return metadata;
+  }) : data.pt_frames;
+  const copy = {
+    pt_state: state,
+    pt_settings: data.pt_settings,
+    pt_frames: frames,
+    pt_replays: data.pt_replays,
+  };
   let hash = 0x811c9dc5;
   for (const char of canonicalBackupValue(copy)) {
     hash ^= char.charCodeAt(0);
@@ -179,12 +196,37 @@ const UPDATER = (() => {
     return 0;
   }
 
-  function backupText(record, state) {
+  async function readBackupSnapshot() {
+    const read = async (key) => {
+      try {
+        const result = await chainGet([key]);
+        return { ok: true, value: result[key] };
+      } catch (_) {
+        return { ok: false, value: undefined };
+      }
+    };
+    const marker = await read('pt_last_backup');
+    const values = {};
+    let readable = true;
+    for (const key of BACKUP_KEYS) {
+      const result = await read(key);
+      values[key] = result.value;
+      if (!result.ok) readable = false;
+    }
+    return {
+      marker: marker.ok ? marker.value || null : null,
+      values,
+      readable,
+    };
+  }
+
+  function backupText(record, snapshot, readable = true) {
     const at = record && Number(record.at);
     if (!record) {
       return 'No backup yet — updating into a new folder looks like a fresh install.';
     }
-    if (!state) {
+    const state = snapshot && snapshot.pt_state;
+    if (!readable || !state) {
       return 'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.';
     }
     if (!Number.isFinite(at)) {
@@ -195,8 +237,11 @@ const UPDATER = (() => {
       return `Last backup: ${date} — different wallet since. Back up again.`;
     }
     const trades = Array.isArray(state.journal) ? state.journal.length : 0;
-    if (record.fingerprint && record.fingerprint === stateFingerprint(state)) {
-      return `Last backup: ${date}`;
+    if (record.chainMissing) {
+      return `Last backup: ${date} — exported without the verification chain. Back up again.`;
+    }
+    if (record.fingerprint && record.fingerprint === backupFingerprint(snapshot)) {
+      return `Last backup: ${date} · exported — check the file is in your downloads`;
     }
     if (Number.isFinite(Number(record.trades)) && trades > Number(record.trades)) {
       const delta = trades - Number(record.trades);
@@ -248,12 +293,10 @@ const UPDATER = (() => {
     }
     let seen = {};
     try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
-    let lastBackup = null;
-    let liveState = null;
-    try { lastBackup = (await chainGet(['pt_last_backup'])).pt_last_backup || null; }
-    catch (_) { lastBackup = null; }
-    try { liveState = (await chainGet(['pt_state'])).pt_state || null; }
-    catch (_) { liveState = null; }
+    const initialBackup = await readBackupSnapshot();
+    let lastBackup = initialBackup.marker;
+    let liveSnapshot = initialBackup.values;
+    let backupReadable = initialBackup.readable;
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
     version.textContent = 'v' + info.latest + ' is out';
@@ -261,28 +304,39 @@ const UPDATER = (() => {
     link.textContent = 'Download the update →';
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    backupState.textContent = backupText(lastBackup, liveState);
+    backupState.textContent = backupText(lastBackup, liveSnapshot, backupReadable);
     const refreshBackupState = async () => {
-      try { lastBackup = (await chainGet(['pt_last_backup'])).pt_last_backup || null; }
-      catch (_) { lastBackup = null; }
-      try { liveState = (await chainGet(['pt_state'])).pt_state || null; }
-      catch (_) { liveState = null; }
-      backupState.textContent = backupText(lastBackup, liveState);
+      const current = await readBackupSnapshot();
+      lastBackup = current.marker;
+      liveSnapshot = current.values;
+      backupReadable = current.readable;
+      backupState.textContent = backupText(lastBackup, liveSnapshot, backupReadable);
     };
     const hasBackup = () => {
       const at = lastBackup && Number(lastBackup.at);
-      return Number.isFinite(at) && liveState && lastBackup.fingerprint
-        && lastBackup.fingerprint === stateFingerprint(liveState);
+      return Number.isFinite(at) && backupReadable && lastBackup.fingerprint
+        && !lastBackup.chainMissing && lastBackup.fingerprint === backupFingerprint(liveSnapshot);
     };
     backupButton.addEventListener('click', async () => {
       try { await backupWallet(); } catch (_) {}
       await refreshBackupState();
     });
+    let downloadCheck = null;
     link.addEventListener('click', (ev) => {
-      if (hasBackup() || Date.now() < downloadArmedUntil) return;
       ev.preventDefault();
-      downloadArmedUntil = Date.now() + 10 * 1000;
-      backupState.textContent = 'No backup yet — click again to update anyway';
+      if (downloadCheck) return downloadCheck;
+      downloadCheck = (async () => {
+        await refreshBackupState();
+        if (hasBackup() || Date.now() < downloadArmedUntil) {
+          window.open(link.href, '_blank', 'noopener');
+          return;
+        }
+        downloadArmedUntil = Date.now() + 10 * 1000;
+        if (!lastBackup) {
+          backupState.textContent = 'No backup yet — click again to update anyway';
+        }
+      })().finally(() => { downloadCheck = null; });
+      return downloadCheck;
     });
     banner.hidden = false;
     const onDismiss = () => {
@@ -807,7 +861,7 @@ const BACKUP_KEYS = ['pt_state', 'pt_settings', 'pt_frames', 'pt_replays'];
 
 async function backupWallet() {
   const stored = await chrome.storage.local.get(BACKUP_KEYS);
-  const fingerprint = stateFingerprint(stored.pt_state);
+  const fingerprint = backupFingerprint(stored);
   // F-14: the attestation chain lives in segmented storage, not in pt_state.
   // The backup bundles it as ONE array (pt_attest_chain) so a restore can
   // re-segment it on any future segment size — and so the verifiable record
@@ -857,6 +911,7 @@ async function backupWallet() {
         startedAt: state && state.startedAt != null ? state.startedAt : null,
         trades: state && Array.isArray(state.journal) ? state.journal.length : 0,
         fingerprint,
+        chainMissing,
       },
     });
   } catch (_) {}

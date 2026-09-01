@@ -22,7 +22,8 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..');
 
 function loadPopupPage({
-  release, checkedAt, seenVersion, lastBackup, state, backupFingerprintState, manifestVersion,
+  release, checkedAt, seenVersion, lastBackup, state, settings, frames, replays,
+  backupFingerprintState, backupFingerprintData, manifestVersion, attest,
   storageGetThrows = false, storageStateGetThrows = false,
 }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
@@ -31,6 +32,9 @@ function loadPopupPage({
   if (seenVersion !== undefined) stored.set('pt_update_seen', { version: seenVersion, at: Date.now() });
   if (lastBackup !== undefined) stored.set('pt_last_backup', lastBackup);
   if (state !== undefined) stored.set('pt_state', state);
+  if (settings !== undefined) stored.set('pt_settings', settings);
+  if (frames !== undefined) stored.set('pt_frames', frames);
+  if (replays !== undefined) stored.set('pt_replays', replays);
 
   const storageGet = async (keys) => {
     if (storageGetThrows) throw new Error('storage unavailable');
@@ -91,6 +95,7 @@ function loadPopupPage({
     querySelectorAll: () => [],
   };
 
+  const opens = [];
   const sandbox = {
     document: documentStub,
     console,
@@ -121,10 +126,13 @@ function loadPopupPage({
     },
     Blob: class Blob {},
     URL: { createObjectURL: () => 'blob:backup', revokeObjectURL: () => {} },
+    open: (...args) => { opens.push(args); },
     _els: els,
     _stored: stored,
     _listeners: listeners,
+    _opens: opens,
   };
+  if (attest) sandbox.PTAttest = attest;
   sandbox.window = sandbox;
   const ctx = vm.createContext(sandbox);
   const src = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
@@ -132,12 +140,20 @@ function loadPopupPage({
   if (lastBackup && lastBackup.fingerprint === '__from_state__') {
     stored.set('pt_last_backup', {
       ...lastBackup,
-      fingerprint: typeof ctx.stateFingerprint === 'function'
-        ? ctx.stateFingerprint(backupFingerprintState || state)
+      fingerprint: typeof ctx.backupFingerprint === 'function'
+        ? ctx.backupFingerprint(backupFingerprintData || {
+          pt_state: backupFingerprintState || state,
+          pt_settings: undefined,
+          pt_frames: undefined,
+          pt_replays: undefined,
+        })
         : 'missing-fingerprint',
     });
   }
-  return { ctx, sandbox, click: (id, ev = {}) => sandbox._listeners.get(id + ':click')?.(ev) };
+  return {
+    ctx, sandbox, opens,
+    click: (id, ev = {}) => sandbox._listeners.get(id + ':click')?.(ev),
+  };
 }
 
 // render() is async — after load, kick the microtask queue and settle it.
@@ -174,7 +190,7 @@ test('popup update nudge: no backup shows the backup control and warning', async
     'No backup yet — updating into a new folder looks like a fresh install.');
 });
 
-test('popup update nudge: backup control exports and records its timestamp', async () => {
+test('popup update nudge: backup control exports and records its fingerprint', async () => {
   const state = { startedAt: 1234, journal: [{}, {}], attestChain: ['link-before-export'] };
   const { ctx, sandbox, click } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
@@ -190,12 +206,14 @@ test('popup update nudge: backup control exports and records its timestamp', asy
   assert.equal(record.startedAt, state.startedAt);
   assert.equal(record.trades, state.journal.length);
   assert.equal(typeof record.fingerprint, 'string');
-  assert.equal(record.fingerprint, ctx.stateFingerprint(state));
+  assert.equal(record.fingerprint, ctx.backupFingerprint({ pt_state: state }));
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    `Last backup: ${new Date(record.at).toISOString().slice(0, 10)}`);
+    `Last backup: ${new Date(record.at).toISOString().slice(0, 10)} · exported — check the file is in your downloads`);
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
-  assert.equal(event.prevented, false);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: an existing backup shows its date and never arms the link', async () => {
@@ -209,10 +227,14 @@ test('popup update nudge: an existing backup shows its date and never arms the l
   });
   await settle();
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    `Last backup: ${new Date(at).toISOString().slice(0, 10)}`);
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)} · exported — check the file is in your downloads`);
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
-  await click('update-link', event);
-  assert.equal(event.prevented, false);
+  const duplicate = { prevented: false, preventDefault() { this.prevented = true; } };
+  await Promise.all([click('update-link', event), click('update-link', duplicate)]);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(duplicate.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: no backup arms the first download click only', async () => {
@@ -228,7 +250,9 @@ test('popup update nudge: no backup arms the first download click only', async (
     'No backup yet — click again to update anyway');
   const second = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', second);
-  assert.equal(second.prevented, false);
+  await settle();
+  assert.equal(second.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: a fill after export makes the backup stale and arms the link', async () => {
@@ -247,7 +271,9 @@ test('popup update nudge: a fill after export makes the backup stale and arms th
   assert.equal(event.prevented, true);
   const confirmation = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', confirmation);
-  assert.equal(confirmation.prevented, false);
+  await settle();
+  assert.equal(confirmation.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: a reset-style wallet generation change is uncovered', async () => {
@@ -292,10 +318,12 @@ test('popup update nudge: a matching wallet generation and trade count bypasses 
   });
   await settle();
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    `Last backup: ${new Date(at).toISOString().slice(0, 10)}`);
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)} · exported — check the file is in your downloads`);
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
-  assert.equal(event.prevented, false);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: a thesis added after export is uncovered', async () => {
@@ -341,6 +369,120 @@ test('popup update nudge: an armed alert after export is uncovered', async () =>
   assert.equal(event.prevented, true);
 });
 
+test('popup update nudge: settings changed after export are uncovered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [] };
+  const beforeSettings = { theme: 'light' };
+  const currentSettings = { theme: 'dark' };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: {
+      pt_state: state, pt_settings: beforeSettings, pt_frames: [], pt_replays: [],
+    },
+    state,
+    settings: currentSettings,
+    frames: [],
+    replays: [],
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet changed since/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: a new frame after export is uncovered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [] };
+  const beforeFrames = [{ id: 'before', t: 1, dataUrl: 'data:image/jpeg;base64,old' }];
+  const currentFrames = [...beforeFrames, { id: 'after', t: 2, dataUrl: 'data:image/jpeg;base64,new' }];
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: {
+      pt_state: state, pt_settings: undefined, pt_frames: beforeFrames, pt_replays: undefined,
+    },
+    state,
+    frames: currentFrames,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet changed since/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: frame image bytes alone stay covered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [] };
+  const beforeFrames = [{ id: 'same', t: 1, dataUrl: 'data:image/jpeg;base64,old' }];
+  const currentFrames = [{ id: 'same', t: 1, dataUrl: 'data:image/jpeg;base64,new' }];
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: {
+      pt_state: state, pt_settings: undefined, pt_frames: beforeFrames, pt_replays: undefined,
+    },
+    state,
+    frames: currentFrames,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /· exported — check the file/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
+});
+
+test('popup update nudge: chain-missing export is never covered', async () => {
+  const state = { startedAt: 1234, journal: [] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    state,
+    manifestVersion: '3.6.1',
+    attest: { readChainStore: async () => { throw new Error('chain unavailable'); } },
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  const record = sandbox._stored.get('pt_last_backup');
+  assert.equal(record.chainMissing, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /exported without the verification chain/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: click re-reads state before opening a covered link', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const before = { startedAt: 1234, journal: [] };
+  const after = { startedAt: 1234, journal: [{}] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: { pt_state: before },
+    state: before,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  sandbox._stored.set('pt_state', after);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._opens.length, 0);
+  assert.match(sandbox._els['update-backup-state'].textContent, /1 trade since/);
+});
+
 test('popup update nudge: heartbeat-only state changes stay covered', async () => {
   const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
   const before = {
@@ -381,10 +523,12 @@ test('popup update nudge: heartbeat-only state changes stay covered', async () =
   });
   await settle();
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    `Last backup: ${new Date(at).toISOString().slice(0, 10)}`);
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)} · exported — check the file is in your downloads`);
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
-  assert.equal(event.prevented, false);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._opens.length, 1);
 });
 
 test('popup update nudge: a decreased trade count says wallet history changed', async () => {
