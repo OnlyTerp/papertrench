@@ -1644,7 +1644,6 @@
       if (!token || token.mint !== forMint) return;
       if (!fresh || !(fresh.priceNative > 0)) return;
       if (fresh.mint && fresh.mint !== token.mint) return;
-      clearHostSupplyLineage();
       // F-61: a refresh re-quotes /tokens/<mint> — EVERY pool for this base
       // mint, including graduated bonding-era pairs. An initial resolve via
       // /pairs/<addr> carried only that one pool; adopt the full list so the
@@ -1687,6 +1686,7 @@
         return;
       }
 
+      clearHostSupplyLineage();
       token.priceNative = fresh.priceNative;
       if (fresh.priceUsd) token.priceUsd = fresh.priceUsd;
       if (fresh.mcap) token.mcap = fresh.mcap;

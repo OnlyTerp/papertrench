@@ -40,6 +40,7 @@ function loadContentHarness() {
         ' setArmed: (value) => { armedBuy = value; },',
         ' getArmed: () => armedBuy,',
         ' pageTick: (payload) => handlePageTick(payload),',
+        ' setLastPriceAt: (value) => { lastPriceAt = value; },',
         ' doBuy: (amount, quotedUsd) => doBuy(amount, quotedUsd),',
         ' doSell: (fraction) => doSell(fraction),',
         ' reconcile: (measured) => reconcileHostSupply(measured),',
@@ -548,11 +549,61 @@ test('resolver replacement clears host-supply lineage', async () => {
     api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
     assert.equal(api.getToken().hostSupplySource, 'site-facts');
 
+    api.setLastPriceAt(0);
     await api.requote();
     await settleOverlay(ov);
     assert.equal(api.getToken().hostSupplySource, null);
     assert.equal(api.getToken().hostSupplyFillWitness, null);
     Q.bootstrapTick = originalBootstrap;
+  } finally {
+    loader.restore();
+  }
+});
+
+test('live-feed requote preserves host-supply lineage through later rejection', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], {
+      url: 'https://axiom.trade/meme/' + PAIR,
+      refresh: () => ({
+        mint: MINT, priceNative: 0.00002, priceUsd: 0.004,
+        mcap: 0.4, priceSource: 'resolver',
+      }),
+    });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const diagnostics = [];
+    ov.win.PTErrors = { record(message, details) { diagnostics.push({ message, details }); } };
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    const originalNeedsWitness = Q.needsFillWitness;
+    const originalWitnessAgrees = Q.witnessAgrees;
+    api.getToken().mint = MINT;
+    api.getToken().hostSupplyUi = 100;
+    api.getToken().hostSupplyWitness = { source: 'axiom', url: 'page' };
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.00001, priceUsd: 0.002,
+      mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    assert.equal(api.getToken().hostSupplySource, 'site-facts');
+
+    await api.requote();
+    await settleOverlay(ov);
+    assert.equal(api.getToken().hostSupplySource, 'site-facts');
+
+    Q.needsFillWitness = () => true;
+    Q.witnessAgrees = () => {
+      api.reconcile(110);
+      return true;
+    };
+    await api.doBuy(1, null);
+    await settleOverlay(ov);
+    assert.equal(api.getState().journal.filter((trade) => trade.mint === MINT).length, 0);
+    assert.ok(diagnostics.some((entry) => entry.details && entry.details.kind === 'host-facts-fill-refused'));
+    Q.bootstrapTick = originalBootstrap;
+    Q.needsFillWitness = originalNeedsWitness;
+    Q.witnessAgrees = originalWitnessAgrees;
   } finally {
     loader.restore();
   }
