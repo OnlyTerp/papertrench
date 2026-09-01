@@ -218,7 +218,6 @@ test('an Axiom row can combine bounded ancestor records for the tapped token', (
     tokenAddress: A,
     pairAddress: PAIR,
     priceSol: 0.000032,
-    tokenPriceUsd: 0.000032,
     supply: 1_000_000_000,
     tokenTicker: 'crap',
     tokenName: 'dinosaur crap',
@@ -227,10 +226,11 @@ test('an Axiom row can combine bounded ancestor records for the tapped token', (
   let fiber = row.__reactFiber$test;
   for (let up = 1; up <= 7; up += 1) {
     fiber.return = { memoizedProps: up === 7
-      ? { row: { tokenAddress: A, marketCapUsd: 32_000 } }
+      ? { action: { props: { tokenAddress: A, tokenPriceUsd: 0.000032 } } }
       : { row: { tokenAddress: A } } };
     fiber = fiber.return;
   }
+  fiber.return = { memoizedProps: { row: { tokenAddress: A, marketCapUsd: 32_000 } } };
   assert.deepEqual(JSON.parse(JSON.stringify(quoteExtractor()(row, A))), {
     mint: A,
     pair: PAIR,
