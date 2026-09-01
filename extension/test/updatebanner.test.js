@@ -22,7 +22,7 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..');
 
 function loadPopupPage({
-  release, checkedAt, seenVersion, lastBackup, state, manifestVersion,
+  release, checkedAt, seenVersion, lastBackup, state, backupFingerprintState, manifestVersion,
   storageGetThrows = false, storageStateGetThrows = false,
 }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
@@ -129,6 +129,14 @@ function loadPopupPage({
   const ctx = vm.createContext(sandbox);
   const src = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   vm.runInContext(src, ctx, { filename: 'popup.js' });
+  if (lastBackup && lastBackup.fingerprint === '__from_state__') {
+    stored.set('pt_last_backup', {
+      ...lastBackup,
+      fingerprint: typeof ctx.stateFingerprint === 'function'
+        ? ctx.stateFingerprint(backupFingerprintState || state)
+        : 'missing-fingerprint',
+    });
+  }
   return { ctx, sandbox, click: (id, ev = {}) => sandbox._listeners.get(id + ':click')?.(ev) };
 }
 
@@ -167,8 +175,8 @@ test('popup update nudge: no backup shows the backup control and warning', async
 });
 
 test('popup update nudge: backup control exports and records its timestamp', async () => {
-  const state = { startedAt: 1234, journal: [{}, {}] };
-  const { sandbox, click } = loadPopupPage({
+  const state = { startedAt: 1234, journal: [{}, {}], attestChain: ['link-before-export'] };
+  const { ctx, sandbox, click } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
     manifestVersion: '3.6.1',
     state,
@@ -181,6 +189,8 @@ test('popup update nudge: backup control exports and records its timestamp', asy
   assert.equal(record.version, '3.6.1');
   assert.equal(record.startedAt, state.startedAt);
   assert.equal(record.trades, state.journal.length);
+  assert.equal(typeof record.fingerprint, 'string');
+  assert.equal(record.fingerprint, ctx.stateFingerprint(state));
   assert.equal(sandbox._els['update-backup-state'].textContent,
     `Last backup: ${new Date(record.at).toISOString().slice(0, 10)}`);
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
@@ -193,7 +203,7 @@ test('popup update nudge: an existing backup shows its date and never arms the l
   const state = { startedAt: 1234, journal: [{}, {}] };
   const { sandbox, click } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
-    lastBackup: { at, version: '3.6.0', startedAt: state.startedAt, trades: state.journal.length },
+    lastBackup: { at, version: '3.6.0', startedAt: state.startedAt, trades: state.journal.length, fingerprint: '__from_state__' },
     state,
     manifestVersion: '3.6.1',
   });
@@ -276,7 +286,7 @@ test('popup update nudge: a matching wallet generation and trade count bypasses 
   const state = { startedAt: 1234, journal: [{}] };
   const { sandbox, click } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
-    lastBackup: { at, version: '3.6.0', startedAt: state.startedAt, trades: state.journal.length },
+    lastBackup: { at, version: '3.6.0', startedAt: state.startedAt, trades: state.journal.length, fingerprint: '__from_state__' },
     state,
     manifestVersion: '3.6.1',
   });
@@ -286,6 +296,127 @@ test('popup update nudge: a matching wallet generation and trade count bypasses 
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
   assert.equal(event.prevented, false);
+});
+
+test('popup update nudge: a thesis added after export is uncovered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const before = {
+    startedAt: 1234,
+    journal: [],
+    positions: { MINT: { thesis: 'old' } },
+  };
+  const state = {
+    ...before,
+    positions: { MINT: { thesis: 'new' } },
+  };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintState: before,
+    state,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet changed since/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: an armed alert after export is uncovered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const before = { startedAt: 1234, journal: [], alerts: {} };
+  const state = { ...before, alerts: { MINT: [{ id: 'alert-1', triggerMcap: 1000 }] } };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintState: before,
+    state,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet changed since/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: heartbeat-only state changes stay covered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const before = {
+    startedAt: 1234,
+    seq: 1,
+    updatedAt: 10,
+    journal: [],
+    positions: {
+      MINT: {
+        thesis: 'keep',
+        lastPriceNative: 1,
+        lastPriceUsd: 2,
+        peakPnlSol: 3,
+        troughPnlSol: -1,
+      },
+    },
+  };
+  const state = {
+    ...before,
+    seq: 99,
+    updatedAt: 900,
+    positions: {
+      MINT: {
+        ...before.positions.MINT,
+        lastPriceNative: 5,
+        lastPriceUsd: 6,
+        peakPnlSol: 7,
+        troughPnlSol: -4,
+      },
+    },
+  };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintState: before,
+    state,
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)}`);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, false);
+});
+
+test('popup update nudge: a decreased trade count says wallet history changed', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 3, fingerprint: 'old-fingerprint' },
+    state: { startedAt: 1234, journal: [{}] },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet history changed/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: a stored backup with unreadable wallet is unconfirmable', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: 'known-fingerprint' },
+    manifestVersion: '3.6.1',
+    storageStateGetThrows: true,
+  });
+  await settle();
+  assert.equal(sandbox._els['update-banner'].hidden, false);
+  assert.match(sandbox._els['update-backup-state'].textContent, /wallet could not be read/);
+  assert.match(sandbox._els['update-backup-state'].textContent, /coverage cannot be confirmed/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
 });
 
 test('popup update nudge: dismiss still records the seen version and hides the banner', async () => {
