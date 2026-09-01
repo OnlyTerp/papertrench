@@ -182,6 +182,7 @@
     const priceUsd = pair.priceUsd != null ? Number(pair.priceUsd) : null;
     const usdOk = Number.isFinite(priceUsd) && priceUsd > 0;
     let priceNative;
+    let normalizedPriceUsd = usdOk ? priceUsd : null;
     let solUsdAtResolve = null;
     if (foreign) {
       const rate = Number(opts && opts.solUsd);
@@ -194,6 +195,10 @@
         : sameAddress(quote.address, WSOL_MINT);
       if (solQuoted) {
         priceNative = isQuote ? 1 / rawPrice : rawPrice;
+        if (isQuote) {
+          normalizedPriceUsd = usdOk ? priceNative * priceUsd : null;
+          solUsdAtResolve = usdOk ? priceUsd : null;
+        }
       } else {
         const rate = Number(opts && opts.solUsd);
         if (!usdOk || !(rate > 0)) return null;
@@ -210,7 +215,7 @@
       symbol: token.symbol || null,
       name: token.name || token.symbol || null,
       priceNative,
-      priceUsd: usdOk ? priceUsd : null,
+      priceUsd: normalizedPriceUsd,
       mcap: Number.isFinite(mcap) && mcap > 0 && !isQuote ? mcap : null,
       dex: pair.dexId || null,
       priceSource: 'resolver',

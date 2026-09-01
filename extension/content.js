@@ -1514,6 +1514,12 @@
       if (!token || token.mint !== forMint) return;
       if (!fresh || !(fresh.priceNative > 0)) return;
       if (fresh.mint && fresh.mint !== token.mint) return;
+      const freshRate = Number(fresh.solUsdAtResolve) > 0
+        ? Number(fresh.solUsdAtResolve)
+        : (Number(fresh.priceUsd) > 0 && Number(fresh.priceNative) > 0
+            ? Number(fresh.priceUsd) / Number(fresh.priceNative)
+            : 0);
+      if (freshRate > 0) token.solUsdAtResolve = freshRate;
       // F-61: a refresh re-quotes /tokens/<mint> — EVERY pool for this base
       // mint, including graduated bonding-era pairs. An initial resolve via
       // /pairs/<addr> carried only that one pool; adopt the full list so the
@@ -1542,8 +1548,7 @@
         && Number(token.priceNative) > 0
         && token.priceSource !== 'resolver';
       if (feedLive) {
-        const rate = Number(fresh.priceUsd) > 0 ? fresh.priceUsd / fresh.priceNative : null;
-        if (rate) token.priceUsd = token.priceNative * rate;
+        if (freshRate > 0) token.priceUsd = token.priceNative * freshRate;
         if (Number(fresh.mcap) > 0 && Number(fresh.priceUsd) > 0 && Number(token.priceUsd) > 0) {
           const supply = fresh.mcap / fresh.priceUsd;
           token.mcap = token.priceUsd * supply;

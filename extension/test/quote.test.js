@@ -198,7 +198,7 @@ test('requested-as-quote identity still selects a WSOL-base pair', () => {
   assert.equal(token.priceNative, 1 / 800000);
 });
 
-test('keeps WSOL-quoted Solana normalization unchanged for either requested side', () => {
+test('records the observed SOL/USD rate when the requested token is the quote side', () => {
   const baseRequested = solPair({
     baseToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
     quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
@@ -217,7 +217,36 @@ test('keeps WSOL-quoted Solana normalization unchanged for either requested side
   assert.equal(base.priceNative, 0.00000125);
   assert.equal(base.solUsdAtResolve, null);
   assert.equal(quote.priceNative, 1 / 800000);
+  assert.equal(quote.priceUsd, (1 / 800000) * 0.00025);
+  assert.equal(quote.solUsdAtResolve, 0.00025);
+});
+
+test('a WSOL-base quote without a USD price refuses to invent token USD', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: undefined,
+  });
+  const quote = Q.normalizePair(pair, mint);
+  assert.ok(quote);
+  assert.equal(quote.priceNative, 1 / 800000);
+  assert.equal(quote.priceUsd, null);
   assert.equal(quote.solUsdAtResolve, null);
+});
+
+test('requested-side USD flows into downstream USD P&L at the observed SOL rate', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: '200',
+  });
+  const quote = Q.normalizePair(pair, mint);
+  const mark = Q.positionMark({ qty: 1, costSol: 0, lastPriceNative: 0 }, quote.priceNative, quote.priceUsd);
+  assert.equal(mark.pnlUsd, quote.priceUsd);
 });
 
 test('converts a USDC-quoted Solana pair in the batch path', () => {

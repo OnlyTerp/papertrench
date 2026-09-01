@@ -186,6 +186,20 @@ test('position marks retain batch and resolver quote provenance', () => {
     'resolver refresh marks pass quote provenance to the engine');
 });
 
+test('requote adopts refreshed SOL/USD rates on both feed and anchor paths', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+  const requote = contentSrc.slice(
+    contentSrc.indexOf('async function requote'),
+    contentSrc.indexOf('function stopPriceLoop'),
+  );
+  assert.match(requote, /const freshRate = Number\(fresh\.solUsdAtResolve\) > 0/,
+    'requote must prefer the resolver-recorded rate');
+  assert.match(requote, /token\.solUsdAtResolve = freshRate/,
+    'requote must retain a newly observed rate');
+  assert.match(requote, /if \(freshRate > 0\) token\.priceUsd = token\.priceNative \* freshRate/,
+    'feed-live refreshes must use the refreshed rate without moving native price');
+});
+
 /* ---------------- portfolio totals ---------------- */
 
 test('portfolio totals equal the sum of their rows', () => {
