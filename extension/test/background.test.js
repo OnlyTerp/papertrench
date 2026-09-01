@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 const MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const ARMED_ROW_KEY = 'pt_armed_row_intent';
 
 function serviceWorker(opts = {}) {
   const values = {
@@ -39,6 +40,11 @@ function serviceWorker(opts = {}) {
   const set = (update, callback) => {
     if (opts.failWrites) { failingCallback(callback); return Promise.resolve(); }
     Object.assign(values, update);
+    if (callback) callback();
+    return Promise.resolve();
+  };
+  const remove = (key, callback) => {
+    delete values[key];
     if (callback) callback();
     return Promise.resolve();
   };
@@ -104,7 +110,10 @@ function serviceWorker(opts = {}) {
       };
     },
     chrome: {
-      storage: { local: { get, set } },
+      storage: {
+        local: { get, set, remove },
+        session: { get, set, remove },
+      },
       runtime: {
         id: 'papertrench-test',
         openOptionsPage: () => {},
@@ -162,6 +171,11 @@ function serviceWorker(opts = {}) {
     get isAllowedEndpoint() { return context.isAllowedEndpoint; },
     get maybeNoteSlowPool() { return context.maybeNoteSlowPool; },
     get rpcPool() { return context.PTRpcPool; },
+    armed: {
+      read: context.readArmedRowIntent,
+      write: context.writeArmedRowIntent,
+      clear: context.clearArmedRowIntent,
+    },
     get storage() {
       return {
         getSettings: context.getSettings,
@@ -184,6 +198,58 @@ function send(listener, message) {
     assert.equal(asyncResponse, true, 'background messages must keep the response channel open');
   });
 }
+
+test('armed-row mirror write refuses a failed read without clobbering storage', async () => {
+  const worker = serviceWorker({ failReads: true });
+  const existing = [{ address: MINT, amount: 0.1, at: 1_800_000_000_000 }];
+  worker.values[ARMED_ROW_KEY] = existing;
+
+  const result = await worker.armed.write({
+    address: 'OtherMint111111111111111111111111111',
+    amount: 0.2,
+    at: 1_800_000_000_001,
+  });
+
+  assert.equal(result, false);
+  assert.equal(JSON.stringify(worker.values[ARMED_ROW_KEY]), JSON.stringify(existing));
+});
+
+test('armed-row selective clear removes all on a failed read without throwing', async () => {
+  const worker = serviceWorker({ failReads: true });
+  worker.values[ARMED_ROW_KEY] = [{ address: MINT, amount: 0.1, at: 1_800_000_000_000 }];
+
+  await assert.doesNotReject(() => worker.armed.clear(MINT));
+  assert.equal(Object.hasOwn(worker.values, ARMED_ROW_KEY), false);
+});
+
+test('concurrent armed-row writes preserve both intents', async () => {
+  const worker = serviceWorker();
+  const other = 'OtherMint111111111111111111111111111';
+
+  await Promise.all([
+    worker.armed.write({ address: MINT, amount: 0.1, at: 1_800_000_000_000 }),
+    worker.armed.write({ address: other, amount: 0.2, at: 1_800_000_000_001 }),
+  ]);
+
+  assert.equal(worker.values[ARMED_ROW_KEY].length, 2);
+  assert.equal(
+    JSON.stringify(worker.values[ARMED_ROW_KEY].map((intent) => intent.address)),
+    JSON.stringify([MINT, other]),
+  );
+});
+
+test('concurrent armed-row write and selective clear preserve the other intent', async () => {
+  const worker = serviceWorker();
+  const other = 'OtherMint111111111111111111111111111';
+
+  await Promise.all([
+    worker.armed.write({ address: MINT, amount: 0.1, at: 1_800_000_000_000 }),
+    worker.armed.clear(other),
+  ]);
+
+  assert.equal(JSON.stringify(worker.values[ARMED_ROW_KEY].map((intent) => intent.address)),
+    JSON.stringify([MINT]));
+});
 
 test('service worker captures a real pt_trade_event into the replay store', async () => {
   const worker = serviceWorker();
@@ -760,4 +826,3 @@ test('relayed bridge requests honor the origin gate and the Site-sync toggle', a
   assert.equal(empty.ok, false);
   assert.equal(empty.reason, 'chain-empty', 'toggle on: the relay reaches the same record path');
 });
-

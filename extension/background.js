@@ -1179,17 +1179,65 @@ function clearWarmTabState() {
  * with the browser, like the intent always should) and the coin's own chart
  * page adopts it into its own D-39 armedBuy machinery, TTL and all. */
 const ARMED_ROW_KEY = 'pt_armed_row_intent';
-function writeArmedRowIntent(intent) {
-  return new Promise((resolve) => chrome.storage.session.set({ [ARMED_ROW_KEY]: intent }, () => resolve()));
+const ARMED_ROW_MAX = 3;
+let armedRowChain = Promise.resolve();
+function normalizeArmedRowIntents(value) {
+  const list = Array.isArray(value) ? value : (value && value.address ? [value] : []);
+  return list.filter((intent) => intent && typeof intent.address === 'string'
+    && Number(intent.amount) > 0 && Number.isFinite(Number(intent.at)));
 }
-function readArmedRowIntent() {
+function readArmedRowList() {
   return new Promise((resolve) => chrome.storage.session.get([ARMED_ROW_KEY], (value) => {
-    if (chrome.runtime && chrome.runtime.lastError) { resolve(null); return; }
-    resolve(value[ARMED_ROW_KEY] || null);
+    if (chrome.runtime && chrome.runtime.lastError) {
+      resolve({ ok: false, list: [] });
+      return;
+    }
+    resolve({ ok: true, list: normalizeArmedRowIntents(value[ARMED_ROW_KEY]) });
   }));
 }
-function clearArmedRowIntent() {
-  return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+function readArmedRowIntent() {
+  return readArmedRowList().then((read) => read.list);
+}
+function armedRowSerial(fn) {
+  const next = armedRowChain.then(fn, fn);
+  armedRowChain = next.then(() => {}, () => {});
+  return next;
+}
+function writeArmedRowIntent(intent) {
+  return armedRowSerial(async () => {
+    const read = await readArmedRowList();
+    if (!read.ok) return false;
+    const list = read.list;
+    const index = list.findIndex((item) => item.address === intent.address);
+    if (index !== -1) {
+      list[index] = { address: intent.address, amount: intent.amount, at: intent.at };
+    } else {
+      list.push({ address: intent.address, amount: intent.amount, at: intent.at });
+    }
+    while (list.length > ARMED_ROW_MAX) list.shift();
+    await new Promise((resolve) => chrome.storage.session.set(
+      { [ARMED_ROW_KEY]: list }, () => resolve(),
+    ));
+    return true;
+  });
+}
+function clearArmedRowIntent(address) {
+  return armedRowSerial(async () => {
+    if (!address) {
+      return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+    }
+    const read = await readArmedRowList();
+    if (!read.ok) {
+      return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+    }
+    const remaining = read.list.filter((intent) => intent.address !== address);
+    if (!remaining.length) {
+      return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+    }
+    return new Promise((resolve) => chrome.storage.session.set(
+      { [ARMED_ROW_KEY]: remaining }, () => resolve(),
+    ));
+  });
 }
 
 /** The registered viewer tab, revalidated against reality: it must still exist
@@ -2583,7 +2631,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case 'pt_armed_row_clear': {
-        await clearArmedRowIntent();
+        await clearArmedRowIntent(message.address);
         sendResponse({ ok: true });
         break;
       }
