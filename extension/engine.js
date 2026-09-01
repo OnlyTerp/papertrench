@@ -59,6 +59,9 @@
     // 'bottom' pins the gutter anchor everywhere. The maintainer default is
     // auto: the collision is the exception, not the rule.
     listQuickBuyPlacement: 'auto',
+    // Sparse per-site overrides for list quick-buy chip size and placement.
+    // An absent site or field follows the global setting above.
+    listQuickBuyBySite: {},
     // TradingView order/level line width for TP/SL and average-entry lines.
     // 1 = hairline (old hard-coded look), 2 = default, 3 = thick, easier to
     // read on dense charts and small screens. Same knob for both line
@@ -227,6 +230,24 @@
     return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   }
 
+  function normalizeListQuickBuyBySite(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const entries = [];
+    for (const [siteId, raw] of Object.entries(value)) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const override = {};
+      const size = raw.size;
+      if (typeof size === 'number' && Number.isFinite(size)) {
+        override.size = Math.max(0.6, Math.min(1.5, size));
+      }
+      if (raw.placement === 'auto' || raw.placement === 'bottom') {
+        override.placement = raw.placement;
+      }
+      if (Object.keys(override).length) entries.push([siteId, override]);
+    }
+    return Object.fromEntries(entries);
+  }
+
   /**
    * Merge stored settings over defaults, applying one-time migrations.
    *
@@ -255,6 +276,7 @@
   const OLD_LOCAL_AI_ENDPOINT = 'http://127.0.0.1:8765/v1';
   function mergeSettings(stored) {
     const merged = Object.assign(defaultSettings(), stored || {});
+    merged.listQuickBuyBySite = normalizeListQuickBuyBySite(merged.listQuickBuyBySite);
     if (!stored) return merged;
 
     const revision = Number(stored.settingsRevision) || 0;
@@ -2447,6 +2469,7 @@
     STORAGE_KEYS,
     DEFAULT_SETTINGS,
     defaultSettings,
+    normalizeListQuickBuyBySite,
     mergeSettings,
     SETTINGS_REVISION,
     defaultState,

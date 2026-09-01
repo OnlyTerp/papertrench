@@ -4440,6 +4440,62 @@ function renderPresetBoxes(id, values, { max, step, unit, addLabel }) {
     <input type="hidden" id="${id}" value="${esc(values.join(', '))}">`;
 }
 
+const LIST_QUICK_BUY_SIZE_OPTIONS = [0.7, 0.85, 1, 1.15, 1.3, 1.5];
+
+function listQuickBuyAdapters() {
+  const adapters = window.PaperTrenchSites && window.PaperTrenchSites.ADAPTERS;
+  return Array.isArray(adapters)
+    ? adapters.filter((adapter) => adapter && adapter.id && adapter.rowBuy)
+    : [];
+}
+
+function renderListQuickBuySiteFields() {
+  const overrides = settings.listQuickBuyBySite
+    && typeof settings.listQuickBuyBySite === 'object'
+    ? settings.listQuickBuyBySite : {};
+  return listQuickBuyAdapters().map((adapter) => {
+    const override = overrides[adapter.id] || {};
+    const size = Number(override.size);
+    const placement = override.placement === 'auto' || override.placement === 'bottom'
+      ? override.placement : '';
+    const sizeOptions = [
+      '<option value="">Use the default</option>',
+      ...LIST_QUICK_BUY_SIZE_OPTIONS.map((value) =>
+        `<option value="${value}" ${size === value ? 'selected' : ''}>${value}x</option>`),
+    ].join('');
+    return `
+      <div class="field">
+        <label>${esc(adapter.name)}</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <select id="set-list-quick-buy-placement-${esc(adapter.id)}" data-list-quick-buy-site="${esc(adapter.id)}" aria-label="${esc(adapter.name)} chip position">
+            <option value="" ${placement === '' ? 'selected' : ''}>Use the default</option>
+            <option value="auto" ${placement === 'auto' ? 'selected' : ''}>Auto</option>
+            <option value="bottom" ${placement === 'bottom' ? 'selected' : ''}>Corner</option>
+          </select>
+          <select id="set-list-quick-buy-size-${esc(adapter.id)}" data-list-quick-buy-site="${esc(adapter.id)}" aria-label="${esc(adapter.name)} chip size">
+            ${sizeOptions}
+          </select>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function listQuickBuyOverridesFromForm(adapters, readValue) {
+  const overrides = {};
+  for (const adapter of adapters) {
+    const placement = readValue(`set-list-quick-buy-placement-${adapter.id}`);
+    const sizeRaw = readValue(`set-list-quick-buy-size-${adapter.id}`);
+    const size = Number(sizeRaw);
+    const override = {};
+    if (placement === 'auto' || placement === 'bottom') override.placement = placement;
+    if (sizeRaw !== '' && sizeRaw !== null && sizeRaw !== undefined && Number.isFinite(size)) {
+      override.size = Math.max(0.6, Math.min(1.5, size));
+    }
+    if (Object.keys(override).length) overrides[adapter.id] = override;
+  }
+  return overrides;
+}
+
 function renderSettings(el) {
   // D-24: a corrupt backup can leave presetsBuy/sellPcts as non-arrays. An
   // unguarded .join() threw mid-render, leaving Settings blank AND unbound —
@@ -4503,8 +4559,10 @@ function renderSettings(el) {
           <div class="field field-check"><label><input type="checkbox" id="set-list-quick-buy" ${settings.listQuickBuyEnabled !== false ? 'checked' : ''}> One-tap buy buttons on token lists</label><small>A "P" button on every token row of Axiom Pulse, Padre Trenches and GMGN Trenches — buys the first preset amount without opening the chart.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-list-quick-open" ${settings.listQuickOpen !== false ? 'checked' : ''}> Open the chart tab after a list buy</label><small>When a one-tap list buy opens a NEW position, its chart opens in a background tab so the position is one click away. Turn off for list-only trading.</small></div>
       <div class="field"><label for="set-panel-theme">Panel theme</label><select id="set-panel-theme"><option value="trench" ${!settings.panelTheme || settings.panelTheme === 'trench' ? 'selected' : ''}>Trench — PaperTrench default (amber on slate)</option><option value="axiom" ${settings.panelTheme === 'axiom' ? 'selected' : ''}>Axiom — dark slate, cyan accents</option><option value="padre" ${settings.panelTheme === 'padre' ? 'selected' : ''}>Padre — warm near-black, amber accents</option><option value="lute" ${settings.panelTheme === 'lute' ? 'selected' : ''}>Lute — deep indigo, violet accents</option><option value="solana" ${settings.panelTheme === 'solana' ? 'selected' : ''}>Solana — void green, terminal phosphor</option></select><small>Skins the PaperTrench overlay to match your dex. The site's own page is never touched — only the panel's colors. Or cycle them live with the ◍ button on the panel header.</small></div>
-      <div class="field"><label for="set-list-quick-buy-size">Buy-button size on lists <span id="val-list-quick-buy-size">${(settings.listQuickBuySize || 1).toFixed(2)}</span>x</label><input id="set-list-quick-buy-size" type="range" min="0.6" max="1.5" step="0.05" value="${Number(settings.listQuickBuySize || 1).toFixed(2)}"><small>Make the list buy buttons larger or smaller to fit your screen density.</small></div>
-      <div class="field"><label for="set-list-quick-buy-placement">Buy-button position on lists</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
+      <div class="field"><label for="set-list-quick-buy-size">Default buy-button size on all sites <span id="val-list-quick-buy-size">${(settings.listQuickBuySize || 1).toFixed(2)}</span>x</label><input id="set-list-quick-buy-size" type="range" min="0.6" max="1.5" step="0.05" value="${Number(settings.listQuickBuySize || 1).toFixed(2)}"><small>Default for sites without their own override. Make list buy buttons larger or smaller to fit your screen density.</small></div>
+      <div class="field"><label for="set-list-quick-buy-placement">Default buy-button position on all sites</label><select id="set-list-quick-buy-placement"><option value="auto" ${settings.listQuickBuyPlacement !== 'bottom' ? 'selected' : ''}>Auto — next to each row (moves if it covers something)</option><option value="bottom" ${settings.listQuickBuyPlacement === 'bottom' ? 'selected' : ''}>Corner — always bottom-right of the row</option></select><small>Default for sites without their own override. Corner pins the P button to the row's bottom-right, clear of the market-cap readout on compact/ultra list formats.</small></div>
+      <div class="field"><label>Per-site list buy buttons</label><small>Override the defaults above only where a site's rows need different sizing or placement. Use the default keeps this map sparse.</small></div>
+      ${renderListQuickBuySiteFields()}
           <div class="field field-check"><label><input type="checkbox" id="set-panel-buy" ${settings.panelBuyEnabled !== false ? 'checked' : ''}> Buy section in the trade tab</label><small>Shows the quick-buy presets, custom amount and BUY button in the overlay. Off makes the trade tab view-only.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-panel-presets" ${settings.panelPresetsEnabled !== false ? 'checked' : ''}> Quick-buy preset buttons</label><small>The one-tap SOL amount buttons. Off keeps the custom amount and BUY button.</small></div>
         <div class="field field-check"><label><input type="checkbox" id="set-panel-custom" ${settings.panelCustomAmount === true ? 'checked' : ''}> Custom amount box</label><small>A free-text SOL amount under the presets. Off by default — the preset row is eight boxes you configure above, so an arbitrary size is rarely needed and the field costs three lines of panel on every token. BUY and limit orders use the selected preset when it is off.</small></div>
@@ -5041,6 +5099,11 @@ function gatherSettingsFromForm(notes = [], base = settings) {
   if (!presets.length) notes.push('quick-buy presets were empty — defaults restored');
   if (!sellPcts.length) notes.push('quick-sell presets were empty — defaults restored');
 
+  const listQuickBuyBySite = listQuickBuyOverridesFromForm(
+    listQuickBuyAdapters(),
+    (id) => document.getElementById(id)?.value,
+  );
+
   return {
     balanceStartSol,
     // D-11: integers 0..1000 only — a negative fee inverts the arithmetic.
@@ -5062,6 +5125,7 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     panelTheme: document.getElementById('set-panel-theme').value,
     listQuickBuySize: Math.max(0.6, Math.min(1.5, Number(document.getElementById('set-list-quick-buy-size').value) || 1)),
     listQuickBuyPlacement: document.getElementById('set-list-quick-buy-placement').value === 'bottom' ? 'bottom' : 'auto',
+    listQuickBuyBySite,
     chartOrderLineThickness: Math.max(1, Math.min(4, Math.round(Number(document.getElementById('set-chart-line-thickness').value) || 2))),
     panelBuyEnabled: document.getElementById('set-panel-buy').checked,
     panelPresetsEnabled: document.getElementById('set-panel-presets').checked,

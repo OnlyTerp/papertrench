@@ -43,9 +43,11 @@ test('the paper-orders payload carries the clamped lineWidth', () => {
 });
 
 test('the row-scan payload carries placementPref only for explicit choices', () => {
-  assert.match(content, /placementPref: settings\.listQuickBuyPlacement === 'bottom' \? 'bottom'/,
+  assert.match(content, /const globalPlacement = source\.listQuickBuyPlacement === 'bottom' \? 'bottom'/,
     "'bottom' must reach the bridge as a pin");
-  assert.match(content, /: settings\.listQuickBuyPlacement === 'auto' \? 'auto' : null,/,
+  assert.match(content, /const placementPref = siteOverride\.placement === 'bottom' \? 'bottom'/,
+    'a valid per-site pin must take precedence over the global setting');
+  assert.match(content, /: siteOverride\.placement === 'auto' \? 'auto' : globalPlacement;/,
     "anything unset must send null so per-site defaults survive");
 });
 

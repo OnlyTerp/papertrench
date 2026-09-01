@@ -536,6 +536,23 @@
     window.postMessage({ source: 'papertrench-content', type, payload: payload || null }, '*');
   }
 
+  function listQuickBuyPrefs(source, siteId) {
+    const siteOverride = source.listQuickBuyBySite
+      && typeof source.listQuickBuyBySite === 'object'
+      && source.listQuickBuyBySite[siteId]
+      && typeof source.listQuickBuyBySite[siteId] === 'object'
+      ? source.listQuickBuyBySite[siteId] : {};
+    const siteSize = Number(siteOverride.size);
+    const globalSize = Number(source.listQuickBuySize);
+    const size = Number.isFinite(siteSize) ? siteSize
+      : (globalSize || 1);
+    const globalPlacement = source.listQuickBuyPlacement === 'bottom' ? 'bottom'
+      : source.listQuickBuyPlacement === 'auto' ? 'auto' : null;
+    const placementPref = siteOverride.placement === 'bottom' ? 'bottom'
+      : siteOverride.placement === 'auto' ? 'auto' : globalPlacement;
+    return { size, placementPref };
+  }
+
   /**
    * Value model for the generic SVG overlay. GMGN is not a price chart:
    * its live iframe symbol is `sol/<mint>/USD/MCAP` and its candle endpoint
@@ -6660,17 +6677,17 @@
     if (now - rowBuyScanAt < 350) return;
     rowBuyScanAt = now;
 
+    const listPrefs = listQuickBuyPrefs(settings, site.id);
     sendPadreMarker('row-scan', {
       amount: (settings.presetsBuy || [0.1])[0],
-      size: Math.max(0.6, Math.min(1.5, Number(settings.listQuickBuySize) || 1)),
+      size: Math.max(0.6, Math.min(1.5, listPrefs.size)),
       linkSelectors: site.rowBuy.linkSelectors,
       placement: site.rowBuy.placement,
       // F-53 (jb): 'auto' probes the default anchor and drops to the row's
       // bottom-right gutter when it lands on row content (Axiom/Padre
       // "ultra" compact format puts the MC exactly there); 'bottom' pins
       // the gutter everywhere. Null keeps the per-site default untouched.
-      placementPref: settings.listQuickBuyPlacement === 'bottom' ? 'bottom'
-        : settings.listQuickBuyPlacement === 'auto' ? 'auto' : null,
+      placementPref: listPrefs.placementPref,
       buyButtonPattern: site.rowBuy.buyButtonPattern || null,
       containerMode: site.rowBuy.containerMode || 'heuristic',
     });
