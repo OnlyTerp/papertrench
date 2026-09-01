@@ -3859,17 +3859,13 @@
       if (!matching.length) return null;
       const selected = matching.reduce((best, fields) =>
         !best || Object.keys(fields).length > Object.keys(best).length ? fields : best, null);
-      const usd = candidates.find((fields) =>
-        fields !== selected
-        && fields.tokenAddress
-        && fields.tokenAddress === selected.tokenAddress
-        && (fields.tokenPriceUsd !== undefined
-          || fields.priceUsd !== undefined
-          || fields.marketCapUsd !== undefined));
       const merged = { ...selected };
-      if (usd) {
+      for (const fields of candidates) {
+        if (fields === selected
+            || !fields.tokenAddress
+            || fields.tokenAddress !== selected.tokenAddress) continue;
         for (const name of ['tokenPriceUsd', 'priceUsd', 'marketCapUsd']) {
-          if (merged[name] === undefined && usd[name] !== undefined) merged[name] = usd[name];
+          if (merged[name] === undefined && fields[name] !== undefined) merged[name] = fields[name];
         }
       }
       let mcapUsd = merged.marketCapUsd || merged.mcapUsd || null;
