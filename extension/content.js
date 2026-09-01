@@ -471,6 +471,7 @@
     if (event.origin && event.origin !== location.origin) return;
     const ev = event.data;
     if (ev.type === 'tick') { noteRowPrice(ev.payload); handlePageTick(ev.payload); }
+    else if (ev.type === 'facts') handleHostFacts(ev.payload);
     else if (ev.type === 'row-buy') {
       // A quick-buy chip injected by the MAIN-world bridge was tapped; the
       // fill pipeline itself lives here. The done-signal lets the bridge
@@ -531,6 +532,76 @@
     }
   }
   window.addEventListener('message', onBridgeMessage);
+
+  const HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  const hostSupplyRefusals = new Set();
+
+  function refuseHostSupply(mint, facts) {
+    if (hostSupplyRefusals.has(mint)) return;
+    hostSupplyRefusals.add(mint);
+    console.debug('PaperTrench: refused host supply for ' + mint
+      + ' (mcap/priceUsd disagreed by more than 1%)', {
+      source: facts && facts.source,
+      url: facts && facts.url,
+    });
+  }
+
+  function handleHostFacts(facts) {
+    if (!facts || !token || !token.pending) return;
+
+    const addresses = Array.isArray(facts.addresses) ? facts.addresses : [];
+    const srcAddress = typeof token.srcAddress === 'string' ? token.srcAddress : '';
+    const factMint = typeof facts.mint === 'string' ? facts.mint : '';
+    if (addresses.indexOf(srcAddress) !== -1
+      && HOST_FACT_ADDRESS_RE.test(factMint)
+      && factMint !== srcAddress
+      && token.mint !== factMint) {
+      const oldMint = token.mint;
+      if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = factMint;
+      rekeyLiveState(oldMint, factMint);
+      token.mint = factMint;
+      token.pairAddress = facts.poolAddress || token.pairAddress || null;
+      sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
+    }
+
+    if (token.hostSupplyRejected) return;
+    const priceUsd = Number(facts.priceUsd);
+    const mcap = Number(facts.mcap);
+    if (!(priceUsd > 0) || !(mcap > 0)) return;
+    const implied = mcap / priceUsd;
+    if (!(implied > 0) || !Number.isFinite(implied)) return;
+
+    const hasSupply = facts.supply !== null && facts.supply !== undefined;
+    const rawSupply = Number(facts.supply);
+    let declaredUi = null;
+    if (hasSupply) {
+      if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
+        refuseHostSupply(token.mint || factMint, facts);
+        return;
+      }
+      const decimals = Number(facts.decimals);
+      declaredUi = Number.isInteger(decimals) && decimals >= 0
+        ? rawSupply / (10 ** decimals) : rawSupply;
+      if (!(declaredUi > 0) || !Number.isFinite(declaredUi)
+        || Math.abs(implied - declaredUi) / declaredUi > 0.01) {
+        refuseHostSupply(factMint || token.mint, facts);
+        return;
+      }
+    }
+
+    token.hostSupplyUi = declaredUi || implied;
+    token.hostSupplyWitness = {
+      source: facts.source || null,
+      url: facts.url || null,
+      keys: {
+        priceUsd: facts.priceUsd,
+        mcap: facts.mcap,
+        supply: facts.supply,
+        decimals: facts.decimals,
+      },
+      atMs: Date.now(),
+    };
+  }
 
   function sendPadreMarker(type, payload) {
     window.postMessage({ source: 'papertrench-content', type, payload: payload || null }, '*');
@@ -953,6 +1024,7 @@
           sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
         }
         if (Number(found.supplyUi) > 0) {
+          reconcileHostSupply(found.supplyUi);
           token.supplyUi = Number(found.supplyUi);
           token.decimals = Number(found.decimals);
         }
@@ -1264,6 +1336,26 @@
       (k) => k !== tokenRecord.mint && tokenRecord.poolAddresses.indexOf(k) !== -1
     );
     for (const standIn of stranded) rekeyLiveState(standIn, tokenRecord.mint);
+  }
+
+  function reconcileHostSupply(measuredSupplyUi) {
+    if (!token || !(Number(token.hostSupplyUi) > 0)) return;
+    const measured = Number(measuredSupplyUi);
+    const host = Number(token.hostSupplyUi);
+    if (!(measured > 0) || !Number.isFinite(measured)) return;
+    if (Math.abs(measured - host) / host <= 0.02) {
+      token.hostSupplyUi = null;
+      token.hostSupplyWitness = null;
+      return;
+    }
+    token.hostSupplyUi = null;
+    token.hostSupplyWitness = null;
+    token.hostSupplyRejected = true;
+    console.debug('PaperTrench: host supply disagrees with measured supply', {
+      mint: token.mint,
+      hostSupplyUi: host,
+      measuredSupplyUi: measured,
+    });
   }
 
   function rekeyLiveState(oldMint, newMint) {

@@ -486,7 +486,9 @@
     if (!t) return null;
     var measured = Number(t.supplyUi);
     if (measured > 0) return measured;
-    return isPumpFamily(t) ? PUMP_FAMILY_SUPPLY : null;
+    if (isPumpFamily(t)) return PUMP_FAMILY_SUPPLY;
+    var host = Number(t.hostSupplyUi);
+    return host > 0 ? host : null;
   }
 
   /** The unit-price band an mcap reading must land in to be credible. The

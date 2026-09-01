@@ -194,6 +194,9 @@
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
   const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
+  const SUPPLY_KEY = /^(supply|totalSupply|circulatingSupply|tokenSupply)$/i;
+  const DECIMALS_KEY = /^decimals$/i;
+  const POOL_KEY = /^(pairAddress|poolAddress|lpAddress|pool|pairId)$/i;
   // A record that IS a trade event — an id-carrying or user-attributed
   // swap/trade object (fomo's social feed, tx-hash trade tapes). Its price
   // and cap fields describe the moment that trade happened, minutes to
@@ -269,7 +272,10 @@
     const recordFor = (mint) => {
       let rec = records.get(mint);
       if (!rec) {
-        rec = { candidates: [], mcap: null, mint, symbol: null, name: null };
+        rec = {
+          candidates: [], mcap: null, mint, symbol: null, name: null,
+          supply: null, decimals: null, poolAddress: null, addresses: [],
+        };
         records.set(mint, rec);
       }
       return rec;
@@ -300,7 +306,14 @@
           const rank = mintKeyRank(key);
           if (rank > bestRank) { bestRank = rank; bestMint = value; }
         }
-        if (bestMint) target = recordFor(bestMint);
+        if (bestMint) {
+          target = recordFor(bestMint);
+          const addresses = new Set(target.addresses);
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) addresses.add(value);
+          }
+          target.addresses = Array.from(addresses);
+        }
       }
 
       const entries = Array.isArray(node)
@@ -327,6 +340,16 @@
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
+        } else if (SUPPLY_KEY.test(key)) {
+          const n = numberValue(value);
+          if (n > 0 && rec.supply === null) rec.supply = n;
+        } else if (DECIMALS_KEY.test(key)) {
+          const n = numberValue(value);
+          if (Number.isInteger(n) && n >= 0 && n <= 18 && rec.decimals === null) {
+            rec.decimals = n;
+          }
+        } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
+          if (!rec.poolAddress) rec.poolAddress = value;
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
         } else if (NAME_KEY.test(key) && typeof value === 'string' && value.length <= 64) {
@@ -471,6 +494,32 @@
 
     const { records, top } = collect(parsed);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
+    const emitFacts = () => {
+      let emitted = 0;
+      for (const rec of records.values()) {
+        if (emitted >= 3) break;
+        const hasDifferentAddress = rec.mint
+          && rec.addresses.some((address) => address !== rec.mint);
+        if (!hasDifferentAddress && rec.supply === null
+          && rec.decimals === null && !rec.poolAddress) continue;
+        const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
+        emit('facts', {
+          mint: rec.mint,
+          symbol: rec.symbol,
+          name: rec.name,
+          supply: rec.supply,
+          decimals: rec.decimals,
+          poolAddress: rec.poolAddress,
+          addresses: rec.addresses.slice(),
+          priceUsd: usdCandidate ? usdCandidate.value : null,
+          mcap: rec.mcap,
+          source,
+          url: url || null,
+        });
+        emitted++;
+      }
+    };
+    let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
       // a bounded top-up so screener row chips keep their mint-tagged prices.
@@ -478,18 +527,28 @@
         || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
         || null;
       let emitted = 0;
-      if (watched && hasContent(watched)) { emit('tick', { ...watched, source }); emitted++; }
+      const emitTick = (rec) => emit('tick', {
+        candidates: rec.candidates,
+        mcap: rec.mcap,
+        mint: rec.mint,
+        symbol: rec.symbol,
+        name: rec.name,
+        source,
+      });
+      if (watched && hasContent(watched)) { emitTick(watched); emitted++; }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', { ...rec, source });
+        emitTick(rec);
       }
-      if (emitted) return;
+      emittedTick = emitted > 0;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
-    if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', { ...top, source });
+    if (!emittedTick && (top.candidates.length || top.mcap !== null)) {
+      emit('tick', { ...top, source });
+    }
+    emitFacts();
   }
 
   /* ---------------- SPA navigation signal ----------------
