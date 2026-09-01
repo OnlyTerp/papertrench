@@ -6879,8 +6879,8 @@
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
-    if (rowBuyOwner !== ownerToken) return null;
     const result = await withState(async () => {
+      if (rowBuyOwner !== ownerToken) return null;
       // Re-runnable mutation — see doBuy: a lost CAS race re-applies this
       // row buy on the adopted base; only the landing attempt is chained.
       let filled = null;

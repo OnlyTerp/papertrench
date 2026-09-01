@@ -47,6 +47,10 @@ function bootRace(options = {}) {
   let pairIdentityRequested = false;
   let releasePairIdentity;
   const pairIdentity = new Promise((resolve) => { releasePairIdentity = resolve; });
+  let stateReadPending = false;
+  let stateReadRequested = false;
+  let releaseStateRead;
+  const stateRead = new Promise((resolve) => { releaseStateRead = resolve; });
   let solUsdPending = options.holdSolUsd === true;
   let solUsdRequested = false;
   let releaseSolUsd;
@@ -232,8 +236,20 @@ function bootRace(options = {}) {
     storage: {
       local: {
         get(keys, callback) {
+          const requestedKeys = Array.isArray(keys) ? keys : [keys];
+          if (stateReadPending && requestedKeys.includes('pt_state')) {
+            stateReadRequested = true;
+            stateRead.then(() => {
+              const out = {};
+              for (const key of requestedKeys) {
+                if (key in storage) out[key] = storage[key];
+              }
+              callback(out);
+            });
+            return;
+          }
           const out = {};
-          for (const key of (Array.isArray(keys) ? keys : [keys])) {
+          for (const key of requestedKeys) {
             if (key in storage) out[key] = storage[key];
           }
           callback(out);
@@ -340,6 +356,12 @@ function bootRace(options = {}) {
     releasePairIdentity() {
       pairIdentityPending = false;
       releasePairIdentity({ mint: B, pool: PAIR });
+    },
+    isStateReadRequested: () => stateReadRequested,
+    setHoldStateRead(value) { stateReadPending = value; },
+    releaseStateRead() {
+      stateReadPending = false;
+      releaseStateRead();
     },
     releaseB() {
       bIdentityPending = false;
@@ -679,6 +701,9 @@ test('a superseded direct row buy does not commit after watchdog release', async
     priceSol: 0.000032,
   });
   await waitFor(() => race.isPairIdentityRequested());
+  race.releasePairIdentity();
+  race.setHoldStateRead(true);
+  await waitFor(() => race.isStateReadRequested());
   const startedAt = harness.getRowBuyInFlightAt();
 
   await harness.enableOverlay();
@@ -689,8 +714,9 @@ test('a superseded direct row buy does not commit after watchdog release', async
     pair: PAIR,
     priceSol: 0.000032,
   });
+  await waitFor(() => harness.getRowBuyOwner() > 1);
+  race.releaseStateRead();
   await second;
-  race.releasePairIdentity();
   await first;
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
