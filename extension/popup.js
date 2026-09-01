@@ -215,13 +215,17 @@ const UPDATER = (() => {
     }
     return {
       marker: marker.ok ? marker.value || null : null,
+      markerReadable: marker.ok,
       values,
       readable,
     };
   }
 
-  function backupText(record, snapshot, readable = true) {
+  function backupText(record, snapshot, readable = true, markerReadable = true) {
     const at = record && Number(record.at);
+    if (!markerReadable) {
+      return 'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.';
+    }
     if (!record) {
       return 'No backup yet — updating into a new folder looks like a fresh install.';
     }
@@ -304,18 +308,32 @@ const UPDATER = (() => {
     link.textContent = 'Download the update →';
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    backupState.textContent = backupText(lastBackup, liveSnapshot, backupReadable);
+    backupState.textContent = backupText(
+      lastBackup, liveSnapshot, backupReadable, initialBackup.markerReadable,
+    );
     const refreshBackupState = async () => {
       const current = await readBackupSnapshot();
       lastBackup = current.marker;
       liveSnapshot = current.values;
       backupReadable = current.readable;
-      backupState.textContent = backupText(lastBackup, liveSnapshot, backupReadable);
+      backupState.textContent = backupText(
+        lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+      );
+      return current;
     };
     const hasBackup = () => {
       const at = lastBackup && Number(lastBackup.at);
       return Number.isFinite(at) && backupReadable && lastBackup.fingerprint
         && !lastBackup.chainMissing && lastBackup.fingerprint === backupFingerprint(liveSnapshot);
+    };
+    const openUpdate = async () => {
+      try {
+        if (chrome.tabs && typeof chrome.tabs.create === 'function') {
+          await chrome.tabs.create({ url: link.href });
+          return;
+        }
+      } catch (_) {}
+      try { window.open(link.href, '_blank', 'noopener'); } catch (_) {}
     };
     backupButton.addEventListener('click', async () => {
       try { await backupWallet(); } catch (_) {}
@@ -326,15 +344,15 @@ const UPDATER = (() => {
       ev.preventDefault();
       if (downloadCheck) return downloadCheck;
       downloadCheck = (async () => {
-        await refreshBackupState();
+        const current = await refreshBackupState();
         if (hasBackup() || Date.now() < downloadArmedUntil) {
-          window.open(link.href, '_blank', 'noopener');
+          await openUpdate();
           return;
         }
         downloadArmedUntil = Date.now() + 10 * 1000;
-        if (!lastBackup) {
-          backupState.textContent = 'No backup yet — click again to update anyway';
-        }
+        backupState.textContent = `${backupText(
+          lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+        )} — click again to update anyway`;
       })().finally(() => { downloadCheck = null; });
       return downloadCheck;
     });

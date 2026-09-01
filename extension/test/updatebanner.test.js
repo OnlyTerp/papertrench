@@ -24,7 +24,7 @@ const ROOT = path.join(__dirname, '..');
 function loadPopupPage({
   release, checkedAt, seenVersion, lastBackup, state, settings, frames, replays,
   backupFingerprintState, backupFingerprintData, manifestVersion, attest,
-  storageGetThrows = false, storageStateGetThrows = false,
+  storageGetThrows = false, storageStateGetThrows = false, storageLastBackupGetThrows = false,
 }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const stored = new Map();
@@ -39,6 +39,7 @@ function loadPopupPage({
   const storageGet = async (keys) => {
     if (storageGetThrows) throw new Error('storage unavailable');
     if (storageStateGetThrows && keys.includes('pt_state')) throw new Error('state unavailable');
+    if (storageLastBackupGetThrows && keys.includes('pt_last_backup')) throw new Error('backup unavailable');
     const out = {};
     for (const k of keys) if (stored.has(k)) out[k] = stored.get(k);
     return out;
@@ -96,6 +97,7 @@ function loadPopupPage({
   };
 
   const opens = [];
+  const tabs = [];
   const sandbox = {
     document: documentStub,
     console,
@@ -118,6 +120,7 @@ function loadPopupPage({
     },
     chrome: {
       storage: { local: { get: storageGet, set: storageSet } },
+      tabs: { create: async (props) => { tabs.push(props); return {}; } },
       runtime: {
         getManifest: () => ({ version: manifestVersion }),
         openOptionsPage: () => {},
@@ -131,6 +134,7 @@ function loadPopupPage({
     _stored: stored,
     _listeners: listeners,
     _opens: opens,
+    _tabs: tabs,
   };
   if (attest) sandbox.PTAttest = attest;
   sandbox.window = sandbox;
@@ -213,7 +217,8 @@ test('popup update nudge: backup control exports and records its fingerprint', a
   await click('update-link', event);
   await settle();
   assert.equal(event.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
+  assert.equal(sandbox._tabs[0].url, 'https://zip.example/x.zip');
 });
 
 test('popup update nudge: an existing backup shows its date and never arms the link', async () => {
@@ -234,7 +239,7 @@ test('popup update nudge: an existing backup shows its date and never arms the l
   await settle();
   assert.equal(event.prevented, true);
   assert.equal(duplicate.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: no backup arms the first download click only', async () => {
@@ -247,12 +252,12 @@ test('popup update nudge: no backup arms the first download click only', async (
   await click('update-link', first);
   assert.equal(first.prevented, true);
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    'No backup yet — click again to update anyway');
+    'No backup yet — updating into a new folder looks like a fresh install. — click again to update anyway');
   const second = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', second);
   await settle();
   assert.equal(second.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: a fill after export makes the backup stale and arms the link', async () => {
@@ -269,11 +274,13 @@ test('popup update nudge: a fill after export makes the backup stale and arms th
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
   assert.equal(event.prevented, true);
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)} — 1 trade since. Back up again. — click again to update anyway`);
   const confirmation = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', confirmation);
   await settle();
   assert.equal(confirmation.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: a reset-style wallet generation change is uncovered', async () => {
@@ -323,7 +330,7 @@ test('popup update nudge: a matching wallet generation and trade count bypasses 
   await click('update-link', event);
   await settle();
   assert.equal(event.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: a thesis added after export is uncovered', async () => {
@@ -438,7 +445,7 @@ test('popup update nudge: frame image bytes alone stay covered', async () => {
   await click('update-link', event);
   await settle();
   assert.equal(event.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: chain-missing export is never covered', async () => {
@@ -528,7 +535,7 @@ test('popup update nudge: heartbeat-only state changes stay covered', async () =
   await click('update-link', event);
   await settle();
   assert.equal(event.prevented, true);
-  assert.equal(sandbox._opens.length, 1);
+  assert.equal(sandbox._tabs.length, 1);
 });
 
 test('popup update nudge: a decreased trade count says wallet history changed', async () => {
@@ -660,10 +667,30 @@ test('popup update nudge: storage read failure still shows the warning and arms 
   await settle();
   assert.equal(sandbox._els['update-banner'].hidden, false);
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    'No backup yet — updating into a new folder looks like a fresh install.');
+    'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.');
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
   assert.equal(event.prevented, true);
+});
+
+test('popup update nudge: pt_last_backup read failure is unconfirmable', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: 'stored' },
+    state: { startedAt: 1234, journal: [] },
+    storageLastBackupGetThrows: true,
+  });
+  await settle();
+  assert.equal(sandbox._els['update-banner'].hidden, false);
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.');
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /coverage cannot be confirmed.*click again to update anyway/);
 });
 
 test('popup update nudge: pt_state read failure still shows the warning and arms the link', async () => {
