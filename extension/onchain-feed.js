@@ -361,7 +361,7 @@
     socket = new WebSocket(candidate.url);
     socket.onopen = () => {
       reconnectAttempt = 0;
-      POOL.reportSuccess(candidate.id, null);
+      POOL.reportSuccess(candidate.id, null, { transport: 'ws' });
       for (const mint of watched.keys()) subscribe(mint);
     };
     socket.onmessage = (event) => handleMessageSafe(event.data);

@@ -198,11 +198,11 @@
     return list.concat(pool);
   }
 
-  function reportSuccess(id, latencyMs) {
+  function reportSuccess(id, latencyMs, opts) {
     const state = stateFor(id);
     state.failures = 0;
     state.benchedUntil = 0;
-    state.throttledUntil = 0;
+    if (!(opts && opts.transport === 'ws')) state.throttledUntil = 0;
     state.lastFailureAt = 0;
     // A success is proof the endpoint serves — pending method-block evidence
     // was a WAF blip, not policy. Disarm it, and lift the 403 demotion.
@@ -256,7 +256,7 @@
       const delay = Number.isFinite(retryAfter) && retryAfter >= 0
         ? Math.min(THROTTLE_MAX_MS, Math.max(THROTTLE_DEFAULT_MS, retryAfter))
         : THROTTLE_DEFAULT_MS;
-      state.lastFailureAt = now;
+      // A 429 is not a strike: leave the decay clock untouched.
       state.throttledUntil = now + delay;
       persistHealthSoon();
       return;

@@ -111,6 +111,42 @@ test('a subsequent success clears an endpoint throttle', async () => {
   assert.equal(P._health.get('user').throttledUntil, 0);
 });
 
+test('a 429 leaves the strike decay clock untouched', () => {
+  const P = loadPool(async () => okResponse('ok'));
+  const target = P.ranked()[0];
+  P.reportFailure(target.id);
+  const state = P._health.get(target.id);
+  const oldFailureAt = Date.now() - 180000;
+  state.lastFailureAt = oldFailureAt;
+
+  P.reportFailure(target.id, { kind: 'throttle', retryAfterMs: 3000 });
+  assert.equal(state.lastFailureAt, oldFailureAt);
+  P.reportFailure(target.id);
+  assert.equal(state.benchedUntil, 0,
+    'the old strike must decay before the later transient failure counts');
+});
+
+test('a websocket success preserves an active throttle but HTTP success clears it', () => {
+  const P = loadPool(async () => okResponse('ok'));
+  const target = P.ranked()[0];
+  P.reportFailure(target.id, { kind: 'throttle', retryAfterMs: 15000 });
+  const until = P._health.get(target.id).throttledUntil;
+
+  P.reportSuccess(target.id, null, { transport: 'ws' });
+  assert.equal(P._health.get(target.id).throttledUntil, until,
+    'opening a websocket must not cancel the HTTP Retry-After window');
+
+  P.reportSuccess(target.id, 100);
+  assert.equal(P._health.get(target.id).throttledUntil, 0,
+    'an HTTP success must clear the throttle');
+});
+
+test('socket open reports websocket transport explicitly', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'onchain-feed.js'), 'utf8');
+  assert.match(src, /POOL\.reportSuccess\(candidate\.id, null, \{\s*transport:\s*['"]ws['"]\s*\}\)/,
+    'socket open must identify its transport when reporting success');
+});
+
 test('a throttled endpoint sorts behind a healthy endpoint', () => {
   const P = loadPool(async () => okResponse('ok'));
   const [throttled, healthy] = P.ranked();
