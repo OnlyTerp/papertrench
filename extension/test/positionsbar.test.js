@@ -26,6 +26,7 @@ function pair(mint, symbol, priceNative, liquidityUsd, priceUsd) {
     chainId: 'solana',
     pairAddress: `pair-${symbol}-${liquidityUsd}`,
     baseToken: { address: mint, symbol, name: symbol },
+    quoteToken: { address: Q.WSOL_MINT, symbol: 'SOL', name: 'Wrapped SOL' },
     priceNative: String(priceNative),
     priceUsd: priceUsd === undefined ? String(priceNative * 200) : String(priceUsd),
     liquidity: { usd: liquidityUsd },

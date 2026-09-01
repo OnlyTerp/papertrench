@@ -153,6 +153,7 @@ function runInvalidation() {
         pair: {
           chainId: 'solana', pairAddress: 'PAIR1',
           baseToken: { address: MINT, symbol: 'BONK', name: 'Bonk' },
+          quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
           priceNative: '0.000001', priceUsd: '0.0002',
           liquidity: { usd: 500000 }, marketCap: 1e8,
         },

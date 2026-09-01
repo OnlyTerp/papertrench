@@ -180,7 +180,17 @@
       priceNative = priceUsd / rate;
       solUsdAtResolve = rate;
     } else {
-      priceNative = isQuote ? 1 / rawPrice : rawPrice;
+      const solQuoted = isQuote
+        ? sameAddress(base.address, WSOL_MINT)
+        : sameAddress(quote.address, WSOL_MINT);
+      if (solQuoted) {
+        priceNative = isQuote ? 1 / rawPrice : rawPrice;
+      } else {
+        const rate = Number(opts && opts.solUsd);
+        if (!usdOk || !(rate > 0)) return null;
+        priceNative = priceUsd / rate;
+        solUsdAtResolve = rate;
+      }
     }
     const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
 

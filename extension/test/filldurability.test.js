@@ -172,6 +172,7 @@ function runHostile(priceSeries, opts) {
         pair: {
           chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
           baseToken: { address: BONK, symbol: 'BONK', name: 'Bonk' },
+          quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
           priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 }, marketCap: 1e8,
         },
       };

@@ -17,6 +17,20 @@ const tokensPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'tokens-bonk.jso
 const pairPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'pair-bonk.json'), 'utf8'));
 
 const BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1';
+const WSOL = 'So11111111111111111111111111111111111111112';
+
+function usdcPair() {
+  return {
+    chainId: 'solana',
+    pairAddress: 'Pair111111111111111111111111111111111111111',
+    baseToken: { address: BONK_MINT, symbol: 'BONK', name: 'Bonk' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '0.000003112',
+    priceUsd: '0.000003112',
+    liquidity: { usd: 1000000 },
+  };
+}
 
 // Captured before any test stubs it, so the live probe below always uses the
 // real implementation rather than a leftover stub from an earlier test.
@@ -142,6 +156,53 @@ test('solUsd exposes the cached SOL/USD rate even when the token is unindexed', 
   const second = await R2.solUsd();
   assert.equal(hits, h1, 'cached rate must not trigger a second network call');
   assert.equal(second, first, 'repeated calls return the cached value');
+});
+
+test('Solana resolver passes its cached SOL/USD rate to non-SOL pair quotes', async () => {
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) {
+      return jsonResponse([{ id: WSOL, usdPrice: 102 }]);
+    }
+    if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
+    return notFound();
+  });
+
+  const token = await R.resolve(BONK_MINT);
+  assert.ok(token);
+  assert.ok(Math.abs(token.priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(token.solUsdAtResolve, 102);
+});
+
+test('Solana refresh passes its cached SOL/USD rate to non-SOL pair quotes', async () => {
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) {
+      return jsonResponse([{ id: WSOL, usdPrice: 102 }]);
+    }
+    if (url.includes('/pairs/solana/')) return jsonResponse({ pair: usdcPair() });
+    return notFound();
+  });
+
+  assert.equal(await R.solUsd(), 102);
+  const token = await R.refresh({ mint: BONK_MINT, pairAddress: usdcPair().pairAddress });
+  assert.ok(token);
+  assert.ok(Math.abs(token.priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(token.solUsdAtResolve, 102);
+});
+
+test('Solana batch resolver passes its cached SOL/USD rate to non-SOL pair quotes', async () => {
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) {
+      return jsonResponse([{ id: WSOL, usdPrice: 102 }]);
+    }
+    if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
+    return notFound();
+  });
+
+  assert.equal(await R.solUsd(), 102);
+  const prices = await R.batchPrices([BONK_MINT]);
+  assert.ok(prices[BONK_MINT]);
+  assert.ok(Math.abs(prices[BONK_MINT].priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(prices[BONK_MINT].solUsdAtResolve, 102);
 });
 
 /* ---------------- live API (skips cleanly when offline) ---------------- */

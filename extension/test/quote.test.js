@@ -18,6 +18,23 @@ const FIX = path.join(__dirname, 'fixtures');
 const tokensPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'tokens-bonk.json'), 'utf8'));
 const pairPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'pair-bonk.json'), 'utf8'));
 
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1';
+const WSOL = Q.WSOL_MINT;
+
+function solPair(overrides = {}) {
+  return {
+    chainId: 'solana',
+    pairAddress: 'Pair111111111111111111111111111111111111111',
+    baseToken: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '0.000003112',
+    priceUsd: '0.000003112',
+    marketCap: 3112,
+    liquidity: { usd: 1000000 },
+    ...overrides,
+  };
+}
+
 /* ---------------- criterion 1: identity + anchor quote ---------------- */
 
 test('resolves identity and anchor quote from the /tokens payload shape', () => {
@@ -83,6 +100,7 @@ test('ignores non-solana pairs and pairs without a usable price', () => {
       {
         chainId: 'solana', priceNative: '0.5', liquidity: { usd: 10 }, pairAddress: 'good',
         baseToken: { address: 'MintGood', symbol: 'GOOD', name: 'Good Token' },
+        quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
       },
     ],
   };
@@ -94,6 +112,59 @@ test('ignores non-solana pairs and pairs without a usable price', () => {
 test('returns null when no usable pair exists', () => {
   assert.equal(Q.tokenFromPayload({ pairs: [] }, 'x'), null);
   assert.equal(Q.tokenFromPayload(null, 'x'), null);
+});
+
+test('converts a USDC-quoted Solana pair through SOL/USD and records the rate', () => {
+  const rec = Q.normalizePair(solPair(), solPair().baseToken.address, { solUsd: 102 });
+  assert.ok(rec);
+  assert.ok(Math.abs(rec.priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(rec.solUsdAtResolve, 102);
+});
+
+test('refuses a non-SOL-quoted Solana pair without a SOL/USD rate', () => {
+  assert.equal(Q.normalizePair(solPair(), solPair().baseToken.address), null);
+  assert.equal(Q.normalizePair(solPair(), solPair().baseToken.address, { solUsd: 0 }), null);
+});
+
+test('keeps WSOL-quoted Solana normalization unchanged for either requested side', () => {
+  const baseRequested = solPair({
+    baseToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000125',
+    priceUsd: '0.00025',
+  });
+  const quoteRequested = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: '0.00025',
+  });
+
+  const base = Q.normalizePair(baseRequested, baseRequested.baseToken.address);
+  const quote = Q.normalizePair(quoteRequested, quoteRequested.quoteToken.address);
+  assert.equal(base.priceNative, 0.00000125);
+  assert.equal(base.solUsdAtResolve, null);
+  assert.equal(quote.priceNative, 1 / 800000);
+  assert.equal(quote.solUsdAtResolve, null);
+});
+
+test('converts a USDC-quoted Solana pair in the batch path', () => {
+  const mint = solPair().baseToken.address;
+  const out = Q.pricesFromBatch({ pairs: [solPair()] }, { solUsd: 102 });
+  assert.ok(out[mint]);
+  assert.ok(Math.abs(out[mint].priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(out[mint].solUsdAtResolve, 102);
+});
+
+test('BONK USDC pricing keeps the SOL mark near the booked entry', () => {
+  const mint = solPair().baseToken.address;
+  const rec = Q.normalizePair(solPair(), mint, { solUsd: 102 });
+  const mark = Q.positionMark({ qty: 1, costSol: rec.priceNative }, rec.priceNative, rec.priceUsd);
+  assert.ok(mark);
+  assert.equal(mark.valueSol, rec.priceNative);
+  assert.ok(Math.abs(mark.pnlSol) < 1e-18);
+  assert.ok(rec.priceNative < 0.000003112 / 100,
+    'the USD-denominated raw price must not be used as SOL');
 });
 
 /* ---------------- criterion 2: tick validation ---------------- */
