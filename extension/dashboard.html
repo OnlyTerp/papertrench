@@ -910,22 +910,38 @@
     .spark-head { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 10px; }
     .spark-title { font-size: 13px; font-weight: 800; letter-spacing: 1.4px; color: var(--text); }
     .spark-date { font-size: 12px; color: var(--dim); }
+    .spark-about { font-size: 12.5px; color: var(--muted, #8b93a7); line-height: 1.55;
+      margin: 0 0 12px; max-width: 640px; }
     .spark-body { max-width: 720px; }
     .spark-chart { position: relative; border: 1px solid rgba(255,255,255,0.10);
       border-radius: 10px; padding: 10px; background: rgba(10,13,19,0.5); }
-    .spark-canvas { width: 100%; height: auto; display: block; }
+    .spark-canvas { width: 100%; height: auto; display: block; cursor: crosshair; }
     .spark-chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--dim); }
     .spark-legend-item { display: inline-flex; align-items: center; gap: 5px; }
     .spark-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-    .spark-actions { display: flex; gap: 8px; margin: 12px 0 6px; }
+    .spark-lane-key { background: rgba(255,157,69,0.18);
+      border: 1px dashed rgba(255,157,69,0.55); border-radius: 2px; }
+    .spark-hint { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; line-height: 1.5; min-height: 1.5em; }
+    .spark-picks { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+    .spark-pick { display: flex; align-items: center; gap: 10px; font-size: 12.5px;
+      border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 6px 10px;
+      background: rgba(255,255,255,0.03); max-width: 480px; }
+    .spark-pick-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 750; }
+    .spark-pick-name i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+    .spark-pick-min { color: var(--dim); }
+    .spark-pick-ctl { margin-left: auto; display: inline-flex; gap: 4px; }
+    .spark-pick-ctl button { border: 1px solid rgba(255,255,255,0.16); border-radius: 6px;
+      background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer;
+      min-width: 26px; height: 24px; font-size: 13px; line-height: 1; }
+    .spark-pick-ctl button:hover:not(:disabled) { border-color: var(--accent, #FF9D45); }
+    .spark-pick-ctl button:disabled { opacity: 0.4; cursor: default; }
+    .spark-actions { display: flex; gap: 8px; margin: 12px 0 6px; flex-wrap: wrap; }
     .spark-btn { border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;
       padding: 8px 14px; font-size: 12.5px; font-weight: 750; letter-spacing: 0.8px;
       background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
     .spark-btn:hover:not(:disabled) { border-color: var(--accent, #FF9D45); color: var(--accent, #FF9D45); }
     .spark-btn:disabled { opacity: 0.4; cursor: default; }
     .spark-btn.armed { border-color: var(--green); color: var(--green); }
-    .spark-buy.armed { border-color: var(--green); color: var(--green); }
-    .spark-sell.armed { border-color: var(--red); color: var(--red); }
     .spark-verdict { margin-top: 14px; border: 1px solid rgba(255,255,255,0.12);
       border-radius: 10px; padding: 14px; background: rgba(10,13,19,0.5); }
     .spark-grade { font-size: 64px; font-weight: 800; line-height: 1; }
@@ -933,7 +949,7 @@
     .spark-axis-line { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
     .spark-story { font-size: 12.5px; color: var(--muted, #8b93a7); margin-top: 10px; line-height: 1.5; }
     .spark-share-row { margin-top: 12px; }
-    .spark-error { color: var(--red); font-size: 12.5px; }
+    .spark-error { color: var(--red); font-size: 12.5px; margin: 8px 0 0; }
 
     /* ---- Trench Wrapped (B1) ---- */
     .wr-head { margin: 4px 0 10px; }

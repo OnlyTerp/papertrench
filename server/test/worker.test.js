@@ -1221,7 +1221,14 @@ test('a pricing-drain throw cannot take the reckoning lane down with it', async 
   // The reckoning lane is clock-gated: outside the bell window it exits
   // before touching the broken env (that silence is CORRECT). To prove the
   // two lanes are isolated, open the bell window so the lane actually runs.
-  Date.now = () => reckoningBellTs() + 3600000; // an hour past Friday's bell
+  // Capture the bell with the REAL clock before stubbing. reckoningBellTs()
+  // reads Date.now() itself, so `Date.now = () => reckoningBellTs() + …`
+  // is self-referential: the stub calls the helper, the helper calls the
+  // stub, and the first lane that actually reads the clock blows the stack.
+  // It only survived because the broken env made both lanes throw before
+  // either of them got as far as asking the time.
+  const bell = reckoningBellTs() + 3600000; // an hour past Friday's bell
+  Date.now = () => bell;
   console.error = (...a) => { errors.push(a.join(' ')); };
   try {
     const waited = [];

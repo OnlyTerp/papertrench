@@ -64,6 +64,26 @@ test('F-48: a fill records its price provenance — source and age ride the jour
   assert.equal(sell.trade.priceAgeMs, 95);
 });
 
+test('host supply provenance rides buy and sell journal rows', () => {
+  const settings = freshSettings();
+  const state = E.defaultState(settings);
+  const witness = { source: 'axiom', url: 'https://axiom.trade/meme/MintSupply' };
+  const buy = E.buy(state, settings, {
+    ts: 1_800_000_000_000, mint: 'MintSupply', symbol: 'SUP', site: 'axiom',
+    priceNative: 1e-7, solAmount: 1, supplySource: 'site-facts',
+    hostSupplyWitness: witness,
+  });
+  assert.equal(buy.trade.supplySource, 'site-facts');
+  assert.deepEqual(buy.trade.hostSupplyWitness, witness);
+  const sell = E.sell(state, settings, {
+    ts: 1_800_000_001_000, mint: 'MintSupply', site: 'axiom',
+    qtyFraction: 0.5, priceNative: 1e-7,
+    supplySource: 'site-facts', hostSupplyWitness: witness,
+  });
+  assert.equal(sell.trade.supplySource, 'site-facts');
+  assert.deepEqual(sell.trade.hostSupplyWitness, witness);
+});
+
 test('F-48: absent provenance stays absent — no invented fields, no negative ages', () => {
   const settings = freshSettings();
   const state = E.defaultState(settings);

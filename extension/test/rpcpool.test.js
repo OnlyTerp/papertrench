@@ -300,3 +300,79 @@ test("F-63 refined: a second 403 on the same method confirms the block; 403s nev
   assert.equal(fetchCalls, callsBefore,
     'a fully method-blocked pool must fail fast without network traffic');
 });
+
+/* ---------------- a dead pool does not look slow, it looks like nothing ------
+ *
+ * ticket-0010 (fomo.family, 2026-08-29): a console full of
+ *   "PaperTrench: on-chain watch failed: http 429 getMultipleAccounts @ tatum"
+ *   "PaperTrench: on-chain watch failed: http 403 getMultipleAccounts @ publicnode"
+ * a live price that "takes a very long time", and the user asking whether
+ * there is a fix. There is — a free personal endpoint, Settings → Price
+ * connection — and the product carries a notice built to volunteer exactly
+ * that, unprompted, so nobody has to discover it (cojica456's report).
+ *
+ * It cannot fire for this user. latencyMs and samples are written in
+ * reportSuccess() and nowhere else, so when every endpoint refuses, there is
+ * no successful call to measure and poolLatency() returns NULL outright — and
+ * the notice's first guard is `if (!measured …) return`. The worst possible
+ * pool state is the one state that guarantees silence.
+ * ------------------------------------------------------------------------- */
+
+test('a wholly refused pool reports null latency — the notice guard bails on its worst case', async () => {
+  const P = loadPool(async (url) => (/publicnode/.test(url)
+    ? { ok: false, status: 403, json: async () => ({}) }
+    : { ok: false, status: 429, json: async () => ({}) }));
+
+  for (let i = 0; i < 8; i += 1) {
+    try { await P.call('getMultipleAccounts', [[]]); } catch (_) { /* every endpoint refuses */ }
+  }
+
+  assert.equal(P.poolLatency(), null,
+    'no successful call means nothing to measure — this is why a latency-only notice is silent');
+
+  const stress = P.poolStress();
+  assert.ok(stress.attempts >= 12, `real attempts must be recorded, got ${stress.attempts}`);
+  assert.equal(stress.failRate, 1, 'every attempt failed; the pool cannot do its job');
+});
+
+test('a pool that fails over and serves is NOT reported as failing', async () => {
+  // Two endpoints refuse, one answers. F-63's demotion routes around them, the
+  // user is served, and nothing should nag: a self-healed pool is a pool that
+  // works, and a notice fired here would be noise the user cannot act on.
+  const P = loadPool(async (url) => {
+    if (/publicnode/.test(url)) return { ok: false, status: 403, json: async () => ({}) };
+    if (/tatum/.test(url)) return { ok: false, status: 429, json: async () => ({}) };
+    return okResponse('ok');
+  });
+  for (let i = 0; i < 8; i += 1) {
+    try { await P.call('getMultipleAccounts', [[]]); } catch (_) {}
+  }
+  const stress = P.poolStress();
+  assert.ok(stress.failRate < 0.5,
+    `a serving pool must stay under the notice threshold, got ${stress.failRate}`);
+});
+
+test('poolStress reports a clean pool as unstressed', async () => {
+  const P = loadPool(async () => okResponse('ok'));
+  for (let i = 0; i < 12; i += 1) await P.call('getMultipleAccounts', [[]]);
+  const stress = P.poolStress();
+  assert.equal(stress.failures, 0, 'a healthy pool has no failed attempts');
+  assert.equal(stress.failRate, 0, 'and must never be reported as failing');
+});
+
+test('the notice fires on a failing pool and names which fault it saw', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  assert.match(src, /PTRpcPool\.poolStress/,
+    'the notice must consult failure evidence, not latency alone');
+  assert.match(src, /if \(!slow && !failing\) return;/,
+    'either fault alone must be enough to tell the user the fix exists');
+  assert.match(src, /reason: failing \? 'failing' : 'slow'/,
+    'the notice must record which fault it saw');
+
+  // "slow from your region" is the wrong sentence to read when the endpoints
+  // are refusing you outright; a fix introduced by a wrong diagnosis reads as
+  // irrelevant, and this user already knows their price is not merely slow.
+  const content = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  assert.match(content, /throttled or refused where you are/,
+    'the toast must describe a refused pool honestly rather than calling it slow');
+});

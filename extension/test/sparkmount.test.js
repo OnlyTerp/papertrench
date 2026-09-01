@@ -64,6 +64,22 @@ test('pnlcard.js exposes the spark painter (no-PnL card law)', () => {
   }
 });
 
+test('practice loop: spark.js owns it end to end, the mount only offers the door', () => {
+  // The practice fetch, seed generation, and self re-render live in spark.js
+  // (loadPractice), NOT in dashboard.js — the mount stays a daily-puzzle
+  // loader and must keep fetching only /today.
+  assert.match(sparkJs, /\/api\/spark\/practice\?seed='/, 'practice fetch missing from spark.js');
+  assert.match(sparkJs, /function practiceSeed/, 'seed generation missing');
+  assert.match(sparkJs, /function loadPractice/, 'loadPractice missing');
+  assert.match(sparkJs, /spark-practice/, 'practice button class missing');
+  assert.match(sparkJs, /NEXT PUZZLE/, 'practice-mode loop label missing');
+  assert.match(sparkJs, /loadPractice,/, 'loadPractice must be exported');
+  // The mount offers practice as a fallback and never grades.
+  assert.match(js, /spark-practice-anyway/, 'mount lacks the practice fallback door');
+  assert.ok(!/spark\/grade/.test(js.split('renderSpark')[1] || ''),
+    'renderSpark must not fetch the grade endpoint');
+});
+
 test('spark styles exist in dashboard.html', () => {
   assert.match(html, /\.spark-chart \{/, 'spark chart style missing');
   assert.match(html, /\.spark-grade \{/, 'spark grade style missing');
