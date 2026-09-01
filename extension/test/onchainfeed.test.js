@@ -224,6 +224,8 @@ test('F-33: single-account pools keep the strict newer-slot guard', () => {
 const vm2 = require('node:vm');
 
 function feedWithRpc(handler) {
+  const sentFrames = [];
+  const rpcMethods = [];
   const sandbox = {
     console, Date, JSON, Math, Number, String, Array, Object, Boolean,
     Promise, Map, Set, URL, TextEncoder, Uint8Array, BigInt, isFinite,
@@ -231,18 +233,26 @@ function feedWithRpc(handler) {
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
     crypto: require('node:crypto').webcrypto,
     setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
-    WebSocket: function () { this.readyState = 3; },
+    WebSocket: function () {
+      this.readyState = 3;
+      this.send = (frame) => sentFrames.push(JSON.parse(frame));
+    },
   };
   sandbox.self = sandbox;
   sandbox.globalThis = sandbox;
   const ctx = vm2.createContext(sandbox);
   vm2.runInContext(fs.readFileSync(path.join(ROOT, 'onchain.js'), 'utf8'), ctx, { filename: 'onchain.js' });
   sandbox.PTRpcPool = {
-    call: handler,
+    call: (...args) => {
+      rpcMethods.push(args[0]);
+      return handler(...args);
+    },
     websocketUrls: () => [],
     setUserEndpoint() {}, reportSuccess() {}, reportFailure() {},
   };
   vm2.runInContext(fs.readFileSync(path.join(ROOT, 'onchain-feed.js'), 'utf8'), ctx, { filename: 'onchain-feed.js' });
+  sandbox.PTOnchainFeed._sentFrames = sentFrames;
+  sandbox.PTOnchainFeed._rpcMethods = rpcMethods;
   return sandbox.PTOnchainFeed;
 }
 
@@ -326,6 +336,44 @@ test('F-34: a completed (migrated) curve refuses prewatch — the resolver path 
     throw new Error('unexpected rpc ' + method);
   });
   assert.equal(await feed.prewatch({ pool: CURVE_ADDR }), null);
+});
+
+test('identity resolves complete curves without watching or scanning', async () => {
+  const curveB64 = curveAccountB64({
+    virtualToken: 1_000_000_000_000_000, virtualSol: 115_000_000_000, complete: true,
+  });
+  const rpcLog = [];
+  const feed = feedWithRpc(async (method, params) => {
+    rpcLog.push(method);
+    if (method === 'getMultipleAccounts') {
+      return {
+        context: { slot: 1 },
+        value: [{ owner: PUMP_PROGRAM_ID, data: [curveB64] }],
+      };
+    }
+    if (method === 'getTokenAccountsByOwner') {
+      return {
+        value: [{
+          pubkey: RESERVE_ADDR,
+          account: { data: { parsed: { info: {
+            mint: FRESH_MINT,
+            tokenAmount: { amount: '793000000000000' },
+          } } } },
+        }],
+      };
+    }
+    throw new Error('unexpected rpc ' + method);
+  });
+
+  assert.equal(await feed.prewatch({ pool: CURVE_ADDR }), null,
+    'the completed curve remains unpriceable through prewatch');
+  const found = await feed.identify({ pool: CURVE_ADDR });
+  assert.deepEqual(JSON.parse(JSON.stringify(found)), {
+    mint: FRESH_MINT, pool: CURVE_ADDR,
+  });
+  assert.equal(feed._watched.size, 0, 'identity proof must not create a watched entry');
+  assert.equal(feed._sentFrames.filter((frame) => frame.method === 'accountSubscribe').length, 0);
+  assert.equal(rpcLog.filter((method) => method === 'getProgramAccounts').length, 0);
 });
 
 test('F-34: a non-pump pool refuses prewatch rather than guessing', async () => {
@@ -446,6 +494,14 @@ test('a bare non-pump mint account answers with measured supply facts', async ()
     'supplyUi is the raw u64 supply over its decimals — whole tokens');
   assert.equal(feed.currentQuote(PLAIN_MINT), null,
     'no live feed exists for a poolless mint; nothing must pretend one does');
+
+  const gpaBefore = feed._rpcMethods.filter((method) => method === 'getProgramAccounts').length;
+  const identified = await feed.identify({ mint: PLAIN_MINT });
+  assert.equal(identified.mint, PLAIN_MINT);
+  assert.equal(identified.decimals, 6);
+  assert.equal(feed._watched.size, 0);
+  assert.equal(feed._sentFrames.filter((frame) => frame.method === 'accountSubscribe').length, 0);
+  assert.equal(feed._rpcMethods.filter((method) => method === 'getProgramAccounts').length, gpaBefore);
 });
 
 test('a 165-byte token ACCOUNT is refused as mint facts — garbage supply prices garbage fills', async () => {
@@ -533,6 +589,14 @@ test('an UNKNOWN-layout pool yields identity and supply — never a price, never
   assert.equal(found.priceNative, null, 'no decoder, no price — a vault ratio would be invented');
   assert.ok(Math.abs(found.supplyUi - 1e9) < 1e-6, 'measured supply rides along for the mcap bootstrap');
   assert.equal(feed.currentQuote(TOK_MINT), null, 'nothing is ever watched on an unverified layout');
+
+  const gpaBefore = feed._rpcMethods.filter((method) => method === 'getProgramAccounts').length;
+  const identified = await feed.identify({ pool: MYSTERY_POOL });
+  assert.equal(identified.mint, TOK_MINT,
+    'identity-only probing must scan an unknown pool for its WSOL-anchored token');
+  assert.equal(feed._watched.size, 0);
+  assert.equal(feed._sentFrames.filter((frame) => frame.method === 'accountSubscribe').length, 0);
+  assert.equal(feed._rpcMethods.filter((method) => method === 'getProgramAccounts').length, gpaBefore);
 });
 
 test('a pool between two non-SOL tokens is refused — nothing says which side the page charts', async () => {
