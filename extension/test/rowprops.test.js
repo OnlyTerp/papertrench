@@ -45,6 +45,7 @@ function makeRow(memoizedProps, memoizedState) {
 test('a tapped Axiom row yields its coherent mint, pair, SOL and USD quote', () => {
   const row = makeRow(
     {
+      tokenAddress: A,
       tokenPriceUsd: 0.003295168220388057,
       marketCapUsd: 3244624.7223963863,
       row: {
@@ -102,7 +103,8 @@ test('a richer neighboring fiber cannot replace the tapped row record', () => {
 
 test('a parent price is not inherited by a descendant identity record', () => {
   const row = makeRow({
-    priceSol: 9,
+    tokenPriceUsd: 900,
+    marketCapUsd: 900_000,
     child: { tokenAddress: A, pairAddress: PAIR },
   });
   assert.equal(

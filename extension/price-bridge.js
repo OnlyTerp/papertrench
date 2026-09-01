@@ -3609,18 +3609,6 @@
         const hasIdentity = own.tokenAddress || own.mint || own.pairAddress;
         const hasPrice = [...priceKeys].some((name) => own[name] !== undefined);
         if (hasIdentity && hasPrice) candidates.push(own);
-        const hasUsdPrice = own.tokenPriceUsd !== undefined
-          || own.priceUsd !== undefined
-          || own.marketCapUsd !== undefined;
-        if (!hasIdentity && hasUsdPrice) {
-          for (const value of Object.values(obj)) {
-            const nested = fieldsFor(value);
-            if (nested && nested.tokenAddress) {
-              candidates.push({ tokenAddress: nested.tokenAddress, ...own });
-              break;
-            }
-          }
-        }
         for (const value of Object.values(obj)) {
           if (value && typeof value === 'object') walk(value, depth + 1);
         }
