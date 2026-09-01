@@ -443,3 +443,70 @@ test('the global handlers survive a missing recorder', () => {
     /window\.PTErrors \|\| null/,
     'content must tolerate a missing recorder rather than throwing on the page');
 });
+
+/* ------------------------------------------------------------------
+ * The debug report must answer the report it exists for.
+ *
+ * The rings capture anything that THROWS. The most-reported symptom we have
+ * throws nothing: the panel sits on "Fetching live price…" while every path
+ * quietly declines to produce a number. Before this, a user who hit that and
+ * dutifully clicked "Share debug logs" sent back two empty error rings and a
+ * chip map — nothing about the price path at all.
+ * ------------------------------------------------------------------ */
+
+test('the debug report carries the price path, not only errors and chips', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+
+  const popup = read('popup.js');
+  assert.match(popup, /type: 'pt_price_debug'/,
+    'shareDebugLogs must ask the tab for the price path');
+  assert.match(popup, /report\.price = /,
+    'the answer must reach the report the user pastes');
+
+  const content = read('content.js');
+  assert.match(content, /msg\?\.type === 'pt_price_debug'/,
+    'the content script must answer the price-path pull');
+
+  // The states that actually decide whether a price arrives. Each of these
+  // is load-bearing for the D-60 / D-60S / D-61 chain-probe path; without
+  // them the report cannot distinguish "feed dead" from "probe benched".
+  for (const field of [
+    'lastMcapTickAgeMs',      // D-61's live-market exception keys off this
+    'prewatchAttempts',       // how far into D-60S's exponential backoff
+    'prewatchBackoffRemainingMs',
+    'prewatchLatched',        // D-60: did a failed probe release the latch
+    'onchainLive',
+  ]) {
+    assert.ok(content.includes(field), `the price snapshot must report ${field}`);
+  }
+});
+
+test('the price snapshot reports no addresses — the report stays safe by construction', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const ROOT = path.join(__dirname, '..');
+  const content = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+
+  const start = content.indexOf("msg?.type === 'pt_price_debug'");
+  const end = content.indexOf("msg?.type === 'pt_chip_debug'");
+  assert.ok(start !== -1 && end > start, 'the price-debug handler must ship');
+  // Scan CODE only. A comment that mentions a mint is documentation, not a
+  // leak, and a check that cannot tell the two apart would punish the
+  // explanation of why the rule exists.
+  const block = content.slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+
+  // errors.js redacts at RECORD time so the report is safe by construction
+  // rather than by an export-time scrub that a new field could slip past.
+  // This snapshot is built at EXPORT time, so it must never carry an
+  // identifier in the first place: ages, counters and booleans only.
+  assert.ok(!/\bmint\b/.test(block), 'the snapshot must not emit a mint');
+  assert.ok(!/srcAddress:/.test(block), 'the snapshot must not emit an address as a value');
+  assert.ok(!/pairAddress/.test(block), 'the snapshot must not emit a pair address');
+  assert.match(block, /prewatchLatched: prewatchedAddress !== null/,
+    'the probe latch must be reported as a boolean, never as the address itself');
+});
