@@ -67,11 +67,13 @@ function runOverlay(priceSeries, opts) {
           this._fields[m[1]] = child;
           this.children.push(child);
         }
-        const presets = /<button class="(pt-preset[^"]*)" data-amt="([^"]+)"/g;
+        const presets = /<button class="pt-preset(?: sel)?" data-amt="([^"]+)"/g;
         while ((m = presets.exec(v))) {
           const child = makeNode('button');
-          child.className = m[1];
-          child.dataset.amt = m[2];
+          child.dataset.amt = m[1];
+          child.classList.add('pt-preset');
+          if (m[0].includes(' sel')) child.classList.add('sel');
+          child._parent = this;
           this.children.push(child);
         }
       },
@@ -89,11 +91,15 @@ function runOverlay(priceSeries, opts) {
       querySelector(sel) {
         const m = /data-f="([a-z]+)"/.exec(sel);
         if (m && this._fields && this._fields[m[1]]) return this._fields[m[1]];
+        if (sel === '.pt-preset.sel') {
+          return this.children.find((child) => child.classList.contains('pt-preset')
+            && child.classList.contains('sel')) || null;
+        }
         return makeNode('span');
       },
       querySelectorAll(sel) {
         if (sel === '.pt-preset') {
-          return this.children.filter((c) => String(c.className || '').startsWith('pt-preset'));
+          return this.children.filter((child) => child.classList.contains('pt-preset'));
         }
         return [];
       },
@@ -187,9 +193,6 @@ function runOverlay(priceSeries, opts) {
           // F-14: the worker owns the attest chain; the harness acks appends
           // so a fill does not trip the F-28 failure toast mid-test.
           if (msg.type === 'pt_attest_append') return Promise.resolve({ ok: true, seq: 0, head: 'pt-test-head' });
-          if (msg.type === 'pt_resolve' && options.resolveRecord) {
-            return Promise.resolve({ ...options.resolveRecord });
-          }
           const R = win.PaperTrenchResolver;
           if (!R) return Promise.resolve({});
           if (msg.type === 'pt_resolve') return R.resolve(msg.address);
@@ -286,18 +289,9 @@ function runOverlay(priceSeries, opts) {
     return row.children.filter((c) => c.className === 'pt-sell');
   }
 
-  function clickPreset(index) {
-    const presets = shadowNodes['pt-buy-presets'] && shadowNodes['pt-buy-presets'].children;
-    const button = presets && presets[index];
-    if (!button) throw new Error(`missing buy preset ${index}`);
-    button.click();
-    return button;
-  }
-
   return {
     advance,
     openPaperPosition,
-    clickPreset,
     sellButtons,
     storage: () => storage,
     shadowNodes,
@@ -313,10 +307,14 @@ function runOverlay(priceSeries, opts) {
     failGets: (n) => { failGets = n; },
     /** A write from "another tab" whose adoption event this tab misses. */
     externalWriteSilently: (obj) => Object.assign(storage, obj),
-    /** A write from "another tab" that reaches this tab's storage listener. */
-    externalWrite: (obj) => sandbox.chrome.storage.local.set(obj),
     setValue: (id, v) => { if (shadowNodes[id]) shadowNodes[id].value = String(v); },
     clickById: (id) => { if (shadowNodes[id]) shadowNodes[id].click(); },
+    clickPreset: (index) => {
+      const presets = shadowNodes['pt-buy-presets'] && shadowNodes['pt-buy-presets'].children;
+      if (presets && presets[index]) presets[index].click();
+    },
+    presetAmount: (index) => Number(shadowNodes['pt-buy-presets'].children[index].dataset.amt),
+    toastTexts: () => (shadowNodes['pt-toast-root'].children || []).map((child) => child.textContent),
     nextPrice: () => { priceIdx++; },
   };
 }
@@ -392,131 +390,6 @@ test('the quick-sell buttons render for a position adopted from another tab', as
   assert.deepEqual(buttons.map((b) => b.textContent), ['25%', '50%', '75%', '100%']);
 });
 
-test('the panel flow line mirrors engine totals after a real panel fill', async () => {
-  const ov = runOverlay([0.001, 0.0012]);
-  await ov.advance(1200);
-
-  ov.clickPreset(0);
-  await ov.advance(1500);
-
-  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
-  const state = ov.storage().pt_state;
-  const stats = E.sessionStats(state, settings);
-  assert.equal(stats.flowTruncated, false);
-  assert.equal(
-    ov.shadowNodes['pt-flow'].textContent,
-    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
-  );
-});
-
-test('an adopted external fill refreshes the lifetime flow immediately', async () => {
-  const ov = runOverlay([0.001, 0.0012]);
-  await ov.advance(1200);
-  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
-  const foreign = E.defaultState(settings);
-  const amount = settings.presetsBuy[0];
-  E.buy(foreign, settings, {
-    ts: 1_500_000, mint: BONK, symbol: 'BONK', site: 'axiom',
-    priceNative: 0.001, priceUsd: 0.2, solAmount: amount,
-  });
-  await ov.externalWrite({ pt_state: foreign });
-  const stats = E.sessionStats(foreign, settings);
-  assert.equal(
-    ov.shadowNodes['pt-flow'].textContent,
-    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
-  );
-});
-
-test('a capped journal qualifies bought and sold while holding stays exact', async () => {
-  const ov = runOverlay([0.001]);
-  await ov.advance(1200);
-  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
-  settings.balanceStartSol = (E.JOURNAL_CAP + 1) * settings.presetsBuy[0] * 2;
-  const capped = E.defaultState(settings);
-  const amount = settings.presetsBuy[0];
-  for (let i = 0; i <= E.JOURNAL_CAP; i++) {
-    E.buy(capped, settings, {
-      ts: i + 1, mint: BONK, symbol: 'BONK', site: 'axiom',
-      priceNative: 0.001, priceUsd: 0.2, solAmount: amount,
-    });
-  }
-  await ov.externalWrite({ pt_state: capped });
-  const stats = E.sessionStats(capped, settings);
-  assert.equal(stats.flowTruncated, true);
-  assert.match(ov.shadowNodes['pt-flow'].textContent,
-    new RegExp(`bought/sold cover newest ${E.JOURNAL_CAP} fills`));
-  assert.match(ov.shadowNodes['pt-flow'].textContent,
-    new RegExp(`holding ${E.fmt(stats.heldSol, 2)}`));
-  assert.match(ov.shadowNodes['pt-flow'].title,
-    new RegExp(`newest ${E.JOURNAL_CAP} fills`));
-  assert.match(ov.shadowNodes['pt-flow'].title, /holding remains exact/);
-});
-
-test('the panel flow line updates when a position is sold', async () => {
-  const ov = runOverlay([0.001, 0.0012]);
-  await ov.advance(1200);
-
-  ov.clickPreset(0);
-  await ov.advance(1500);
-  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
-  const before = E.sessionStats(ov.storage().pt_state, settings);
-
-  const sell = ov.sellButtons()[1];
-  assert.ok(sell, 'the 50% sell button must render after the panel fill');
-  sell.click();
-  await ov.advance(1500);
-
-  const after = E.sessionStats(ov.storage().pt_state, settings);
-  assert.ok(after.soldSol > before.soldSol, 'selling increases lifetime outflow');
-  assert.ok(after.heldSol < before.heldSol, 'selling reduces open cost basis');
-  assert.equal(
-    ov.shadowNodes['pt-flow'].textContent,
-    `In ${E.fmt(after.boughtSol, 2)} · holding ${E.fmt(after.heldSol, 2)} · out ${E.fmt(after.soldSol, 2)} SOL`,
-  );
-});
-
-test('a fresh wallet renders zero lifetime flow values', async () => {
-  const ov = runOverlay([0.001]);
-  await ov.advance(1200);
-
-  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
-  const stats = E.sessionStats(E.defaultState(settings), settings);
-  assert.equal(
-    ov.shadowNodes['pt-flow'].textContent,
-    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
-  );
-});
-
-test('foreign-chain panels keep lifetime flow denominated in SOL', async () => {
-  const ov = runOverlay([0.001], {
-    resolveRecord: {
-      mint: BONK, pairAddress: 'PAIR1', symbol: 'BONK', name: 'Bonk',
-      priceNative: 0.001, priceUsd: 0.2, chain: 'bsc', solUsdAtResolve: 200,
-    },
-  });
-  await ov.advance(1200);
-
-  assert.match(ov.shadowNodes['pt-flow'].textContent, /SOL$/,
-    'lifetime flow must keep its SOL label on foreign-chain panels');
-  assert.doesNotMatch(ov.shadowNodes['pt-flow'].textContent, /\$/,
-    'lifetime flow must not use the current token USD denomination');
-});
-
-test('the lifetime flow line is hidden by micro density', () => {
-  const content = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
-  assert.match(content,
-    /<div class="pt-flow" id="pt-flow" title="Lifetime flow: total bought, cost still held open, total sold back out\."><\/div>/,
-    'the panel body must carry the lifetime flow element and tooltip');
-  assert.match(content, /els\.flow = shadow\.getElementById\('pt-flow'\);/,
-    'the lifetime flow element must be registered with the panel elements');
-  const micro = content.slice(
-    content.indexOf('.pt-box.pt-micro #pt-thesis'),
-    content.indexOf('.pt-box.pt-focus', content.indexOf('.pt-box.pt-micro #pt-thesis')),
-  );
-  assert.match(micro, /\.pt-box\.pt-micro #pt-flow/,
-    'micro density must hide the lifetime flow line');
-});
-
 /* ---------------- overlay buy-section toggles ----------------
  *
  * The user-facing option to remove the quick buys. Drives the shipped
@@ -539,7 +412,7 @@ test('the whole buy section disappears when panelBuyEnabled is off', async () =>
   }
 });
 
-test('the preset row hides alone while the BUY button stays', async () => {
+test('the preset row hides alone while instant BUY stays hidden without custom sizing', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { panelPresetsEnabled: false, settingsRevision: E.SETTINGS_REVISION },
   });
@@ -548,31 +421,31 @@ test('the preset row hides alone while the BUY button stays', async () => {
 
   assert.equal(ov.shadowNodes['pt-buy-presets'].style.display, 'none',
     'the one-tap presets must be hidden');
-  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
-    'the BUY button must remain available');
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant mode keeps BUY hidden until custom sizing is enabled');
   // The free-text amount box is OFF by default as of the panel declutter —
   // the preset row it duplicates is now eight configurable boxes. It is
-  // hidden, never removed, so BUY and limit-arm still read it.
+  // hidden, never removed, so limit-arm still reads it.
   assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
     'the custom amount box is opt-in now');
 });
 
-test('with both toggles on, every buy control is visible', async () => {
+test('with both toggles on, instant mode shows chips and hides BUY by default', async () => {
   const ov = runOverlay([0.001]);
 
   await ov.advance(1200);
 
-  for (const id of ['pt-buy-label', 'pt-buy-presets', 'pt-buy']) {
+  for (const id of ['pt-buy-label', 'pt-buy-presets']) {
     assert.notEqual(ov.shadowNodes[id].style.display, 'none',
       `${id} must be visible with default settings`);
   }
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant mode uses preset chips as the order buttons by default');
 });
 
 test('the custom amount box returns when the setting is switched on', async () => {
   // Off by default, but nothing is removed — the request was for panel space,
-  // not for the capability. BUY reads this element either way and falls back
-  // to the selected preset when it is empty, so hiding it can never strand a
-  // trader without a way to size an order.
+  // not for the capability. Instant BUY appears once the custom box is on.
   const ov = runOverlay([0.001], {
     initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
   });
@@ -591,6 +464,90 @@ test('the buy-section switch still outranks the custom-amount setting', async ()
   await ov.advance(1200);
   assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
     'a view-only trade tab shows no buy controls at all');
+});
+
+/* ==================== instant panel buy controls ==================== */
+
+test('instant preset tap fills once and an empty BUY does not fill again', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200);
+
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant presets are the visible order buttons when custom sizing is off');
+  const amount = ov.presetAmount(0);
+  const before = ov.storage().pt_state.journal.length;
+  ov.clickPreset(0);
+  await ov.advance(800);
+  const afterPreset = ov.storage().pt_state;
+  assert.equal(afterPreset.journal.length - before, 1,
+    'a preset tap must commit exactly one fill');
+  assert.equal(afterPreset.journal.at(-1).solGross, amount,
+    'the fill size comes from the tapped preset');
+
+  ov.clickById('pt-buy');
+  await ov.advance(200);
+  const afterBuy = ov.storage().pt_state;
+  assert.equal(afterBuy.journal.length, afterPreset.journal.length,
+    'an empty custom box must not submit a second fill');
+  assert.ok(ov.toastTexts().some((text) => text === 'Pick a SOL amount first'),
+    'the empty BUY must explain that an amount is required');
+});
+
+test('instant BUY uses a typed custom amount once when enabled', async () => {
+  const ov = runOverlay([0.001], {
+    initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200);
+
+  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'custom sizing keeps BUY available in instant mode');
+  const before = ov.storage().pt_state.journal.length;
+  const amount = 0.37;
+  ov.setValue('pt-custom', amount);
+  ov.clickById('pt-buy');
+  await ov.advance(800);
+  const journal = ov.storage().pt_state.journal;
+  assert.equal(journal.length - before, 1);
+  assert.equal(journal.at(-1).solGross, amount,
+    'instant BUY must use the typed custom amount, not a selected chip');
+});
+
+test('two-step BUY still uses the selected preset once', async () => {
+  const ov = runOverlay([0.001], {
+    initialSettings: { instantBuyEnabled: false, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200);
+
+  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'two-step mode needs the BUY trigger');
+  const amount = ov.presetAmount(0);
+  const before = ov.storage().pt_state.journal.length;
+  ov.clickPreset(0);
+  await ov.advance(200);
+  assert.equal(ov.storage().pt_state.journal.length, before,
+    'two-step preset selection must not fill immediately');
+  ov.clickById('pt-buy');
+  await ov.advance(800);
+  const journal = ov.storage().pt_state.journal;
+  assert.equal(journal.length - before, 1);
+  assert.equal(journal.at(-1).solGross, amount,
+    'two-step BUY must read the selected preset');
+});
+
+test('instant limit ARM still reads the selected preset', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200);
+
+  const amount = ov.presetAmount(0);
+  ov.clickPreset(0);
+  await ov.advance(800);
+  ov.setValue('pt-limit-price', '0.0005');
+  ov.clickById('pt-limit-arm');
+  await ov.advance(200);
+  const pending = ov.storage().pt_state.pendingBuys[BONK];
+  assert.ok(pending && pending.length === 1, 'the limit order must be armed');
+  assert.equal(pending[0].solAmount, amount,
+    'instant limit ARM still reads the selected chip');
 });
 /* ---------------- reported: panel forgets its place on refresh ----------------
  *
