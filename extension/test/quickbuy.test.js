@@ -163,7 +163,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   assert.match(bridge, /function scanScreenerRows\(spec\)/);
   assert.match(bridge, /function addressFromRowFiber\(row\)/);
   // Chips forward their tap back to the content script's fill pipeline.
-  assert.match(bridge, /emit\('row-buy', \{ address: entry\.address \}\)/);
+  assert.match(bridge, /emit\('row-buy', \{ address: decision\.address \}\)/);
   assert.match(content, /ev\.type === 'row-buy'/);
   // The chip shows a busy state until the content script settles the fill.
   assert.match(bridge, /type === 'row-buy-done'/);

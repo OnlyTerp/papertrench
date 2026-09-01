@@ -488,6 +488,22 @@
           .finally(() => sendPadreMarker('row-buy-done', null));
       }
     }
+    else if (ev.type === 'row-buy-refused') {
+      const p = ev.payload || {};
+      toast('That row changed under your cursor — paper buy refused (the chip now shows a different coin).');
+      try {
+        const EL = window.PTErrors;
+        if (EL && typeof EL.record === 'function') {
+          EL.record('Paper buy refused: screener row identity changed', {
+            scope: 'content',
+            kind: 'row-buy-refused',
+            was: p.was || null,
+            now: p.now || null,
+            reason: p.reason || null,
+          });
+        }
+      } catch (_) { /* diagnostics must never affect the trading path */ }
+    }
     else if (ev.type === 'nav') {
       // The page's router moved (pushState/replaceState in the MAIN world);
       // re-detect immediately instead of waiting for the poll (DEFECT O-14).
