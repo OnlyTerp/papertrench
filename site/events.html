@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench | Events</title>
-<meta name="description" content="What is running on PaperTrench right now: the open Sprint window, streamers live in the trenches, and the verifier tape as records land.">
+<meta name="description" content="Everything running on PaperTrench right now — the Daily Spark, the weekly Sprint window, the clan season, the Friday Reckoning and monthly Wrapped. Free to enter, no buy-in, no prize pool.">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
@@ -13,58 +13,126 @@
 <link rel="stylesheet" href="arena.css">
 <style>
   /* ================================================================== *
-   *  /events — what is running right now.
+   *  /events — one card per thing that is actually running.
    *
-   *  FIRST PASS, and deliberately an aggregator rather than a new system.
-   *  PaperTrench already has time-bound things: the Sprint runs in weekly
-   *  windows the verifier actually folds, streamers go live, and records
-   *  land on the tape. None of that was collected anywhere, so "events"
-   *  is read here as "the calendar those already imply" rather than as a
-   *  new events table nobody has specified.
+   *  The first pass was an aggregator: a Sprint countdown, a live-streamer
+   *  probe, and the verifier tape side by side. The tape was the problem —
+   *  it is a feed of `rejected — chain-replaced` lines, which is diagnostic
+   *  output, not an event. Nobody comes to an events page to watch strangers
+   *  fail verification, and eight red rows is the worst possible read of a
+   *  healthy product. It is gone from here; /leaderboard still carries it,
+   *  where a verdict stream belongs.
    *
-   *  Every panel is backed by a real endpoint. Nothing on this page is a
-   *  placeholder event, because a fake scheduled event is a promise the
-   *  project has not made.
+   *  What replaces it: PaperTrench already runs five recurring rituals on
+   *  fixed clocks — Spark daily, Sprint weekly, the clan season weekly, the
+   *  Reckoning every Friday, Wrapped monthly. They were scattered across the
+   *  extension and three pages and announced nowhere. This is that calendar.
+   *
+   *  Still no invented events. Every card is a thing the code actually does,
+   *  every clock is derived from the same window math the server folds, and
+   *  every reward is something that already exists. There is no prize pool
+   *  because there is no budget, and saying so plainly beats implying one.
    * ================================================================== */
-  .ev-head { padding: 128px 0 10px; }
+
+  .ev-head { padding: 128px 0 8px; }
   .ev-head h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 700; letter-spacing: -0.02em; }
-  .ev-head p { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 660px; line-height: 1.65; }
+  .ev-head p { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 640px; line-height: 1.65; }
+  .ev-head a { color: var(--orange2); }
 
-  .ev-grid { display: grid; gap: 16px; grid-template-columns: 1fr 1.1fr; align-items: start; }
-  @media (max-width: 900px) { .ev-grid { grid-template-columns: 1fr; } }
+  .ev-stack { display: grid; gap: 12px; margin-top: 26px; }
 
-  .ev-now { padding: 22px 24px; }
-  .ev-kicker { font-family: var(--mono); font-size: 10.5px; font-weight: 800;
-    letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-  .ev-title { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; margin: 8px 0 4px; }
-  .ev-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  /* ---------- the card ----------
+   * <details> rather than a JS toggle: keyboard- and screen-reader-operable
+   * for free, deep-linkable with [open], and it survives a re-render with no
+   * state to keep. */
+  .ev-card {
+    background: var(--panel); border: var(--edge); border-radius: 14px;
+    overflow: hidden; transition: border-color .18s;
+  }
+  .ev-card:hover { border-color: var(--line2); }
+  .ev-card[open] { border-color: rgba(255,157,69,0.3); }
 
-  .ev-clock { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 4px; }
-  .ev-unit { min-width: 68px; padding: 10px 12px; border-radius: 12px;
-    background: rgba(0,0,0,0.28); border: var(--edge); text-align: center; }
-  .ev-unit b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 700;
-    color: var(--text); font-variant-numeric: tabular-nums; }
-  .ev-unit span { font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.2px;
-    text-transform: uppercase; color: var(--dim); }
+  .ev-card summary { display: block; cursor: pointer; list-style: none; padding: 18px 20px 0; }
+  .ev-card summary::-webkit-details-marker { display: none; }
+  .ev-card summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
 
-  .ev-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.07);
-    overflow: hidden; margin-top: 16px; }
-  .ev-bar i { display: block; height: 100%; border-radius: 999px; background: var(--grad-heat); }
-  .ev-barnote { display: flex; justify-content: space-between; gap: 10px;
-    font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 7px; }
+  .ev-top { display: flex; align-items: flex-start; gap: 18px; }
+  .ev-lead { flex: 1; min-width: 0; }
 
-  .ev-list { display: grid; gap: 9px; }
-  .ev-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px;
-    border-radius: 11px; background: rgba(255,255,255,0.022); border: var(--edge); }
-  .ev-item .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
-  .ev-item.on .dot { background: var(--red); box-shadow: 0 0 9px var(--red); animation: pulse 1.6s infinite; }
-  .ev-item .nm { font-weight: 700; font-size: 13.5px; }
-  .ev-item .mt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-left: auto; }
+  .ev-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
+  .tag {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--line2); color: var(--dim);
+  }
+  .tag.cadence { color: var(--orange2); background: rgba(255,157,69,0.09); border-color: rgba(255,157,69,0.28); }
+  /* "Open now" is a claim about state, so it is only ever printed when the
+     clock says so — never as decoration. */
+  .tag.open { color: var(--green2); background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.3); }
+  .tag.live { color: #ff9a90; background: rgba(224,67,58,0.10); border-color: rgba(224,67,58,0.32); display: inline-flex; align-items: center; gap: 5px; }
+  .tag.live .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); animation: pulse 1.6s infinite; }
 
-  .ev-firstpass { margin-top: 20px; padding: 14px 18px; border-radius: 12px;
-    background: rgba(255,157,69,0.05); border: 1px solid rgba(255,157,69,0.22);
-    border-left: 2px solid var(--orange); font-size: 12.5px; color: var(--muted); line-height: 1.6; }
-  .ev-firstpass b { color: var(--text); font-weight: 700; }
+  .ev-name { font-size: 19px; font-weight: 750; letter-spacing: -0.015em; }
+  .ev-line { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-top: 4px; max-width: 56ch; }
+
+  /* The reward column. It is never money, so it is not dressed as money —
+     no coin glyph, no pool figure, no gold. */
+  .ev-prize { flex: none; text-align: right; max-width: 190px; }
+  .ev-prize b {
+    display: block; font-size: 13.5px; font-weight: 750; color: var(--orange2);
+    letter-spacing: -0.01em; line-height: 1.3;
+  }
+  .ev-prize span { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; line-height: 1.4; }
+  @media (max-width: 720px) {
+    .ev-top { flex-direction: column; gap: 10px; }
+    .ev-prize { text-align: left; max-width: none; }
+  }
+
+  /* ---------- the facts band ---------- */
+  .ev-facts {
+    display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+    margin: 16px -20px 0; padding: 12px 20px;
+    background: rgba(0,0,0,0.26); border-top: var(--edge);
+  }
+  .ev-facts .f { min-width: 0; }
+  .ev-facts .f span {
+    display: block; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase; color: var(--dim);
+  }
+  .ev-facts .f b {
+    display: block; font-size: 13px; font-weight: 700; color: var(--text); margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ev-facts .f b.clock { font-family: var(--mono); color: var(--orange2); }
+  .ev-chev {
+    margin-left: auto; flex: none; color: var(--dim);
+    transition: transform .2s, color .2s;
+  }
+  .ev-card[open] .ev-chev { transform: rotate(180deg); color: var(--orange2); }
+
+  /* ---------- expanded ---------- */
+  .ev-body { padding: 18px 20px 20px; border-top: var(--edge); }
+  .ev-body p { font-size: 13.5px; color: var(--muted); line-height: 1.7; max-width: 68ch; }
+  .ev-body p + p { margin-top: 10px; }
+  .ev-body b { color: var(--text); font-weight: 650; }
+  .ev-body ul { margin: 10px 0 0; padding-left: 18px; }
+  .ev-body li { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 5px; }
+  .ev-body a { color: var(--orange2); }
+  .ev-go {
+    display: inline-flex; align-items: center; gap: 7px; margin-top: 16px;
+    font-size: 13px; font-weight: 700; color: var(--text);
+    background: rgba(255,255,255,0.05); border: 1px solid var(--line2);
+    border-radius: 10px; padding: 9px 15px; transition: background .16s, border-color .16s;
+  }
+  .ev-go:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.24); }
+
+  .ev-note {
+    margin-top: 22px; padding: 14px 18px; border-radius: 12px;
+    background: rgba(255,255,255,0.02); border: var(--edge);
+    font-size: 12.5px; color: var(--muted); line-height: 1.65;
+  }
+  .ev-note b { color: var(--text); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -96,38 +164,270 @@
 <main id="main" class="wrap" style="padding-bottom:96px">
   <header class="ev-head">
     <h1>Events</h1>
-    <p>What is actually running right now. The Sprint window below is the one the
-    verifier folds; the streams are checked live; the tape is the verifier talking.
-    Nothing here is a scheduled placeholder.</p>
+    <p>Everything PaperTrench runs on a clock. All of it is free, none of it needs
+    a sign-up, and none of it pays out money — you are competing for placement and
+    a record that can be checked. Open a card for the rules.</p>
   </header>
 
-  <div class="ev-grid">
-    <section class="ar-pane" aria-labelledby="ev-now-h">
-      <div class="ar-pane-head"><span class="glyph" style="color:var(--orange2)">◷</span>
-        <span id="ev-now-h">The open window</span></div>
-      <div class="ev-now" id="ev-now"><p class="ar-note">Reading the Sprint window…</p></div>
-    </section>
+  <div class="ev-stack" id="ev-stack">
 
-    <div style="display:grid;gap:16px">
-      <section class="ar-pane" aria-labelledby="ev-live-h">
-        <div class="ar-pane-head"><span class="glyph" style="color:var(--red)">▶</span>
-          <span id="ev-live-h">Live in the trenches</span></div>
-        <div class="pad" id="ev-live"><p class="ar-note">Checking who is live…</p></div>
-      </section>
+    <!-- ============ DAILY SPARK ============ -->
+    <details class="ev-card" id="ev-spark">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag cadence">Daily</span>
+              <span class="tag open">Open now</span>
+            </div>
+            <h2 class="ev-name">Daily Spark</h2>
+            <p class="ev-line">One real chart, frozen at a moment. Call what happens next.
+            Graded on your reasoning, never on profit.</p>
+          </div>
+          <div class="ev-prize">
+            <b>Spark streak</b>
+            <span>and your accuracy, kept in the dashboard</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free</b></div>
+          <div class="f"><span>Takes</span><b>~1 minute</b></div>
+          <div class="f"><span>Resets in</span><b class="clock" data-cd="spark">—</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>A single mint's chart is cut at a point in time. You say where it goes and
+        <b>why</b> — the why is the part that is graded. Get the direction right for the
+        wrong reason and it does not count for much; the puzzle is about reading a chart,
+        not about being lucky once.</p>
+        <p>It changes at <b>00:00 UTC</b> and everyone gets the same chart that day, so
+        nobody can farm it by refreshing. Miss a day and the streak resets — that is the
+        whole pressure, and it is deliberately the only one.</p>
+        <a class="ev-go" href="/#install">Play it in the extension →</a>
+      </div>
+    </details>
 
-      <section class="ar-pane" aria-labelledby="ev-tape-h">
-        <div class="ar-pane-head"><span class="glyph" style="color:var(--green)">▸</span>
-          <span id="ev-tape-h">The tape</span></div>
-        <div class="pad" id="ev-tape"><p class="ar-note">Reading the tape…</p></div>
-      </section>
-    </div>
+    <!-- ============ WEEKLY SPRINT ============ -->
+    <details class="ev-card" id="ev-sprint">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag cadence">Weekly</span>
+              <span class="tag open" id="ev-sprint-state">Open now</span>
+            </div>
+            <h2 class="ev-name">The Weekly Sprint</h2>
+            <p class="ev-line">A fresh board every Monday. Only the fills you take inside
+            the window count, so a good week is not buried under an old one.</p>
+          </div>
+          <div class="ev-prize">
+            <b>Top of the Sprint board</b>
+            <span>for the week, with your verified record</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free</b></div>
+          <div class="f"><span>Entrants</span><b id="ev-sprint-n">—</b></div>
+          <div class="f"><span>Closes in</span><b class="clock" data-cd="sprint">—</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>The Sprint is one ISO week, Monday to Monday. Your slice is computed by the
+        same verifier that folds the main leaderboard — the fills are re-hashed, the book
+        is replayed, and every price is checked against real market history before it
+        ranks. Nothing here is self-reported.</p>
+        <p>Because the window resets, the Sprint is the board a newcomer can actually win.
+        The lifetime leaderboard rewards a long history; this one only asks about
+        <b>this week</b>.</p>
+        <a class="ev-go" href="/sprint">Open the Sprint board →</a>
+      </div>
+    </details>
+
+    <!-- ============ CLAN SEASON ============ -->
+    <details class="ev-card" id="ev-clans">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag cadence">Weekly</span>
+              <span class="tag">Team</span>
+            </div>
+            <h2 class="ev-name">Clan Season</h2>
+            <p class="ev-line">Trade for a crew. Every member's week rolls into one clan
+            score, and your tag rides beside your name on the leaderboard.</p>
+          </div>
+          <div class="ev-prize">
+            <b>Your [TAG] on the board</b>
+            <span>and the clan's place in the season</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free</b></div>
+          <div class="f"><span>Clans</span><b id="ev-clans-n">—</b></div>
+          <div class="f"><span>Week ends in</span><b class="clock" data-cd="sprint">—</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>Found a clan or join one with an invite code. A clan counts only what its
+        members traded <b>since they joined</b>, so recruiting somebody with a big history
+        does not import their past — a clan's score is a clan's own work.</p>
+        <p>A new clan reads <b>forming</b> until it has five counting members, and shows no
+        score at all rather than a zero. An empty clan is not last place; it has not
+        started.</p>
+        <a class="ev-go" href="/clans">Find a clan →</a>
+      </div>
+    </details>
+
+    <!-- ============ THE FRIDAY RECKONING ============ -->
+    <details class="ev-card" id="ev-reckoning">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag cadence">Fridays</span>
+              <span class="tag">Discord</span>
+            </div>
+            <h2 class="ev-name">The Friday Reckoning</h2>
+            <p class="ev-line">Every Friday evening the week gets read out: how each clan
+            traded, who held their discipline, what the board did.</p>
+          </div>
+          <div class="ev-prize">
+            <b>Your clan's week, posted</b>
+            <span>to the Discord, by name</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Be in a clan</b></div>
+          <div class="f"><span>Bell</span><b>Fri 20:00 UTC</b></div>
+          <div class="f"><span>Rings in</span><b class="clock" data-cd="reckoning">—</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>One anchored ritual a week instead of a stream of notifications. The digest is
+        built from standing data — the same facts the public clan page shows — and it is
+        <b>process only</b>: rounds, score, placement. No profit-and-loss goes in it, by
+        design.</p>
+        <p>If the bell is missed because something was down, the window stays open until
+        Saturday evening and then the week is left unposted. A late digest pretending to be
+        on time would be worse than a gap.</p>
+        <a class="ev-go" href="https://discord.gg/papertrench" target="_blank" rel="noopener">Join the Discord →</a>
+      </div>
+    </details>
+
+    <!-- ============ TRENCH WRAPPED ============ -->
+    <details class="ev-card" id="ev-wrapped">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag cadence">Monthly</span>
+              <span class="tag">Shareable</span>
+            </div>
+            <h2 class="ev-name">Trench Wrapped</h2>
+            <p class="ev-line">A month of your trading, cut into one card you can post —
+            your habits, your discipline, your best call.</p>
+          </div>
+          <div class="ev-prize">
+            <b>A card worth posting</b>
+            <span>rendered from your own month</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free</b></div>
+          <div class="f"><span>Covers</span><b>The calendar month</b></div>
+          <div class="f"><span>Next one in</span><b class="clock" data-cd="wrapped">—</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>Wrapped is about <b>how you traded</b>, not how much you made — hold times,
+        journal streaks, whether you revenge-traded, the round you played best. It builds
+        from data already on your machine and renders in the dashboard.</p>
+        <p>It is the one surface that will tell you something you did not want to hear,
+        which is rather the point of practising with paper money.</p>
+        <a class="ev-go" href="/#install">Open the dashboard →</a>
+      </div>
+    </details>
+
+    <!-- ============ DUELS ============ -->
+    <details class="ev-card" id="ev-duels">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags">
+              <span class="tag">Anytime</span>
+              <span class="tag">1v1</span>
+            </div>
+            <h2 class="ev-name">Duels</h2>
+            <p class="ev-line">Challenge one person, pick a window, and both records are
+            folded over exactly that stretch. Settled by the verifier, not by argument.</p>
+          </div>
+          <div class="ev-prize">
+            <b>A settled result</b>
+            <span>with a link you can send them</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free</b></div>
+          <div class="f"><span>Players</span><b>2</b></div>
+          <div class="f"><span>Starts</span><b>When they join</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>Create a duel, send the invite link, and the clock starts when your opponent
+        accepts — not when you made it, so nobody gets a head start on a challenge they
+        have not seen.</p>
+        <p>Both sides show as <b>provisional</b> until the window closes and a post-close
+        submission lands. A duel that cannot yet be judged says so instead of guessing a
+        winner.</p>
+        <a class="ev-go" href="/duels">Start a duel →</a>
+      </div>
+    </details>
+
+    <!-- ============ LIVE NOW ============ -->
+    <details class="ev-card" id="ev-live">
+      <summary>
+        <div class="ev-top">
+          <div class="ev-lead">
+            <div class="ev-tags" id="ev-live-tags">
+              <span class="tag">Right now</span>
+            </div>
+            <h2 class="ev-name">Live in the trenches</h2>
+            <p class="ev-line" id="ev-live-line">Checking who is streaming the challenge…</p>
+          </div>
+          <div class="ev-prize">
+            <b>A card on the roster</b>
+            <span>if you stream it yourself</span>
+          </div>
+        </div>
+        <div class="ev-facts">
+          <div class="f"><span>Entry</span><b>Free to watch</b></div>
+          <div class="f"><span>Streaming now</span><b id="ev-live-n">—</b></div>
+          <div class="f"><span>Platforms</span><b>Twitch · Kick</b></div>
+          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
+        </div>
+      </summary>
+      <div class="ev-body">
+        <p>Streamers run the same paper wallet as everyone else, under the same protocol —
+        no house accounts, no seeded balances. Watching somebody read a launch in real time
+        is the fastest way to learn the read.</p>
+        <p id="ev-live-detail">Live status is checked against each platform directly, so a
+        channel that cannot be reached shows as unknown rather than as offline.</p>
+        <a class="ev-go" href="/streams">See the roster →</a>
+      </div>
+    </details>
+
   </div>
 
-  <p class="ev-firstpass"><b>First pass.</b> "Events" had no spec, so this page
-  collects the time-bound things PaperTrench already runs rather than inventing an
-  events system. If what was wanted is scheduled, announced events — tournaments with
-  a start date, prize pools, sign-ups — that needs somewhere to store them and a way
-  for a moderator to post one, which is a bigger build than this page.</p>
+  <p class="ev-note"><b>No buy-in, no prize pool, no payouts.</b> PaperTrench is free and
+  runs on nobody's budget, so what you are competing for is placement, a record that
+  survives verification, and the badge on your profile. If that changes, it will be
+  announced here first — and it will not be quietly added to a card.</p>
 </main>
 
 <footer>
