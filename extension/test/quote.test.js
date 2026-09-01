@@ -161,6 +161,30 @@ test('token payload with only a USDC pool refuses without a conversion rate', ()
   assert.equal(Q.tokenFromPayload({ pairs: [solPair()] }, mint), null);
 });
 
+test('token payload ranks a deep pool ahead of malformed liquidity', () => {
+  const mint = solPair().baseToken.address;
+  const shallow = solPair({
+    pairAddress: 'ShallowPair111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000001',
+    liquidity: { usd: 100 },
+  });
+  const malformed = solPair({
+    pairAddress: 'MalformedPair1111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000002',
+    liquidity: { usd: 'not-a-number' },
+  });
+  const deep = solPair({
+    pairAddress: 'DeepPair11111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003',
+    liquidity: { usd: 10000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [shallow, malformed, deep] }, mint);
+  assert.equal(token.pairAddress, deep.pairAddress);
+});
+
 test('requested-as-quote identity still selects a WSOL-base pair', () => {
   const mint = solPair().baseToken.address;
   const pair = solPair({
@@ -234,6 +258,30 @@ test('batch pricing keeps the deepest USDC pool when its rate is available', () 
 test('batch pricing with only a USDC pool refuses without a conversion rate', () => {
   const mint = solPair().baseToken.address;
   assert.deepEqual(Q.pricesFromBatch({ pairs: [solPair()] }), {});
+});
+
+test('batch pricing ranks a deep pool ahead of malformed liquidity', () => {
+  const mint = solPair().baseToken.address;
+  const shallow = solPair({
+    pairAddress: 'ShallowPair111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000001',
+    liquidity: { usd: 100 },
+  });
+  const malformed = solPair({
+    pairAddress: 'MalformedPair1111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000002',
+    liquidity: { usd: 'not-a-number' },
+  });
+  const deep = solPair({
+    pairAddress: 'DeepPair11111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003',
+    liquidity: { usd: 10000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [shallow, malformed, deep] });
+  assert.equal(out[mint].pairAddress, deep.pairAddress);
 });
 
 test('BONK USDC pricing keeps the SOL mark near the booked entry', () => {

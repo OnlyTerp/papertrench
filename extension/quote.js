@@ -82,6 +82,11 @@
    * 1. Identity + anchor quote from a Dexscreener payload
    * ------------------------------------------------------------------ */
 
+  function pairLiquidityUsd(pair) {
+    const value = Number(pair && pair.liquidity && pair.liquidity.usd);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
   /**
    * Choose the pair a trading UI would actually quote: the Solana pair with a
    * usable price and the deepest liquidity. Shallow pools produce wild prices,
@@ -116,16 +121,16 @@
       });
       if (relevant.length) {
         return relevant.slice().sort((a, b) => {
-          const left = Number((a.liquidity && a.liquidity.usd) || 0);
-          const right = Number((b.liquidity && b.liquidity.usd) || 0);
+          const left = pairLiquidityUsd(a);
+          const right = pairLiquidityUsd(b);
           return right - left;
         });
       }
     }
 
     return usable.slice().sort((a, b) => {
-      const left = Number((a.liquidity && a.liquidity.usd) || 0);
-      const right = Number((b.liquidity && b.liquidity.usd) || 0);
+      const left = pairLiquidityUsd(a);
+      const right = pairLiquidityUsd(b);
       return right - left;
     });
   }
@@ -198,6 +203,7 @@
     }
     const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
 
+    const liquidityUsd = pairLiquidityUsd(pair);
     return {
       mint: token.address || fallbackAddress || null,
       pairAddress: pair.pairAddress || null,
@@ -214,8 +220,7 @@
       // F-55: surfaced so a drained pool can be told from a trading one. A
       // rug empties liquidity; a real runner's pool deepens. Null when the
       // source reports none — the mark guard stands aside rather than guess.
-      liquidityUsd: Number(pair.liquidity && pair.liquidity.usd) > 0
-        ? Number(pair.liquidity.usd) : null,
+      liquidityUsd: liquidityUsd > 0 ? liquidityUsd : null,
     };
   }
 
@@ -1323,8 +1328,8 @@
 
     for (const [mint, candidates] of byMint) {
       candidates.sort((a, b) => {
-        const left = Number((a.liquidity && a.liquidity.usd) || 0);
-        const right = Number((b.liquidity && b.liquidity.usd) || 0);
+        const left = pairLiquidityUsd(a);
+        const right = pairLiquidityUsd(b);
         return right - left;
       });
       for (const candidate of candidates) {
