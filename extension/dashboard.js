@@ -4480,8 +4480,21 @@ function renderListQuickBuySiteFields() {
   }).join('');
 }
 
-function listQuickBuyOverridesFromForm(adapters, readValue) {
+function listQuickBuyOverridesFromForm(adapters, readValue, baseOverrides) {
   const overrides = {};
+  if (baseOverrides && typeof baseOverrides === 'object' && !Array.isArray(baseOverrides)) {
+    for (const [siteId, raw] of Object.entries(baseOverrides)) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const override = {};
+      if (typeof raw.size === 'number' && Number.isFinite(raw.size)) {
+        override.size = Math.max(0.6, Math.min(1.5, raw.size));
+      }
+      if (raw.placement === 'auto' || raw.placement === 'bottom') {
+        override.placement = raw.placement;
+      }
+      if (Object.keys(override).length) overrides[siteId] = override;
+    }
+  }
   for (const adapter of adapters) {
     const placement = readValue(`set-list-quick-buy-placement-${adapter.id}`);
     const sizeRaw = readValue(`set-list-quick-buy-size-${adapter.id}`);
@@ -4492,6 +4505,7 @@ function listQuickBuyOverridesFromForm(adapters, readValue) {
       override.size = Math.max(0.6, Math.min(1.5, size));
     }
     if (Object.keys(override).length) overrides[adapter.id] = override;
+    else delete overrides[adapter.id];
   }
   return overrides;
 }
@@ -5102,6 +5116,7 @@ function gatherSettingsFromForm(notes = [], base = settings) {
   const listQuickBuyBySite = listQuickBuyOverridesFromForm(
     listQuickBuyAdapters(),
     (id) => document.getElementById(id)?.value,
+    base.listQuickBuyBySite,
   );
 
   return {

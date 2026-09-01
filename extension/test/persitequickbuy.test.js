@@ -99,12 +99,29 @@ test('dashboard renders row-buy adapters dynamically and saves a sparse map', ()
     axiom: { placement: 'auto', size: 0.7 },
     gmgn: { placement: 'bottom' },
   }, 'default/default sites are omitted so old overrides are deleted');
+  const stored = {
+    axiom: { size: 1.3, placement: 'bottom' },
+    padre: { size: 0.85 },
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(overridesFromForm(
+    [], () => { throw new Error('no controls should be read'); }, stored,
+  ))), stored, 'an empty adapter list must preserve stored overrides');
+  const absentSite = overridesFromForm(
+    [{ id: 'axiom' }],
+    () => '',
+    stored,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(absentSite)), {
+    padre: { size: 0.85 },
+  }, 'defaulting a rendered site deletes it while an absent site survives');
   const gather = fnBlock(dashboard, 'function gatherSettingsFromForm(');
   const overrideHelper = fnBlock(dashboard, 'function listQuickBuyOverridesFromForm(');
   assert.match(overrideHelper, /const overrides = \{\};/);
   assert.match(overrideHelper, /if \(Object\.keys\(override\)\.length\) overrides\[adapter\.id\] = override;/,
     'both default selects omit the site and delete an old override on save');
   assert.match(gather, /listQuickBuyBySite,/);
+  assert.match(gather, /base\.listQuickBuyBySite/,
+    'saves must patch the fresh base map rather than rebuilding from rendered rows');
   assert.ok(dashboardHtml.indexOf('<script src="sites.js"></script>')
     < dashboardHtml.indexOf('<script src="dashboard.js"></script>'),
   'sites.js must load before the dashboard');
