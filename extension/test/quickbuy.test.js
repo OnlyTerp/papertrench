@@ -188,13 +188,13 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // F-61 widened it once more: a row-fed candidate with a missing/echoed
   // mint gets ONE bounded prewatch probe to heal the key before commit —
   // the stand-in stranding the 8/17 report chased (jb).
-  assert.match(content, /async function fillRowBuy\(address, data, amount\)/,
+  assert.match(content, /async function fillRowBuy\(address, data, amount, ownerToken\)/,
     'the shared commit extractor exists (one commit path for click + armed flush)');
   assert.match(content, /fillRowBuy[\s\S]{0,5200}E\.buy\(state, settings/,
     'the extractor runs the engine buy');
   assert.match(content, /fillRowBuy[\s\S]{0,5600}commitFill\(filled\.trade\)/,
     'the extractor appends the attestation chain');
-  assert.match(content, /await fillRowBuy\(address, data, amount\);/,
+  assert.match(content, /await fillRowBuy\(address, data, amount, rowBuyToken\);/,
     'the click path commits through the shared extractor');
   // The screener's own realtime price is preferred when fresh.
   assert.match(content, /recentRowPrices/);
@@ -367,7 +367,7 @@ test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-4
     'the armed intent is torn down with the content script');
   // The commit core is ONE extractor shared by the click and the flush, so
   // an armed fill commits identically to a direct one.
-  assert.match(content, /await fillRowBuy\(armed\.address, data, armed\.amount\);/,
+  assert.match(content, /await fillRowBuy\(armed\.address, data, armed\.amount, rowBuyToken\);/,
     'the flush commits through the shared extractor');
 });
 

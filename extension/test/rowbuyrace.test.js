@@ -38,6 +38,15 @@ function bootRace(options = {}) {
   let cIdentityRequested = false;
   let releaseCIdentity;
   const cIdentity = new Promise((resolve) => { releaseCIdentity = resolve; });
+  let aIdentityPending = options.holdAIdentity === true;
+  let aIdentityRequested = false;
+  let aIdentityRequestCount = 0;
+  let releaseAIdentity;
+  const aIdentity = new Promise((resolve) => { releaseAIdentity = resolve; });
+  let pairIdentityPending = options.holdPairIdentity === true;
+  let pairIdentityRequested = false;
+  let releasePairIdentity;
+  const pairIdentity = new Promise((resolve) => { releasePairIdentity = resolve; });
   let solUsdPending = options.holdSolUsd === true;
   let solUsdRequested = false;
   let releaseSolUsd;
@@ -176,8 +185,15 @@ function bootRace(options = {}) {
         cIdentityRequested = true;
         return cIdentityPending ? cIdentity : Promise.resolve({ mint: C });
       }
-      if (address === A) return Promise.resolve({ mint: A });
-      if (address === PAIR) return Promise.resolve({ mint: B, pool: PAIR });
+      if (address === A) {
+        aIdentityRequested = true;
+        aIdentityRequestCount += 1;
+        return aIdentityPending ? aIdentity : Promise.resolve({ mint: A });
+      }
+      if (address === PAIR) {
+        pairIdentityRequested = true;
+        return pairIdentityPending ? pairIdentity : Promise.resolve({ mint: B, pool: PAIR });
+      }
       return Promise.resolve(null);
     }
     if (payload.type === 'pt_sol_usd') {
@@ -313,6 +329,18 @@ function bootRace(options = {}) {
     storage,
     isBIdentityRequested: () => bIdentityRequested,
     isCIdentityRequested: () => cIdentityRequested,
+    isAIdentityRequested: () => aIdentityRequested,
+    getAIdentityRequestCount: () => aIdentityRequestCount,
+    releaseAIdentity() {
+      aIdentityPending = false;
+      releaseAIdentity({ mint: A });
+    },
+    setHoldAIdentity(value) { aIdentityPending = value; },
+    isPairIdentityRequested: () => pairIdentityRequested,
+    releasePairIdentity() {
+      pairIdentityPending = false;
+      releasePairIdentity({ mint: B, pool: PAIR });
+    },
     releaseB() {
       bIdentityPending = false;
       releaseBIdentity({ mint: B });
@@ -501,13 +529,13 @@ test('a timed-out row buy cannot release a newer latch owner', async () => {
     'a third click is refused while the second buy remains in flight');
   assert.equal(harness.getRowBuyOwner(), secondOwner,
     'the refused third click cannot take ownership');
-  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
-    'the first fill may finish, but the newer held operation stays exclusive');
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [],
+    'the superseded first operation never commits alongside the newer owner');
 
   race.releaseC();
   await second;
-  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [C, B],
-    'both original intents eventually commit exactly once');
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [C],
+    'only the non-superseded operation commits');
 });
 
 test('a priced row click still commits without an armed intent', async () => {
@@ -643,26 +671,75 @@ test('a pair-only row-props quote is repaired to the canonical mint', async () =
 });
 
 test('a superseded direct row buy does not commit after watchdog release', async () => {
-  const race = bootRace({ holdSolUsd: true });
+  const race = bootRace({ holdPairIdentity: true });
   const { harness } = race;
 
-  const buy = harness.doRowBuy(PAIR, null, {
-    mint: B,
+  const first = harness.doRowBuy(PAIR, null, {
     pair: PAIR,
     priceSol: 0.000032,
-    priceUsd: 0.0032,
   });
-  await waitFor(() => race.isSolUsdRequested());
+  await waitFor(() => race.isPairIdentityRequested());
   const startedAt = harness.getRowBuyInFlightAt();
 
   await harness.enableOverlay();
   race.setNow(startedAt + 20_001);
   await race.advance(1);
-  await buy;
+  const second = harness.doRowBuy(PAIR, null, {
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+  });
+  await second;
+  race.releasePairIdentity();
+  await first;
 
-  assert.equal(harness.getState().journal.length, 0,
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
     'a watchdog-superseded direct operation must not commit');
   assert.equal(harness.getRowBuyInFlight(), false);
+});
+
+test('a superseded armed flush does not commit and stays armed', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  assert.ok(harness.getRowArmed(), 'A should be armed before its retry');
+  race.setHoldAIdentity(true);
+  const aIdentityRequests = race.getAIdentityRequestCount();
+  harness.noteRowPrice({
+    mint: A,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'A',
+    name: 'Token A',
+  });
+  await waitFor(() => race.getAIdentityRequestCount() > aIdentityRequests);
+  const startedAt = harness.getRowBuyInFlightAt();
+
+  await harness.enableOverlay();
+  race.setNow(startedAt + 20_001);
+  await race.advance(1);
+  await harness.doRowBuy(PAIR, null, {
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+  });
+  race.releaseAIdentity();
+  await waitFor(() => !harness.getRowArmedFlushing());
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
+    'a watchdog-superseded armed operation must not commit');
+  assert.equal(harness.getRowArmed().address, A,
+    'a superseded armed intent remains available for retry');
+
+  harness.noteRowPrice({
+    mint: A,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'A',
+    name: 'Token A',
+  });
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.equal(harness.getState().journal[0].mint, A,
+    'the retained armed intent commits on a later wake');
 });
 
 test('a coherent row-props quote fills when SOL/USD lookup hangs', async () => {

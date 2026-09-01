@@ -6808,7 +6808,7 @@
     return true;
   }
 
-  async function fillRowBuy(address, data, amount) {
+  async function fillRowBuy(address, data, amount, ownerToken) {
     // F-56: a chip fill runs through the SAME honesty gates as a panel fill.
     // The row's own price used to price the trade blind — no witness, no
     // contradiction check — so a stale/wrong row print booked entries far
@@ -6879,6 +6879,7 @@
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
+    if (rowBuyOwner !== ownerToken) return null;
     const result = await withState(async () => {
       // Re-runnable mutation — see doBuy: a lost CAS race re-applies this
       // row buy on the adopted base; only the landing attempt is chained.
@@ -6975,7 +6976,7 @@
         const rowBuyToken = acquireRowBuyLatch();
         let result;
         try {
-          result = await fillRowBuy(armed.address, data, armed.amount);
+          result = await fillRowBuy(armed.address, data, armed.amount, rowBuyToken);
         } finally {
           releaseRowBuyLatch(rowBuyToken);
         }
@@ -7127,8 +7128,7 @@
 
       // D-40: the commit core is shared with the armed flush — one extractor,
       // identical guard/engine/attestation/rail behaviour on both paths.
-      if (rowBuyOwner !== rowBuyToken) return;
-      await fillRowBuy(address, data, amount);
+      await fillRowBuy(address, data, amount, rowBuyToken);
     } catch (err) {
       toast(err.message || 'Row buy failed');
     } finally {
