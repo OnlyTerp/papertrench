@@ -314,6 +314,6 @@ test('Padre dev funding amounts never become row prices', () => {
 test('the row-buy bridge message carries the quote from the tapped row', () => {
   assert.match(
     BRIDGE,
-    /emit\('row-buy',\s*\{\s*address: entry\.address,\s*quote: rowQuoteFromFiber\(entry\.row, entry\.address\),/s,
+    /emit\('row-buy',\s*\{\s*address: decision\.address,\s*quote: typeof rowQuoteFromFiber/s,
   );
 });

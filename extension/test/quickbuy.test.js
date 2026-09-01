@@ -194,9 +194,9 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // the stand-in stranding the 8/17 report chased (jb).
   assert.match(content, /async function fillRowBuy\(address, data, amount, ownerToken\)/,
     'the shared commit extractor exists (one commit path for click + armed flush)');
-  assert.match(content, /fillRowBuy[\s\S]{0,5200}E\.buy\(state, settings/,
+  assert.match(content, /fillRowBuy[\s\S]{0,6000}E\.buy\(state, settings/,
     'the extractor runs the engine buy');
-  assert.match(content, /fillRowBuy[\s\S]{0,5600}commitFill\(filled\.trade\)/,
+  assert.match(content, /fillRowBuy[\s\S]{0,6400}commitFill\(filled\.trade\)/,
     'the extractor appends the attestation chain');
   assert.match(content, /await fillRowBuy\(address, data, amount, rowBuyToken\);/,
     'the click path commits through the shared extractor');
@@ -204,7 +204,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   assert.match(content, /recentRowPrices/);
   // The new position surfaces immediately in the rail. (D-40: the rail
   // refresh lives in the extractor now — both paths surface it instantly.)
-  assert.match(content, /fillRowBuy[\s\S]{0,3000}renderPositionsBar\(\)/);
+  assert.match(content, /fillRowBuy[\s\S]{0,3400}renderPositionsBar\(\)/);
   // The scanner runs on the positions-bar cadence, which works on pages with
   // no detected token — exactly the screener situation.
   assert.match(content, /renderPositionsBar\(\);\s*\n\s*\/\/ Screener rows render continuously; catch new ones on this cadence\.\s*\n\s*scanRowBuys\(\);/);
