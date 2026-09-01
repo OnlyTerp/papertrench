@@ -67,6 +67,15 @@ function runOverlay(priceSeries, opts) {
           this._fields[m[1]] = child;
           this.children.push(child);
         }
+        const presets = /<button class="pt-preset(?: sel)?" data-amt="([^"]+)"/g;
+        while ((m = presets.exec(v))) {
+          const child = makeNode('button');
+          child.dataset.amt = m[1];
+          child.classList.add('pt-preset');
+          if (m[0].includes(' sel')) child.classList.add('sel');
+          child._parent = this;
+          this.children.push(child);
+        }
       },
       get innerHTML() { return this._h || ''; },
       appendChild(c) { this.children.push(c); this.childNodes = this.children; c._parent = this; return c; },
@@ -82,9 +91,18 @@ function runOverlay(priceSeries, opts) {
       querySelector(sel) {
         const m = /data-f="([a-z]+)"/.exec(sel);
         if (m && this._fields && this._fields[m[1]]) return this._fields[m[1]];
+        if (sel === '.pt-preset.sel') {
+          return this.children.find((child) => child.classList.contains('pt-preset')
+            && child.classList.contains('sel')) || null;
+        }
         return makeNode('span');
       },
-      querySelectorAll() { return []; },
+      querySelectorAll(sel) {
+        if (sel === '.pt-preset') {
+          return this.children.filter((child) => child.classList.contains('pt-preset'));
+        }
+        return [];
+      },
       getBoundingClientRect() { return { top: 0 }; },
       attachShadow() { return shadowRoot; },
       focus() {}, closest() { return null; },
@@ -162,6 +180,7 @@ function runOverlay(priceSeries, opts) {
         pair: {
           chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
           baseToken: { address: BONK, symbol: 'BONK', name: 'Bonk' },
+          quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
           priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 }, marketCap: 1e8,
         },
       };
@@ -291,6 +310,12 @@ function runOverlay(priceSeries, opts) {
     externalWriteSilently: (obj) => Object.assign(storage, obj),
     setValue: (id, v) => { if (shadowNodes[id]) shadowNodes[id].value = String(v); },
     clickById: (id) => { if (shadowNodes[id]) shadowNodes[id].click(); },
+    clickPreset: (index) => {
+      const presets = shadowNodes['pt-buy-presets'] && shadowNodes['pt-buy-presets'].children;
+      if (presets && presets[index]) presets[index].click();
+    },
+    presetAmount: (index) => Number(shadowNodes['pt-buy-presets'].children[index].dataset.amt),
+    toastTexts: () => (shadowNodes['pt-toast-root'].children || []).map((child) => child.textContent),
     nextPrice: () => { priceIdx++; },
   };
 }
@@ -388,7 +413,7 @@ test('the whole buy section disappears when panelBuyEnabled is off', async () =>
   }
 });
 
-test('the preset row hides alone while the BUY button stays', async () => {
+test('the preset row hides alone while instant BUY stays hidden without custom sizing', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { panelPresetsEnabled: false, settingsRevision: E.SETTINGS_REVISION },
   });
@@ -397,31 +422,31 @@ test('the preset row hides alone while the BUY button stays', async () => {
 
   assert.equal(ov.shadowNodes['pt-buy-presets'].style.display, 'none',
     'the one-tap presets must be hidden');
-  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
-    'the BUY button must remain available');
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant mode keeps BUY hidden until custom sizing is enabled');
   // The free-text amount box is OFF by default as of the panel declutter —
   // the preset row it duplicates is now eight configurable boxes. It is
-  // hidden, never removed, so BUY and limit-arm still read it.
+  // hidden, never removed, so limit-arm still reads it.
   assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
     'the custom amount box is opt-in now');
 });
 
-test('with both toggles on, every buy control is visible', async () => {
+test('with both toggles on, instant mode shows chips and hides BUY by default', async () => {
   const ov = runOverlay([0.001]);
 
   await ov.advance(1200);
 
-  for (const id of ['pt-buy-label', 'pt-buy-presets', 'pt-buy']) {
+  for (const id of ['pt-buy-label', 'pt-buy-presets']) {
     assert.notEqual(ov.shadowNodes[id].style.display, 'none',
       `${id} must be visible with default settings`);
   }
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant mode uses preset chips as the order buttons by default');
 });
 
 test('the custom amount box returns when the setting is switched on', async () => {
   // Off by default, but nothing is removed — the request was for panel space,
-  // not for the capability. BUY reads this element either way and falls back
-  // to the selected preset when it is empty, so hiding it can never strand a
-  // trader without a way to size an order.
+  // not for the capability. Instant BUY appears once the custom box is on.
   const ov = runOverlay([0.001], {
     initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
   });
@@ -440,6 +465,90 @@ test('the buy-section switch still outranks the custom-amount setting', async ()
   await ov.advance(1200);
   assert.equal(ov.shadowNodes['pt-custom'].style.display, 'none',
     'a view-only trade tab shows no buy controls at all');
+});
+
+/* ==================== instant panel buy controls ==================== */
+
+test('instant preset tap fills once and an empty BUY does not fill again', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
+
+  assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'instant presets are the visible order buttons when custom sizing is off');
+  const amount = ov.presetAmount(0);
+  const before = ov.storage().pt_state.journal.length;
+  ov.clickPreset(0);
+  await ov.advance(800);
+  const afterPreset = ov.storage().pt_state;
+  assert.equal(afterPreset.journal.length - before, 1,
+    'a preset tap must commit exactly one fill');
+  assert.equal(afterPreset.journal.at(-1).solGross, amount,
+    'the fill size comes from the tapped preset');
+
+  ov.clickById('pt-buy');
+  await ov.advance(200);
+  const afterBuy = ov.storage().pt_state;
+  assert.equal(afterBuy.journal.length, afterPreset.journal.length,
+    'an empty custom box must not submit a second fill');
+  assert.ok(ov.toastTexts().some((text) => text === 'Pick a SOL amount first'),
+    'the empty BUY must explain that an amount is required');
+});
+
+test('instant BUY uses a typed custom amount once when enabled', async () => {
+  const ov = runOverlay([0.001], {
+    initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
+
+  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'custom sizing keeps BUY available in instant mode');
+  const before = ov.storage().pt_state.journal.length;
+  const amount = 0.37;
+  ov.setValue('pt-custom', amount);
+  ov.clickById('pt-buy');
+  await ov.advance(800);
+  const journal = ov.storage().pt_state.journal;
+  assert.equal(journal.length - before, 1);
+  assert.equal(journal.at(-1).solGross, amount,
+    'instant BUY must use the typed custom amount, not a selected chip');
+});
+
+test('two-step BUY still uses the selected preset once', async () => {
+  const ov = runOverlay([0.001], {
+    initialSettings: { instantBuyEnabled: false, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200); for (let w = 0; !ov.storage().pt_state && w < 3000; w += 200) await ov.advance(200);
+
+  assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
+    'two-step mode needs the BUY trigger');
+  const amount = ov.presetAmount(0);
+  const before = ov.storage().pt_state.journal.length;
+  ov.clickPreset(0);
+  await ov.advance(200);
+  assert.equal(ov.storage().pt_state.journal.length, before,
+    'two-step preset selection must not fill immediately');
+  ov.clickById('pt-buy');
+  await ov.advance(800);
+  const journal = ov.storage().pt_state.journal;
+  assert.equal(journal.length - before, 1);
+  assert.equal(journal.at(-1).solGross, amount,
+    'two-step BUY must read the selected preset');
+});
+
+test('instant limit ARM still reads the selected preset', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200);
+
+  const amount = ov.presetAmount(0);
+  ov.clickPreset(0);
+  await ov.advance(800);
+  ov.setValue('pt-limit-price', '0.0005');
+  ov.clickById('pt-limit-arm');
+  await ov.advance(200);
+  const pending = ov.storage().pt_state.pendingBuys[BONK];
+  assert.ok(pending && pending.length === 1, 'the limit order must be armed');
+  assert.equal(pending[0].solAmount, amount,
+    'instant limit ARM still reads the selected chip');
 });
 /* ---------------- reported: panel forgets its place on refresh ----------------
  *

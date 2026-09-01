@@ -26,11 +26,16 @@
   const PATCHED = Symbol('papertrench-patched');
   const MAX_DEPTH = 7;
   const MAX_CANDIDATES = 32;
+  const bridgeHostname = (() => {
+    try { return location.hostname || new URL(location.href).hostname; } catch (_) { return ''; }
+  })();
+  const hostIsPadre = /(^|\.)padre\.gg$/.test(bridgeHostname);
   // Upper bound on frames the generic path will JSON.parse. Parse cost at
   // this size is ~10-20 ms occasionally; the collector walk is separately
   // bounded by NODE_BUDGET, so bigger frames cannot runaway the main thread.
   const FRAME_GUARD_BYTES = 2_000_000;
   const MAX_MARKS = 500;
+  let webSocketFrameSeq = 0;
 
   let paperMarks = [];
   // Per-mark fill levels (USD / SOL / market cap), kept for the execution-
@@ -103,13 +108,39 @@
     // A new token means the old bar close is no longer a valid axis hint —
     // and the export dedupe must forget the old token's close, or the first
     // poll on the new token can be swallowed as "unchanged" (DEFECT F-19).
-    // The GMGN candle close is the same class of per-token evidence (C-08).
-    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; gmgnLastCandleClose = 0; barCloseLedger.clear(); }
+    //
+    // D-65: the GMGN candle close is NOT cleared here any more. It used to
+    // be, on the same "the needles changed" signal — but that signal fires
+    // for two different events, and only one of them is a new token:
+    //
+    //   a real switch      A -> B, nothing in common. Stale, must go.
+    //   identity sharpening  [PAIR] -> [PAIR, MINT, SYMBOL], as the resolver
+    //                      learns what it is looking at. Same token.
+    //
+    // The second is the normal life of a FRESH LAUNCH, whose identity
+    // resolves late and in pieces, and each sharpening wiped the axis anchor
+    // that both GMGN line lanes need. GMGN fetches its mcap candles once per
+    // chart mount, so nothing ever put the anchor back and the average lines
+    // could not be computed for the rest of the session.
+    //
+    // Clearing on a genuine switch is racy too: the new token's candles
+    // routinely land BEFORE its paper-axis does, so the clear destroyed a
+    // close that had just been captured for the token we were moving to.
+    //
+    // Both go away by tagging the close with the token it was observed for
+    // (gmgnLastCandleCloseKey) and checking that at USE time instead —
+    // staleness is then a fact about the data, not a guess about ordering.
+    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; barCloseLedger.clear(); }
   }
   // GMGN runs a private TradingView widget inside a same-origin blob iframe.
   // Its live React chart manager exposes `getActiveChart().createOrderLine()`.
   let gmgnChart = null;
   let gmgnLineSpec = null;
+  // Why the GMGN lines last failed to draw. The paper path has had
+  // lastLineSyncReason since F-41 and D-63 extended it; the GMGN path had no
+  // diagnostic at all, which is why portifly's report (D-64) arrived as
+  // "they never show up" with nothing to say which of the causes it was.
+  let lastGmgnLineReason = null;
   let gmgnRetryTimer = null;
   // DEFECT C-08: the newest close from GMGN's own mcap-candle feed. GMGN's
   // cap definition can differ from the resolver's (circulating vs total,
@@ -117,6 +148,38 @@
   // what GMGN's Y axis actually shows, so lines and fill shapes are scaled
   // through it rather than trusting resolver-implied supply. Reset per token.
   let gmgnLastCandleClose = 0;
+  // D-65: which token that close was observed for, read from the candle
+  // request's own URL (/api/v1/token_mcap_candles/<chain>/<address>). The
+  // anchor is per-token evidence, so it carries its subject rather than
+  // relying on a clear that has to fire at exactly the right moment.
+  let gmgnLastCandleCloseKey = null;
+
+  /**
+   * The GMGN axis anchor, or 0 when we have none FOR THIS TOKEN.
+   *
+   * Every GMGN level lane needs this: the mcap lane scales through it
+   * (gmgnCapScale) and the native-ratio lanes multiply by it (C-16, D-64).
+   * A close belonging to the previous token would put every line and every
+   * fill mark at a level from a different coin, so it is refused here rather
+   * than cleared on a signal that cannot see the difference.
+   *
+   * An unparseable URL leaves the key null; that close is still used, which
+   * is exactly the pre-D-65 behaviour for a shape we do not recognise.
+   */
+  function gmgnAxisAnchor() {
+    if (!(gmgnLastCandleClose > 0)) return 0;
+    if (!gmgnLastCandleCloseKey) return gmgnLastCandleClose;
+    // Addresses only. The needle list also carries the SYMBOL, and a short
+    // symbol can appear inside an unrelated base58 address — matching on
+    // that would accept another coin's anchor.
+    const addrs = [currentSymbolInfo.pairAddress, currentSymbolInfo.mint]
+      .filter((v) => typeof v === 'string' && v.length >= 2)
+      .map((v) => v.toUpperCase());
+    // No identity resolved yet: nothing to contradict the close, and this is
+    // the ordinary state while a fresh launch is still being identified.
+    if (!addrs.length) return gmgnLastCandleClose;
+    return addrs.indexOf(gmgnLastCandleCloseKey) >= 0 ? gmgnLastCandleClose : 0;
+  }
 
   /* ---------------- content-script liveness (DEFECTS O-04/C-17) ----------
    * The MAIN world cannot observe extension death, so the bridge watches for
@@ -148,6 +211,7 @@
    * the instant it is thrown, not five minutes later.
    */
   let feedWanted = true;
+  let factsWanted = true;
 
   function feedActive() {
     return feedWanted && Date.now() - lastContentMessageAt <= CONTENT_SILENCE_LIMIT_MS;
@@ -179,13 +243,128 @@
     return null;
   }
 
+  // Padre's multiplex socket uses MessagePack. Decode only the first value:
+  // the transport may append another value, but the first envelope is the
+  // complete page-owned message we need. The byte and node caps keep malformed
+  // or adversarial frames from turning the bridge into an unbounded parser.
+  function decodeMsgpack(input) {
+    try {
+      const bytes = input instanceof Uint8Array
+        ? input
+        : input instanceof ArrayBuffer ? new Uint8Array(input) : null;
+      if (!bytes || bytes.byteLength > 512 * 1024) return null;
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      let offset = 0;
+      let budget = NODE_BUDGET;
+      const fail = () => { throw new Error('invalid msgpack'); };
+      const need = (count) => {
+        if (count < 0 || offset + count > bytes.byteLength) fail();
+        const start = offset;
+        offset += count;
+        return start;
+      };
+      const text = (start, length) => {
+        const chunk = bytes.subarray(start, start + length);
+        if (typeof TextDecoder === 'function') return new TextDecoder().decode(chunk);
+        let out = '';
+        for (let i = 0; i < chunk.length; i++) out += String.fromCharCode(chunk[i]);
+        return out;
+      };
+      const parse = (depth) => {
+        if (depth > MAX_DEPTH * 4 || budget-- <= 0 || offset >= bytes.byteLength) fail();
+        const tag = bytes[offset++];
+        if (tag <= 0x7f) return tag;
+        if (tag >= 0xe0) return tag - 0x100;
+        if (tag >= 0xa0 && tag <= 0xbf) {
+          const length = tag & 0x1f;
+          return text(need(length), length);
+        }
+        if (tag >= 0x90 && tag <= 0x9f) {
+          const out = [];
+          for (let i = 0; i < (tag & 0x0f); i++) out.push(parse(depth + 1));
+          return out;
+        }
+        if (tag >= 0x80 && tag <= 0x8f) {
+          const out = {};
+          for (let i = 0; i < (tag & 0x0f); i++) {
+            const key = String(parse(depth + 1));
+            out[key] = parse(depth + 1);
+          }
+          return out;
+        }
+        switch (tag) {
+          case 0xc0: return null;
+          case 0xc2: return false;
+          case 0xc3: return true;
+          case 0xcc: { const at = need(1); return view.getUint8(at); }
+          case 0xcd: { const at = need(2); return view.getUint16(at); }
+          case 0xce: { const at = need(4); return view.getUint32(at); }
+          case 0xcf: {
+            const at = need(8);
+            return view.getUint32(at) * 4294967296 + view.getUint32(at + 4);
+          }
+          case 0xd0: { const at = need(1); return view.getInt8(at); }
+          case 0xd1: { const at = need(2); return view.getInt16(at); }
+          case 0xd2: { const at = need(4); return view.getInt32(at); }
+          case 0xd3: {
+            const at = need(8);
+            const high = view.getInt32(at);
+            return high * 4294967296 + view.getUint32(at + 4);
+          }
+          case 0xca: { const at = need(4); return view.getFloat32(at); }
+          case 0xcb: { const at = need(8); return view.getFloat64(at); }
+          case 0xd9: { const length = bytes[need(1)]; return text(need(length), length); }
+          case 0xda: { const at = need(2); const length = view.getUint16(at); return text(need(length), length); }
+          case 0xdb: { const at = need(4); const length = view.getUint32(at); return text(need(length), length); }
+          case 0xc4: { const length = bytes[need(1)]; return bytes.slice(need(length), offset); }
+          case 0xc5: { const at = need(2); const length = view.getUint16(at); return bytes.slice(need(length), offset); }
+          case 0xc6: { const at = need(4); const length = view.getUint32(at); return bytes.slice(need(length), offset); }
+          case 0xdc: {
+            const at = need(2);
+            const out = [];
+            for (let i = 0; i < view.getUint16(at); i++) out.push(parse(depth + 1));
+            return out;
+          }
+          case 0xdd: {
+            const at = need(4);
+            const out = [];
+            for (let i = 0; i < view.getUint32(at); i++) out.push(parse(depth + 1));
+            return out;
+          }
+          case 0xde: {
+            const at = need(2);
+            const out = {};
+            for (let i = 0; i < view.getUint16(at); i++) {
+              const key = String(parse(depth + 1));
+              out[key] = parse(depth + 1);
+            }
+            return out;
+          }
+          case 0xdf: {
+            const at = need(4);
+            const out = {};
+            for (let i = 0; i < view.getUint32(at); i++) {
+              const key = String(parse(depth + 1));
+              out[key] = parse(depth + 1);
+            }
+            return out;
+          }
+          default: fail();
+        }
+      };
+      return parse(0);
+    } catch (_) {
+      return null;
+    }
+  }
+
   const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   // avgPrice is deliberately ABSENT: it is a position-average field, not a
   // live price. When the user holds a REAL position, the site streams their
   // real entry average under that key, and treating it as a market tick let
   // the user's own entry price pollute the paper feed (DEFECT F-30 — the
   // average line "blended" a real buy with the paper buy).
-  const PRICE_KEY = /^(price|priceNative|priceUsd|priceInSol|priceSol|solPrice|usdPrice|tokenPrice|lastPrice|last|close|c|markPrice|currentPrice|quote)$/i;
+  const PRICE_KEY = /^(price|priceNative|priceUsd|priceInSol|priceSol|priceInUsd|solPrice|usdPrice|tokenPrice|lastPrice|last|close|c|markPrice|currentPrice|quote)$/i;
   // Subtrees that describe the USER'S OWN holdings, not the market. Prices
   // inside them are historical facts about the user (entry averages, cost
   // bases, unrealized P&L) and must never become market-price candidates.
@@ -193,7 +372,15 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
-  const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
+  // Historical snapshots are not the live market. On Padre, pump.fun's
+  // `callouts[0].marketCap` put $204.53M in the header while BONK's live cap
+  // was about $263M (captured defect), so these subtrees must not feed
+  // prices, caps, or host-facts arithmetic.
+  const HISTORICAL_SUBTREE_KEY = /^(callouts?|history|historical|snapshots?|previous|prev|ath|candles?|bars?|ohlc|past)$/i;
+  const SUPPLY_KEY = /^(supply|totalSupply|circulatingSupply|tokenSupply)$/i;
+  const DECIMALS_KEY = /^decimals$/i;
+  const POOL_KEY = /^(pairAddress|poolAddress|lpAddress|pool|pairId)$/i;
+  const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fdvInUsd|fullyDilutedValuation)$/i;
   // A record that IS a trade event — an id-carrying or user-attributed
   // swap/trade object (fomo's social feed, tx-hash trade tapes). Its price
   // and cap fields describe the moment that trade happened, minutes to
@@ -239,6 +426,7 @@
   // front reported ever older prices exactly as batches grew with volume
   // (DEFECT F-03). The budget only bites on pathological frames.
   const NODE_BUDGET = 20_000;
+  const padreSupplyByMint = new Map();
   // Identifier strength: on several sites `address`/`ca` carry the AMM/pool
   // address rather than the token mint, so an explicit mint-ish key must win
   // the record association when both appear on one object.
@@ -262,6 +450,7 @@
     // in `top` (frames with no identifier at all), which downstream
     // anchor-banding still validates before use.
     const records = new Map();
+    const factSnapshots = factsWanted ? [] : null;
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
@@ -269,7 +458,10 @@
     const recordFor = (mint) => {
       let rec = records.get(mint);
       if (!rec) {
-        rec = { candidates: [], mcap: null, mint, symbol: null, name: null };
+        rec = {
+          candidates: [], mcap: null, mint, symbol: null, name: null,
+          supply: null, decimals: null, poolAddress: null, addresses: [],
+        };
         records.set(mint, rec);
       }
       return rec;
@@ -279,6 +471,10 @@
       if (rec.candidates.length >= MAX_CANDIDATES) rec.candidates.shift();
       rec.candidates.push(cand);
     };
+    const validPadreSymbol = (value) => typeof value === 'string'
+      && value.length <= 24 && !BASE58_RE.test(value) ? value : null;
+    const validPadreName = (value) => typeof value === 'string'
+      && value.length <= 64 && !BASE58_RE.test(value) ? value : null;
 
     (function walk(node, depth, ctx, tainted) {
       if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
@@ -292,6 +488,7 @@
         && (looksLikeTradeEvent(node) || looksLikePositionRecord(node))) tainted = true;
 
       let target = ctx;
+      let nodeSnapshot = null;
       if (!Array.isArray(node)) {
         let bestRank = 0;
         let bestMint = null;
@@ -300,12 +497,43 @@
           const rank = mintKeyRank(key);
           if (rank > bestRank) { bestRank = rank; bestMint = value; }
         }
-        if (bestMint) target = recordFor(bestMint);
+        if (bestMint) {
+          target = recordFor(bestMint);
+          const addresses = new Set(target.addresses);
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              addresses.add(value);
+            }
+          }
+          target.addresses = Array.from(addresses);
+        }
+        if (factsWanted && !Array.isArray(node) && target) {
+          nodeSnapshot = {
+            candidates: [], mcap: null, mint: target.mint, symbol: null, name: null,
+            supply: null, decimals: null, poolAddress: null, addresses: [],
+          };
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              nodeSnapshot.addresses.push(value);
+            }
+          }
+          factSnapshots.push(nodeSnapshot);
+        }
       }
 
       const entries = Array.isArray(node)
         ? node.map((v, i) => [String(i), v])
         : Object.entries(node);
+      const sameObjectSymbol = !Array.isArray(node)
+        ? entries.reduce((found, [key, value]) => found || (
+          /^(tokenTicker|symbol|ticker)$/.test(key) ? validPadreSymbol(value) : null
+        ), null)
+        : null;
+      const sameObjectName = !Array.isArray(node)
+        ? entries.reduce((found, [key, value]) => found || (
+          /^(tokenName|name)$/.test(key) ? validPadreName(value) : null
+        ), null)
+        : null;
 
       for (const [key, value] of entries) {
         if (budget <= 0) return;
@@ -314,7 +542,8 @@
           // USER, not the market: entry averages and cost bases inside it
           // must never tick the price (DEFECT F-30). Identity fields still
           // flow; prices and caps do not.
-          walk(value, depth + 1, target, tainted || POSITION_SUBTREE_KEY.test(key));
+          walk(value, depth + 1, target,
+            tainted || POSITION_SUBTREE_KEY.test(key) || HISTORICAL_SUBTREE_KEY.test(key));
           continue;
         }
         const rec = target || top;
@@ -322,20 +551,99 @@
           const n = numberValue(value);
           if (n > 0) {
             const unit = USD_HINT.test(key) ? 'usd' : NATIVE_HINT.test(key) ? 'native' : 'unknown';
-            pushCandidate(rec, { value: n, unit, key });
+            pushCandidate(rec, {
+              value: n, unit, key,
+              ...(sameObjectSymbol ? { symbol: sameObjectSymbol } : {}),
+              ...(sameObjectName ? { name: sameObjectName } : {}),
+            });
+            if (nodeSnapshot) nodeSnapshot.candidates.push({ value: n, unit, key });
           }
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
+          if (!tainted && n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
+            nodeSnapshot.mcap = n;
+          }
+        } else if (!tainted && SUPPLY_KEY.test(key)) {
+          const n = numberValue(value);
+          if (n > 0 && rec.supply === null) rec.supply = n;
+          if (n > 0 && nodeSnapshot && nodeSnapshot.supply === null) {
+            nodeSnapshot.supply = n;
+          }
+        } else if (DECIMALS_KEY.test(key)) {
+          const n = numberValue(value);
+          if (Number.isInteger(n) && n >= 0 && n <= 18 && rec.decimals === null) {
+            rec.decimals = n;
+          }
+          if (Number.isInteger(n) && n >= 0 && n <= 18
+            && nodeSnapshot && nodeSnapshot.decimals === null) {
+            nodeSnapshot.decimals = n;
+          }
+        } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
+          if (!rec.poolAddress) rec.poolAddress = value;
+          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = value;
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
+          if (nodeSnapshot && !nodeSnapshot.symbol) nodeSnapshot.symbol = value;
         } else if (NAME_KEY.test(key) && typeof value === 'string' && value.length <= 64) {
           rec.name = rec.name || value;
+          if (nodeSnapshot && !nodeSnapshot.name) nodeSnapshot.name = value;
         }
       }
     })(obj, 0, null, false);
 
-    return { records, top };
+    return { records, top, factSnapshots };
+  }
+
+  function padreMetadata(rec) {
+    const candidate = rec && rec.candidates
+      ? rec.candidates.find((item) => item.value > 0)
+      : null;
+    return {
+      symbol: candidate && candidate.symbol ? candidate.symbol : null,
+      name: candidate && candidate.name ? candidate.name : null,
+    };
+  }
+
+  function notePadreSupplies(obj) {
+    const seen = new WeakSet();
+    let budget = NODE_BUDGET;
+    (function walk(node, depth) {
+      if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
+      if (budget-- <= 0) return;
+      seen.add(node);
+      if (typeof node.tokenAddress === 'string' && BASE58_RE.test(node.tokenAddress)) {
+        const totalSupply = numberValue(node.totalSupply);
+        const decimals = numberValue(node.decimals);
+        const supply = totalSupply > 0 && Number.isInteger(decimals) && decimals >= 0 && decimals <= 30
+          ? totalSupply / (10 ** decimals)
+          : null;
+        if (supply > 0 && Number.isFinite(supply)) {
+          padreSupplyByMint.set(node.tokenAddress, supply);
+          if (padreSupplyByMint.size > 300) {
+            padreSupplyByMint.delete(padreSupplyByMint.keys().next().value);
+          }
+        }
+      }
+      for (const value of Object.values(node)) walk(value, depth + 1);
+    })(obj, 0);
+  }
+
+  function normalizePadreCaps(records) {
+    for (const rec of records.values()) {
+      const supply = padreSupplyByMint.get(rec.mint);
+      const price = rec.candidates.find((candidate) => candidate.key === 'priceInUsd');
+      if (!(supply > 0) || !(price && price.value > 0) || !(rec.mcap > 0)) {
+        rec.mcap = null;
+        continue;
+      }
+      const derived = price.value * supply;
+      if (!(derived > 0) || !Number.isFinite(derived)) {
+        rec.mcap = null;
+      } else if (Math.abs(rec.mcap / derived - 1) > 0.02) {
+        rec.mcap = derived;
+      }
+    }
   }
 
   // GMGN's realtime WebSocket publishes every venue trade on the
@@ -354,7 +662,16 @@
   const ACTIVITY_TICK_MIN_MS = 100;
   const activityLastEmitByMint = new Map();
 
-  function forwardTokenActivity(parsed) {
+  function withFrameEvidence(payload, receivedAt, seq) {
+    if (!Number.isFinite(receivedAt)) return payload;
+    return {
+      ...payload,
+      at: receivedAt,
+      ...(Number.isFinite(seq) ? { seq } : {}),
+    };
+  }
+
+  function forwardTokenActivity(parsed, receivedAt, seq) {
     if (!parsed || parsed.channel !== 'token_activity' || !Array.isArray(parsed.data)) return false;
     const now = Date.now();
     const latestByMint = new Map();
@@ -371,14 +688,14 @@
     const due = (mint) => now - (activityLastEmitByMint.get(mint) || 0) >= ACTIVITY_TICK_MIN_MS;
     const emitTick = (mint, priceUsd) => {
       activityLastEmitByMint.set(mint, now);
-      emit('tick', {
+      emit('tick', withFrameEvidence({
         candidates: [{ value: priceUsd, unit: 'usd', key: 'tokenActivityPriceUsd' }],
         mcap: null,
         mint,
         symbol: currentSymbolInfo.mint === mint ? currentSymbolInfo.symbol : null,
         name: null,
         source: 'gmgn-ws-trade',
-      });
+      }, receivedAt, seq));
     };
     const watchedMint = currentSymbolInfo.mint;
     if (watchedMint && latestByMint.has(watchedMint) && due(watchedMint)) {
@@ -403,7 +720,7 @@
     return true;
   }
 
-  function forwardJson(raw, source, url) {
+  function forwardJson(raw, source, url, receivedAt, seq, padreBinary = false) {
     // No consumer, no parse — the cheapest frame is the one never read.
     if (!feedActive()) return;
     let parsed = raw;
@@ -419,7 +736,7 @@
       // forwardTokenActivity still validates the parsed shape.
       if (trimmed.length > 15 && trimmed.slice(0, 120).indexOf('"token_activity"') !== -1) {
         try { parsed = JSON.parse(raw); } catch (_) { return; }
-        forwardTokenActivity(parsed);
+        forwardTokenActivity(parsed, receivedAt, seq);
         return;
       }
       if (url && /\/api\/v1\/token_mcap_candles\//.test(url)) {
@@ -440,6 +757,7 @@
     if (!parsed || typeof parsed !== 'object') return;
 
     if (forwardTokenActivity(parsed)) return;
+    if (padreBinary) notePadreSupplies(parsed);
 
     // GMGN's embedded TradingView chart is explicitly a market-cap chart:
     // /api/v1/token_mcap_candles/... returns USD market-cap OHLC values in
@@ -458,19 +776,67 @@
         // C-08: this close IS the value on GMGN's Y axis — the scale anchor
         // for every GMGN line and fill shape (see gmgnCapScale).
         gmgnLastCandleClose = mcap;
-        emit('tick', {
+        // D-65: tag it with the token the request names, so the anchor can be
+        // judged stale at use time instead of cleared on a signal that cannot
+        // tell a token switch from an identity merely becoming complete.
+        const forToken = /\/token_mcap_candles\/[^/?#]+\/([^/?#]+)/.exec(url);
+        gmgnLastCandleCloseKey = forToken ? forToken[1].toUpperCase() : null;
+        emit('tick', withFrameEvidence({
           candidates: [],
           mcap,
           mint: currentSymbolInfo.mint,
           symbol: currentSymbolInfo.symbol,
           source: 'gmgn-mcap-candle',
-        });
+        }, receivedAt, seq));
         return;
       }
     }
 
-    const { records, top } = collect(parsed);
+    const { records, top, factSnapshots } = collect(parsed);
+    if (padreBinary) normalizePadreCaps(records);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
+    const emitFacts = () => {
+      if (!factsWanted) return;
+      let emitted = 0;
+      const canEmit = (rec) => {
+        if (!rec) return false;
+        const hasDifferentAddress = rec.mint
+          && rec.addresses.some((address) => address !== rec.mint);
+        return hasDifferentAddress || rec.supply !== null
+          || rec.decimals !== null || rec.poolAddress;
+      };
+      const watched = factSnapshots.find((candidate) => canEmit(candidate)
+        && ((currentSymbolInfo.mint && candidate.mint === currentSymbolInfo.mint)
+        || (currentSymbolInfo.pairAddress && candidate.mint === currentSymbolInfo.pairAddress)
+        || (currentSymbolInfo.pairAddress
+          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1)));
+      const emitRecord = (rec) => {
+        if (!canEmit(rec)) return false;
+        const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
+        emit('facts', {
+          mint: rec.mint,
+          symbol: rec.symbol,
+          name: rec.name,
+          supply: rec.supply,
+          decimals: rec.decimals,
+          poolAddress: rec.poolAddress,
+          addresses: rec.addresses.slice(),
+          priceUsd: usdCandidate ? usdCandidate.value : null,
+          mcap: rec.mcap,
+          source,
+          url: url || null,
+        });
+        emitted++;
+        return true;
+      };
+      if (watched) emitRecord(watched);
+      for (const rec of factSnapshots) {
+        if (emitted >= 3) break;
+        if (rec !== watched) emitRecord(rec);
+      }
+    };
+    emitFacts();
+    let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
       // a bounded top-up so screener row chips keep their mint-tagged prices.
@@ -478,18 +844,36 @@
         || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
         || null;
       let emitted = 0;
-      if (watched && hasContent(watched)) { emit('tick', { ...watched, source }); emitted++; }
+      if (watched && hasContent(watched)) {
+        const metadata = padreBinary ? padreMetadata(watched) : null;
+        emit('tick', withFrameEvidence({
+          ...watched,
+          ...(metadata ? metadata : {}),
+          source,
+        }, receivedAt, seq));
+        emitted++;
+      }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', { ...rec, source });
+        const metadata = padreBinary ? padreMetadata(rec) : null;
+        emit('tick', withFrameEvidence({
+          ...rec,
+          ...(metadata ? metadata : {}),
+          source,
+        }, receivedAt, seq));
       }
-      if (emitted) return;
+      emittedTick = emitted > 0;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
     if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', { ...top, source });
+    const metadata = padreBinary ? padreMetadata(top) : null;
+    emit('tick', withFrameEvidence({
+      ...top,
+      ...(metadata ? metadata : {}),
+      source,
+    }, receivedAt, seq));
   }
 
   /* ---------------- SPA navigation signal ----------------
@@ -553,6 +937,9 @@
     };
   }
 
+  // Padre's binary socket frames are MessagePack, not protobuf. Capture the
+  // receive time and bridge-wide sequence before a Blob's asynchronous body
+  // conversion so consumers can order same-time frames safely.
   const OriginalWebSocket = window.WebSocket;
   if (typeof OriginalWebSocket === 'function') {
     const WrappedWebSocket = function (url, protocols) {
@@ -560,9 +947,20 @@
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
       socket.addEventListener('message', (event) => {
-        // Padre's multiplex messages are binary protobuf and are deliberately
-        // handled after Padre decodes them through its TradingView datafeed.
-        if (typeof event.data === 'string') forwardJson(event.data, 'ws');
+        const receivedAt = Date.now();
+        const seq = ++webSocketFrameSeq;
+        if (typeof event.data === 'string') {
+          forwardJson(event.data, 'ws', undefined, receivedAt, seq);
+        } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
+          const decoded = decodeMsgpack(new Uint8Array(event.data));
+          if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);
+        } else if (hostIsPadre && feedActive()
+          && typeof Blob === 'function' && event.data instanceof Blob) {
+          Promise.resolve(event.data.arrayBuffer()).then((buffer) => {
+            const decoded = decodeMsgpack(new Uint8Array(buffer));
+            if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);
+          }, () => {});
+        }
       });
       return socket;
     };
@@ -584,9 +982,6 @@
   // port.start() — on an object the host site owns. Other sites keep their
   // native SharedWorker untouched.
   const OriginalSharedWorker = window.SharedWorker;
-  const bridgeHostname = (() => {
-    try { return location.hostname || new URL(location.href).hostname; } catch (_) { return ''; }
-  })();
   const hostUsesSharedWorkerFeed = /(^|\.)gmgn\.ai$/.test(bridgeHostname);
   if (typeof OriginalSharedWorker === 'function' && hostUsesSharedWorkerFeed) {
     const WrappedSharedWorker = function (url, options) {
@@ -2603,7 +2998,8 @@
    */
   function gmgnCapScale() {
     const current = gmgnLineSpec && numberValue(gmgnLineSpec.currentMcap);
-    if (gmgnLastCandleClose > 0 && current > 0) return gmgnLastCandleClose / current;
+    const anchor = gmgnAxisAnchor();
+    if (anchor > 0 && current > 0) return anchor / current;
     return 1;
   }
 
@@ -2620,8 +3016,9 @@
     if (mcap > 0) return mcap * gmgnCapScale();
     const native = numberValue(payload && payload.priceNative);
     const currentNative = gmgnLineSpec && numberValue(gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }
@@ -2744,24 +3141,78 @@
     // report of exactly that gap.
     const native = numberValue(gmgnLineSpec && gmgnLineSpec['avg' + side + 'Native']);
     const currentNative = numberValue(gmgnLineSpec && gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }
 
+  /** D-64's want-rule, in one place. The sweep and the sync both have to
+   * decide "is a line wanted here", and they have to agree: the sweep calling
+   * a sync that then disagrees is how a line gets re-armed forever without
+   * ever being drawn. Either level source counts, because either can produce
+   * a level (mcap directly, or the native ratio lane). */
+  function gmgnWants(side) {
+    const spec = gmgnLineSpec;
+    if (!spec) return false;
+    return Number(spec['avg' + side + 'Mcap']) > 0 || Number(spec['avg' + side + 'Native']) > 0;
+  }
+
   function syncGmgnAverageLines() {
+    lastGmgnLineReason = null;
     if (!gmgnLineSpec || !gmgnLineSpec.enabled) {
       clearGmgnAverageLines();
       return true;
     }
     const chart = findGmgnChart();
-    if (!chart) return false;
+    if (!chart) { lastGmgnLineReason = 'no-chart'; return false; }
     if (gmgnChart && gmgnChart !== chart) { clearLineSlot(gmgnBuySlot); clearLineSlot(gmgnSellSlot); }
     gmgnChart = chart;
-    const buyOk = syncLineSlot(gmgnBuySlot, chart, gmgnLineLevel('Buy'), gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399');
-    const sellOk = syncLineSlot(gmgnSellSlot, chart, gmgnLineLevel('Sell'), gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56');
-    return buyOk && sellOk;
+
+    const wantsBuy = gmgnWants('Buy');
+    const wantsSell = gmgnWants('Sell');
+    const buyLevel = gmgnLineLevel('Buy');
+    const sellLevel = gmgnLineLevel('Sell');
+
+    // D-63 parity. That fix landed on syncPaperAverageLines only, but GMGN
+    // draws through the SAME createOrderLine on the SAME TradingView chart,
+    // so an off-range GMGN average line feeds GMGN's autoscale exactly the
+    // way dashgirn's and ark_trades13's did on Padre/Axiom — axis dragged
+    // through zero into negative mcaps, candles squashed into a corner.
+    // Same remedy: don't draw it, clear the slot so it stops feeding
+    // autoscale, name the reason, let the sweep bring it back when the axis
+    // scrolls to it. offVisibleRange fails safe — a chart it cannot measure
+    // accuses nothing.
+    const buyOffRange = offVisibleRange(chart, [buyLevel]) === 'off-range';
+    const sellOffRange = offVisibleRange(chart, [sellLevel]) === 'off-range';
+    if (buyOffRange) clearLineSlot(gmgnBuySlot);
+    if (sellOffRange) clearLineSlot(gmgnSellSlot);
+
+    // The sixth argument is `wanted`, and omitting it was its own defect:
+    // syncLineSlot reads it to tell "there is no line to draw" (clear it)
+    // from "a line IS wanted but its level is momentarily uncomputable"
+    // (keep what is drawn, retry) — F-41's split, which the paper path has
+    // had since. undefined is falsy, so every uncomputable tick CLEARED a
+    // correct line and reported success. D-64 made levels computable far
+    // more often; it did not make them always computable — gmgnLastCandleClose
+    // resets to 0 on every token switch, and both level lanes need it.
+    const buyOk = buyOffRange ? false
+      : syncLineSlot(gmgnBuySlot, chart, buyLevel, gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399', wantsBuy);
+    const sellOk = sellOffRange ? false
+      : syncLineSlot(gmgnSellSlot, chart, sellLevel, gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56', wantsSell);
+
+    const missingBuy = wantsBuy && !(buyLevel > 0);
+    const missingSell = wantsSell && !(sellLevel > 0);
+    if (buyOffRange || sellOffRange) {
+      lastGmgnLineReason = 'off-range'
+        + (buyOffRange ? ':buy' : '') + (sellOffRange ? ':sell' : '');
+    } else if (missingBuy || missingSell) {
+      lastGmgnLineReason = 'no-level' + (gmgnLastCandleClose > 0 ? '' : ':no-close');
+    } else if (!(buyOk && sellOk)) {
+      lastGmgnLineReason = 'draw-refused';
+    }
+    return buyOk && sellOk && !missingBuy && !missingSell;
   }
 
   function retryGmgnAverageLines() {
@@ -2769,7 +3220,14 @@
     let attempts = 0;
     const retry = () => {
       gmgnRetryTimer = null;
-      if (syncGmgnAverageLines() || ++attempts >= 30) return;
+      if (syncGmgnAverageLines()) return;
+      if (++attempts >= 30) {
+        // Giving up silently after 15s is how "the Avg lines never show up"
+        // reached us with nothing to act on (D-64). Say which cause it was,
+        // once — the sweep still keeps trying afterwards.
+        emit('gmgn-lines-status', { action: 'sync', ok: false, reason: lastGmgnLineReason || 'unknown' });
+        return;
+      }
       gmgnRetryTimer = setTimeout(retry, 500);
     };
     retry();
@@ -2860,6 +3318,8 @@
     // chip scan is proof of a consumer regardless of message ordering.
     if (type === 'page-state') {
       feedWanted = Boolean(payload && payload.wantsTicks);
+      factsWanted = !payload || !Object.prototype.hasOwnProperty.call(payload, 'factsWanted')
+        ? true : Boolean(payload.factsWanted);
       return;
     }
     if (type === 'paper-axis' || type === 'row-scan') feedWanted = true;
@@ -3184,6 +3644,7 @@
 
   let rowChipLayer = null;
   const rowChips = new Map(); // row element -> { el, address, place }
+  let lastRowSpec = null;
 
   function ensureRowChipLayer() {
     if (rowChipLayer && rowChipLayer.isConnected) return rowChipLayer;
@@ -3194,6 +3655,84 @@
       (document.body || document.documentElement).appendChild(rowChipLayer);
     }
     return rowChipLayer;
+  }
+
+  /*
+   * F-64: a virtualized screener can recycle a row between the periodic chip
+   * sweep and the user's press/click. harisx1's 8/30 report described the
+   * resulting wrong-coin buy while the feed kept scrolling. Bind the row's
+   * identity on pointerdown and verify it again at click instead of silently
+   * buying a recycled row's old address.
+   */
+  function currentRowAddress(entry) {
+    const row = entry && entry.row;
+    if (!row || !row.isConnected) return null;
+    const selectors = lastRowSpec && Array.isArray(lastRowSpec.linkSelectors)
+      ? lastRowSpec.linkSelectors
+      : [];
+    const nodes = [];
+    for (const selector of selectors) {
+      try {
+        if (row.matches && row.matches(selector)) nodes.push(row);
+      } catch (_) {}
+      try {
+        const link = row.querySelector(selector);
+        if (link) nodes.push(link);
+      } catch (_) {}
+    }
+    for (const node of nodes) {
+      let href = '';
+      try {
+        href = (typeof node.getAttribute === 'function' ? node.getAttribute('href') : '')
+          || node.href || '';
+      } catch (_) {
+        try { href = node.href || ''; } catch (_) {}
+      }
+      const match = String(href).match(ROW_ADDR_RE);
+      if (match) return match[0];
+    }
+    return addressFromRowFiber(row);
+  }
+
+  // Pure. `entry` reads {address, verifiedAt, pressedAddress, pressedAt};
+  // nowAddress is currentRowAddress(entry) at click time.
+  function rowChipTapDecision(entry, nowAddress, nowMs) {
+    if (!entry.pressedAt || nowMs - entry.pressedAt > 5000) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'stale-press',
+        },
+      };
+    }
+    if (nowAddress
+      && nowAddress === entry.pressedAddress) {
+      return { address: nowAddress };
+    }
+    if (nowAddress) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'row-changed',
+        },
+      };
+    }
+    if (entry.pressedAddress === entry.address
+      && nowMs - entry.verifiedAt <= 1500) {
+      return { address: entry.address };
+    }
+    return {
+      refuse: {
+        was: entry.pressedAddress || null,
+        now: null,
+        swept: entry.address || null,
+        reason: 'unverifiable',
+      },
+    };
   }
 
   /* Chip taps are handled at the WINDOW capture phase: these sites install
@@ -3214,7 +3753,25 @@
     // stuck in busy forever (DEFECT F-08). stopPropagation still keeps the
     // row underneath from navigating; the later press events stay swallowed
     // entirely.
+    if (ev.type === 'keydown') {
+      if (ev.repeat || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
+      return;
+    }
     if (ev.type === 'pointerdown') {
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
       ev.preventDefault();
       ev.stopPropagation();
       return;
@@ -3225,13 +3782,25 @@
     if (ev.type !== 'click') return;
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
-        chip.classList.add('busy');
-        emit('row-buy', { address: entry.address });
+        const decision = rowChipTapDecision(entry, currentRowAddress(entry), Date.now());
+        entry.pressedAt = 0;
+        entry.pressedAddress = null;
+        if (decision.address) {
+          chip.classList.add('busy');
+          emit('row-buy', {
+            address: decision.address,
+            quote: typeof rowQuoteFromFiber === 'function'
+              ? rowQuoteFromFiber(entry.row, decision.address)
+              : undefined,
+          });
+        } else {
+          emit('row-buy-refused', decision.refuse);
+        }
         break;
       }
     }
   }
-  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown']) {
     window.addEventListener(type, handleRowChipTap, true);
   }
 
@@ -3572,6 +4141,136 @@
     }
   }
 
+  function rowQuoteFromFiber(row, tappedAddress) {
+    try {
+      if (!row || !BASE58_RE.test(tappedAddress || '')) return null;
+      const key = Object.getOwnPropertyNames(row).find((k) => k.indexOf('__reactFiber$') === 0);
+      const start = key && row[key];
+      if (!start) return null;
+      const seen = new Set();
+      const stack = [start];
+      const candidates = [];
+      const identityKeys = new Set([
+        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address',
+      ]);
+      const priceKeys = new Set([
+        'priceSol', 'priceNative', 'tokenPriceUsd', 'priceUsd',
+        'marketCapSol', 'marketCapUsd', 'usd_market_cap',
+      ]);
+      const badKey = /change|pct|percent|min|hr|24h|ratio/i;
+      const fieldsFor = (obj) => {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+        const fields = {};
+        let barePrice = null;
+        for (const [name, value] of Object.entries(obj)) {
+          if (identityKeys.has(name)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) fields[name] = value;
+            continue;
+          }
+          if ((name === 'tokenTicker' || name === 'symbol' || name === 'ticker')
+              && typeof value === 'string' && value.length <= 24 && !BASE58_RE.test(value)) {
+            fields.symbol = value;
+            continue;
+          }
+          if ((name === 'tokenName' || name === 'name')
+              && typeof value === 'string' && value.length <= 64 && !BASE58_RE.test(value)) {
+            fields.name = value;
+            continue;
+          }
+          if (badKey.test(name)) continue;
+          if (name === 'supply' || name === 'total_supply' || name === 'totalSupply'
+              || priceKeys.has(name)) {
+            const number = numberValue(value);
+            if (number !== null && number > 0) fields[name] = number;
+            continue;
+          }
+          if (name === 'price') {
+            const number = numberValue(value);
+            if (number !== null && number > 0) barePrice = number;
+          }
+        }
+        if (fields.address !== undefined && fields.mint === undefined) fields.mint = fields.address;
+        if (fields.pool_address !== undefined && fields.pair === undefined) fields.pair = fields.pool_address;
+        if (fields.total_supply !== undefined && fields.supply === undefined) fields.supply = fields.total_supply;
+        if (fields.totalSupply !== undefined && fields.supply === undefined) fields.supply = fields.totalSupply;
+        if (fields.usd_market_cap !== undefined && fields.mcapUsd === undefined) {
+          fields.mcapUsd = fields.usd_market_cap;
+        }
+        const barePriceProven = barePrice !== null && fields.supply > 0 && fields.mcapUsd > 0
+          && Math.abs(barePrice * fields.supply / fields.mcapUsd - 1) <= 0.02;
+        if (barePriceProven) {
+          fields.priceUsd = barePrice;
+        }
+        const hasExplicitPrice = fields.priceSol !== undefined || fields.priceNative !== undefined
+          || fields.tokenPriceUsd !== undefined || fields.priceUsd !== undefined;
+        if (barePrice !== null && !barePriceProven && !hasExplicitPrice) return null;
+        return fields;
+      };
+      const walk = (obj, depth) => {
+        if (!obj || typeof obj !== 'object' || depth > 3) return;
+        const own = fieldsFor(obj) || {};
+        const hasIdentity = own.tokenAddress || own.mint || own.pairAddress;
+        const hasPrice = [...priceKeys].some((name) => own[name] !== undefined);
+        if (hasIdentity && hasPrice) candidates.push(own);
+        for (const value of Object.values(obj)) {
+          if (value && typeof value === 'object') walk(value, depth + 1);
+        }
+      };
+      let steps = 0;
+      while (stack.length && steps++ < 400) {
+        const fiber = stack.pop();
+        if (!fiber || seen.has(fiber)) continue;
+        seen.add(fiber);
+        walk(fiber.memoizedProps, 0);
+        walk(fiber.memoizedState, 0);
+        if (fiber.child) stack.push(fiber.child);
+        if (fiber.sibling) stack.push(fiber.sibling);
+      }
+      for (let fiber = start, ancestors = 0; fiber && ancestors < 12; fiber = fiber.return, ancestors++) {
+        if (seen.has(fiber)) continue;
+        seen.add(fiber);
+        walk(fiber.memoizedProps, 0);
+        walk(fiber.memoizedState, 0);
+      }
+      const matching = candidates.filter((fields) =>
+        fields.tokenAddress === tappedAddress
+        || fields.mint === tappedAddress
+        || fields.address === tappedAddress
+        || fields.pairAddress === tappedAddress
+        || fields.pair === tappedAddress);
+      if (!matching.length) return null;
+      const selected = matching.reduce((best, fields) =>
+        !best || Object.keys(fields).length > Object.keys(best).length ? fields : best, null);
+      const merged = { ...selected };
+      for (const fields of candidates) {
+        if (fields === selected
+            || !fields.tokenAddress
+            || fields.tokenAddress !== selected.tokenAddress) continue;
+        for (const name of ['tokenPriceUsd', 'priceUsd', 'marketCapUsd']) {
+          if (merged[name] === undefined && fields[name] !== undefined) merged[name] = fields[name];
+        }
+      }
+      let mcapUsd = merged.marketCapUsd || merged.mcapUsd || null;
+      const priceUsd = merged.tokenPriceUsd || merged.priceUsd || null;
+      const supply = merged.supply || merged.total_supply || merged.totalSupply || null;
+      if (!(mcapUsd > 0 && priceUsd > 0 && supply > 0)
+          || Math.abs(mcapUsd / (priceUsd * supply) - 1) > 0.02) mcapUsd = null;
+      const quote = {
+        mint: merged.tokenAddress || merged.mint || merged.address || null,
+        pair: merged.pairAddress || merged.pair || merged.pool_address || null,
+        priceSol: merged.priceSol || merged.priceNative || null,
+        priceUsd,
+        mcapUsd,
+        supply,
+      };
+      if (merged.symbol !== undefined) quote.symbol = merged.symbol;
+      if (merged.name !== undefined) quote.name = merged.name;
+      return quote;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function findRowContainer(anchor) {
     // Height band: Padre's reworked Trenches board renders its live column
     // in a COMPACT format — measured 2026-08-26: the row is 34px tall,
@@ -3614,6 +4313,10 @@
   }
 
   function scanScreenerRows(spec) {
+    lastRowSpec = {
+      linkSelectors: spec && Array.isArray(spec.linkSelectors) ? spec.linkSelectors.slice() : [],
+      containerMode: spec && spec.containerMode,
+    };
     const amount = numberValue(spec && spec.amount) || 0.1;
     const size = Math.max(0.6, Math.min(1.5, numberValue(spec && spec.size) || 1));
     // jb (#bug-reports): on Axiom's "ultra" compact terminal format the
@@ -3879,8 +4582,8 @@
       // D-64: want-detection must consider every level source — a side whose
       // mcap candidate is null but whose native average exists (C-16 lane)
       // wants a line just as much, and previously never re-armed the sync.
-      const wantsBuy = Number(gmgnLineSpec.avgBuyMcap) > 0 || Number(gmgnLineSpec.avgBuyNative) > 0;
-      const wantsSell = Number(gmgnLineSpec.avgSellMcap) > 0 || Number(gmgnLineSpec.avgSellNative) > 0;
+      const wantsBuy = gmgnWants('Buy');
+      const wantsSell = gmgnWants('Sell');
       const buyMissing = wantsBuy && !gmgnBuySlot.adapter && !gmgnBuySlot.pending;
       const sellMissing = wantsSell && !gmgnSellSlot.adapter && !gmgnSellSlot.pending;
       if (buyMissing || sellMissing) syncGmgnAverageLines();

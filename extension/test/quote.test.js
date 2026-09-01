@@ -18,6 +18,23 @@ const FIX = path.join(__dirname, 'fixtures');
 const tokensPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'tokens-bonk.json'), 'utf8'));
 const pairPayload = JSON.parse(fs.readFileSync(path.join(FIX, 'pair-bonk.json'), 'utf8'));
 
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1';
+const WSOL = Q.WSOL_MINT;
+
+function solPair(overrides = {}) {
+  return {
+    chainId: 'solana',
+    pairAddress: 'Pair111111111111111111111111111111111111111',
+    baseToken: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '0.000003112',
+    priceUsd: '0.000003112',
+    marketCap: 3112,
+    liquidity: { usd: 1000000 },
+    ...overrides,
+  };
+}
+
 /* ---------------- criterion 1: identity + anchor quote ---------------- */
 
 test('resolves identity and anchor quote from the /tokens payload shape', () => {
@@ -83,6 +100,7 @@ test('ignores non-solana pairs and pairs without a usable price', () => {
       {
         chainId: 'solana', priceNative: '0.5', liquidity: { usd: 10 }, pairAddress: 'good',
         baseToken: { address: 'MintGood', symbol: 'GOOD', name: 'Good Token' },
+        quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
       },
     ],
   };
@@ -94,6 +112,260 @@ test('ignores non-solana pairs and pairs without a usable price', () => {
 test('returns null when no usable pair exists', () => {
   assert.equal(Q.tokenFromPayload({ pairs: [] }, 'x'), null);
   assert.equal(Q.tokenFromPayload(null, 'x'), null);
+});
+
+test('converts a USDC-quoted Solana pair through SOL/USD and records the rate', () => {
+  const rec = Q.normalizePair(solPair(), solPair().baseToken.address, { solUsd: 102 });
+  assert.ok(rec);
+  assert.ok(Math.abs(rec.priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(rec.solUsdAtResolve, 102);
+});
+
+test('refuses a non-SOL-quoted Solana pair without a SOL/USD rate', () => {
+  assert.equal(Q.normalizePair(solPair(), solPair().baseToken.address), null);
+  assert.equal(Q.normalizePair(solPair(), solPair().baseToken.address, { solUsd: 0 }), null);
+});
+
+test('token payload falls back to a shallower WSOL pool when the deeper pool needs a missing rate', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [wsol, usdc] }, mint);
+  assert.ok(token);
+  assert.equal(token.pairAddress, wsol.pairAddress);
+  assert.equal(token.priceNative, Number(wsol.priceNative));
+});
+
+test('token payload keeps the deepest USDC pool when its conversion rate is available', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [wsol, usdc] }, mint, { solUsd: 102 });
+  assert.ok(token);
+  assert.equal(token.pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(token.priceNative - Number(usdc.priceUsd) / 102) < 1e-18);
+});
+
+test('token payload with only a USDC pool refuses without a conversion rate', () => {
+  const mint = solPair().baseToken.address;
+  assert.equal(Q.tokenFromPayload({ pairs: [solPair()] }, mint), null);
+});
+
+test('token payload ranks a deep pool ahead of malformed liquidity', () => {
+  const mint = solPair().baseToken.address;
+  const shallow = solPair({
+    pairAddress: 'ShallowPair111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000001',
+    liquidity: { usd: 100 },
+  });
+  const malformed = solPair({
+    pairAddress: 'MalformedPair1111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000002',
+    liquidity: { usd: 'not-a-number' },
+  });
+  const deep = solPair({
+    pairAddress: 'DeepPair11111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003',
+    liquidity: { usd: 10000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [shallow, malformed, deep] }, mint);
+  assert.equal(token.pairAddress, deep.pairAddress);
+});
+
+test('requested-as-quote identity still selects a WSOL-base pair', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+  });
+  const token = Q.tokenFromPayload({ pairs: [pair] }, mint);
+  assert.ok(token);
+  assert.equal(token.mint, mint);
+  assert.equal(token.priceNative, 1 / 800000);
+});
+
+test('records the observed SOL/USD rate when the requested token is the quote side', () => {
+  const baseRequested = solPair({
+    baseToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000125',
+    priceUsd: '0.00025',
+  });
+  const quoteRequested = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: '0.00025',
+  });
+
+  const base = Q.normalizePair(baseRequested, baseRequested.baseToken.address);
+  const quote = Q.normalizePair(quoteRequested, quoteRequested.quoteToken.address);
+  assert.equal(base.priceNative, 0.00000125);
+  assert.equal(base.solUsdAtResolve, null);
+  assert.equal(quote.priceNative, 1 / 800000);
+  assert.equal(quote.priceUsd, (1 / 800000) * 0.00025);
+  assert.equal(quote.solUsdAtResolve, 0.00025);
+});
+
+test('a WSOL-base quote without a USD price refuses to invent token USD', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: undefined,
+  });
+  const quote = Q.normalizePair(pair, mint);
+  assert.ok(quote);
+  assert.equal(quote.priceNative, 1 / 800000);
+  assert.equal(quote.priceUsd, null);
+  assert.equal(quote.solUsdAtResolve, null);
+});
+
+test('requested-side USD flows into downstream USD P&L at the observed SOL rate', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+    priceUsd: '200',
+  });
+  const quote = Q.normalizePair(pair, mint);
+  const mark = Q.positionMark({ qty: 1, costSol: 0, lastPriceNative: 0 }, quote.priceNative, quote.priceUsd);
+  assert.equal(mark.pnlUsd, quote.priceUsd);
+});
+
+test('converts a USDC-quoted Solana pair in the batch path', () => {
+  const mint = solPair().baseToken.address;
+  const out = Q.pricesFromBatch({ pairs: [solPair()] }, { solUsd: 102 });
+  assert.ok(out[mint]);
+  assert.ok(Math.abs(out[mint].priceNative - 0.000003112 / 102) < 1e-18);
+  assert.equal(out[mint].solUsdAtResolve, 102);
+});
+
+test('batch pricing falls back to a shallower WSOL pool without a rate', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [wsol, usdc] });
+  assert.equal(out[mint].pairAddress, wsol.pairAddress);
+});
+
+test('batch pricing keeps the deepest USDC pool when its rate is available', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [wsol, usdc] }, { solUsd: 102 });
+  assert.equal(out[mint].pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(out[mint].priceNative - Number(usdc.priceUsd) / 102) < 1e-18);
+});
+
+test('GPRO batch pricing falls back from its deep USDC pool without a rate', () => {
+  const mint = 'GPRR2u6NS5yBQHWGauoJ9HXgjrTH8dDsrBfTV5zAYvDH';
+  const usdc = {
+    chainId: 'solana',
+    pairAddress: '8aRfdGqAUSDCGPROPair111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '2.4773',
+    priceUsd: '2.47',
+    liquidity: { usd: 70082 },
+  };
+  const wsol = {
+    chainId: 'solana',
+    pairAddress: 'GPROWsolPair1111111111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.02505',
+    priceUsd: '2.55',
+    liquidity: { usd: 15829 },
+  };
+
+  const withoutRate = Q.pricesFromBatch({ pairs: [wsol, usdc] });
+  assert.equal(withoutRate[mint].pairAddress, wsol.pairAddress);
+  assert.equal(withoutRate[mint].priceNative, Number(wsol.priceNative));
+
+  const withRate = Q.pricesFromBatch({ pairs: [wsol, usdc] }, { solUsd: 102 });
+  assert.equal(withRate[mint].pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(withRate[mint].priceNative - 2.47 / 102) < 1e-18);
+});
+
+test('GPRO batch pricing omits an only-USDC pool without a rate', () => {
+  const mint = 'GPRR2u6NS5yBQHWGauoJ9HXgjrTH8dDsrBfTV5zAYvDH';
+  const onlyUsdc = {
+    chainId: 'solana',
+    pairAddress: '8aRfdGqAUSDCGPROPair111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '2.4773',
+    priceUsd: '2.47',
+    liquidity: { usd: 70082 },
+  };
+  assert.deepEqual(Q.pricesFromBatch({ pairs: [onlyUsdc] }), {});
+});
+
+test('batch pricing with only a USDC pool refuses without a conversion rate', () => {
+  const mint = solPair().baseToken.address;
+  assert.deepEqual(Q.pricesFromBatch({ pairs: [solPair()] }), {});
+});
+
+test('batch pricing ranks a deep pool ahead of malformed liquidity', () => {
+  const mint = solPair().baseToken.address;
+  const shallow = solPair({
+    pairAddress: 'ShallowPair111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000001',
+    liquidity: { usd: 100 },
+  });
+  const malformed = solPair({
+    pairAddress: 'MalformedPair1111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000002',
+    liquidity: { usd: 'not-a-number' },
+  });
+  const deep = solPair({
+    pairAddress: 'DeepPair11111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003',
+    liquidity: { usd: 10000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [shallow, malformed, deep] });
+  assert.equal(out[mint].pairAddress, deep.pairAddress);
+});
+
+test('BONK USDC pricing keeps the SOL mark near the booked entry', () => {
+  const mint = solPair().baseToken.address;
+  const rec = Q.normalizePair(solPair(), mint, { solUsd: 102 });
+  const mark = Q.positionMark({ qty: 1, costSol: rec.priceNative }, rec.priceNative, rec.priceUsd);
+  assert.ok(mark);
+  assert.equal(mark.valueSol, rec.priceNative);
+  assert.ok(Math.abs(mark.pnlSol) < 1e-18);
+  assert.ok(rec.priceNative < 0.000003112 / 100,
+    'the USD-denominated raw price must not be used as SOL');
 });
 
 /* ---------------- criterion 2: tick validation ---------------- */

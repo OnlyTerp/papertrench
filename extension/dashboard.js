@@ -5513,6 +5513,15 @@ init().catch(renderInitError);
  * The fetch is a blind read: the server truncates bars at the reveal
  * moment, so nothing here can leak the future. */
 let sparkLoaded = false;
+/* Load-failure copy per server reason. The reason is real information —
+ * "the pool is empty until someone trades" and "the network hiccuped" ask
+ * for different patience — and a bare code is for the console, not people. */
+const SPARK_LOAD_COPY = {
+  'no-pool': 'The puzzle pool is empty — it fills as people trade. Check back later.',
+  'no-data': "The grader couldn't pull chart data right now. Try again in a minute.",
+  'no-pick': "Today's candidates couldn't host a puzzle. Try again in a minute.",
+  'no-window': "Today's puzzle hit a snag mid-day. Try again in a minute.",
+};
 function renderSpark(el) {
   const spark = window.PTSpark;
   if (!spark) {
@@ -5522,21 +5531,32 @@ function renderSpark(el) {
   if (sparkLoaded) return; // already rendered this session
   el.innerHTML = '<p class="dim" style="margin:10px 0">Loading today\'s puzzle…</p>';
   fetch(spark.API + '/api/spark/today', { credentials: 'omit', cache: 'no-store' })
-    .then((res) => {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    })
-    .then((body) => {
+    .then((res) => res.json().then((body) => ({ ok: res.ok, body })).catch(() => ({ ok: res.ok, body: null })))
+    .then(({ ok, body }) => {
+      if (!ok || !body || !body.ok) {
+        throw Object.assign(new Error((body && body.reason) || 'HTTP error'), {
+          sparkReason: (body && body.reason) || 'network',
+        });
+      }
       const model = spark.sparkModel(body);
-      if (!model) throw new Error('unexpected shape');
+      if (!model) throw Object.assign(new Error('unexpected shape'), { sparkReason: 'bad-payload' });
       sparkLoaded = true;
       spark.renderSpark(el, model);
     })
     .catch((err) => {
-      console.warn('PaperTrench: spark unavailable —', err.message);
-      el.innerHTML = `<p class="dim" style="margin:10px 0">Couldn't load today's puzzle just now.
-        <button type="button" class="linkish" id="spark-retry">Try again</button></p>`;
+      console.warn('PaperTrench: spark unavailable —', err.sparkReason || err.message);
+      const why = SPARK_LOAD_COPY[err.sparkReason]
+        || (err.sparkReason === 'network'
+          ? 'Couldn\'t reach the grader — check your connection.'
+          : 'The daily puzzle is unavailable right now.');
+      el.innerHTML = `<p class="dim" style="margin:10px 0">${why}
+        <button type="button" class="linkish" id="spark-retry">Try again</button>
+        · <button type="button" class="linkish" id="spark-practice-anyway">Play a practice round</button></p>`;
       const retry = el.querySelector('#spark-retry');
       if (retry) retry.addEventListener('click', () => { sparkLoaded = false; renderSpark(el); });
+      const anyway = el.querySelector('#spark-practice-anyway');
+      // Practice is a separate pick path — when the daily puzzle is down it
+      // can still be up, and even when it isn't, trying costs nothing.
+      if (anyway) anyway.addEventListener('click', () => spark.loadPractice(el));
     });
 }

@@ -1425,6 +1425,64 @@ test('C-16: a capless fill is queued and drawn once the cap becomes derivable', 
     'level = close x (fillNative / currentNative): the fill expressed on GMGN’s own axis');
 });
 
+test('D-65: a fresh launch keeps its axis anchor while its identity sharpens', async () => {
+  const env = runBridge({ gmgnMounted: true });
+
+  // The ordinary fresh-launch sequence: the chart mounts and GMGN fetches its
+  // mcap candles ONCE, before the resolver has finished identifying the coin.
+  injectActivityFrame(env, JSON.stringify({ code: 0, data: { list: [{ close: 300_000_000 }] } }),
+    'https://www.gmgn.ai/api/v1/token_mcap_candles/sol/Mint1');
+
+  // Identity then arrives in pieces, as it does for a coin nobody has indexed
+  // yet — first the pair, then the mint and symbol. Each of these used to
+  // clear the anchor, and GMGN never re-fetches candles to restore it.
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: null, symbol: null });
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: 'Mint1', symbol: 'FRESH' });
+
+  // A line priced only in SOL — D-64's premise: no mcap/priceUsd yet, so the
+  // native lane is the only one that can compute a level, and it needs the
+  // anchor the sharpening identity used to destroy.
+  env.send('gmgn-lines', {
+    enabled: true,
+    avgBuyMcap: null,
+    avgBuyNative: 5e-8,
+    currentPriceNative: 1e-7,
+  });
+  env.runTimeouts();
+  await microtasks();
+
+  const line = env.orderLines.find((l) => l.values.setPrice !== undefined);
+  assert.ok(line, 'the average line must draw — this is portifly\'s report');
+  assert.equal(line.values.setPrice, 150_000_000,
+    'level = anchor x (avgNative / currentNative), with the anchor intact');
+});
+
+test('D-65: an anchor from the previous token never prices the next one', async () => {
+  const env = runBridge({ gmgnMounted: true });
+
+  // Mint1's candles and identity.
+  injectActivityFrame(env, JSON.stringify({ code: 0, data: { list: [{ close: 300_000_000 }] } }),
+    'https://www.gmgn.ai/api/v1/token_mcap_candles/sol/Mint1');
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: 'Mint1', symbol: 'ONE' });
+
+  // Switch to a genuinely different coin. Its candles have NOT arrived yet,
+  // so the only anchor in memory belongs to Mint1 — and must not be used.
+  env.send('paper-axis', { pairAddress: 'Mint2', mint: 'Mint2', symbol: 'TWO' });
+  env.send('gmgn-lines', {
+    enabled: true,
+    avgBuyMcap: null,
+    avgBuyNative: 5e-8,
+    currentPriceNative: 1e-7,
+  });
+  env.runTimeouts();
+  await microtasks();
+
+  const drawn = env.orderLines.filter((l) => l.values.setPrice !== undefined);
+  assert.equal(drawn.length, 0,
+    'no line may be drawn from another coin\'s anchor — a wrong level is worse '
+    + 'than no level, and the sweep will draw it once Mint2\'s candles land');
+});
+
 test('C-13: failed GMGN shape draws are re-queued with bounded retries, never lost', async () => {
   const env = runBridge({ gmgnMounted: true });
   env.failGmgnShapes(2); // a mid-boot chart refuses the first two draws
@@ -1936,7 +1994,7 @@ test('Turbo source contract: the content script publishes page-state demand', ()
   );
   assert.match(setTokenBody, /publishPageState\(\);/,
     'every token change must republish feed demand');
-  assert.match(content, /sendPadreMarker\('page-state', \{ wantsTicks: wants \}\)/,
+  assert.match(content, /sendPadreMarker\('page-state', \{ wantsTicks: wants, factsWanted: facts \}\)/,
     'the demand signal must reach the bridge as page-state');
   assert.match(content, /lastWantsTicks = null;/,
     'teardown must reset the publisher so a re-enable re-announces');
@@ -2160,4 +2218,82 @@ test('F-35: a spec arriving while the line is still being created wins over the 
   assert.ok(line, 'the line must be created');
   assert.ok(Math.abs(line.values.setPrice - 300_000) < 0.01,
     'the resolved line must carry the newest level, not the one captured at issue time');
+});
+
+/* ------------------------------------------------------------------
+ * GMGN lines: the two protections the paper path has and this one didn't.
+ *
+ * D-64 (v3.18.0) made the LEVEL computable on fresh launches via the C-16
+ * native-ratio lane, and re-armed the sweep on either level source. Both of
+ * those are upstream and are not re-litigated here. Two gaps survive it:
+ *
+ *  1. syncGmgnAverageLines still called syncLineSlot with FIVE arguments.
+ *     The sixth is `wanted`, which separates "there is no line" (clear it)
+ *     from "a line is wanted, its level is momentarily uncomputable" (keep
+ *     it, retry) — F-41's split. undefined is falsy, so every uncomputable
+ *     tick destroyed a correct line and reported success. D-64 made levels
+ *     computable more often, not always: gmgnLastCandleClose resets to 0 on
+ *     every token switch and BOTH level lanes need it.
+ *
+ *  2. D-63 taught the paper path that an off-range line feeds the host
+ *     autoscale and wrecks the axis. GMGN draws through the same
+ *     createOrderLine on the same TradingView chart and never got that fix.
+ * ------------------------------------------------------------------ */
+
+test('GMGN: a wanted line survives a tick whose level is uncomputable', async () => {
+  const env = runBridge({ gmgnMounted: true });
+  env.runTimers();
+
+  // Supply known: the line draws.
+  env.send('gmgn-lines', {
+    enabled: true, avgBuyMcap: 250_000_000, avgBuyNative: 0.0000031,
+    currentMcap: 240_000_000, currentPriceNative: 0.0000030,
+    avgBuyText: 'PT Avg Buy $250M',
+  });
+  await microtasks();
+  assert.ok(env.orderLines.some((l) => !l.removed),
+    'precondition: the line draws while a level can be computed');
+
+  // Same position, next tick: no mcap (fresh-launch shape) and no current
+  // native to build the ratio from, so neither lane yields a level — but
+  // avgBuyNative still says a line IS wanted.
+  env.send('gmgn-lines', {
+    enabled: true, avgBuyMcap: null, avgBuyNative: 0.0000031,
+    currentPriceNative: null, avgBuyText: 'PT Avg Buy $250M',
+  });
+  await microtasks();
+
+  assert.ok(env.orderLines.some((l) => !l.removed),
+    'a wanted line must not be destroyed because one tick could not compute its level');
+});
+
+test('GMGN gets D-63 parity: an off-range line is cleared, not drawn into autoscale', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8');
+  const start = src.indexOf('function syncGmgnAverageLines()');
+  assert.ok(start >= 0, 'the GMGN line sync must ship');
+  const block = src.slice(start, start + 4000);
+
+  assert.match(block, /offVisibleRange\(chart,\s*\[buyLevel\]\)/,
+    'the GMGN buy level must be vetted against the visible range, as D-63 does for paper');
+  assert.match(block, /offVisibleRange\(chart,\s*\[sellLevel\]\)/,
+    'and the sell level separately — one bad side must not veto the good one');
+  assert.match(block, /buyOffRange[\s\S]{0,400}clearLineSlot/,
+    'an off-range verdict must CLEAR the slot so it stops feeding autoscale');
+  assert.match(block, /lastGmgnLineReason\s*=\s*'off-range/,
+    'off-range must name itself, per the status-honesty law');
+  assert.match(block, /buyOffRange \? false\s*\n?\s*:\s*syncLineSlot/,
+    'an off-range side must not be passed to syncLineSlot at all — it would recreate the line');
+});
+
+test('GMGN: the line sync passes `wanted`, and shares one want-rule with the sweep', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8');
+  assert.match(src, /syncLineSlot\(gmgnBuySlot,[^)]*wantsBuy\)/,
+    'the buy line must pass the wanted flag through');
+  assert.match(src, /syncLineSlot\(gmgnSellSlot,[^)]*wantsSell\)/,
+    'the sell line must pass the wanted flag through');
+  // The sweep re-arms the sync; if they disagreed about "wanted", the sweep
+  // would re-arm forever a sync that then declines to draw.
+  const wants = src.match(/gmgnWants\('Buy'\)/g) || [];
+  assert.ok(wants.length >= 2,
+    'sweep and sync must share one want-rule rather than each carrying its own copy');
 });

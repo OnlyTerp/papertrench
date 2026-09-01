@@ -82,6 +82,11 @@
    * 1. Identity + anchor quote from a Dexscreener payload
    * ------------------------------------------------------------------ */
 
+  function pairLiquidityUsd(pair) {
+    const value = Number(pair && pair.liquidity && pair.liquidity.usd);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
   /**
    * Choose the pair a trading UI would actually quote: the Solana pair with a
    * usable price and the deepest liquidity. Shallow pools produce wild prices,
@@ -91,8 +96,8 @@
    * base, or where it is the quote against wrapped SOL. This stops a stablecoin
    * or unrelated token from being returned as the resolved identity.
    */
-  function pickBestPair(pairs, requestedAddress, chainId) {
-    if (!Array.isArray(pairs)) return null;
+  function rankPairs(pairs, requestedAddress, chainId) {
+    if (!Array.isArray(pairs)) return [];
     // Multichain: filter to the REQUESTED chain (default solana). On EVM
     // chains Dexscreener's priceNative is denominated in that chain's gas
     // token, not SOL — priceUsd is the number that is true everywhere, so
@@ -100,7 +105,7 @@
     const wantChain = chainId || 'solana';
     const usable = pairs.filter((p) => p && p.chainId === wantChain
       && (wantChain === 'solana' ? Number(p.priceNative) > 0 : Number(p.priceUsd) > 0));
-    if (!usable.length) return null;
+    if (!usable.length) return [];
 
     const requested = typeof requestedAddress === 'string'
       && (BASE58_RE.test(requestedAddress) || EVM_RE.test(requestedAddress))
@@ -115,19 +120,23 @@
         return false;
       });
       if (relevant.length) {
-        return relevant.reduce((best, p) => {
-          const a = Number((p.liquidity && p.liquidity.usd) || 0);
-          const b = Number((best.liquidity && best.liquidity.usd) || 0);
-          return a > b ? p : best;
+        return relevant.slice().sort((a, b) => {
+          const left = pairLiquidityUsd(a);
+          const right = pairLiquidityUsd(b);
+          return right - left;
         });
       }
     }
 
-    return usable.reduce((best, p) => {
-      const a = Number((p.liquidity && p.liquidity.usd) || 0);
-      const b = Number((best.liquidity && best.liquidity.usd) || 0);
-      return a > b ? p : best;
+    return usable.slice().sort((a, b) => {
+      const left = pairLiquidityUsd(a);
+      const right = pairLiquidityUsd(b);
+      return right - left;
     });
+  }
+
+  function pickBestPair(pairs, requestedAddress, chainId) {
+    return rankPairs(pairs, requestedAddress, chainId)[0] || null;
   }
 
   /**
@@ -173,6 +182,7 @@
     const priceUsd = pair.priceUsd != null ? Number(pair.priceUsd) : null;
     const usdOk = Number.isFinite(priceUsd) && priceUsd > 0;
     let priceNative;
+    let normalizedPriceUsd = usdOk ? priceUsd : null;
     let solUsdAtResolve = null;
     if (foreign) {
       const rate = Number(opts && opts.solUsd);
@@ -180,17 +190,32 @@
       priceNative = priceUsd / rate;
       solUsdAtResolve = rate;
     } else {
-      priceNative = isQuote ? 1 / rawPrice : rawPrice;
+      const solQuoted = isQuote
+        ? sameAddress(base.address, WSOL_MINT)
+        : sameAddress(quote.address, WSOL_MINT);
+      if (solQuoted) {
+        priceNative = isQuote ? 1 / rawPrice : rawPrice;
+        if (isQuote) {
+          normalizedPriceUsd = usdOk ? priceNative * priceUsd : null;
+          solUsdAtResolve = usdOk ? priceUsd : null;
+        }
+      } else {
+        const rate = Number(opts && opts.solUsd);
+        if (!usdOk || !(rate > 0)) return null;
+        priceNative = priceUsd / rate;
+        solUsdAtResolve = rate;
+      }
     }
     const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
 
+    const liquidityUsd = pairLiquidityUsd(pair);
     return {
       mint: token.address || fallbackAddress || null,
       pairAddress: pair.pairAddress || null,
       symbol: token.symbol || null,
       name: token.name || token.symbol || null,
       priceNative,
-      priceUsd: usdOk ? priceUsd : null,
+      priceUsd: normalizedPriceUsd,
       mcap: Number.isFinite(mcap) && mcap > 0 && !isQuote ? mcap : null,
       dex: pair.dexId || null,
       priceSource: 'resolver',
@@ -200,8 +225,7 @@
       // F-55: surfaced so a drained pool can be told from a trading one. A
       // rug empties liquidity; a real runner's pool deepens. Null when the
       // source reports none — the mark guard stands aside rather than guess.
-      liquidityUsd: Number(pair.liquidity && pair.liquidity.usd) > 0
-        ? Number(pair.liquidity.usd) : null,
+      liquidityUsd: liquidityUsd > 0 ? liquidityUsd : null,
     };
   }
 
@@ -215,8 +239,15 @@
   function tokenFromPayload(payload, fallbackAddress, opts) {
     if (!payload || typeof payload !== 'object') return null;
     const chainId = chainIdFor(opts && opts.chain);
-    const pair = payload.pair || pickBestPair(payload.pairs, fallbackAddress, chainId);
-    const token = normalizePair(pair, fallbackAddress, opts);
+    const pair = payload.pair;
+    const candidates = pair
+      ? [pair]
+      : rankPairs(payload.pairs, fallbackAddress, chainId);
+    let token = null;
+    for (const candidate of candidates) {
+      token = normalizePair(candidate, fallbackAddress, opts);
+      if (token) break;
+    }
     // F-61: surface EVERY pool the source lists for this base mint. A Pulse
     // row buy can commit under a bonding-era PAIR stand-in (the row-feed
     // fallback echoes the click address as the key); after graduation the
@@ -470,6 +501,91 @@
     return typeof t.mint === 'string' && /pump$/.test(t.mint);
   }
 
+  var HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  // Quote/native pool assets must never become the tracked token identity.
+  var HOST_FACT_QUOTE_MINTS = new Set([
+    'So11111111111111111111111111111111111111112',
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  ]);
+
+  function hostFactsDecision(t, facts) {
+    var result = {
+      adoptMint: null,
+      poolAddress: null,
+      supplyUi: null,
+      refused: false,
+      reason: null,
+    };
+    if (!t || !t.pending) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var payload = facts && typeof facts === 'object' ? facts : {};
+    var addresses = Array.isArray(payload.addresses) ? payload.addresses : [];
+    var srcAddress = typeof t.srcAddress === 'string' ? t.srcAddress : '';
+    var factMint = typeof payload.mint === 'string' ? payload.mint : '';
+    var tiedToPage = factMint === t.mint
+      || (srcAddress && addresses.indexOf(srcAddress) !== -1);
+    if (!tiedToPage) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var tiedToPageAddress = srcAddress && addresses.indexOf(srcAddress) !== -1;
+    var validMint = HOST_FACT_ADDRESS_RE.test(factMint);
+    if (tiedToPageAddress && validMint && factMint !== srcAddress && factMint !== t.mint) {
+      if (HOST_FACT_QUOTE_MINTS.has(factMint)) {
+        result.reason = 'quote-mint';
+      } else {
+        result.adoptMint = factMint;
+        result.poolAddress = typeof payload.poolAddress === 'string'
+          ? payload.poolAddress : null;
+      }
+    }
+
+    if (t.hostSupplyRejected) return result;
+
+    var priceUsd = Number(payload.priceUsd);
+    var mcap = Number(payload.mcap);
+    var hasSupply = payload.supply !== null && payload.supply !== undefined;
+    if (!(priceUsd > 0) || !(mcap > 0)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    var implied = mcap / priceUsd;
+    if (!(implied > 0) || !Number.isFinite(implied)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    if (!hasSupply) {
+      result.supplyUi = implied;
+      return result;
+    }
+
+    var rawSupply = Number(payload.supply);
+    if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+      return result;
+    }
+    var decimals = Number(payload.decimals);
+    var readings = [rawSupply];
+    if (Number.isInteger(decimals) && decimals >= 0) {
+      readings.push(rawSupply / (10 ** decimals));
+    }
+    result.supplyUi = readings.find(function (reading) {
+      return reading > 0 && Number.isFinite(reading)
+        && Math.abs(implied - reading) / reading <= 0.01;
+    }) || null;
+    if (!(result.supplyUi > 0)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+    }
+    return result;
+  }
+
   /**
    * The supply an mcap-scale reading may honestly be divided by, or null.
    *
@@ -482,11 +598,17 @@
    * No supply from either source means mcap readings stay unpriceable, which
    * is the honest answer, not a gap.
    */
-  function bootstrapSupply(t) {
-    if (!t) return null;
+  function bootstrapSupplyInfo(t) {
+    if (!t) return { supplyUi: null, basis: null };
     var measured = Number(t.supplyUi);
-    if (measured > 0) return measured;
-    return isPumpFamily(t) ? PUMP_FAMILY_SUPPLY : null;
+    if (measured > 0) return { supplyUi: measured, basis: 'measured' };
+    if (isPumpFamily(t)) return { supplyUi: PUMP_FAMILY_SUPPLY, basis: 'pump-constant' };
+    var host = Number(t.hostSupplyUi);
+    return host > 0 ? { supplyUi: host, basis: 'host' } : { supplyUi: null, basis: null };
+  }
+
+  function bootstrapSupply(t) {
+    return bootstrapSupplyInfo(t).supplyUi;
   }
 
   /** The unit-price band an mcap reading must land in to be credible. The
@@ -518,6 +640,7 @@
         priceUsd: null,
         mcap: null,
         basis: null,
+        supplyBasis: null,
       };
     };
 
@@ -538,7 +661,7 @@
       || tick.source === 'gmgn-mcap-candle';
     if (!trusted) return reject('untrusted-source');
 
-    var accept = function (native, usd, mcap, basis) {
+    var accept = function (native, usd, mcap, basis, supplyBasis) {
       return {
         accepted: true,
         reason: 'ok',
@@ -546,6 +669,7 @@
         priceUsd: usd > 0 ? usd : null,
         mcap: mcap > 0 ? mcap : null,
         basis: basis,
+        supplyBasis: supplyBasis || null,
       };
     };
 
@@ -609,7 +733,8 @@
         // mcap, USD mcap — are judged against the same sane band, and the
         // tick is priced only when EXACTLY ONE fits (the F-25 discipline,
         // extended).
-        var supply = bootstrapSupply(pendingToken);
+        var supplyInfo = bootstrapSupplyInfo(pendingToken);
+        var supply = supplyInfo.supplyUi;
         if (rate && supply) {
           var band = mcapUnitBand(pendingToken);
           var readings = [
@@ -627,7 +752,8 @@
           });
           if (sane.length > 1) return reject('ambiguous-unit');
           if (sane.length === 1) {
-            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis);
+            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis,
+              supplyInfo.basis);
           }
           return reject('implausible-unit');
         }
@@ -671,7 +797,8 @@
     // A market-cap-only tick (GMGN/Axiom pre-index) can price any coin whose
     // supply is KNOWN — pump's protocol constant or a supply measured off the
     // mint account — through the same exactly-one-sane discipline.
-    var mcSupply = bootstrapSupply(pendingToken);
+    var mcSupplyInfo = bootstrapSupplyInfo(pendingToken);
+    var mcSupply = mcSupplyInfo.supplyUi;
     if (tickMcap > 0 && rate && mcSupply) {
       var mcBand = mcapUnitBand(pendingToken);
       var usdMc = tickMcap / mcSupply;
@@ -679,8 +806,9 @@
       var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.max;
       var solOk = solMc >= mcBand.min && solMc <= mcBand.max;
       if (usdOk && solOk) return reject('ambiguous-unit');
-      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap');
-      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap');
+      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap', mcSupplyInfo.basis);
+      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap',
+        mcSupplyInfo.basis);
     }
     // A market-cap-only tick has no token price, so nothing can be filled yet.
     if (tickMcap > 0) return reject('mcap-only-no-supply');
@@ -1296,15 +1424,23 @@
       if (foreign ? !(Number(pair.priceUsd) > 0) : !(Number(pair.priceNative) > 0)) continue;
       const mint = pair.baseToken && pair.baseToken.address;
       if (!mint) continue;
-      const prev = byMint.get(mint);
-      const liq = Number((pair.liquidity && pair.liquidity.usd) || 0);
-      const prevLiq = prev ? Number((prev.liquidity && prev.liquidity.usd) || 0) : -1;
-      if (!prev || liq > prevLiq) byMint.set(mint, pair);
+      if (!byMint.has(mint)) byMint.set(mint, []);
+      byMint.get(mint).push(pair);
     }
 
-    for (const [mint, pair] of byMint) {
-      const quote = normalizePair(pair, mint, opts);
-      if (quote) out[mint] = quote;
+    for (const [mint, candidates] of byMint) {
+      candidates.sort((a, b) => {
+        const left = pairLiquidityUsd(a);
+        const right = pairLiquidityUsd(b);
+        return right - left;
+      });
+      for (const candidate of candidates) {
+        const quote = normalizePair(candidate, mint, opts);
+        if (quote) {
+          out[mint] = quote;
+          break;
+        }
+      }
     }
     return out;
   }
@@ -1571,7 +1707,9 @@
     SCALE_STEP_RATIO,
     SCALE_STEP_WINDOW_MS,
     isPumpFamily,
+    hostFactsDecision,
     bootstrapSupply,
+    bootstrapSupplyInfo,
     rugVerdict,
     parsePresetList,
     positionMark,

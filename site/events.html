@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench | Events</title>
-<meta name="description" content="What is running on PaperTrench right now: the open Sprint window, streamers live in the trenches, and the verifier tape as records land.">
+<meta name="description" content="Top of the Trench — finish #1 on the weekly PaperTrench board before it resets and the week is yours, tagged on your profile forever. Free to enter, no buy-in.">
+<meta property="og:title" content="Top of the Trench — the weekly PaperTrench crown">
+<meta property="og:description" content="One week. Finish first on the board and the #1 tag is yours for good. Real charts, paper money, a record that gets checked.">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
@@ -13,58 +16,212 @@
 <link rel="stylesheet" href="arena.css">
 <style>
   /* ================================================================== *
-   *  /events — what is running right now.
+   *  /events — one event, centred.
    *
-   *  FIRST PASS, and deliberately an aggregator rather than a new system.
-   *  PaperTrench already has time-bound things: the Sprint runs in weekly
-   *  windows the verifier actually folds, streamers go live, and records
-   *  land on the tape. None of that was collected anywhere, so "events"
-   *  is read here as "the calendar those already imply" rather than as a
-   *  new events table nobody has specified.
+   *  The first pass was three panels, and the third was the verifier tape:
+   *  six rows of `rejected — chain-replaced`. That is diagnostic output, not
+   *  an event, and a wall of red is the worst available read of a healthy
+   *  product. The tape lives on /leaderboard, where a verdict stream belongs.
    *
-   *  Every panel is backed by a real endpoint. Nothing on this page is a
-   *  placeholder event, because a fake scheduled event is a promise the
-   *  project has not made.
+   *  What is left is the one thing with a deadline and a prize: the weekly
+   *  board, and the tag you keep for winning it. Everything else PaperTrench
+   *  runs is ongoing rather than an event, so it is a quiet strip underneath
+   *  rather than six competing cards.
+   *
+   *  The prize is a TAG, and the page is careful about what the tag claims.
+   *  It is a record of placement on a board that is already public — not an
+   *  assertion that the winner traded well. server/core/achievements.js bans
+   *  profit badges for good reasons; the hover text here says precisely what
+   *  the tag means and stops there.
    * ================================================================== */
-  .ev-head { padding: 128px 0 10px; }
+
+  .ev-wrap { max-width: 760px; margin: 0 auto; }
+
+  .ev-head { padding: 128px 0 4px; text-align: center; }
   .ev-head h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 700; letter-spacing: -0.02em; }
-  .ev-head p { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 660px; line-height: 1.65; }
+  .ev-head p { font-size: 14.5px; color: var(--muted); margin: 12px auto 0; max-width: 52ch; line-height: 1.65; }
 
-  .ev-grid { display: grid; gap: 16px; grid-template-columns: 1fr 1.1fr; align-items: start; }
-  @media (max-width: 900px) { .ev-grid { grid-template-columns: 1fr; } }
+  /* ---------- the event card ---------- */
+  /* padding:0 is load-bearing, not tidiness. style.css sets
+     `section { padding: 110px 0 }` for the marketing page rhythm, and this
+     card is a <section> — inheriting it wedged 110px of dead space between
+     the card's top border and its own artwork. */
+  .ev-card {
+    margin-top: 30px; padding: 0; border-radius: 18px; overflow: hidden;
+    border: 1px solid rgba(255,157,69,0.34);
+    background: var(--panel);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+  }
 
-  .ev-now { padding: 22px 24px; }
-  .ev-kicker { font-family: var(--mono); font-size: 10.5px; font-weight: 800;
-    letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); }
-  .ev-title { font-size: 22px; font-weight: 750; letter-spacing: -0.01em; margin: 8px 0 4px; }
-  .ev-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  /* The art half. Drawn rather than dropped in as a file: it themes with the
+     rest of the site, stays crisp at any density, and costs no bytes. */
+  .ev-art {
+    position: relative; padding: 26px 28px 24px;
+    background:
+      radial-gradient(680px 260px at 78% 8%, rgba(255,157,69,0.30), transparent 68%),
+      radial-gradient(420px 220px at 12% 96%, rgba(255,95,86,0.16), transparent 70%),
+      linear-gradient(120deg, #2a1608, #160d14 62%);
+  }
+  .ev-art::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(ellipse 70% 100% at 80% 0%, #000, transparent 75%);
+  }
+  .ev-art > * { position: relative; z-index: 1; }
 
-  .ev-clock { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 4px; }
-  .ev-unit { min-width: 68px; padding: 10px 12px; border-radius: 12px;
-    background: rgba(0,0,0,0.28); border: var(--edge); text-align: center; }
-  .ev-unit b { display: block; font-family: var(--mono); font-size: 22px; font-weight: 700;
-    color: var(--text); font-variant-numeric: tabular-nums; }
-  .ev-unit span { font-family: var(--mono); font-size: 9.5px; letter-spacing: 1.2px;
-    text-transform: uppercase; color: var(--dim); }
+  .ev-toprow { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+  .tag {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase;
+    padding: 4px 9px; border-radius: 999px;
+    background: rgba(0,0,0,0.34); border: 1px solid rgba(255,255,255,0.16); color: var(--orange2);
+  }
+  .tag.open { color: #8bf0c4; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.12); }
+  .ev-icons { margin-left: auto; display: flex; gap: 7px; }
+  .ic {
+    width: 30px; height: 30px; display: grid; place-items: center;
+    border-radius: 9px; cursor: pointer; color: rgba(255,255,255,0.72);
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.16);
+    transition: background .16s, color .16s, border-color .16s;
+  }
+  .ic:hover { background: rgba(0,0,0,0.5); color: #fff; border-color: rgba(255,255,255,0.34); }
 
-  .ev-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.07);
-    overflow: hidden; margin-top: 16px; }
-  .ev-bar i { display: block; height: 100%; border-radius: 999px; background: var(--grad-heat); }
-  .ev-barnote { display: flex; justify-content: space-between; gap: 10px;
-    font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 7px; }
+  .ev-body { display: flex; align-items: flex-end; gap: 22px; }
+  .ev-copy { flex: 1; min-width: 0; }
+  .ev-name {
+    font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.02; color: #fff;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.45);
+  }
+  .ev-tagline { font-size: 14px; color: rgba(255,255,255,0.78); margin-top: 8px; line-height: 1.5; max-width: 40ch; }
 
-  .ev-list { display: grid; gap: 9px; }
-  .ev-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px;
-    border-radius: 11px; background: rgba(255,255,255,0.022); border: var(--edge); }
-  .ev-item .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--dim); }
-  .ev-item.on .dot { background: var(--red); box-shadow: 0 0 9px var(--red); animation: pulse 1.6s infinite; }
-  .ev-item .nm { font-weight: 700; font-size: 13.5px; }
-  .ev-item .mt { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-left: auto; }
+  /* ---------- the prize ---------- */
+  .ev-prize { flex: none; text-align: right; }
+  .prize-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 15px 9px 12px; border-radius: 12px;
+    background: linear-gradient(135deg, rgba(255,192,129,0.22), rgba(255,157,69,0.12));
+    border: 1px solid rgba(255,192,129,0.5);
+    box-shadow: 0 8px 26px -10px rgba(255,157,69,0.7);
+  }
+  .prize-chip .num {
+    font-family: var(--mono); font-size: 26px; font-weight: 800;
+    color: #fff; line-height: 1; letter-spacing: -0.03em;
+  }
+  .prize-chip .what {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase;
+    color: var(--orange2); text-align: left; line-height: 1.3;
+  }
+  .ev-prize .cap {
+    display: flex; align-items: center; justify-content: flex-end; gap: 5px;
+    font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;
+  }
 
-  .ev-firstpass { margin-top: 20px; padding: 14px 18px; border-radius: 12px;
-    background: rgba(255,157,69,0.05); border: 1px solid rgba(255,157,69,0.22);
-    border-left: 2px solid var(--orange); font-size: 12.5px; color: var(--muted); line-height: 1.6; }
-  .ev-firstpass b { color: var(--text); font-weight: 700; }
+  /* The explainer sits ON the tag, because that is where the question is
+     asked. It is a <button> with aria-describedby rather than a title
+     attribute: title never appears on touch and cannot be reached by
+     keyboard, which makes it decoration. */
+  .info { position: relative; display: inline-flex; }
+  .info-btn {
+    width: 15px; height: 15px; padding: 0; display: grid; place-items: center;
+    border-radius: 50%; cursor: help; color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    font: inherit; transition: color .15s, background .15s;
+  }
+  .info-btn:hover, .info-btn:focus-visible { color: #fff; background: rgba(255,255,255,0.22); }
+  .info-pop {
+    position: absolute; bottom: calc(100% + 9px); right: -6px; width: 246px;
+    padding: 11px 13px; border-radius: 11px; z-index: 5;
+    background: #0d1119; border: 1px solid var(--line2);
+    box-shadow: 0 18px 44px rgba(0,0,0,0.6);
+    font-size: 12px; line-height: 1.55; color: var(--muted); text-align: left;
+    opacity: 0; visibility: hidden; transform: translateY(4px);
+    transition: opacity .15s, transform .15s, visibility .15s;
+  }
+  .info-pop b { color: var(--text); font-weight: 700; }
+  .info:hover .info-pop, .info-btn:focus-visible + .info-pop { opacity: 1; visibility: visible; transform: none; }
+  @media (max-width: 620px) { .info-pop { right: auto; left: -100px; } }
+
+  /* ---------- the facts band ---------- */
+  .ev-facts {
+    display: flex; align-items: center; gap: 30px; flex-wrap: wrap;
+    padding: 15px 28px; background: rgba(0,0,0,0.3); border-top: var(--edge);
+  }
+  .ev-facts .f span {
+    display: block; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
+    letter-spacing: 1px; text-transform: uppercase; color: var(--dim);
+  }
+  .ev-facts .f b {
+    display: block; font-size: 14px; font-weight: 700; color: var(--text);
+    margin-top: 3px; font-variant-numeric: tabular-nums;
+  }
+  .ev-facts .f b.clock { font-family: var(--mono); color: var(--orange2); }
+  .ev-enter {
+    margin-left: auto; font-size: 13px; font-weight: 700; color: #241202;
+    background: var(--grad-heat); border-radius: 10px; padding: 10px 18px;
+    box-shadow: 0 10px 26px -12px rgba(255,157,69,0.9);
+    transition: transform .16s, box-shadow .16s;
+  }
+  .ev-enter:hover { transform: translateY(-1px); box-shadow: 0 14px 30px -12px rgba(255,157,69,1); }
+  @media (max-width: 620px) {
+    .ev-body { flex-direction: column; align-items: flex-start; gap: 18px; }
+    .ev-prize { text-align: left; }
+    .ev-prize .cap { justify-content: flex-start; }
+    .ev-enter { margin-left: 0; width: 100%; text-align: center; }
+  }
+
+  /* ---------- how it works ---------- */
+  .ev-how { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 620px) { .ev-how { grid-template-columns: 1fr; } }
+  .how {
+    padding: 16px 17px; border-radius: 13px;
+    background: var(--panel); border: var(--edge);
+  }
+  .how .n {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.3px; color: var(--dim);
+  }
+  .how h3 { font-size: 14px; font-weight: 750; margin: 8px 0 5px; letter-spacing: -0.01em; }
+  .how p { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+
+  /* ---------- also running ---------- */
+  .ev-also { margin-top: 28px; }
+  .ev-also h2 {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 1.4px;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 11px; text-align: center;
+  }
+  .also-row { display: grid; gap: 8px; }
+  .also {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    border-radius: 11px; background: rgba(255,255,255,0.02); border: var(--edge);
+    transition: background .16s, border-color .16s;
+  }
+  .also:hover { background: rgba(255,255,255,0.045); border-color: var(--line2); }
+  .also b { font-size: 13.5px; font-weight: 700; }
+  .also span { font-size: 12.5px; color: var(--muted); }
+  .also .when {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+    color: var(--dim); white-space: nowrap;
+  }
+
+  .ev-note {
+    margin-top: 24px; padding: 14px 18px; border-radius: 12px; text-align: center;
+    background: rgba(255,255,255,0.02); border: var(--edge);
+    font-size: 12.5px; color: var(--muted); line-height: 1.65;
+  }
+  .ev-note b { color: var(--text); font-weight: 700; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);
+    padding: 10px 18px; border-radius: 10px; z-index: 50;
+    background: #0d1119; border: 1px solid var(--line2); color: var(--text);
+    font-size: 13px; font-weight: 650;
+    opacity: 0; visibility: hidden; transition: opacity .18s, transform .18s, visibility .18s;
+  }
+  .toast.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 </style>
 </head>
 <body>
@@ -94,41 +251,122 @@
 </nav>
 
 <main id="main" class="wrap" style="padding-bottom:96px">
+ <div class="ev-wrap">
+
   <header class="ev-head">
     <h1>Events</h1>
-    <p>What is actually running right now. The Sprint window below is the one the
-    verifier folds; the streams are checked live; the tape is the verifier talking.
-    Nothing here is a scheduled placeholder.</p>
+    <p>One board, one week, one tag. Free to enter and nothing to sign up for —
+    install the extension and your record is already in it.</p>
   </header>
 
-  <div class="ev-grid">
-    <section class="ar-pane" aria-labelledby="ev-now-h">
-      <div class="ar-pane-head"><span class="glyph" style="color:var(--orange2)">◷</span>
-        <span id="ev-now-h">The open window</span></div>
-      <div class="ev-now" id="ev-now"><p class="ar-note">Reading the Sprint window…</p></div>
-    </section>
+  <!-- ============ THE EVENT ============ -->
+  <section class="ev-card" aria-labelledby="ev-name">
+    <div class="ev-art">
+      <div class="ev-toprow">
+        <span class="tag">Weekly</span>
+        <span class="tag open" id="ev-state">Open now</span>
+        <div class="ev-icons">
+          <button class="ic" type="button" id="ev-share" aria-label="Share this event">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/>
+              <path d="M8.3 10.8 15.7 6.6M8.3 13.2l7.4 4.2"/>
+            </svg>
+          </button>
+          <a class="ic" href="/sprint" aria-label="Open the live board">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 19.5V11M10 19.5V5M16 19.5v-6M21 19.5H3"/>
+            </svg>
+          </a>
+        </div>
+      </div>
 
-    <div style="display:grid;gap:16px">
-      <section class="ar-pane" aria-labelledby="ev-live-h">
-        <div class="ar-pane-head"><span class="glyph" style="color:var(--red)">▶</span>
-          <span id="ev-live-h">Live in the trenches</span></div>
-        <div class="pad" id="ev-live"><p class="ar-note">Checking who is live…</p></div>
-      </section>
+      <div class="ev-body">
+        <div class="ev-copy">
+          <h2 class="ev-name" id="ev-name">Top of the Trench</h2>
+          <p class="ev-tagline">Finish first on the board before the week resets.
+          Win it and the tag is yours for good — there is exactly one a week.</p>
+        </div>
 
-      <section class="ar-pane" aria-labelledby="ev-tape-h">
-        <div class="ar-pane-head"><span class="glyph" style="color:var(--green)">▸</span>
-          <span id="ev-tape-h">The tape</span></div>
-        <div class="pad" id="ev-tape"><p class="ar-note">Reading the tape…</p></div>
-      </section>
+        <div class="ev-prize">
+          <div class="prize-chip">
+            <span class="num">#1</span>
+            <span class="what">the tag<br>you keep</span>
+          </div>
+          <div class="cap">
+            Winner's tag
+            <span class="info">
+              <button class="info-btn" type="button" id="tag-info"
+                      aria-label="What the #1 tag means" aria-describedby="tag-pop">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M11 10h2v8h-2zM11 6h2v2.4h-2z"/>
+                </svg>
+              </button>
+              <span class="info-pop" id="tag-pop" role="tooltip">
+                <b>Finished #1 on the weekly board.</b> Awarded when the week
+                closes and kept permanently, with the week it was won for. It
+                records where you placed on a public board — it does not claim
+                you traded well, and it can never be bought or transferred.
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ev-facts">
+      <div class="f"><span>Entry</span><b>Free</b></div>
+      <div class="f"><span>In the running</span><b id="ev-entrants">—</b></div>
+      <div class="f"><span>Resets in</span><b class="clock" id="ev-clock">—</b></div>
+      <a class="ev-enter" href="/sprint">See the board →</a>
+    </div>
+  </section>
+
+  <!-- ============ HOW ============ -->
+  <div class="ev-how">
+    <div class="how">
+      <div class="n">01</div>
+      <h3>Trade the week</h3>
+      <p>Only fills you take inside the window count. Last week's run does not carry over.</p>
+    </div>
+    <div class="how">
+      <div class="n">02</div>
+      <h3>It gets checked</h3>
+      <p>Every fill is re-hashed and re-priced against real market history before it ranks.</p>
+    </div>
+    <div class="how">
+      <div class="n">03</div>
+      <h3>Monday, it's settled</h3>
+      <p>The board freezes, the top record is crowned once, and a fresh week opens.</p>
     </div>
   </div>
 
-  <p class="ev-firstpass"><b>First pass.</b> "Events" had no spec, so this page
-  collects the time-bound things PaperTrench already runs rather than inventing an
-  events system. If what was wanted is scheduled, announced events — tournaments with
-  a start date, prize pools, sign-ups — that needs somewhere to store them and a way
-  for a moderator to post one, which is a bigger build than this page.</p>
+  <!-- ============ ALSO RUNNING ============ -->
+  <div class="ev-also">
+    <h2>Also running</h2>
+    <div class="also-row">
+      <a class="also" href="/#install">
+        <b>Daily Spark</b><span>one chart, one call — graded on your reasoning</span>
+        <span class="when" id="spark-clock">—</span>
+      </a>
+      <a class="also" href="/clans">
+        <b>Clan season</b><span>trade for a crew, your tag rides on the board</span>
+        <span class="when">weekly</span>
+      </a>
+      <a class="also" href="/duels">
+        <b>Duels</b><span>challenge one person over a window you pick</span>
+        <span class="when">anytime</span>
+      </a>
+    </div>
+  </div>
+
+  <p class="ev-note"><b>No buy-in and no payout.</b> PaperTrench is free and runs on
+  nobody's budget — what is on the line is the tag, your place on the board, and a
+  record anyone can check. If that ever changes it will be said here first.</p>
+
+ </div>
 </main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <footer>
   <div class="wrap">

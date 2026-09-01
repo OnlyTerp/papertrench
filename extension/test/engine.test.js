@@ -64,6 +64,26 @@ test('F-48: a fill records its price provenance — source and age ride the jour
   assert.equal(sell.trade.priceAgeMs, 95);
 });
 
+test('host supply provenance rides buy and sell journal rows', () => {
+  const settings = freshSettings();
+  const state = E.defaultState(settings);
+  const witness = { source: 'axiom', url: 'https://axiom.trade/meme/MintSupply' };
+  const buy = E.buy(state, settings, {
+    ts: 1_800_000_000_000, mint: 'MintSupply', symbol: 'SUP', site: 'axiom',
+    priceNative: 1e-7, solAmount: 1, supplySource: 'site-facts',
+    hostSupplyWitness: witness,
+  });
+  assert.equal(buy.trade.supplySource, 'site-facts');
+  assert.deepEqual(buy.trade.hostSupplyWitness, witness);
+  const sell = E.sell(state, settings, {
+    ts: 1_800_000_001_000, mint: 'MintSupply', site: 'axiom',
+    qtyFraction: 0.5, priceNative: 1e-7,
+    supplySource: 'site-facts', hostSupplyWitness: witness,
+  });
+  assert.equal(sell.trade.supplySource, 'site-facts');
+  assert.deepEqual(sell.trade.hostSupplyWitness, witness);
+});
+
 test('F-48: absent provenance stays absent — no invented fields, no negative ages', () => {
   const settings = freshSettings();
   const state = E.defaultState(settings);
@@ -407,6 +427,38 @@ test('markPosition tracks peak and trough unrealized P&L', () => {
   assert.ok(pos.peakPnlSol > 0, 'peak must record the profitable excursion');
   assert.ok(pos.troughPnlSol < 0, 'trough must record the drawdown');
   assert.ok(pos.peakPnlSol > pos.troughPnlSol);
+});
+
+test('markPosition records provenance and diagnoses a large price disagreement', () => {
+  const settings = freshSettings({ feeBps: 0, slippageBps: 0 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, {
+    ts: Date.now(), mint: 'MintA', symbol: 'X', priceNative: 0.001, solAmount: 1,
+  });
+
+  const logs = [];
+  const debug = console.debug;
+  console.debug = (...args) => logs.push(args.join(' '));
+  try {
+    E.markPosition(state, 'MintA', 0.0015, null, {
+      priceSource: 'row-props',
+      pairAddress: 'pair-row',
+    });
+    E.markPosition(state, 'MintA', 0.0016, null);
+    assert.equal(state.positions.MintA.lastPriceSource, 'row-props');
+    assert.equal(state.positions.MintA.lastPricePair, 'pair-row');
+
+    E.markPosition(state, 'MintA', 0.0002, null, {
+      priceSource: 'resolver',
+      pairAddress: 'pair-resolver',
+    });
+  } finally {
+    console.debug = debug;
+  }
+
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /MintA 0\.0002 .*resolver, pair pair-resolver/);
+  assert.match(logs[0], /held 0\.0016 .*row-props, pair pair-row/);
 });
 
 test('equity reflects cash plus marked position value', () => {
