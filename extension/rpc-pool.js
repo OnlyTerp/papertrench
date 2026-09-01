@@ -40,6 +40,8 @@
 
   // An endpoint that fails is benched, not discarded; transient 429s recover.
   const COOLDOWN_MS = 60_000;
+  const THROTTLE_DEFAULT_MS = 2_000;
+  const THROTTLE_MAX_MS = 15_000;
   const PROBE_TIMEOUT_MS = 4000;
   // Heavy reads (getProgramAccounts over the whole PumpSwap program) legiti-
   // mately take longer than the ordinary 4s ceiling from THIS machine. A
@@ -131,7 +133,7 @@
   })();
 
   function stateFor(id) {
-    if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, demotedUntil: 0, lastFailureAt: 0 });
+    if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, throttledUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, demotedUntil: 0, lastFailureAt: 0 });
     return health.get(id);
   }
 
@@ -183,6 +185,9 @@
         const demotedA = sa.demotedUntil > now ? 1 : 0;
         const demotedB = sb.demotedUntil > now ? 1 : 0;
         if (demotedA !== demotedB) return demotedA - demotedB;
+        const throttledA = sa.throttledUntil > now ? 1 : 0;
+        const throttledB = sb.throttledUntil > now ? 1 : 0;
+        if (throttledA !== throttledB) return throttledA - throttledB;
         if (sa.failures !== sb.failures) return sa.failures - sb.failures;
         // Prefer a measured-fast endpoint; unmeasured sorts after measured.
         const la = sa.latencyMs == null ? Infinity : sa.latencyMs;
@@ -193,10 +198,11 @@
     return list.concat(pool);
   }
 
-  function reportSuccess(id, latencyMs) {
+  function reportSuccess(id, latencyMs, opts) {
     const state = stateFor(id);
     state.failures = 0;
     state.benchedUntil = 0;
+    if (!(opts && opts.transport === 'ws')) state.throttledUntil = 0;
     state.lastFailureAt = 0;
     // A success is proof the endpoint serves — pending method-block evidence
     // was a WAF blip, not policy. Disarm it, and lift the 403 demotion.
@@ -241,6 +247,17 @@
           state.methodEvidence[method] = now;
         }
       }
+      persistHealthSoon();
+      return;
+    }
+
+    if (kind === 'throttle') {
+      const retryAfter = Number(opts && opts.retryAfterMs);
+      const delay = Number.isFinite(retryAfter) && retryAfter >= 0
+        ? Math.min(THROTTLE_MAX_MS, Math.max(THROTTLE_DEFAULT_MS, retryAfter))
+        : THROTTLE_DEFAULT_MS;
+      // A 429 is not a strike: leave the decay clock untouched.
+      state.throttledUntil = now + delay;
       persistHealthSoon();
       return;
     }
@@ -377,6 +394,26 @@
           err.logged = true;
           throw err;
         }
+        if (response.status === 429) {
+          let rawRetryAfter = null;
+          try {
+            rawRetryAfter = response.headers
+              && response.headers.get
+              && response.headers.get('retry-after');
+          } catch (_) {}
+          const retryAfterSeconds = Number(rawRetryAfter);
+          const retryAfterMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+            ? Math.min(THROTTLE_MAX_MS, Math.max(
+              THROTTLE_DEFAULT_MS, retryAfterSeconds * 1000))
+            : THROTTLE_DEFAULT_MS;
+          logAttempt({ endpoint: endpoint.id, method, status: 429, ms: Date.now() - started });
+          reportFailure(endpoint.id, { kind: 'throttle', method, retryAfterMs });
+          const err = new Error('http 429 ' + method + ' @ ' + endpoint.id);
+          err.kind = 'throttle';
+          err.reported = true;
+          err.logged = true;
+          throw err;
+        }
         logAttempt({ endpoint: endpoint.id, method, status: response.status, ms: Date.now() - started });
         throw new Error('http ' + response.status + ' ' + method + ' @ ' + endpoint.id);
       }
@@ -500,7 +537,7 @@
   }
 
   const api = {
-    PUBLIC_ENDPOINTS, COOLDOWN_MS,
+    PUBLIC_ENDPOINTS, COOLDOWN_MS, THROTTLE_DEFAULT_MS, THROTTLE_MAX_MS,
     setUserEndpoint, hasUserEndpoint,
     ranked, call, websocketUrls, poolLatency, poolStress,
     reportSuccess, reportFailure, methodBlockedEverywhere,

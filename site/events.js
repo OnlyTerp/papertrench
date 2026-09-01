@@ -1,21 +1,25 @@
 /* PaperTrench — /events.
  *
- * FIRST PASS. "Events" arrived without a spec, so this reads it as "the
- * calendar the product already implies" rather than as a new events system:
- * the Sprint window the verifier actually folds, who is streaming right now,
- * and what the verifier has been saying. Every panel is backed by a live
- * endpoint, and a panel that cannot read its endpoint says so — none of them
- * fall back to an invented event, because a fake scheduled event is a promise
- * the project has not made.
+ * The page is one event and a short strip; this file supplies the two clocks
+ * and the entrant count, and wires the share button.
+ *
+ * Two rules carried from the first pass, because they are what stop an events
+ * page becoming a page of promises:
+ *
+ *   1. Clocks are DERIVED, never hardcoded. Each deadline is a function of
+ *      now, using the same window rule the server folds, so the page stays
+ *      correct with nobody maintaining it. The Sprint takes the real endTs
+ *      once the API answers and falls back to that shared rule meanwhile —
+ *      the two agree even when the fetch fails.
+ *   2. A number that cannot be READ is not printed as a number. "nobody yet"
+ *      and "the server did not answer" are different claims, and the second
+ *      must never render as the first.
  */
 (() => {
   'use strict';
 
   const API = 'https://papertrench-api.onerobby.workers.dev';
   const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
 
   async function get(path) {
     const res = await fetch(API + path, { credentials: 'omit', cache: 'no-store' });
@@ -23,183 +27,107 @@
     return res.json();
   }
 
-  const note = (el, text) => { el.innerHTML = `<p class="ar-note">${esc(text)}</p>`; };
+  /* ---------------- clocks ---------------- */
 
-  /* ---------- the open Sprint window ---------- */
+  const WEEK_MS = 7 * 86400000;
+  // Thursday 1970-01-01 was an ISO week day 4, so the first Monday of the
+  // epoch anchors the same grid server/core/sprint.js uses.
+  const FIRST_MONDAY_MS = 4 * 86400000;
 
-  const pad = (n) => String(n).padStart(2, '0');
-
-  function renderWindow(sprint) {
-    const el = $('ev-now');
-    const start = Number(sprint.startTs) || 0;
-    const end = Number(sprint.endTs) || 0;
-    if (!start || !end) { note(el, 'No window is open right now.'); return; }
-
-    const entries = Array.isArray(sprint.entries) ? sprint.entries.length : 0;
-    const fmtDay = (ts) => new Date(ts).toLocaleDateString(undefined,
-      { month: 'short', day: 'numeric' });
-
-    el.innerHTML = `
-      <div class="ev-kicker">Sprint · ${esc(sprint.weekId || '')}</div>
-      <div class="ev-title">The weekly window is open</div>
-      <p class="ev-sub">One ISO week. Only fills inside it count, and the slice is
-      computed by the same verifier that folds the main board — this is the one
-      window the server actually windows.</p>
-      <div class="ev-clock" id="ev-clock"></div>
-      <div class="ev-bar"><i id="ev-fill" style="width:0%"></i></div>
-      <div class="ev-barnote">
-        <span>${esc(fmtDay(start))}</span>
-        <span id="ev-pct">—</span>
-        <span>${esc(fmtDay(end))}</span>
-      </div>
-      <p class="ev-sub" style="margin-top:14px">
-        <b style="color:var(--text)">${entries}</b> record${entries === 1 ? '' : 's'} in
-        this window so far · <a href="/sprint" style="color:var(--orange2)">open the Sprint →</a>
-      </p>`;
-
-    const clock = $('ev-clock');
-    const fill = $('ev-fill');
-    const pct = $('ev-pct');
-
-    const tick = () => {
-      const now = Date.now();
-      const left = Math.max(0, end - now);
-      const total = Math.max(1, end - start);
-      const done = Math.min(1, Math.max(0, (now - start) / total));
-
-      const d = Math.floor(left / 86400000);
-      const h = Math.floor((left % 86400000) / 3600000);
-      const m = Math.floor((left % 3600000) / 60000);
-      const s = Math.floor((left % 60000) / 1000);
-
-      clock.innerHTML = left > 0
-        ? `<div class="ev-unit"><b>${d}</b><span>days</span></div>
-           <div class="ev-unit"><b>${pad(h)}</b><span>hrs</span></div>
-           <div class="ev-unit"><b>${pad(m)}</b><span>min</span></div>
-           <div class="ev-unit"><b>${pad(s)}</b><span>sec</span></div>`
-        : '<div class="ev-unit" style="min-width:auto;padding:10px 16px"><b>closed</b><span>window</span></div>';
-      fill.style.width = (done * 100).toFixed(1) + '%';
-      pct.textContent = Math.round(done * 100) + '% elapsed';
-    };
-    tick();
-    setInterval(tick, 1000);
+  /** Next Monday 00:00 UTC — the window rollover, fallback for the Sprint. */
+  function nextWeekStart(now) {
+    return FIRST_MONDAY_MS + (Math.floor((now - FIRST_MONDAY_MS) / WEEK_MS) + 1) * WEEK_MS;
   }
 
-  /* ---------- who is live ----------
-   * Twitch and Kick are asked their own way, the same rule /streams uses:
-   * a probe that fails is unknown and simply does not claim a status. */
-
-  async function liveTwitch(login) {
-    try {
-      const r = await fetch(
-        `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(login)}-80x45.jpg?t=${Date.now()}`,
-        { mode: 'cors', cache: 'no-store' });
-      if (!r.ok) return null;
-      return !r.url.includes('404_preview');
-    } catch (_) { return null; }
+  /** Next 00:00 UTC — the Spark rollover. */
+  function nextUtcMidnight(now) {
+    const d = new Date(now);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
   }
 
-  async function liveKick(slug) {
-    try {
-      const r = await fetch('https://kick.com/api/v2/channels/' + encodeURIComponent(slug),
-        { mode: 'cors', cache: 'no-store' });
-      if (r.status === 404) return false;
-      if (!r.ok) return null;
-      const body = await r.json();
-      return !!(body && body.livestream && body.livestream.is_live === true);
-    } catch (_) { return null; }
+  /** "6d 05h", "05h 12m", "12m 40s" — two units is enough to act on. */
+  function countdown(ms) {
+    if (ms <= 0) return 'any moment';
+    const s = Math.floor(ms / 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + 'd ' + pad(h) + 'h';
+    if (h > 0) return pad(h) + 'h ' + pad(m) + 'm';
+    return pad(m) + 'm ' + pad(s % 60) + 's';
   }
 
-  async function renderLive() {
-    const el = $('ev-live');
-    let roster = [];
-    try {
-      const body = await get('/api/streamer/roster');
-      roster = Array.isArray(body && body.streamers) ? body.streamers : [];
-    } catch (_) { roster = []; }
+  let sprintEnd = 0;   // real endTs once /api/sprint/current answers
 
-    // The hand-maintained names on /streams are the floor: an empty or
-    // unreachable roster API must not read as "nobody streams here".
-    const seeds = [
-      { name: 'OnlyTerp', platform: 'twitch', login: 'onlyterp' },
-      { name: 'Ark1317', platform: 'kick', channel: 'ark1317' },
-    ];
-    for (const row of roster) {
-      const login = String((row && row.login) || '').toLowerCase();
-      if (login && !seeds.some((s) => s.login === login)) {
-        seeds.push({ name: row.name || login, platform: 'twitch', login });
-      }
-    }
-
-    const results = await Promise.all(seeds.map(async (s) => ({
-      s,
-      up: s.platform === 'kick' ? await liveKick(s.channel) : await liveTwitch(s.login),
-    })));
-
-    const live = results.filter((r) => r.up === true);
-    if (!live.length) {
-      el.innerHTML = `<p class="ar-note">Nobody is live this minute.
-        <a href="/streams" style="color:var(--orange2)">The roster →</a></p>`;
-      return;
-    }
-    el.innerHTML = '<div class="ev-list">'
-      + live.map(({ s }) => `
-        <a class="ev-item on" href="/streams">
-          <span class="dot"></span>
-          <span class="nm">${esc(s.name)}</span>
-          <span class="mt">${esc(s.platform)}</span>
-        </a>`).join('')
-      + '</div>';
+  function tick() {
+    const now = Date.now();
+    const end = sprintEnd > now ? sprintEnd : nextWeekStart(now);
+    $('ev-clock').textContent = countdown(end - now);
+    const spark = $('spark-clock');
+    if (spark) spark.textContent = countdown(nextUtcMidnight(now) - now);
   }
+  tick();
+  setInterval(tick, 1000);
 
-  /* ---------- the tape ---------- */
-
-  // Verb only: the subject is printed separately, and rejections deliberately
-  // arrive with no handle, so the row has to read as a sentence either way —
-  // "@someone · verified" and "A record · rejected".
-  const KIND_LABEL = {
-    accepted: 'accepted',
-    rejected: 'rejected',
-    verified: 'verified',
-    joined: 'joined the trench',
-  };
-
-  function ago(ts) {
-    const mins = Math.max(0, Math.round((Date.now() - Number(ts)) / 60000));
-    if (mins < 60) return mins + 'm';
-    const h = Math.round(mins / 60);
-    return h < 48 ? h + 'h' : Math.round(h / 24) + 'd';
-  }
-
-  async function renderTape() {
-    const el = $('ev-tape');
-    let events = [];
-    try {
-      const body = await get('/api/activity');
-      events = Array.isArray(body && body.events) ? body.events : [];
-    } catch (_) {
-      note(el, 'The tape is unreachable right now.');
-      return;
-    }
-    if (!events.length) { note(el, 'Nothing on the tape yet.'); return; }
-
-    el.innerHTML = '<div class="ev-list">'
-      + events.slice(0, 8).map((e) => `
-        <div class="ev-item">
-          <span class="dot"></span>
-          <span class="nm">${e.handle ? '@' + esc(e.handle) : 'A record'}</span>
-          <span class="ev-sub" style="font-size:12px">${esc(KIND_LABEL[e.kind] || e.kind || '')}${e.detail ? ' — ' + esc(e.detail) : ''}</span>
-          <span class="mt">${esc(ago(e.ts))}</span>
-        </div>`).join('')
-      + '</div>';
-  }
-
-  /* ---------- boot ---------- */
+  /* ---------------- the board ---------------- */
 
   (async () => {
-    try { renderWindow(await get('/api/sprint/current')); }
-    catch (_) { note($('ev-now'), 'The Sprint window is unreachable right now.'); }
+    try {
+      const sprint = await get('/api/sprint/current');
+      const end = Number(sprint && sprint.endTs) || 0;
+      if (end > 0) sprintEnd = end;
+
+      const n = Array.isArray(sprint && sprint.entries) ? sprint.entries.length : null;
+      if (n !== null) {
+        $('ev-entrants').textContent = n === 0 ? 'nobody yet' : String(n);
+      }
+      // A window already past must not still read "Open now".
+      if (end > 0 && end <= Date.now()) {
+        const state = $('ev-state');
+        state.textContent = 'Settling';
+        state.className = 'tag';
+      }
+      tick();
+    } catch (_) {
+      // Leave it unread. A failed fetch is not "nobody entered".
+      $('ev-entrants').textContent = 'unavailable';
+    }
   })();
-  renderLive();
-  renderTape();
+
+  /* ---------------- share ---------------- */
+
+  let toastTimer = 0;
+  function toast(text) {
+    const el = $('toast');
+    el.textContent = text;
+    el.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
+  }
+
+  $('ev-share').addEventListener('click', async () => {
+    const url = 'https://papertrench.com/events';
+    const share = {
+      title: 'Top of the Trench',
+      text: 'Finish #1 on the weekly PaperTrench board and the tag is yours. Free, paper money, real charts.',
+      url,
+    };
+    // navigator.share is the good path on phones and needs the user gesture
+    // we are already inside. A cancelled sheet rejects with AbortError, which
+    // is a choice rather than a failure — it must not fall through to a
+    // "copied" toast for a link the user just declined to send.
+    if (navigator.share) {
+      try { await navigator.share(share); return; }
+      catch (err) { if (err && err.name === 'AbortError') return; }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Link copied — send it to someone');
+    } catch (_) {
+      // Clipboard blocked (insecure origin, or permission refused): say what
+      // happened rather than claiming a copy that did not occur.
+      toast('Copy blocked — the link is papertrench.com/events');
+    }
+  });
 })();

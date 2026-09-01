@@ -2059,6 +2059,61 @@ portifly, Discord 🐛-bug-reports 2026-08-28: *"I'm having an issue on GMGN. Th
 
 **fixed v3.18.0** (C-16 parity: when avg{Side}Mcap is absent but avg{Side}Native and currentPriceNative are present, the level is gmgnLastCandleClose × (avgNative/currentNative); the spec carries avg{Side}Native; the sweep re-arms while ANY level source wants a line. Locked by `test/d64_gmgnlines.test.js` — 4 tests; negative control: stashed fix = 0/4, restored = 4/4.)
 
+**D-65 · S2 · The GMGN axis anchor survived a token switch but not a token being IDENTIFIED — so a fresh launch lost its average lines for the whole session**
+`extension/price-bridge.js` (setCurrentSymbolNeedles, gmgnAxisAnchor, gmgnCapScale, gmgnMarkerLevel, gmgnLineLevel)
+
+portifly, Discord 🐛-bug-reports, after v3.18.0 shipped D-64: *"unfortunately I'm
+still having this problem, even with the new version"* … *"when I click on a token
+and buy or sell, no line appears; however, when I open a second tab for the same
+token, it does appear."* That second sentence is the whole defect, and it points at
+ordering rather than at the level arithmetic D-64 had just corrected.
+
+Both GMGN level lanes need `gmgnLastCandleClose` — the mcap lane scales through it
+(C-08 `gmgnCapScale`) and D-64's native lane multiplies by it — so D-64's fix could
+not help while the anchor was 0. `setCurrentSymbolNeedles` cleared it whenever the
+paper-axis needle set "changed", but that signal fires for two different events and
+only one of them is a new token: a real switch (A → B, nothing in common, genuinely
+stale) and identity SHARPENING (`[PAIR]` → `[PAIR, MINT, SYMBOL]` as the resolver
+learns what it is looking at — the same token). A fresh launch is the second case,
+repeatedly; it is the coin whose identity resolves last and in pieces, the same
+property behind F-51's rekey. GMGN fetches its mcap candles once per chart mount, so
+once the anchor was wiped nothing restored it. In a NEW tab the identity is complete
+before the candles land, nothing wipes it, and the lines draw — hence the second tab.
+
+Clearing on a genuine switch was racy in the other direction too: the new token's
+candles routinely arrive BEFORE its paper-axis, so the clear destroyed a close that
+had just been captured for the token being moved to.
+
+**fixed** (the close is tagged with the token its own request named —
+`/api/v1/token_mcap_candles/<chain>/<address>` — and staleness is judged at USE time
+through `gmgnAxisAnchor()`, which every lane now reads; ownership is decided on
+address needles only, since a short symbol can appear inside an unrelated base58
+address. Ordering stops mattering because the data carries its subject. Locked by
+`test/d65_gmgnanchor.test.js` (5 source-contract tests) plus two behavioural tests in
+`test/nativecharts.test.js`; negative control: restoring the clear = 1 behavioural
+failure + 1 contract failure, removed = all pass.)
+
+**D-66 · S2 · A buy clicked on a still-resolving coin threw out of an async handler and ate the click**
+`extension/content.js` requestBuy
+
+Field debug report (v3.18.0, Axiom, 2026-08-31), content scope:
+`TypeError: Cannot read properties of null (reading 'mint')` at `requestBuy`.
+
+The arming path exists precisely for a coin that is still resolving, and it opens by
+guarding `if (!token) return toast(...)`. It then **awaits** `acquireClickQuote` — the
+acquisition beat — and a standdown or SPA navigation during that await sets `token`
+back to null (content.js's teardown does exactly this). The branch immediately after
+the await re-checks `token` for that reason; the fall-through that arms the buy did
+not, and dereferenced `token.mint`.
+
+Because `requestBuy` is async, the throw surfaced as an unhandled rejection nobody
+sees: no fill, no armed buy, and no message explaining either — the click simply
+vanished. On the fresh launches this path serves, that is indistinguishable from
+"my buy didn't go through".
+
+**fixed** (the arming fall-through re-checks `token` after the await and refuses with
+the same message the entry guard uses).
+
 ---
 
 ## V — Visual polish
