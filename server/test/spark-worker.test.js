@@ -56,7 +56,15 @@ function fakeDB(route) {
       sql,
       get args() { return bound; },
       bind(...args) { bound = args; return stmt; },
-      async first() { log.push({ sql, args: bound, via: 'first' }); return route(sql, bound) || null; },
+      async first() {
+        log.push({ sql, args: bound, via: 'first' });
+        const out = route(sql, bound);
+        if (out) return out;
+        // allowRate's upsert: a fake that answered nothing would read as
+        // "limiter broken" and fail open with a console error on every grade.
+        // Default to a permissive count; a test that wants the leash says so.
+        return sql.includes('rate_limits') ? { count: 1 } : null;
+      },
       async all() {
         log.push({ sql, args: bound, via: 'all' });
         const rows = route(sql, bound);
@@ -322,6 +330,133 @@ test('spark/today: no upstream data is an honest 404, not a fabrication', async 
     const res = await worker.fetch(new Request('https://api.test/api/spark/today'), env, { waitUntil: () => {} });
     assert.equal(res.status, 404);
     assert.equal((await res.json()).reason, 'no-data');
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
+/* ---------------- practice: the same machinery, keyed on a seed ----------------
+ *
+ * The daily ritual stays scarce; practice is infinite. A practice puzzle is
+ * the SAME pick pinned under a synthetic day key ('practice-<seed>'), so the
+ * grade path is shared verbatim — proven here by grading a practice day with
+ * the unmodified grade route.
+ */
+
+test('spark/practice: seed pins a blind puzzle, deterministic across requests', async () => {
+  const chart = shapeChart();
+  const charts = { MintA: chart };
+  const store = { memos: {}, charts: {} };
+  const db = fakeDB((sql, args) => {
+    if (sql.includes('FROM pools')) return [{ mint: 'MintA' }];
+    if (sql.includes('FROM spark_days')) return store.memos[args[0]] || null;
+    if (sql.includes('FROM spark_charts')) {
+      return store.charts[args[0]] ? { chart_json: store.charts[args[0]] } : null;
+    }
+    if (sql.includes('INSERT INTO spark_days')) {
+      store.memos[args[0]] = { day: args[0], mint: args[1], t_ts: args[2] };
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes('INSERT INTO spark_charts')) {
+      store.charts[args[0]] = args[1];
+      return { meta: { changes: 1 } };
+    }
+    return null;
+  });
+  const upstream = mockUpstream(charts);
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+    const url = 'https://api.test/api/spark/practice?seed=4242';
+
+    const res = await worker.fetch(new Request(url), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.day, 'practice-4242', 'the seed is the day key');
+    assert.equal(body.mint, 'MintA');
+    for (const bar of body.bars) {
+      assert.ok(bar.ts <= body.tTs, 'practice obeys the blind law: ' + bar.ts);
+    }
+    assert.ok(store.memos['practice-4242'], 'practice puzzle is pinned in D1');
+    assert.ok(store.charts['practice-4242'], 'practice chart is pinned in D1');
+
+    // Second request, same seed: memo path, byte-identical window.
+    const res2 = await worker.fetch(new Request(url), env, { waitUntil: () => {} });
+    const body2 = await res2.json();
+    assert.equal(body2.mint, body.mint);
+    assert.equal(body2.tTs, body.tTs);
+    assert.equal(JSON.stringify(body2.bars), JSON.stringify(body.bars));
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
+test('spark/practice: no seed still yields a practice puzzle', async () => {
+  const chart = shapeChart();
+  const store = { memos: {}, charts: {} };
+  const db = fakeDB((sql, args) => {
+    if (sql.includes('FROM pools')) return [{ mint: 'MintA' }];
+    if (sql.includes('FROM spark_days')) return store.memos[args[0]] || null;
+    if (sql.includes('FROM spark_charts')) {
+      return store.charts[args[0]] ? { chart_json: store.charts[args[0]] } : null;
+    }
+    if (sql.includes('INSERT INTO spark_days')) {
+      store.memos[args[0]] = { day: args[0], mint: args[1], t_ts: args[2] };
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes('INSERT INTO spark_charts')) {
+      store.charts[args[0]] = args[1];
+      return { meta: { changes: 1 } };
+    }
+    return null;
+  });
+  const upstream = mockUpstream({ MintA: chart });
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+    const res = await worker.fetch(new Request('https://api.test/api/spark/practice'), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(/^practice-\d+$/.test(body.day), 'server mints a practice day key: ' + body.day);
+  } finally {
+    upstream.restore();
+    delete globalThis.caches;
+  }
+});
+
+test('spark/practice: the daily grade route grades a practice day unchanged', async () => {
+  const chart = shapeChart();
+  const tTs = chart[90].ts;
+  const db = fakeDB((sql) => {
+    if (sql.includes('FROM spark_days')) return { day: 'practice-77', mint: 'MintA', t_ts: tTs };
+    return null;
+  });
+  const upstream = mockUpstream({ MintA: chart });
+  try {
+    const worker = await loadWorker();
+    const env = makeEnv(db);
+    const res = await worker.fetch(new Request('https://api.test/api/spark/grade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, // no Origin: the grade route is origin-exempt
+      body: JSON.stringify({
+        day: 'practice-77',
+        mint: 'MintA',
+        actions: [{ type: 'buy', ts: tTs + 5 * MIN }, { type: 'sell', ts: tTs + 30 * MIN }],
+      }),
+    }), env, { waitUntil: () => {} });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.ok(['S', 'A', 'B', 'C', 'D', 'F'].includes(body.verdict.grade));
+    assert.ok(body.reveal && Array.isArray(body.reveal.bars) && body.reveal.bars.length > 0,
+      'the verdict carries the aftermath the player was graded against');
+    for (const bar of body.reveal.bars) {
+      assert.ok(bar.ts > tTs, 'reveal bars are strictly after the cutoff');
+    }
   } finally {
     upstream.restore();
     delete globalThis.caches;

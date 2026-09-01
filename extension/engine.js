@@ -17,6 +17,7 @@
     replays: 'pt_replays',
   };
   const EPS = 1e-9;
+  const JOURNAL_CAP = 2000;
 
   // Bumped when a default changes in a way existing users should receive.
   // Stored settings normally win over defaults, so without this a user who
@@ -1384,6 +1385,9 @@
       equityVsStart: eq - anchorStartSol(state, settings),
       feesPaidSol: Number(st.feesPaidSol) || 0,
       trades: state.journal.length,
+      // The journal keeps only the newest fills, so at the cap bought/sold
+      // may omit older history even though open-position cost remains exact.
+      flowTruncated: state.journal.length >= JOURNAL_CAP,
       // jb (#ideas): "able to see how much u've bought/held/sold whilst
       // trading". Bought/sold are the journal's NET SOL per fill (what the
       // wallet actually moved); held is open positions at cost basis —
@@ -2425,7 +2429,7 @@
   }
 
   function pruneJournal(state) {
-    if (state.journal.length > 2000) state.journal.length = 2000;
+    if (state.journal.length > JOURNAL_CAP) state.journal.length = JOURNAL_CAP;
   }
 
   function short(addr) {
@@ -2449,6 +2453,7 @@
 
   const _PaperEngine = {
     STORAGE_KEYS,
+    JOURNAL_CAP,
     DEFAULT_SETTINGS,
     defaultSettings,
     mergeSettings,

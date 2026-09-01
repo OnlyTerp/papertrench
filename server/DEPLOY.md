@@ -67,6 +67,24 @@ npx wrangler d1 execute papertrench --remote \
 > `no such column: reckoning_webhook` instead of posting digests. The column
 > is nullable on purpose: NULL means the clan has not opted in.
 
+**Sprint crowns add one TABLE**, so the idempotent schema re-run is the whole
+migration — no `ALTER` needed:
+
+```bash
+npx wrangler d1 execute papertrench --remote --file=schema.sql
+```
+
+> Run it **before** deploying the Worker that settles crowns. `/api/leaderboard`
+> counts `sprint_winners` in a subquery and `/api/profile` selects from it, so
+> on an un-migrated database the board and every profile would fail at prepare
+> time with `no such table: sprint_winners` — the two most-visited routes on
+> the site, not just the crown itself.
+>
+> Nothing backfills. The first crown is settled by the first cron tick after
+> the next week closes, and earlier weeks stay uncrowned: their boards were
+> never frozen, so awarding them now would be inventing history rather than
+> recording it.
+
 ### Why workers.dev and not api.papertrench.com
 
 papertrench.com's nameservers are at GoDaddy (`domaincontrol.com`), and
