@@ -26,6 +26,10 @@ test('preset taps route through the shared buy path when instant is on', () => {
     'a preset tap must fire the order when one-click quick buy is enabled');
   assert.match(content, /if \(!\(amt > 0\)\) return toast\(panelUsd\(\) \? 'Pick a dollar amount first' : 'Pick a SOL amount first'\);\s*\n\s*requestBuy\(amt\);/,
     'the BUY button must use the same shared path (currency-aware refusal)');
+  assert.match(content, /els\.btnBuy\.style\.display = sectionOn && \(!instant \|\| customOn\) \? '' : 'none';/,
+    'instant mode hides BUY unless custom sizing is enabled');
+  assert.match(content, /const sel = !instant && els\.buyPresets\.querySelector\('\.pt-preset\.sel'\);/,
+    'instant BUY must ignore a chip selection and read custom sizing only');
   assert.match(content, /let buyInFlight = false;/,
     'rapid taps must be guarded against stacking fills');
   assert.match(content, /buyInFlight = true;\s*\n\s*buyInFlightAt = Date\.now\(\);\s*\n\s*doBuy\(solAmount, quotedUsd\)\.finally\(\(\) => \{ buyInFlight = false; \}\);/,

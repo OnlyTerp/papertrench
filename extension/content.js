@@ -5502,7 +5502,8 @@
     }
     els.btnBuy.addEventListener('click', () => {
       const custom = Number(els.custom.value);
-      const sel = els.buyPresets.querySelector('.pt-preset.sel');
+      const instant = settings.instantBuyEnabled !== false;
+      const sel = !instant && els.buyPresets.querySelector('.pt-preset.sel');
       // Panel units throughout — dollars on a foreign-chain panel, SOL
       // otherwise; requestBuy owns the conversion.
       const amt = custom > 0 ? custom : sel ? Number(sel.dataset.amt) : 0;
@@ -5669,12 +5670,13 @@
     // The free-text amount box is off by default now. It was three lines of
     // panel for a field the preset row already covers: those became eight
     // configurable boxes, so an arbitrary size is a setting away rather than
-    // a permanent tax on every panel. Hidden, never removed — BUY and the
-    // limit-arm both read it and both already fall back to the selected
-    // preset when it is empty, so nothing downstream has to know.
+    // a permanent tax on every panel. Hidden, never removed — instant BUY
+    // reads it when enabled, while limit-arm still falls back to the selected
+    // preset when it is empty.
     const customOn = sectionOn && settings.panelCustomAmount === true;
     if (els.custom) els.custom.style.display = customOn ? '' : 'none';
-    if (els.btnBuy) els.btnBuy.style.display = sectionOn ? '' : 'none';
+    const instant = settings.instantBuyEnabled !== false;
+    if (els.btnBuy) els.btnBuy.style.display = sectionOn && (!instant || customOn) ? '' : 'none';
     if (els.buyPresets) els.buyPresets.style.display = presetsOn ? '' : 'none';
 
     // Chips carry PANEL units: SOL on Solana, dollars on foreign chains
@@ -5683,7 +5685,6 @@
     const list = usdMode
       ? (settings.presetsBuyUsd || USD_PRESETS_DEFAULT)
       : (settings.presetsBuy || [0.1, 0.5, 1, 2]);
-    const instant = settings.instantBuyEnabled !== false;
     if (sectionOn && els.buyLabel) els.buyLabel.textContent = buyLabelText();
     renderCosts();
     if (!presetsOn) return;
