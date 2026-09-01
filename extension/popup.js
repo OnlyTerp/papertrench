@@ -129,6 +129,7 @@ async function shareDebugLogs() {
 const UPDATER = (() => {
   const REL_URL = 'https://api.github.com/repos/OnlyTerp/papertrench/releases/latest';
   const DAY_MS = 24 * 60 * 60 * 1000;
+  let downloadArmedUntil = 0;
 
   function vCmp(a, b) {
     const pa = String(a).split('.').map(Number);
@@ -138,6 +139,13 @@ const UPDATER = (() => {
       if (d) return d;
     }
     return 0;
+  }
+
+  function backupText(record) {
+    const at = record && Number(record.at);
+    return record && Number.isFinite(at)
+      ? `Last backup: ${new Date(at).toISOString().slice(0, 10)}`
+      : 'No backup yet — updating into a new folder looks like a fresh install.';
   }
 
   async function check(force) {
@@ -168,7 +176,11 @@ const UPDATER = (() => {
     const banner = document.getElementById('update-banner');
     const txt = document.getElementById('update-txt');
     const dismiss = document.getElementById('update-dismiss');
-    if (!banner || !txt || !dismiss) return;
+    const version = document.getElementById('update-version');
+    const link = document.getElementById('update-link');
+    const backupButton = document.getElementById('update-backup');
+    const backupState = document.getElementById('update-backup-state');
+    if (!banner || !txt || !dismiss || !version || !link || !backupButton || !backupState) return;
     let info = null;
     try { info = await check(); } catch (_) { return; }
     if (!info || !info.latest || vCmp(info.latest, chrome.runtime.getManifest().version) <= 0) {
@@ -176,19 +188,37 @@ const UPDATER = (() => {
     }
     let seen = {};
     try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
+    let lastBackup = null;
+    try { lastBackup = (await chainGet(['pt_last_backup']))['pt_last_backup'] || null; } catch (_) { return; }
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
-    txt.innerHTML = '';
-    const b = document.createElement('b');
-    b.textContent = 'v' + info.latest + ' is out';
-    txt.appendChild(b);
-    txt.appendChild(document.createElement('br'));
-    const a = document.createElement('a');
-    a.href = info.url;
-    a.textContent = 'Download the update →';
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    txt.appendChild(a);
+    version.textContent = 'v' + info.latest + ' is out';
+    link.href = info.url;
+    link.textContent = 'Download the update →';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    backupState.textContent = backupText(lastBackup);
+    const refreshBackupState = async () => {
+      try {
+        const stored = await chainGet(['pt_last_backup']);
+        lastBackup = stored.pt_last_backup || null;
+        backupState.textContent = backupText(lastBackup);
+      } catch (_) {}
+    };
+    const hasBackup = () => {
+      const at = lastBackup && Number(lastBackup.at);
+      return Number.isFinite(at);
+    };
+    backupButton.addEventListener('click', async () => {
+      try { await backupWallet(); } catch (_) {}
+      await refreshBackupState();
+    });
+    link.addEventListener('click', (ev) => {
+      if (hasBackup() || Date.now() < downloadArmedUntil) return;
+      ev.preventDefault();
+      downloadArmedUntil = Date.now() + 10 * 1000;
+      backupState.textContent = 'No backup yet — click again to update anyway';
+    });
     banner.hidden = false;
     const onDismiss = () => {
       try { chrome.storage.local.set({ pt_update_seen: { version: info.latest, at: Date.now() } }); } catch (_) {}
@@ -752,6 +782,11 @@ async function backupWallet() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  try {
+    await chrome.storage.local.set({
+      pt_last_backup: { at: Date.now(), version: chrome.runtime.getManifest().version },
+    });
+  } catch (_) {}
   // DEFECT D-41: screen recordings live in IndexedDB (tens of MB) and are
   // deliberately NOT exported. The status line must say so — silently
   // implying "everything is in the file" is an overpromise the user only

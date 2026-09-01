@@ -21,13 +21,15 @@ const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
 
-function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
+function loadPopupPage({ release, checkedAt, seenVersion, lastBackup, manifestVersion, storageGetThrows = false }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const stored = new Map();
   if (checkedAt !== undefined) stored.set('pt_update_check', { checkedAt });
   if (seenVersion !== undefined) stored.set('pt_update_seen', { version: seenVersion, at: Date.now() });
+  if (lastBackup !== undefined) stored.set('pt_last_backup', lastBackup);
 
   const storageGet = async (keys) => {
+    if (storageGetThrows) throw new Error('storage unavailable');
     const out = {};
     for (const k of keys) if (stored.has(k)) out[k] = stored.get(k);
     return out;
@@ -51,21 +53,33 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
       rel: '',
       title: '',
       style: {},
+      classList: { toggle() {} },
       addEventListener: (t, fn) => { listeners.set(id + ':' + t, fn); },
       appendChild(child) { this.children.push(child); },
+      click() {},
+      remove() {},
       setAttribute() {},
     };
     return el;
   }
   const els = {};
   for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
-                    'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
+                    'warmx','warmdest','xray','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
+                    'sharelogs','badge','equity','delta','cash',
+                    'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss',
+                    'update-version','update-link','update-backup','update-backup-state']) {
     els[id] = makeEl(id);
   }
+  els['update-txt'].appendChild(els['update-version']);
+  els['update-txt'].appendChild(els['update-link']);
+  els['update-txt'].appendChild(els['update-backup']);
+  els['update-txt'].appendChild(els['update-backup-state']);
+  els['update-backup'].textContent = 'Back up wallet first';
+  const body = { appendChild() {}, };
   const documentStub = {
     getElementById: (id) => els[id] || null,
     createElement: (tag) => makeEl('el-' + tag + '-' + Math.random()),
+    body,
     // popup.js also wires the pane tabs at load. This suite is about the
     // update banner and has no tabs to find, but the stub has to answer the
     // call or the script throws before the banner is ever rendered.
@@ -100,6 +114,8 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
         sendMessage: () => {},
       },
     },
+    Blob: class Blob {},
+    URL: { createObjectURL: () => 'blob:backup', revokeObjectURL: () => {} },
     _els: els,
     _stored: stored,
     _listeners: listeners,
@@ -108,7 +124,7 @@ function loadPopupPage({ release, checkedAt, seenVersion, manifestVersion }) {
   const ctx = vm.createContext(sandbox);
   const src = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   vm.runInContext(src, ctx, { filename: 'popup.js' });
-  return { ctx, sandbox };
+  return { ctx, sandbox, click: (id, ev = {}) => sandbox._listeners.get(id + ':click')?.(ev) };
 }
 
 // render() is async — after load, kick the microtask queue and settle it.
@@ -132,6 +148,78 @@ test('popup update nudge: newer release -> banner visible with zip link', async 
   assert.equal(anchor.rel, 'noopener noreferrer');
   // The check stamp is persisted so a second popup open the same day hits cache.
   assert.ok(sandbox._stored.has('pt_update_check'));
+});
+
+test('popup update nudge: no backup shows the backup control and warning', async () => {
+  const { sandbox } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.equal(sandbox._els['update-backup'].textContent, 'Back up wallet first');
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    'No backup yet — updating into a new folder looks like a fresh install.');
+});
+
+test('popup update nudge: backup control exports and records its timestamp', async () => {
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  const record = sandbox._stored.get('pt_last_backup');
+  assert.ok(record && Number.isFinite(record.at));
+  assert.equal(record.version, '3.6.1');
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(record.at).toISOString().slice(0, 10)}`);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, false);
+});
+
+test('popup update nudge: an existing backup shows its date and never arms the link', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    lastBackup: { at, version: '3.6.0' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)}`);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  assert.equal(event.prevented, false);
+});
+
+test('popup update nudge: no backup arms the first download click only', async () => {
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  const first = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', first);
+  assert.equal(first.prevented, true);
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    'No backup yet — click again to update anyway');
+  const second = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', second);
+  assert.equal(second.prevented, false);
+});
+
+test('popup update nudge: dismiss still records the seen version and hides the banner', async () => {
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  await click('update-dismiss');
+  await settle();
+  assert.equal(sandbox._els['update-banner'].hidden, true);
+  assert.equal(sandbox._stored.get('pt_update_seen').version, '9.9.9');
 });
 
 test('popup update nudge: already-current -> banner stays hidden', async () => {
@@ -173,17 +261,23 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
   function makeEl(id) {
     return {
       id, children: [], hidden: true, innerHTML: '', textContent: '', href: '',
-      target: '', rel: '', title: '', style: {},
+      target: '', rel: '', title: '', style: {}, classList: { toggle() {} },
       addEventListener: (t, fn) => { listeners.set(id + ':' + t, fn); },
       appendChild(child) { this.children.push(child); },
       setAttribute() {},
     };
   }
   for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','sharelogs','badge','equity','delta','cash',
-                    'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss']) {
+                    'warmx','warmdest','xray','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
+                    'sharelogs','badge','equity','delta','cash',
+                    'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss',
+                    'update-version','update-link','update-backup','update-backup-state']) {
     els[id] = makeEl(id);
   }
+  els['update-txt'].appendChild(els['update-version']);
+  els['update-txt'].appendChild(els['update-link']);
+  els['update-txt'].appendChild(els['update-backup']);
+  els['update-txt'].appendChild(els['update-backup-state']);
   const sandbox = {
     document: { getElementById: (id) => els[id] || null, createElement: (t) => makeEl('x-' + t), querySelectorAll: () => [] },
     console, setTimeout, Date, Number, String, JSON, Math,
@@ -202,6 +296,16 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
   await settle();
   assert.equal(els['update-banner'].hidden, true, 'a failed fetch must never surface the banner');
   assert.ok(els['update-banner'].innerHTML === '' || true);
+});
+
+test('popup update nudge: storage read failure leaves the banner hidden', async () => {
+  const { sandbox } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    storageGetThrows: true,
+  });
+  await settle();
+  assert.equal(sandbox._els['update-banner'].hidden, true);
 });
 
 /* ------------------------------------------------------------------------
@@ -276,11 +380,18 @@ test('every control still exists — panes hide, they never remove', () => {
   const ids = ['equity', 'cash', 'pnl', 'open', 'rounds', 'flow', 'recent',
     'power', 'dash', 'toggle', 'backup', 'restore', 'restoreFile', 'overlay-window',
     'warmx', 'warmdest', 'turbo-receipts', 'xray', 'qs-balance', 'qs-presets',
-    'qs-sellpcts', 'qs-fees', 'qs-apply', 'sharelogs', 'reset', 'status'];
+    'qs-sellpcts', 'qs-fees', 'qs-apply', 'sharelogs', 'reset', 'status',
+    'update-backup', 'update-backup-state'];
   for (const id of ids) {
     const count = popupHtmlTabs.split(`id="${id}"`).length - 1;
     assert.equal(count, 1, `${id} must appear exactly once`);
   }
+});
+
+test('update backup controls keep their banner styling', () => {
+  const css = styleOf('popup.html');
+  assert.match(css, /#update-backup\s*\{[^}]*cursor:\s*pointer/);
+  assert.match(css, /#update-backup-state\s*\{[^}]*display:\s*block/);
 });
 
 test('the wallet is pinned above the tabs, not inside one', () => {
