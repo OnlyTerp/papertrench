@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench | Events</title>
-<meta name="description" content="Everything running on PaperTrench right now — the Daily Spark, the weekly Sprint window, the clan season, the Friday Reckoning and monthly Wrapped. Free to enter, no buy-in, no prize pool.">
+<meta name="description" content="Top of the Trench — finish #1 on the weekly PaperTrench board before it resets and the week is yours, tagged on your profile forever. Free to enter, no buy-in.">
+<meta property="og:title" content="Top of the Trench — the weekly PaperTrench crown">
+<meta property="og:description" content="One week. Finish first on the board and the #1 tag is yours for good. Real charts, paper money, a record that gets checked.">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
@@ -13,126 +16,212 @@
 <link rel="stylesheet" href="arena.css">
 <style>
   /* ================================================================== *
-   *  /events — one card per thing that is actually running.
+   *  /events — one event, centred.
    *
-   *  The first pass was an aggregator: a Sprint countdown, a live-streamer
-   *  probe, and the verifier tape side by side. The tape was the problem —
-   *  it is a feed of `rejected — chain-replaced` lines, which is diagnostic
-   *  output, not an event. Nobody comes to an events page to watch strangers
-   *  fail verification, and eight red rows is the worst possible read of a
-   *  healthy product. It is gone from here; /leaderboard still carries it,
-   *  where a verdict stream belongs.
+   *  The first pass was three panels, and the third was the verifier tape:
+   *  six rows of `rejected — chain-replaced`. That is diagnostic output, not
+   *  an event, and a wall of red is the worst available read of a healthy
+   *  product. The tape lives on /leaderboard, where a verdict stream belongs.
    *
-   *  What replaces it: PaperTrench already runs five recurring rituals on
-   *  fixed clocks — Spark daily, Sprint weekly, the clan season weekly, the
-   *  Reckoning every Friday, Wrapped monthly. They were scattered across the
-   *  extension and three pages and announced nowhere. This is that calendar.
+   *  What is left is the one thing with a deadline and a prize: the weekly
+   *  board, and the tag you keep for winning it. Everything else PaperTrench
+   *  runs is ongoing rather than an event, so it is a quiet strip underneath
+   *  rather than six competing cards.
    *
-   *  Still no invented events. Every card is a thing the code actually does,
-   *  every clock is derived from the same window math the server folds, and
-   *  every reward is something that already exists. There is no prize pool
-   *  because there is no budget, and saying so plainly beats implying one.
+   *  The prize is a TAG, and the page is careful about what the tag claims.
+   *  It is a record of placement on a board that is already public — not an
+   *  assertion that the winner traded well. server/core/achievements.js bans
+   *  profit badges for good reasons; the hover text here says precisely what
+   *  the tag means and stops there.
    * ================================================================== */
 
-  .ev-head { padding: 128px 0 8px; }
+  .ev-wrap { max-width: 760px; margin: 0 auto; }
+
+  .ev-head { padding: 128px 0 4px; text-align: center; }
   .ev-head h1 { font-size: clamp(30px, 4.4vw, 46px); font-weight: 700; letter-spacing: -0.02em; }
-  .ev-head p { font-size: 14.5px; color: var(--muted); margin-top: 12px; max-width: 640px; line-height: 1.65; }
-  .ev-head a { color: var(--orange2); }
+  .ev-head p { font-size: 14.5px; color: var(--muted); margin: 12px auto 0; max-width: 52ch; line-height: 1.65; }
 
-  .ev-stack { display: grid; gap: 12px; margin-top: 26px; }
-
-  /* ---------- the card ----------
-   * <details> rather than a JS toggle: keyboard- and screen-reader-operable
-   * for free, deep-linkable with [open], and it survives a re-render with no
-   * state to keep. */
+  /* ---------- the event card ---------- */
+  /* padding:0 is load-bearing, not tidiness. style.css sets
+     `section { padding: 110px 0 }` for the marketing page rhythm, and this
+     card is a <section> — inheriting it wedged 110px of dead space between
+     the card's top border and its own artwork. */
   .ev-card {
-    background: var(--panel); border: var(--edge); border-radius: 14px;
-    overflow: hidden; transition: border-color .18s;
+    margin-top: 30px; padding: 0; border-radius: 18px; overflow: hidden;
+    border: 1px solid rgba(255,157,69,0.34);
+    background: var(--panel);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5);
   }
-  .ev-card:hover { border-color: var(--line2); }
-  .ev-card[open] { border-color: rgba(255,157,69,0.3); }
 
-  .ev-card summary { display: block; cursor: pointer; list-style: none; padding: 18px 20px 0; }
-  .ev-card summary::-webkit-details-marker { display: none; }
-  .ev-card summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+  /* The art half. Drawn rather than dropped in as a file: it themes with the
+     rest of the site, stays crisp at any density, and costs no bytes. */
+  .ev-art {
+    position: relative; padding: 26px 28px 24px;
+    background:
+      radial-gradient(680px 260px at 78% 8%, rgba(255,157,69,0.30), transparent 68%),
+      radial-gradient(420px 220px at 12% 96%, rgba(255,95,86,0.16), transparent 70%),
+      linear-gradient(120deg, #2a1608, #160d14 62%);
+  }
+  .ev-art::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(ellipse 70% 100% at 80% 0%, #000, transparent 75%);
+  }
+  .ev-art > * { position: relative; z-index: 1; }
 
-  .ev-top { display: flex; align-items: flex-start; gap: 18px; }
-  .ev-lead { flex: 1; min-width: 0; }
-
-  .ev-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
+  .ev-toprow { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
   .tag {
     font-family: var(--mono); font-size: 9.5px; font-weight: 700;
     letter-spacing: 1px; text-transform: uppercase;
-    padding: 3px 8px; border-radius: 999px;
-    background: rgba(255,255,255,0.05); border: 1px solid var(--line2); color: var(--dim);
+    padding: 4px 9px; border-radius: 999px;
+    background: rgba(0,0,0,0.34); border: 1px solid rgba(255,255,255,0.16); color: var(--orange2);
   }
-  .tag.cadence { color: var(--orange2); background: rgba(255,157,69,0.09); border-color: rgba(255,157,69,0.28); }
-  /* "Open now" is a claim about state, so it is only ever printed when the
-     clock says so — never as decoration. */
-  .tag.open { color: var(--green2); background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.3); }
-  .tag.live { color: #ff9a90; background: rgba(224,67,58,0.10); border-color: rgba(224,67,58,0.32); display: inline-flex; align-items: center; gap: 5px; }
-  .tag.live .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px var(--red); animation: pulse 1.6s infinite; }
+  .tag.open { color: #8bf0c4; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.12); }
+  .ev-icons { margin-left: auto; display: flex; gap: 7px; }
+  .ic {
+    width: 30px; height: 30px; display: grid; place-items: center;
+    border-radius: 9px; cursor: pointer; color: rgba(255,255,255,0.72);
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.16);
+    transition: background .16s, color .16s, border-color .16s;
+  }
+  .ic:hover { background: rgba(0,0,0,0.5); color: #fff; border-color: rgba(255,255,255,0.34); }
 
-  .ev-name { font-size: 19px; font-weight: 750; letter-spacing: -0.015em; }
-  .ev-line { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-top: 4px; max-width: 56ch; }
+  .ev-body { display: flex; align-items: flex-end; gap: 22px; }
+  .ev-copy { flex: 1; min-width: 0; }
+  .ev-name {
+    font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -0.03em;
+    line-height: 1.02; color: #fff;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.45);
+  }
+  .ev-tagline { font-size: 14px; color: rgba(255,255,255,0.78); margin-top: 8px; line-height: 1.5; max-width: 40ch; }
 
-  /* The reward column. It is never money, so it is not dressed as money —
-     no coin glyph, no pool figure, no gold. */
-  .ev-prize { flex: none; text-align: right; max-width: 190px; }
-  .ev-prize b {
-    display: block; font-size: 13.5px; font-weight: 750; color: var(--orange2);
-    letter-spacing: -0.01em; line-height: 1.3;
+  /* ---------- the prize ---------- */
+  .ev-prize { flex: none; text-align: right; }
+  .prize-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 15px 9px 12px; border-radius: 12px;
+    background: linear-gradient(135deg, rgba(255,192,129,0.22), rgba(255,157,69,0.12));
+    border: 1px solid rgba(255,192,129,0.5);
+    box-shadow: 0 8px 26px -10px rgba(255,157,69,0.7);
   }
-  .ev-prize span { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; line-height: 1.4; }
-  @media (max-width: 720px) {
-    .ev-top { flex-direction: column; gap: 10px; }
-    .ev-prize { text-align: left; max-width: none; }
+  .prize-chip .num {
+    font-family: var(--mono); font-size: 26px; font-weight: 800;
+    color: #fff; line-height: 1; letter-spacing: -0.03em;
   }
+  .prize-chip .what {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase;
+    color: var(--orange2); text-align: left; line-height: 1.3;
+  }
+  .ev-prize .cap {
+    display: flex; align-items: center; justify-content: flex-end; gap: 5px;
+    font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;
+  }
+
+  /* The explainer sits ON the tag, because that is where the question is
+     asked. It is a <button> with aria-describedby rather than a title
+     attribute: title never appears on touch and cannot be reached by
+     keyboard, which makes it decoration. */
+  .info { position: relative; display: inline-flex; }
+  .info-btn {
+    width: 15px; height: 15px; padding: 0; display: grid; place-items: center;
+    border-radius: 50%; cursor: help; color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    font: inherit; transition: color .15s, background .15s;
+  }
+  .info-btn:hover, .info-btn:focus-visible { color: #fff; background: rgba(255,255,255,0.22); }
+  .info-pop {
+    position: absolute; bottom: calc(100% + 9px); right: -6px; width: 246px;
+    padding: 11px 13px; border-radius: 11px; z-index: 5;
+    background: #0d1119; border: 1px solid var(--line2);
+    box-shadow: 0 18px 44px rgba(0,0,0,0.6);
+    font-size: 12px; line-height: 1.55; color: var(--muted); text-align: left;
+    opacity: 0; visibility: hidden; transform: translateY(4px);
+    transition: opacity .15s, transform .15s, visibility .15s;
+  }
+  .info-pop b { color: var(--text); font-weight: 700; }
+  .info:hover .info-pop, .info-btn:focus-visible + .info-pop { opacity: 1; visibility: visible; transform: none; }
+  @media (max-width: 620px) { .info-pop { right: auto; left: -100px; } }
 
   /* ---------- the facts band ---------- */
   .ev-facts {
-    display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
-    margin: 16px -20px 0; padding: 12px 20px;
-    background: rgba(0,0,0,0.26); border-top: var(--edge);
+    display: flex; align-items: center; gap: 30px; flex-wrap: wrap;
+    padding: 15px 28px; background: rgba(0,0,0,0.3); border-top: var(--edge);
   }
-  .ev-facts .f { min-width: 0; }
   .ev-facts .f span {
     display: block; font-family: var(--mono); font-size: 9.5px; font-weight: 700;
     letter-spacing: 1px; text-transform: uppercase; color: var(--dim);
   }
   .ev-facts .f b {
-    display: block; font-size: 13px; font-weight: 700; color: var(--text); margin-top: 3px;
-    font-variant-numeric: tabular-nums;
+    display: block; font-size: 14px; font-weight: 700; color: var(--text);
+    margin-top: 3px; font-variant-numeric: tabular-nums;
   }
   .ev-facts .f b.clock { font-family: var(--mono); color: var(--orange2); }
-  .ev-chev {
-    margin-left: auto; flex: none; color: var(--dim);
-    transition: transform .2s, color .2s;
+  .ev-enter {
+    margin-left: auto; font-size: 13px; font-weight: 700; color: #241202;
+    background: var(--grad-heat); border-radius: 10px; padding: 10px 18px;
+    box-shadow: 0 10px 26px -12px rgba(255,157,69,0.9);
+    transition: transform .16s, box-shadow .16s;
   }
-  .ev-card[open] .ev-chev { transform: rotate(180deg); color: var(--orange2); }
+  .ev-enter:hover { transform: translateY(-1px); box-shadow: 0 14px 30px -12px rgba(255,157,69,1); }
+  @media (max-width: 620px) {
+    .ev-body { flex-direction: column; align-items: flex-start; gap: 18px; }
+    .ev-prize { text-align: left; }
+    .ev-prize .cap { justify-content: flex-start; }
+    .ev-enter { margin-left: 0; width: 100%; text-align: center; }
+  }
 
-  /* ---------- expanded ---------- */
-  .ev-body { padding: 18px 20px 20px; border-top: var(--edge); }
-  .ev-body p { font-size: 13.5px; color: var(--muted); line-height: 1.7; max-width: 68ch; }
-  .ev-body p + p { margin-top: 10px; }
-  .ev-body b { color: var(--text); font-weight: 650; }
-  .ev-body ul { margin: 10px 0 0; padding-left: 18px; }
-  .ev-body li { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 5px; }
-  .ev-body a { color: var(--orange2); }
-  .ev-go {
-    display: inline-flex; align-items: center; gap: 7px; margin-top: 16px;
-    font-size: 13px; font-weight: 700; color: var(--text);
-    background: rgba(255,255,255,0.05); border: 1px solid var(--line2);
-    border-radius: 10px; padding: 9px 15px; transition: background .16s, border-color .16s;
+  /* ---------- how it works ---------- */
+  .ev-how { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 620px) { .ev-how { grid-template-columns: 1fr; } }
+  .how {
+    padding: 16px 17px; border-radius: 13px;
+    background: var(--panel); border: var(--edge);
   }
-  .ev-go:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.24); }
+  .how .n {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.3px; color: var(--dim);
+  }
+  .how h3 { font-size: 14px; font-weight: 750; margin: 8px 0 5px; letter-spacing: -0.01em; }
+  .how p { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
+
+  /* ---------- also running ---------- */
+  .ev-also { margin-top: 28px; }
+  .ev-also h2 {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 1.4px;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 11px; text-align: center;
+  }
+  .also-row { display: grid; gap: 8px; }
+  .also {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    border-radius: 11px; background: rgba(255,255,255,0.02); border: var(--edge);
+    transition: background .16s, border-color .16s;
+  }
+  .also:hover { background: rgba(255,255,255,0.045); border-color: var(--line2); }
+  .also b { font-size: 13.5px; font-weight: 700; }
+  .also span { font-size: 12.5px; color: var(--muted); }
+  .also .when {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+    color: var(--dim); white-space: nowrap;
+  }
 
   .ev-note {
-    margin-top: 22px; padding: 14px 18px; border-radius: 12px;
+    margin-top: 24px; padding: 14px 18px; border-radius: 12px; text-align: center;
     background: rgba(255,255,255,0.02); border: var(--edge);
     font-size: 12.5px; color: var(--muted); line-height: 1.65;
   }
   .ev-note b { color: var(--text); font-weight: 700; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);
+    padding: 10px 18px; border-radius: 10px; z-index: 50;
+    background: #0d1119; border: 1px solid var(--line2); color: var(--text);
+    font-size: 13px; font-weight: 650;
+    opacity: 0; visibility: hidden; transition: opacity .18s, transform .18s, visibility .18s;
+  }
+  .toast.on { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
 </style>
 </head>
 <body>
@@ -162,273 +251,122 @@
 </nav>
 
 <main id="main" class="wrap" style="padding-bottom:96px">
+ <div class="ev-wrap">
+
   <header class="ev-head">
     <h1>Events</h1>
-    <p>Everything PaperTrench runs on a clock. All of it is free, none of it needs
-    a sign-up, and none of it pays out money — you are competing for placement and
-    a record that can be checked. Open a card for the rules.</p>
+    <p>One board, one week, one tag. Free to enter and nothing to sign up for —
+    install the extension and your record is already in it.</p>
   </header>
 
-  <div class="ev-stack" id="ev-stack">
-
-    <!-- ============ DAILY SPARK ============ -->
-    <details class="ev-card" id="ev-spark">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag cadence">Daily</span>
-              <span class="tag open">Open now</span>
-            </div>
-            <h2 class="ev-name">Daily Spark</h2>
-            <p class="ev-line">One real chart, frozen at a moment. Call what happens next.
-            Graded on your reasoning, never on profit.</p>
-          </div>
-          <div class="ev-prize">
-            <b>Spark streak</b>
-            <span>and your accuracy, kept in the dashboard</span>
-          </div>
+  <!-- ============ THE EVENT ============ -->
+  <section class="ev-card" aria-labelledby="ev-name">
+    <div class="ev-art">
+      <div class="ev-toprow">
+        <span class="tag">Weekly</span>
+        <span class="tag open" id="ev-state">Open now</span>
+        <div class="ev-icons">
+          <button class="ic" type="button" id="ev-share" aria-label="Share this event">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/>
+              <path d="M8.3 10.8 15.7 6.6M8.3 13.2l7.4 4.2"/>
+            </svg>
+          </button>
+          <a class="ic" href="/sprint" aria-label="Open the live board">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 19.5V11M10 19.5V5M16 19.5v-6M21 19.5H3"/>
+            </svg>
+          </a>
         </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free</b></div>
-          <div class="f"><span>Takes</span><b>~1 minute</b></div>
-          <div class="f"><span>Resets in</span><b class="clock" data-cd="spark">—</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>A single mint's chart is cut at a point in time. You say where it goes and
-        <b>why</b> — the why is the part that is graded. Get the direction right for the
-        wrong reason and it does not count for much; the puzzle is about reading a chart,
-        not about being lucky once.</p>
-        <p>It changes at <b>00:00 UTC</b> and everyone gets the same chart that day, so
-        nobody can farm it by refreshing. Miss a day and the streak resets — that is the
-        whole pressure, and it is deliberately the only one.</p>
-        <a class="ev-go" href="/#install">Play it in the extension →</a>
       </div>
-    </details>
 
-    <!-- ============ WEEKLY SPRINT ============ -->
-    <details class="ev-card" id="ev-sprint">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag cadence">Weekly</span>
-              <span class="tag open" id="ev-sprint-state">Open now</span>
-            </div>
-            <h2 class="ev-name">The Weekly Sprint</h2>
-            <p class="ev-line">A fresh board every Monday. Only the fills you take inside
-            the window count, so a good week is not buried under an old one.</p>
-          </div>
-          <div class="ev-prize">
-            <b>Top of the Sprint board</b>
-            <span>for the week, with your verified record</span>
-          </div>
-        </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free</b></div>
-          <div class="f"><span>Entrants</span><b id="ev-sprint-n">—</b></div>
-          <div class="f"><span>Closes in</span><b class="clock" data-cd="sprint">—</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
       <div class="ev-body">
-        <p>The Sprint is one ISO week, Monday to Monday. Your slice is computed by the
-        same verifier that folds the main leaderboard — the fills are re-hashed, the book
-        is replayed, and every price is checked against real market history before it
-        ranks. Nothing here is self-reported.</p>
-        <p>Because the window resets, the Sprint is the board a newcomer can actually win.
-        The lifetime leaderboard rewards a long history; this one only asks about
-        <b>this week</b>.</p>
-        <a class="ev-go" href="/sprint">Open the Sprint board →</a>
-      </div>
-    </details>
+        <div class="ev-copy">
+          <h2 class="ev-name" id="ev-name">Top of the Trench</h2>
+          <p class="ev-tagline">Finish first on the board before the week resets.
+          Win it and the tag is yours for good — there is exactly one a week.</p>
+        </div>
 
-    <!-- ============ CLAN SEASON ============ -->
-    <details class="ev-card" id="ev-clans">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag cadence">Weekly</span>
-              <span class="tag">Team</span>
-            </div>
-            <h2 class="ev-name">Clan Season</h2>
-            <p class="ev-line">Trade for a crew. Every member's week rolls into one clan
-            score, and your tag rides beside your name on the leaderboard.</p>
+        <div class="ev-prize">
+          <div class="prize-chip">
+            <span class="num">#1</span>
+            <span class="what">the tag<br>you keep</span>
           </div>
-          <div class="ev-prize">
-            <b>Your [TAG] on the board</b>
-            <span>and the clan's place in the season</span>
+          <div class="cap">
+            Winner's tag
+            <span class="info">
+              <button class="info-btn" type="button" id="tag-info"
+                      aria-label="What the #1 tag means" aria-describedby="tag-pop">
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M11 10h2v8h-2zM11 6h2v2.4h-2z"/>
+                </svg>
+              </button>
+              <span class="info-pop" id="tag-pop" role="tooltip">
+                <b>Finished #1 on the weekly board.</b> Awarded when the week
+                closes and kept permanently, with the week it was won for. It
+                records where you placed on a public board — it does not claim
+                you traded well, and it can never be bought or transferred.
+              </span>
+            </span>
           </div>
         </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free</b></div>
-          <div class="f"><span>Clans</span><b id="ev-clans-n">—</b></div>
-          <div class="f"><span>Week ends in</span><b class="clock" data-cd="sprint">—</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>Found a clan or join one with an invite code. A clan counts only what its
-        members traded <b>since they joined</b>, so recruiting somebody with a big history
-        does not import their past — a clan's score is a clan's own work.</p>
-        <p>A new clan reads <b>forming</b> until it has five counting members, and shows no
-        score at all rather than a zero. An empty clan is not last place; it has not
-        started.</p>
-        <a class="ev-go" href="/clans">Find a clan →</a>
       </div>
-    </details>
+    </div>
 
-    <!-- ============ THE FRIDAY RECKONING ============ -->
-    <details class="ev-card" id="ev-reckoning">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag cadence">Fridays</span>
-              <span class="tag">Discord</span>
-            </div>
-            <h2 class="ev-name">The Friday Reckoning</h2>
-            <p class="ev-line">Every Friday evening the week gets read out: how each clan
-            traded, who held their discipline, what the board did.</p>
-          </div>
-          <div class="ev-prize">
-            <b>Your clan's week, posted</b>
-            <span>to the Discord, by name</span>
-          </div>
-        </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Be in a clan</b></div>
-          <div class="f"><span>Bell</span><b>Fri 20:00 UTC</b></div>
-          <div class="f"><span>Rings in</span><b class="clock" data-cd="reckoning">—</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>One anchored ritual a week instead of a stream of notifications. The digest is
-        built from standing data — the same facts the public clan page shows — and it is
-        <b>process only</b>: rounds, score, placement. No profit-and-loss goes in it, by
-        design.</p>
-        <p>If the bell is missed because something was down, the window stays open until
-        Saturday evening and then the week is left unposted. A late digest pretending to be
-        on time would be worse than a gap.</p>
-        <a class="ev-go" href="https://discord.gg/papertrench" target="_blank" rel="noopener">Join the Discord →</a>
-      </div>
-    </details>
+    <div class="ev-facts">
+      <div class="f"><span>Entry</span><b>Free</b></div>
+      <div class="f"><span>In the running</span><b id="ev-entrants">—</b></div>
+      <div class="f"><span>Resets in</span><b class="clock" id="ev-clock">—</b></div>
+      <a class="ev-enter" href="/sprint">See the board →</a>
+    </div>
+  </section>
 
-    <!-- ============ TRENCH WRAPPED ============ -->
-    <details class="ev-card" id="ev-wrapped">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag cadence">Monthly</span>
-              <span class="tag">Shareable</span>
-            </div>
-            <h2 class="ev-name">Trench Wrapped</h2>
-            <p class="ev-line">A month of your trading, cut into one card you can post —
-            your habits, your discipline, your best call.</p>
-          </div>
-          <div class="ev-prize">
-            <b>A card worth posting</b>
-            <span>rendered from your own month</span>
-          </div>
-        </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free</b></div>
-          <div class="f"><span>Covers</span><b>The calendar month</b></div>
-          <div class="f"><span>Next one in</span><b class="clock" data-cd="wrapped">—</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>Wrapped is about <b>how you traded</b>, not how much you made — hold times,
-        journal streaks, whether you revenge-traded, the round you played best. It builds
-        from data already on your machine and renders in the dashboard.</p>
-        <p>It is the one surface that will tell you something you did not want to hear,
-        which is rather the point of practising with paper money.</p>
-        <a class="ev-go" href="/#install">Open the dashboard →</a>
-      </div>
-    </details>
-
-    <!-- ============ DUELS ============ -->
-    <details class="ev-card" id="ev-duels">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags">
-              <span class="tag">Anytime</span>
-              <span class="tag">1v1</span>
-            </div>
-            <h2 class="ev-name">Duels</h2>
-            <p class="ev-line">Challenge one person, pick a window, and both records are
-            folded over exactly that stretch. Settled by the verifier, not by argument.</p>
-          </div>
-          <div class="ev-prize">
-            <b>A settled result</b>
-            <span>with a link you can send them</span>
-          </div>
-        </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free</b></div>
-          <div class="f"><span>Players</span><b>2</b></div>
-          <div class="f"><span>Starts</span><b>When they join</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>Create a duel, send the invite link, and the clock starts when your opponent
-        accepts — not when you made it, so nobody gets a head start on a challenge they
-        have not seen.</p>
-        <p>Both sides show as <b>provisional</b> until the window closes and a post-close
-        submission lands. A duel that cannot yet be judged says so instead of guessing a
-        winner.</p>
-        <a class="ev-go" href="/duels">Start a duel →</a>
-      </div>
-    </details>
-
-    <!-- ============ LIVE NOW ============ -->
-    <details class="ev-card" id="ev-live">
-      <summary>
-        <div class="ev-top">
-          <div class="ev-lead">
-            <div class="ev-tags" id="ev-live-tags">
-              <span class="tag">Right now</span>
-            </div>
-            <h2 class="ev-name">Live in the trenches</h2>
-            <p class="ev-line" id="ev-live-line">Checking who is streaming the challenge…</p>
-          </div>
-          <div class="ev-prize">
-            <b>A card on the roster</b>
-            <span>if you stream it yourself</span>
-          </div>
-        </div>
-        <div class="ev-facts">
-          <div class="f"><span>Entry</span><b>Free to watch</b></div>
-          <div class="f"><span>Streaming now</span><b id="ev-live-n">—</b></div>
-          <div class="f"><span>Platforms</span><b>Twitch · Kick</b></div>
-          <svg class="ev-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg>
-        </div>
-      </summary>
-      <div class="ev-body">
-        <p>Streamers run the same paper wallet as everyone else, under the same protocol —
-        no house accounts, no seeded balances. Watching somebody read a launch in real time
-        is the fastest way to learn the read.</p>
-        <p id="ev-live-detail">Live status is checked against each platform directly, so a
-        channel that cannot be reached shows as unknown rather than as offline.</p>
-        <a class="ev-go" href="/streams">See the roster →</a>
-      </div>
-    </details>
-
+  <!-- ============ HOW ============ -->
+  <div class="ev-how">
+    <div class="how">
+      <div class="n">01</div>
+      <h3>Trade the week</h3>
+      <p>Only fills you take inside the window count. Last week's run does not carry over.</p>
+    </div>
+    <div class="how">
+      <div class="n">02</div>
+      <h3>It gets checked</h3>
+      <p>Every fill is re-hashed and re-priced against real market history before it ranks.</p>
+    </div>
+    <div class="how">
+      <div class="n">03</div>
+      <h3>Monday, it's settled</h3>
+      <p>The board freezes, the top record is crowned once, and a fresh week opens.</p>
+    </div>
   </div>
 
-  <p class="ev-note"><b>No buy-in, no prize pool, no payouts.</b> PaperTrench is free and
-  runs on nobody's budget, so what you are competing for is placement, a record that
-  survives verification, and the badge on your profile. If that changes, it will be
-  announced here first — and it will not be quietly added to a card.</p>
+  <!-- ============ ALSO RUNNING ============ -->
+  <div class="ev-also">
+    <h2>Also running</h2>
+    <div class="also-row">
+      <a class="also" href="/#install">
+        <b>Daily Spark</b><span>one chart, one call — graded on your reasoning</span>
+        <span class="when" id="spark-clock">—</span>
+      </a>
+      <a class="also" href="/clans">
+        <b>Clan season</b><span>trade for a crew, your tag rides on the board</span>
+        <span class="when">weekly</span>
+      </a>
+      <a class="also" href="/duels">
+        <b>Duels</b><span>challenge one person over a window you pick</span>
+        <span class="when">anytime</span>
+      </a>
+    </div>
+  </div>
+
+  <p class="ev-note"><b>No buy-in and no payout.</b> PaperTrench is free and runs on
+  nobody's budget — what is on the line is the tag, your place on the board, and a
+  record anyone can check. If that ever changes it will be said here first.</p>
+
+ </div>
 </main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <footer>
   <div class="wrap">

@@ -1,19 +1,19 @@
 /* PaperTrench — /events.
  *
- * The page is a static list of the recurring things the product actually
- * runs; this file only supplies what has to be live: the clocks, and the
- * three counts (Sprint entrants, clans, who is streaming).
+ * The page is one event and a short strip; this file supplies the two clocks
+ * and the entrant count, and wires the share button.
  *
- * Two rules carried over from the first pass, because they are what stop an
- * events page becoming a page of promises:
+ * Two rules carried from the first pass, because they are what stop an events
+ * page becoming a page of promises:
  *
- *   1. Nothing here invents an event. Every card in events.html maps to code
- *      that exists, and the clocks are derived from the same window math the
- *      server folds — not from a hardcoded date somebody has to remember to
- *      update.
- *   2. A number that cannot be read is not printed as zero. "0 entrants" and
- *      "we could not reach the server" are different claims, and the second
- *      one must never render as the first.
+ *   1. Clocks are DERIVED, never hardcoded. Each deadline is a function of
+ *      now, using the same window rule the server folds, so the page stays
+ *      correct with nobody maintaining it. The Sprint takes the real endTs
+ *      once the API answers and falls back to that shared rule meanwhile —
+ *      the two agree even when the fetch fails.
+ *   2. A number that cannot be READ is not printed as a number. "nobody yet"
+ *      and "the server did not answer" are different claims, and the second
+ *      must never render as the first.
  */
 (() => {
   'use strict';
@@ -27,14 +27,17 @@
     return res.json();
   }
 
-  /* ---------------- clocks ----------------
-   *
-   * Each deadline is a function of NOW rather than a stored date, so the page
-   * stays correct with nobody maintaining it. The Sprint deadline is replaced
-   * by the server's real endTs once that arrives; the fallback below is the
-   * same ISO-week rule the server uses, so the two agree even offline. */
+  /* ---------------- clocks ---------------- */
 
-  const DAY = 86400000;
+  const WEEK_MS = 7 * 86400000;
+  // Thursday 1970-01-01 was an ISO week day 4, so the first Monday of the
+  // epoch anchors the same grid server/core/sprint.js uses.
+  const FIRST_MONDAY_MS = 4 * 86400000;
+
+  /** Next Monday 00:00 UTC — the window rollover, fallback for the Sprint. */
+  function nextWeekStart(now) {
+    return FIRST_MONDAY_MS + (Math.floor((now - FIRST_MONDAY_MS) / WEEK_MS) + 1) * WEEK_MS;
+  }
 
   /** Next 00:00 UTC — the Spark rollover. */
   function nextUtcMidnight(now) {
@@ -42,166 +45,89 @@
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
   }
 
-  /** Next Monday 00:00 UTC — the ISO week the Sprint and clan season share. */
-  function nextIsoWeekStart(now) {
-    const d = new Date(now);
-    // getUTCDay: Sun=0 … Sat=6. Days until the next Monday, never 0.
-    const ahead = ((8 - d.getUTCDay()) % 7) || 7;
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + ahead);
-  }
-
-  /** Next Friday 20:00 UTC — the Reckoning bell (server/core/reckoning.js). */
-  function nextReckoning(now) {
-    const d = new Date(now);
-    const ahead = (5 - d.getUTCDay() + 7) % 7;
-    let ts = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + ahead, 20);
-    if (ts <= now) ts += 7 * DAY;
-    return ts;
-  }
-
-  /** First of next month, 00:00 UTC — when a Wrapped month closes. */
-  function nextMonth(now) {
-    const d = new Date(now);
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
-  }
-
-  // Sprint starts on the shared fallback and is overwritten by the API.
-  const deadlines = {
-    spark: nextUtcMidnight,
-    sprint: nextIsoWeekStart,
-    reckoning: nextReckoning,
-    wrapped: nextMonth,
-  };
-  let sprintEnd = 0;   // real endTs once /api/sprint/current answers
-
   /** "6d 05h", "05h 12m", "12m 40s" — two units is enough to act on. */
   function countdown(ms) {
     if (ms <= 0) return 'any moment';
     const s = Math.floor(ms / 1000);
+    const pad = (n) => String(n).padStart(2, '0');
     const d = Math.floor(s / 86400);
     const h = Math.floor((s % 86400) / 3600);
     const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    const pad = (n) => String(n).padStart(2, '0');
     if (d > 0) return d + 'd ' + pad(h) + 'h';
     if (h > 0) return pad(h) + 'h ' + pad(m) + 'm';
-    return pad(m) + 'm ' + pad(sec) + 's';
+    return pad(m) + 'm ' + pad(s % 60) + 's';
   }
+
+  let sprintEnd = 0;   // real endTs once /api/sprint/current answers
 
   function tick() {
     const now = Date.now();
-    for (const el of document.querySelectorAll('[data-cd]')) {
-      const key = el.dataset.cd;
-      const at = (key === 'sprint' && sprintEnd > now)
-        ? sprintEnd
-        : (deadlines[key] ? deadlines[key](now) : 0);
-      el.textContent = at ? countdown(at - now) : '—';
-    }
+    const end = sprintEnd > now ? sprintEnd : nextWeekStart(now);
+    $('ev-clock').textContent = countdown(end - now);
+    const spark = $('spark-clock');
+    if (spark) spark.textContent = countdown(nextUtcMidnight(now) - now);
   }
-
   tick();
   setInterval(tick, 1000);
 
-  /* ---------------- live counts ---------------- */
+  /* ---------------- the board ---------------- */
 
   (async () => {
     try {
       const sprint = await get('/api/sprint/current');
       const end = Number(sprint && sprint.endTs) || 0;
       if (end > 0) sprintEnd = end;
+
       const n = Array.isArray(sprint && sprint.entries) ? sprint.entries.length : null;
       if (n !== null) {
-        $('ev-sprint-n').textContent = n === 0 ? 'nobody yet' : String(n);
+        $('ev-entrants').textContent = n === 0 ? 'nobody yet' : String(n);
       }
-      // A window that has already closed must not still read "Open now".
+      // A window already past must not still read "Open now".
       if (end > 0 && end <= Date.now()) {
-        const state = $('ev-sprint-state');
-        state.textContent = 'Between windows';
+        const state = $('ev-state');
+        state.textContent = 'Settling';
         state.className = 'tag';
       }
       tick();
     } catch (_) {
-      // Leave the em-dash. A failed read is not "nobody entered".
-      $('ev-sprint-n').textContent = 'unavailable';
+      // Leave it unread. A failed fetch is not "nobody entered".
+      $('ev-entrants').textContent = 'unavailable';
     }
   })();
 
-  (async () => {
+  /* ---------------- share ---------------- */
+
+  let toastTimer = 0;
+  function toast(text) {
+    const el = $('toast');
+    el.textContent = text;
+    el.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
+  }
+
+  $('ev-share').addEventListener('click', async () => {
+    const url = 'https://papertrench.com/events';
+    const share = {
+      title: 'Top of the Trench',
+      text: 'Finish #1 on the weekly PaperTrench board and the tag is yours. Free, paper money, real charts.',
+      url,
+    };
+    // navigator.share is the good path on phones and needs the user gesture
+    // we are already inside. A cancelled sheet rejects with AbortError, which
+    // is a choice rather than a failure — it must not fall through to a
+    // "copied" toast for a link the user just declined to send.
+    if (navigator.share) {
+      try { await navigator.share(share); return; }
+      catch (err) { if (err && err.name === 'AbortError') return; }
+    }
     try {
-      const body = await get('/api/clans');
-      const n = Number(body && body.clansTotal);
-      $('ev-clans-n').textContent = Number.isFinite(n) ? String(n) : 'unavailable';
+      await navigator.clipboard.writeText(url);
+      toast('Link copied — send it to someone');
     } catch (_) {
-      $('ev-clans-n').textContent = 'unavailable';
+      // Clipboard blocked (insecure origin, or permission refused): say what
+      // happened rather than claiming a copy that did not occur.
+      toast('Copy blocked — the link is papertrench.com/events');
     }
-  })();
-
-  /* ---------------- who is streaming ----------------
-   * Same probes /streams uses, and the same rule: a channel we cannot reach
-   * is UNKNOWN, never "offline". Only a positive answer counts as live. */
-
-  async function liveTwitch(login) {
-    try {
-      const r = await fetch(
-        `https://static-cdn.jtvnw.net/previews-ttv/live_user_${encodeURIComponent(login)}-80x45.jpg?t=${Date.now()}`,
-        { mode: 'cors', cache: 'no-store' });
-      if (!r.ok) return null;
-      return !r.url.includes('404_preview');
-    } catch (_) { return null; }
-  }
-
-  async function liveKick(slug) {
-    try {
-      const r = await fetch('https://kick.com/api/v2/channels/' + encodeURIComponent(slug),
-        { mode: 'cors', cache: 'no-store' });
-      if (r.status === 404) return false;
-      if (!r.ok) return null;
-      const body = await r.json();
-      return !!(body && body.livestream && body.livestream.is_live === true);
-    } catch (_) { return null; }
-  }
-
-  (async () => {
-    // The hand-maintained names on /streams are the floor: an empty or
-    // unreachable roster API must not read as "nobody streams here".
-    const seeds = [
-      { name: 'OnlyTerp', platform: 'twitch', login: 'onlyterp' },
-      { name: 'Ark1317', platform: 'kick', channel: 'ark1317' },
-    ];
-    try {
-      const body = await get('/api/streamer/roster');
-      for (const row of (Array.isArray(body && body.streamers) ? body.streamers : [])) {
-        const login = String((row && row.login) || '').toLowerCase();
-        if (login && !seeds.some((s) => s.login === login)) {
-          seeds.push({ name: row.name || login, platform: 'twitch', login });
-        }
-      }
-    } catch (_) { /* seeds stand */ }
-
-    const results = await Promise.all(seeds.map(async (s) => (
-      s.platform === 'kick' ? await liveKick(s.channel) : await liveTwitch(s.login)
-    )));
-    const live = results.filter((up) => up === true).length;
-    const known = results.filter((up) => up !== null).length;
-
-    const nEl = $('ev-live-n');
-    const line = $('ev-live-line');
-    const tags = $('ev-live-tags');
-
-    if (!known) {
-      nEl.textContent = 'unavailable';
-      line.textContent = 'Live status could not be checked from here right now.';
-      return;
-    }
-
-    nEl.textContent = String(live);
-    if (live > 0) {
-      line.textContent = live === 1
-        ? 'Somebody is running the challenge live right now.'
-        : `${live} streamers are running the challenge live right now.`;
-      tags.innerHTML = '<span class="tag live"><span class="dot"></span>Live</span>';
-    } else {
-      line.textContent = 'Nobody is live this minute — the roster and past runs are on the streams page.';
-    }
-  })();
+  });
 })();
