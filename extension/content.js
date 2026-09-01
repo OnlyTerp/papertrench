@@ -6704,7 +6704,7 @@
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
     // D-40: a board tick while a row snipe is armed is the fastest possible
     // wake — the row the trader tapped just printed a price of its own.
-    if (rowArmed.length) flushRowArmed();
+    if (rowArmed.length) flushRowArmed(payload.mint);
   }
 
   /** The row's own live price when the resolver cannot answer — GMGN's
@@ -7070,7 +7070,7 @@
   /** The D-40 armed-row flush: attempt a fill by every source in order; a
    * miss keeps the intent armed (the board feed, the resolver, and the chain
    * probe each get more chances until the TTL). */
-  async function flushRowArmed() {
+  async function flushRowArmed(preferAddress) {
     if (!rowArmed.length || rowArmedFlushing) return;
     const now = Date.now();
     for (let i = rowArmed.length - 1; i >= 0; i--) {
@@ -7090,7 +7090,8 @@
     sendRowBuyDoneIfIdle();
     if (!rowArmed.length) return;
     rowArmedFlushing = true;
-    const armed = rowArmed[0];
+    const armed = (preferAddress && rowArmed.find((intent) => intent.address === preferAddress))
+      || rowArmed[0];
     const timing = { priceSource: 'armed' };
     let terminal = false;
     rowBuyTimingState = timing;
@@ -7150,6 +7151,12 @@
               address: armed.address,
             }).catch(() => {});
           }
+        }
+      } else {
+        const index = rowArmed.indexOf(armed);
+        if (index !== -1) {
+          rowArmed.splice(index, 1);
+          rowArmed.push(armed);
         }
       }
     } catch (_) {
@@ -9356,6 +9363,7 @@
 
   function disableOverlay() {
     clearRowBuyQueue();
+    sendRowBuyDoneIfIdle();
     if (!host) return;
     stopOverlays();
     // O-26: listeners registered per mount (drag wiring, resize re-clamp,

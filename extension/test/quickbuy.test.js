@@ -344,10 +344,10 @@ test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-4
     'the refusal string is scrubbed from the row path forever (D-40)');
   assert.match(content, /rowArmed\.push\(\{ address, amount, at: armedAt \}\);/,
     'a cascade miss arms the click instead of refusing');
-  assert.match(content, /async function flushRowArmed\(\)/,
+  assert.match(content, /async function flushRowArmed\(preferAddress\)/,
     'the armed-row flush exists');
   // Wakes: the board's own mint-tagged tick is the fastest possible one.
-  assert.match(content, /if \(rowArmed\.length\) flushRowArmed\(\);/,
+  assert.match(content, /if \(rowArmed\.length\) flushRowArmed\(payload\.mint\);/,
     'a board tick wakes the armed snipe immediately');
   assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 1200\);/,
     'a near-delayed re-probe follows the arm');

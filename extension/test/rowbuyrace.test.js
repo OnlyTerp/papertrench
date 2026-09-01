@@ -519,6 +519,69 @@ test('multiple armed row intents fill once each in FIFO order and stay bounded',
   assert.equal(harness.getState().journal.length, 3);
 });
 
+test('a board wake prefers the armed intent whose price just arrived', async () => {
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  await harness.doRowBuy(B);
+  const originalA = harness.getRowArmedList().find((intent) => intent.address === A);
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'B',
+    name: 'Token B',
+  });
+  await waitFor(() => harness.getState().journal.length === 1
+    && !harness.getRowBuyInFlight()
+    && !harness.getRowArmedFlushing());
+
+  assert.equal(harness.getState().journal[0].mint, B);
+  assert.deepEqual(
+    Array.from(harness.getRowArmedList(), (intent) => intent.address),
+    [A],
+  );
+  assert.equal(harness.getRowArmedList()[0].at, originalA.at);
+});
+
+test('an armed miss rotates FIFO so a no-argument wake tries the next intent', async () => {
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  await harness.doRowBuy(B);
+  await harness.flushRowArmed();
+  assert.deepEqual(
+    Array.from(harness.getRowArmedList(), (intent) => intent.address),
+    [B, A],
+  );
+  await harness.flushRowArmed();
+  assert.deepEqual(
+    Array.from(harness.getRowArmedList(), (intent) => intent.address),
+    [A, B],
+  );
+});
+
+test('armed FIFO rotation preserves the original expiry timestamp', async () => {
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  const originalA = harness.getRowArmedList().find((intent) => intent.address === A);
+  await race.advance(10);
+  await harness.doRowBuy(B);
+  await harness.flushRowArmed();
+  const rotatedA = harness.getRowArmedList().find((intent) => intent.address === A);
+  assert.equal(rotatedA.at, originalA.at);
+
+  race.setNow(originalA.at + 60_001);
+  await harness.flushRowArmed();
+  assert.deepEqual(
+    Array.from(harness.getRowArmedList(), (intent) => intent.address),
+    [B],
+  );
+});
+
 test('an expired armed entry is cleared without disturbing its sibling', async () => {
   const race = bootRace({ unpricedB: true });
   const { harness } = race;
@@ -982,10 +1045,16 @@ test('disabling the overlay clears queued taps without stranding them', async ()
   await waitFor(() => race.isPairIdentityRequested());
   harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
   assert.equal(harness.getRowBuyQueue().length, 1);
-  harness.disableOverlay();
-  assert.equal(harness.getRowBuyQueue().length, 0);
   race.releasePairIdentity();
   await first;
+  assert.equal(harness.getRowBuyInFlight(), false);
+  harness.disableOverlay();
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    1,
+    'clearing the queue must release the chip busy state',
+  );
   await race.advance(1);
   assert.equal(harness.getState().journal.length, 1);
   assert.equal(race.isBIdentityRequested(), false);
