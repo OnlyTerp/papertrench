@@ -602,6 +602,55 @@ test('a row-props quote fills at the tapped price without resolver or identity l
   assert.equal(harness.getState().journal[0].priceNative, 0.000032);
 });
 
+test('a USD-only GMGN row-props quote converts with the site rate', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  const buy = harness.doRowBuy(B, null, {
+    mint: B,
+    pair: PAIR,
+    priceUsd: 0.0032,
+    mcapUsd: 3200,
+    supply: 1_000_000,
+  });
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    0,
+    'a reconciled GMGN quote skips the resolver cascade',
+  );
+});
+
+test('a USD-only row-props quote without a SOL/USD rate falls back', async () => {
+  const race = bootRace({ solUsdFails: true });
+  const { harness } = race;
+
+  const buy = harness.doRowBuy(B, null, {
+    mint: B,
+    pair: PAIR,
+    priceUsd: 0.0032,
+    mcapUsd: 3200,
+    supply: 1_000_000,
+  });
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getState().journal[0].priceNative, 1);
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'an unavailable conversion rate uses the resolver cascade',
+  );
+  assert.equal(harness.getRowArmed(), null, 'a quote with no conversion rate does not arm');
+});
+
 test('row-props validation has its own exact address check', () => {
   assert.match(CONTENT, /const ROW_ADDR_RE = \/\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\//);
   assert.match(CONTENT, /const ROW_ADDR_EXACT_RE = \/\^\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\$\//);

@@ -130,6 +130,51 @@ test('unitless prices and percentage changes never become row quotes', () => {
   }), A), null);
 });
 
+test('a GMGN row proves its bare price is USD from supply and market cap', () => {
+  const row = makeRow({
+    data: {
+      address: A,
+      pool_address: PAIR,
+      price: 0.0000028749178,
+      usd_market_cap: 2874.92,
+      total_supply: 1_000_000_000,
+    },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(quoteExtractor()(row, A))), {
+    mint: A,
+    pair: PAIR,
+    priceSol: null,
+    priceUsd: 0.0000028749178,
+    mcapUsd: 2874.92,
+    supply: 1_000_000_000,
+  });
+});
+
+test('a GMGN bare price without its USD cap is rejected', () => {
+  assert.equal(quoteExtractor()(makeRow({
+    address: A,
+    price: 0.0000028749178,
+    total_supply: 1_000_000_000,
+  }), A), null);
+});
+
+test('a GMGN bare price that disagrees with supply and cap is rejected', () => {
+  assert.equal(quoteExtractor()(makeRow({
+    address: A,
+    price: 0.00001,
+    usd_market_cap: 2874.92,
+    total_supply: 1_000_000_000,
+  }), A), null);
+});
+
+test('Padre dev funding amounts never become row prices', () => {
+  assert.equal(quoteExtractor()(makeRow({
+    tokenAddress: A,
+    marketAddress: PAIR,
+    devFundTxnSolAmount: 0.9,
+  }), A), null);
+});
+
 test('the row-buy bridge message carries the quote from the tapped row', () => {
   assert.match(
     BRIDGE,

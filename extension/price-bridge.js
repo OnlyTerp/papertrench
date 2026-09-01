@@ -3581,26 +3581,48 @@
       const seen = new Set();
       const stack = [start];
       const candidates = [];
-      const identityKeys = new Set(['tokenAddress', 'mint', 'pairAddress']);
+      const identityKeys = new Set([
+        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address',
+      ]);
       const priceKeys = new Set([
         'priceSol', 'priceNative', 'tokenPriceUsd', 'priceUsd',
-        'marketCapSol', 'marketCapUsd',
+        'marketCapSol', 'marketCapUsd', 'usd_market_cap',
       ]);
       const badKey = /change|pct|percent|min|hr|24h|ratio/i;
       const fieldsFor = (obj) => {
         if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
         const fields = {};
+        let barePrice = null;
         for (const [name, value] of Object.entries(obj)) {
           if (badKey.test(name)) continue;
           if (identityKeys.has(name)) {
             if (typeof value === 'string' && BASE58_RE.test(value)) fields[name] = value;
             continue;
           }
-          if (name === 'supply' || priceKeys.has(name)) {
+          if (name === 'supply' || name === 'total_supply' || name === 'totalSupply'
+              || priceKeys.has(name)) {
             const number = numberValue(value);
             if (number !== null && number > 0) fields[name] = number;
+            continue;
+          }
+          if (name === 'price') {
+            const number = numberValue(value);
+            if (number !== null && number > 0) barePrice = number;
           }
         }
+        if (fields.address !== undefined) fields.mint = fields.address;
+        if (fields.pool_address !== undefined) fields.pair = fields.pool_address;
+        if (fields.total_supply !== undefined) fields.supply = fields.total_supply;
+        if (fields.totalSupply !== undefined) fields.supply = fields.totalSupply;
+        if (fields.usd_market_cap !== undefined) fields.mcapUsd = fields.usd_market_cap;
+        const barePriceProven = barePrice !== null && fields.supply > 0 && fields.mcapUsd > 0
+          && Math.abs(barePrice * fields.supply / fields.mcapUsd - 1) <= 0.02;
+        if (barePriceProven) {
+          fields.priceUsd = barePrice;
+        }
+        const hasExplicitPrice = fields.priceSol !== undefined || fields.priceNative !== undefined
+          || fields.tokenPriceUsd !== undefined || fields.priceUsd !== undefined;
+        if (barePrice !== null && !barePriceProven && !hasExplicitPrice) return null;
         return fields;
       };
       const walk = (obj, depth) => {
@@ -3626,7 +3648,9 @@
       const matching = candidates.filter((fields) =>
         fields.tokenAddress === tappedAddress
         || fields.mint === tappedAddress
-        || fields.pairAddress === tappedAddress);
+        || fields.address === tappedAddress
+        || fields.pairAddress === tappedAddress
+        || fields.pair === tappedAddress);
       if (!matching.length) return null;
       const selected = matching.reduce((best, fields) =>
         !best || Object.keys(fields).length > Object.keys(best).length ? fields : best, null);
@@ -3643,12 +3667,12 @@
         }
       }
       return {
-        mint: merged.tokenAddress || merged.mint || null,
-        pair: merged.pairAddress || null,
+        mint: merged.tokenAddress || merged.mint || merged.address || null,
+        pair: merged.pairAddress || merged.pair || merged.pool_address || null,
         priceSol: merged.priceSol || merged.priceNative || null,
         priceUsd: merged.tokenPriceUsd || merged.priceUsd || null,
-        mcapUsd: merged.marketCapUsd || null,
-        supply: merged.supply || null,
+        mcapUsd: merged.marketCapUsd || merged.mcapUsd || null,
+        supply: merged.supply || merged.total_supply || merged.totalSupply || null,
       };
     } catch (_) {
       return null;

@@ -6669,12 +6669,27 @@
     const pair = quote.pair || null;
     if ((mint && !ROW_ADDR_EXACT_RE.test(mint)) || (pair && !ROW_ADDR_EXACT_RE.test(pair))) return false;
     if ((!mint && !pair) || (mint !== address && pair !== address)) return false;
-    if (!(Number.isFinite(Number(quote.priceSol)) && Number(quote.priceSol) > 0)) return false;
+    const hasPriceSol = quote.priceSol != null;
+    const hasPriceUsd = quote.priceUsd != null;
+    if (!hasPriceSol && !hasPriceUsd) return false;
     for (const name of ['priceUsd', 'mcapUsd', 'supply']) {
       if (quote[name] != null
         && !(Number.isFinite(Number(quote[name])) && Number(quote[name]) > 0)) return false;
     }
-    if (quote.priceUsd != null) {
+    if (hasPriceSol
+        && !(Number.isFinite(Number(quote.priceSol)) && Number(quote.priceSol) > 0)) return false;
+    if (hasPriceUsd && !hasPriceSol) {
+      if (!(quote.supply > 0 && quote.mcapUsd > 0)
+          || Math.abs(Number(quote.priceUsd) * Number(quote.supply)
+            / Number(quote.mcapUsd) - 1) > 0.02) return false;
+      const rate = await Promise.race([
+        Promise.resolve().then(() => R.solUsd()).catch(() => 0),
+        new Promise((resolve) => setTimeout(() => resolve(0), 2000)),
+      ]);
+      if (!(rate > 0)) return false;
+      return { ...quote, priceSol: Number(quote.priceUsd) / Number(rate) };
+    }
+    if (hasPriceUsd) {
       const implied = Number(quote.priceUsd) / Number(quote.priceSol);
       const rate = await Promise.race([
         Promise.resolve().then(() => R.solUsd()).catch(() => 0),
@@ -6683,7 +6698,7 @@
       if (rate > 0 && (!(implied > 0)
         || Math.max(implied / rate, rate / implied) > 1.25)) return false;
     }
-    return true;
+    return { ...quote, priceSol: Number(quote.priceSol) };
   }
 
   /**
@@ -7024,15 +7039,16 @@
       // nothing below may block this function's finally forever.
       const ROW_CASCADE_TIMEOUT_MS = 10_000;
       let data = null;
-      if (rowQuote && await validRowPropsQuote(rowQuote, address)) {
+      const validRowQuote = rowQuote && await validRowPropsQuote(rowQuote, address);
+      if (validRowQuote) {
         data = {
-          mint: rowQuote.mint || address,
-          pairAddress: rowQuote.pair || null,
+          mint: validRowQuote.mint || address,
+          pairAddress: validRowQuote.pair || null,
           symbol: null,
           name: null,
-          priceNative: rowQuote.priceSol,
-          priceUsd: rowQuote.priceUsd || null,
-          mcap: rowQuote.mcapUsd || null,
+          priceNative: validRowQuote.priceSol,
+          priceUsd: validRowQuote.priceUsd || null,
+          mcap: validRowQuote.mcapUsd || null,
           priceSource: 'row-props',
         };
       } else {
