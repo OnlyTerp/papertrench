@@ -498,12 +498,16 @@
     const emitFacts = () => {
       if (!factsWanted) return;
       let emitted = 0;
-      for (const rec of records.values()) {
-        if (emitted >= 3) break;
+      const watched = (currentSymbolInfo.mint && records.get(currentSymbolInfo.mint))
+        || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
+        || [...records.values()].find((candidate) => currentSymbolInfo.pairAddress
+          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1);
+      const emitRecord = (rec) => {
+        if (!rec) return false;
         const hasDifferentAddress = rec.mint
           && rec.addresses.some((address) => address !== rec.mint);
         if (!hasDifferentAddress && rec.supply === null
-          && rec.decimals === null && !rec.poolAddress) continue;
+          && rec.decimals === null && !rec.poolAddress) return false;
         const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
         emit('facts', {
           mint: rec.mint,
@@ -519,6 +523,12 @@
           url: url || null,
         });
         emitted++;
+        return true;
+      };
+      if (watched) emitRecord(watched);
+      for (const rec of records.values()) {
+        if (emitted >= 3) break;
+        if (rec !== watched) emitRecord(rec);
       }
     };
     let emittedTick = false;

@@ -482,13 +482,17 @@
    * No supply from either source means mcap readings stay unpriceable, which
    * is the honest answer, not a gap.
    */
-  function bootstrapSupply(t) {
-    if (!t) return null;
+  function bootstrapSupplyInfo(t) {
+    if (!t) return { supplyUi: null, basis: null };
     var measured = Number(t.supplyUi);
-    if (measured > 0) return measured;
-    if (isPumpFamily(t)) return PUMP_FAMILY_SUPPLY;
+    if (measured > 0) return { supplyUi: measured, basis: 'measured' };
+    if (isPumpFamily(t)) return { supplyUi: PUMP_FAMILY_SUPPLY, basis: 'pump-constant' };
     var host = Number(t.hostSupplyUi);
-    return host > 0 ? host : null;
+    return host > 0 ? { supplyUi: host, basis: 'host' } : { supplyUi: null, basis: null };
+  }
+
+  function bootstrapSupply(t) {
+    return bootstrapSupplyInfo(t).supplyUi;
   }
 
   /** The unit-price band an mcap reading must land in to be credible. The
@@ -520,6 +524,7 @@
         priceUsd: null,
         mcap: null,
         basis: null,
+        supplyBasis: null,
       };
     };
 
@@ -540,7 +545,7 @@
       || tick.source === 'gmgn-mcap-candle';
     if (!trusted) return reject('untrusted-source');
 
-    var accept = function (native, usd, mcap, basis) {
+    var accept = function (native, usd, mcap, basis, supplyBasis) {
       return {
         accepted: true,
         reason: 'ok',
@@ -548,6 +553,7 @@
         priceUsd: usd > 0 ? usd : null,
         mcap: mcap > 0 ? mcap : null,
         basis: basis,
+        supplyBasis: supplyBasis || null,
       };
     };
 
@@ -611,7 +617,8 @@
         // mcap, USD mcap — are judged against the same sane band, and the
         // tick is priced only when EXACTLY ONE fits (the F-25 discipline,
         // extended).
-        var supply = bootstrapSupply(pendingToken);
+        var supplyInfo = bootstrapSupplyInfo(pendingToken);
+        var supply = supplyInfo.supplyUi;
         if (rate && supply) {
           var band = mcapUnitBand(pendingToken);
           var readings = [
@@ -629,7 +636,8 @@
           });
           if (sane.length > 1) return reject('ambiguous-unit');
           if (sane.length === 1) {
-            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis);
+            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis,
+              supplyInfo.basis);
           }
           return reject('implausible-unit');
         }
@@ -673,7 +681,8 @@
     // A market-cap-only tick (GMGN/Axiom pre-index) can price any coin whose
     // supply is KNOWN — pump's protocol constant or a supply measured off the
     // mint account — through the same exactly-one-sane discipline.
-    var mcSupply = bootstrapSupply(pendingToken);
+    var mcSupplyInfo = bootstrapSupplyInfo(pendingToken);
+    var mcSupply = mcSupplyInfo.supplyUi;
     if (tickMcap > 0 && rate && mcSupply) {
       var mcBand = mcapUnitBand(pendingToken);
       var usdMc = tickMcap / mcSupply;
@@ -681,8 +690,9 @@
       var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.max;
       var solOk = solMc >= mcBand.min && solMc <= mcBand.max;
       if (usdOk && solOk) return reject('ambiguous-unit');
-      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap');
-      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap');
+      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap', mcSupplyInfo.basis);
+      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap',
+        mcSupplyInfo.basis);
     }
     // A market-cap-only tick has no token price, so nothing can be filled yet.
     if (tickMcap > 0) return reject('mcap-only-no-supply');
@@ -1574,6 +1584,7 @@
     SCALE_STEP_WINDOW_MS,
     isPumpFamily,
     bootstrapSupply,
+    bootstrapSupplyInfo,
     rugVerdict,
     parsePresetList,
     positionMark,

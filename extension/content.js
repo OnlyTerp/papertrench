@@ -534,6 +534,12 @@
   window.addEventListener('message', onBridgeMessage);
 
   const HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  // Quote/native pool assets must never become the tracked token identity.
+  const HOST_FACT_QUOTE_MINTS = new Set([
+    'So11111111111111111111111111111111111111112',
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  ]);
   const hostSupplyRefusals = new Set();
 
   function recordHostFactsDiagnostic(message, kind, details) {
@@ -548,7 +554,7 @@
     if (hostSupplyRefusals.has(mint)) return;
     hostSupplyRefusals.add(mint);
     recordHostFactsDiagnostic('refused host supply for ' + mint
-      + ' (mcap/priceUsd disagreed by more than 1%)', 'host-facts-supply-refused', {
+      + ' (no supply reading agreed with mcap/priceUsd within 1%)', 'host-facts-supply-refused', {
       source: facts && facts.source,
       url: facts && facts.url,
       values: facts ? {
@@ -566,6 +572,7 @@
     const factMint = typeof facts.mint === 'string' ? facts.mint : '';
     if (addresses.indexOf(srcAddress) !== -1
       && HOST_FACT_ADDRESS_RE.test(factMint)
+      && !HOST_FACT_QUOTE_MINTS.has(factMint)
       && factMint !== srcAddress
       && token.mint !== factMint) {
       const oldMint = token.mint;
@@ -593,10 +600,13 @@
         return;
       }
       const decimals = Number(facts.decimals);
-      declaredUi = Number.isInteger(decimals) && decimals >= 0
-        ? rawSupply / (10 ** decimals) : rawSupply;
-      if (!(declaredUi > 0) || !Number.isFinite(declaredUi)
-        || Math.abs(implied - declaredUi) / declaredUi > 0.01) {
+      const readings = [rawSupply];
+      if (Number.isInteger(decimals) && decimals >= 0) {
+        readings.push(rawSupply / (10 ** decimals));
+      }
+      declaredUi = readings.find((reading) => reading > 0 && Number.isFinite(reading)
+        && Math.abs(implied - reading) / reading <= 0.01) || null;
+      if (!(declaredUi > 0)) {
         refuseHostSupply(token.mint, facts);
         return;
       }
@@ -817,6 +827,11 @@
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
     token.priceSource = payload.source || 'page-feed';
+    if (verdict.supplyBasis === 'host') {
+      token.hostSupplySource = 'site-facts';
+      token.hostSupplyFillWitness = token.hostSupplyWitness
+        ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
+    }
     // Market evidence for the fill witness (F-47): only prices the validator
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
@@ -1362,11 +1377,20 @@
     if (Math.abs(measured - host) / host <= 0.02) {
       token.hostSupplyUi = null;
       token.hostSupplyWitness = null;
+      token.hostSupplySource = null;
+      token.hostSupplyFillWitness = null;
       return;
     }
     token.hostSupplyUi = null;
     token.hostSupplyWitness = null;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
     token.hostSupplyRejected = true;
+    const pos = state.positions && state.positions[token.mint];
+    if (pos) {
+      pos.hostSupplyDiscrepancy = true;
+      persistSoon();
+    }
     recordHostFactsDiagnostic('host supply disagrees with measured supply',
       'host-facts-supply-mismatch', {
       mint: token.mint,
@@ -2001,6 +2025,8 @@
       mcap: Number(token.mcap) > 0 ? Number(token.mcap) : null,
       source: token.priceSource || 'unknown',
       receivedAt: lastPriceAt,
+      supplySource: token.hostSupplySource || null,
+      hostSupplyWitness: token.hostSupplyFillWitness || null,
     };
   }
 
@@ -3375,6 +3401,8 @@
             // report into a journal lookup instead of a screenshot forensic.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
             chain: token.chain || 'solana',
             solAmount,
             // The dollar amount the trader actually tapped on a foreign-chain
@@ -3612,6 +3640,8 @@
             // F-48: fill price provenance — see doBuy.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
           });
           // F-41: claimed before the journal can be observed (see doBuy).
           drawnFillIds.add(filled.trade.id);
@@ -7674,6 +7704,9 @@
     // Armed levels change from the chart (a drag, a cancel) and from the
     // wallet (an order firing), neither of which rebuilds the card.
     renderOrderList();
+    posEls.pnl.title = pos.hostSupplyDiscrepancy
+      ? 'Warning: entry price and P&L use a host supply that disagreed with measured supply.'
+      : '';
 
     const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
     if (!mark) return;
@@ -7797,6 +7830,7 @@
     posEls.entry.textContent = DASH;
     posEls.value.textContent = DASH;
     posEls.pnl.textContent = DASH;
+    posEls.pnl.title = '';
     posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
 
     if (posEls.ledger) {

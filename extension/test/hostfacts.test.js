@@ -34,6 +34,7 @@ function loadContentHarness() {
       text = text.replace('\n})();\n', [
         '\n  window.__hostFactsTest = {',
         ' getToken: () => token,',
+        ' getState: () => state,',
         ' setArmed: (value) => { armedBuy = value; },',
         ' getArmed: () => armedBuy,',
         ' prewatch: (candidate) => prewatchPending(candidate),',
@@ -133,6 +134,28 @@ test('host identity facts are emitted for a pair-tied record', async () => {
   assert.equal(facts.payload.priceUsd, 0.000001);
 });
 
+test('quote-side host facts cannot rekey the page token', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const wsol = 'So11111111111111111111111111111111111111112';
+    ov.dispatchBridge('facts', {
+      mint: wsol, addresses: [PAIR, wsol], poolAddress: PAIR,
+      priceUsd: null, mcap: null, supply: null, decimals: null,
+    });
+    assert.equal(api.getToken().mint, PAIR);
+    ov.dispatchBridge('facts', {
+      mint: MINT, addresses: [PAIR, MINT], poolAddress: PAIR,
+      priceUsd: null, mcap: null, supply: null, decimals: null,
+    });
+    assert.equal(api.getToken().mint, MINT);
+  } finally {
+    loader.restore();
+  }
+});
+
 test('facts extraction keeps descendant addresses off the parent record', async () => {
   const env = runBridge({
     token: {
@@ -175,6 +198,20 @@ test('facts are bounded to three records per frame and never become ticks', asyn
   const facts = env.emitted.filter((message) => message.type === 'facts');
   assert.equal(facts.length, 3);
   assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0);
+});
+
+test('watched facts are emitted before unrelated records consume the cap', async () => {
+  const body = {};
+  for (const mint of [OTHER, '4444444444444444444444444444444444444444444', '5555555555555555555555555555555555555555555']) {
+    body[mint] = { mint, supply: 1000000000, decimals: 9 };
+  }
+  body[MINT] = { mint: MINT, pairAddress: PAIR, supply: 1000000000, decimals: 9 };
+  const env = runBridge(body);
+  env.sendContent('paper-axis', { mint: MINT, pairAddress: PAIR });
+  await env.fetch();
+  const facts = env.emitted.filter((message) => message.type === 'facts');
+  assert.equal(facts.length, 3);
+  assert.equal(facts[0].payload.mint, MINT);
 });
 
 test('pending content adopts a pair-tied mint and rewrites an armed buy', async () => {
@@ -264,8 +301,39 @@ test('pending content accepts corroborated declared and implied host supply', as
     } finally {
       loader2.restore();
     }
+    const loader3 = loadContentHarness();
+    try {
+      const ov3 = loader3.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+      await settleOverlay(ov3);
+      const api3 = ov3.win.__hostFactsTest;
+      ov3.dispatchBridge('facts', {
+        mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
+        supply: 100, decimals: 9,
+      });
+      assert.equal(api3.getToken().hostSupplyUi, 100);
+    } finally {
+      loader3.restore();
+    }
   } finally {
     loader.restore();
+  }
+});
+
+test('host supply accepts atomic and already-scaled readings', async () => {
+  for (const supply of [100000000000, 100]) {
+    const loader = loadContentHarness();
+    try {
+      const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+      await settleOverlay(ov);
+      const api = ov.win.__hostFactsTest;
+      ov.dispatchBridge('facts', {
+        mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
+        supply, decimals: 9,
+      });
+      assert.equal(api.getToken().hostSupplyUi, 100);
+    } finally {
+      loader.restore();
+    }
   }
 });
 
@@ -352,6 +420,7 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
     await settleOverlay(ov);
     assert.equal(api.getToken().supplyUi, 101);
     assert.equal(api.getToken().hostSupplyUi, null);
+    assert.equal(api.getToken().hostSupplyRejected, undefined);
 
     const loader2 = loadContentHarness();
     try {
@@ -363,6 +432,8 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
       });
       await settleOverlay(ov2);
       const api2 = ov2.win.__hostFactsTest;
+      api2.getState().positions[MINT] = { mint: MINT };
+      api2.getState().journal.push({ mint: MINT, supplySource: 'site-facts' });
       const records2 = [];
       ov2.win.PTErrors = { record: (message, details) => records2.push({ message, details }) };
       ov2.dispatchBridge('facts', {
@@ -376,6 +447,8 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
       assert.equal(api2.getToken().hostSupplyUi, null);
       assert.equal(api2.getToken().hostSupplyRejected, true);
       assert.equal(api2.getToken().supplyUi, undefined);
+      assert.equal(api2.getState().positions[MINT].hostSupplyDiscrepancy, true);
+      assert.equal(api2.getState().journal[0].supplySource, 'site-facts');
       assert.ok(records2.some((record) => record.details.kind === 'host-facts-supply-mismatch'));
       ov2.dispatchBridge('facts', {
         mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
@@ -412,4 +485,19 @@ test('bootstrapSupply precedence is measured, pump constant, then host', () => {
   assert.equal(Q.bootstrapSupply(pump), 1e9);
   const host = { mint: 'plain-mint', hostSupplyUi: 34 };
   assert.equal(Q.bootstrapSupply(host), 34);
+  assert.deepEqual(Q.bootstrapSupplyInfo(measured), { supplyUi: 12, basis: 'measured' });
+  assert.deepEqual(Q.bootstrapSupplyInfo(pump), { supplyUi: 1e9, basis: 'pump-constant' });
+  assert.deepEqual(Q.bootstrapSupplyInfo(host), { supplyUi: 34, basis: 'host' });
+});
+
+test('host-supply bootstrap reports its supply provenance', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const verdict = Q.bootstrapTick(
+    { mint: 'plain-mint', hostSupplyUi: 100 },
+    { mint: 'plain-mint', mcap: 0.006, source: 'padre-chart-bar' },
+    2
+  );
+  assert.equal(verdict.accepted, true);
+  assert.equal(verdict.supplyBasis, 'host');
 });
