@@ -37,6 +37,7 @@ function runHarness(options = {}) {
   const nodesById = {};
   const winListeners = {};
   const chainProbes = [];
+  const chainIdentifies = [];
 
   function makeNode(tag) {
     const node = {
@@ -192,6 +193,16 @@ function runHarness(options = {}) {
               && options.prewatch(message.pool, message.mint);
             return Promise.resolve(answer || null);
           }
+          if (message.type === 'pt_onchain_identify') {
+            if (message.pool && message.pool === message.mint) {
+              chainProbes.push(message.pool);
+              chainIdentifies.push(message.pool);
+            }
+            const answer = options.identify
+              ? options.identify(message.pool, message.mint)
+              : options.prewatch && options.prewatch(message.pool, message.mint);
+            return Promise.resolve(answer || null);
+          }
           return Promise.resolve({});
         },
         onMessage: { addListener: () => {} },
@@ -271,7 +282,7 @@ function runHarness(options = {}) {
     }
   }
   return {
-    advance, settle, rowTick, tapChip, chainProbes,
+    advance, settle, rowTick, tapChip, chainProbes, chainIdentifies,
     navigate(url) {
       const parsed = new URL(url);
       location.href = url;
@@ -352,9 +363,22 @@ test('a missed row identity probe heals both stacks by chain proof', async () =>
   assert.equal(merged.standInKey, undefined);
 });
 
-test('a chain proof for a different mint clears the flag without merging', async () => {
+test('a chain proof rekeys to its mint, then merges on that chart', async () => {
+  const rowAmount = 0.25;
+  const priorAmount = 0.1;
+  const priceNative = 0.0004 / 200;
+  const expectedPrior = fillExpected(priorAmount, priceNative);
+  const expectedRow = fillExpected(rowAmount, priceNative);
   const world = { chart: false };
   const view = runHarness({
+    rowAmount,
+    seed(state, settings) {
+      const seeded = E.buy(state, settings, {
+        ts: 1, mint: OTHER_MINT, site: 'panel',
+        priceNative, solAmount: priorAmount,
+      });
+      seeded.position.lastPriceNative = expectedPrior.lastPriceNative;
+    },
     stage: (address) => world.chart && (address === REAL_MINT || address === OTHER_MINT)
       ? { payload: pairPayload(address, address) } : 'blind',
     prewatch: (pool, mint) => world.chart && pool === STAND_IN && mint === STAND_IN
@@ -370,19 +394,46 @@ test('a chain proof for a different mint clears the flag without merging', async
   world.chart = true;
   view.navigate(`https://axiom.trade/meme/${REAL_MINT}`);
   await view.advance(3000);
-  const before = view.chainProbes.length;
-  const position = view.storage().pt_state.positions[STAND_IN];
-  assert.ok(position);
-  assert.equal(position.standInKey, undefined);
+  let positions = view.storage().pt_state.positions;
+  assert.equal(positions[STAND_IN], undefined);
+  assert.ok(positions[OTHER_MINT]);
+  assert.equal(positions[OTHER_MINT].standInKey, undefined);
 
   view.navigate(`https://axiom.trade/meme/${OTHER_MINT}`);
   await view.advance(3000);
-  assert.equal(view.chainProbes.length, before,
-    'a proven-different key is not probed again in this page session');
-  assert.ok(view.storage().pt_state.positions[STAND_IN]);
-  assert.equal(view.storage().pt_state.positions[STAND_IN].standInKey, undefined);
+  positions = view.storage().pt_state.positions;
+  assert.equal(view.chainProbes.filter((key) => key === STAND_IN).length, 2,
+    'the stand-in gets one row prewatch and one chain identity probe');
+  assert.equal(Object.keys(positions).length, 1);
+  assert.equal(positions[OTHER_MINT].qty, expectedPrior.qty + expectedRow.qty);
+  assert.equal(positions[OTHER_MINT].costSol, expectedPrior.costSol + expectedRow.costSol);
+  assert.equal(positions[OTHER_MINT].investedSol, expectedPrior.investedSol + expectedRow.investedSol);
+  assert.equal(positions[OTHER_MINT].netInvestedSol, expectedPrior.netInvestedSol + expectedRow.netInvestedSol);
   assert.equal(view.storage().pt_state.positions[REAL_MINT], undefined);
-  assert.equal(view.storage().pt_state.positions[OTHER_MINT], undefined);
+});
+
+test('a chain proof that names the stand-in only clears its flag', async () => {
+  const world = { chart: false };
+  const view = runHarness({
+    stage: (address) => world.chart && address === REAL_MINT
+      ? { payload: pairPayload(REAL_MINT, REAL_MINT) } : 'blind',
+    identify: (pool, mint) => world.chart && pool === STAND_IN && mint === STAND_IN
+      ? { mint: STAND_IN, pool: STAND_IN } : null,
+    prewatch: () => null,
+  });
+  await view.advance(3000);
+  view.rowTick(STAND_IN, 0.0004);
+  await view.settle();
+  view.tapChip(STAND_IN);
+  await view.settle();
+
+  world.chart = true;
+  view.navigate(`https://axiom.trade/meme/${REAL_MINT}`);
+  await view.advance(3000);
+  const positions = view.storage().pt_state.positions;
+  assert.ok(positions[STAND_IN]);
+  assert.equal(positions[STAND_IN].standInKey, undefined);
+  assert.equal(positions[REAL_MINT], undefined);
 });
 
 test('a chain rekey clears the flag when no real-mint stack exists', async () => {

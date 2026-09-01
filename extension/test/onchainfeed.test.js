@@ -224,6 +224,7 @@ test('F-33: single-account pools keep the strict newer-slot guard', () => {
 const vm2 = require('node:vm');
 
 function feedWithRpc(handler) {
+  const sentFrames = [];
   const sandbox = {
     console, Date, JSON, Math, Number, String, Array, Object, Boolean,
     Promise, Map, Set, URL, TextEncoder, Uint8Array, BigInt, isFinite,
@@ -231,7 +232,10 @@ function feedWithRpc(handler) {
     btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
     crypto: require('node:crypto').webcrypto,
     setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {},
-    WebSocket: function () { this.readyState = 3; },
+    WebSocket: function () {
+      this.readyState = 3;
+      this.send = (frame) => sentFrames.push(JSON.parse(frame));
+    },
   };
   sandbox.self = sandbox;
   sandbox.globalThis = sandbox;
@@ -243,6 +247,7 @@ function feedWithRpc(handler) {
     setUserEndpoint() {}, reportSuccess() {}, reportFailure() {},
   };
   vm2.runInContext(fs.readFileSync(path.join(ROOT, 'onchain-feed.js'), 'utf8'), ctx, { filename: 'onchain-feed.js' });
+  sandbox.PTOnchainFeed._sentFrames = sentFrames;
   return sandbox.PTOnchainFeed;
 }
 
@@ -326,6 +331,44 @@ test('F-34: a completed (migrated) curve refuses prewatch — the resolver path 
     throw new Error('unexpected rpc ' + method);
   });
   assert.equal(await feed.prewatch({ pool: CURVE_ADDR }), null);
+});
+
+test('identity resolves complete curves without watching or scanning', async () => {
+  const curveB64 = curveAccountB64({
+    virtualToken: 1_000_000_000_000_000, virtualSol: 115_000_000_000, complete: true,
+  });
+  const rpcLog = [];
+  const feed = feedWithRpc(async (method, params) => {
+    rpcLog.push(method);
+    if (method === 'getMultipleAccounts') {
+      return {
+        context: { slot: 1 },
+        value: [{ owner: PUMP_PROGRAM_ID, data: [curveB64] }],
+      };
+    }
+    if (method === 'getTokenAccountsByOwner') {
+      return {
+        value: [{
+          pubkey: RESERVE_ADDR,
+          account: { data: { parsed: { info: {
+            mint: FRESH_MINT,
+            tokenAmount: { amount: '793000000000000' },
+          } } } },
+        }],
+      };
+    }
+    throw new Error('unexpected rpc ' + method);
+  });
+
+  assert.equal(await feed.prewatch({ pool: CURVE_ADDR }), null,
+    'the completed curve remains unpriceable through prewatch');
+  const found = await feed.identify({ pool: CURVE_ADDR });
+  assert.deepEqual(JSON.parse(JSON.stringify(found)), {
+    mint: FRESH_MINT, pool: CURVE_ADDR,
+  });
+  assert.equal(feed._watched.size, 0, 'identity proof must not create a watched entry');
+  assert.equal(feed._sentFrames.filter((frame) => frame.method === 'accountSubscribe').length, 0);
+  assert.equal(rpcLog.filter((method) => method === 'getProgramAccounts').length, 0);
 });
 
 test('F-34: a non-pump pool refuses prewatch rather than guessing', async () => {

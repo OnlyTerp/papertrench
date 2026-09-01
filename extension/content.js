@@ -29,6 +29,7 @@
     solUsd: () => sendMessage({ type: 'pt_sol_usd' }).then((r) => (typeof r === 'number' && r > 0 ? r : 0)).catch(() => 0),
     onchainWatch: (mint, pool) => sendMessage({ type: 'pt_onchain_watch', mint, pool }).then(okOrNull),
     onchainPrewatch: (ids) => sendMessage({ type: 'pt_onchain_prewatch', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
+    onchainIdentify: (ids) => sendMessage({ type: 'pt_onchain_identify', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
     rugCheck: (mint) => sendMessage({ type: 'pt_rug_check', mint }).then(okOrNull),
     onchainUnwatch: (mint) => sendMessage({ type: 'pt_onchain_unwatch', mint }).catch(() => null),
     onchainQuote: (mint) => sendMessage({ type: 'pt_onchain_quote', mint }).then(okOrNull),
@@ -1269,24 +1270,24 @@
 
   const attemptedStandInProbes = new Set();
 
-  async function probeStandInPosition(standIn, mint) {
+  async function probeStandInPosition(standIn) {
     try {
-      const found = await R.onchainPrewatch({ pool: standIn, mint: standIn });
+      const found = await R.onchainIdentify({ pool: standIn, mint: standIn });
       if (!found || !found.mint) return;
-      if (found.mint === mint) {
-        rekeyLiveState(standIn, mint);
+      if (found.mint === standIn) {
+        await withState(async () => {
+          const current = state.positions && state.positions[standIn];
+          if (!current || !current.standInKey) return;
+          const mutate = () => {
+            const position = state.positions && state.positions[standIn];
+            if (position) delete position.standInKey;
+          };
+          mutate();
+          await persistStateNow(mutate);
+        }).catch(() => {});
         return;
       }
-      await withState(async () => {
-        const current = state.positions && state.positions[standIn];
-        if (!current || !current.standInKey) return;
-        const mutate = () => {
-          const position = state.positions && state.positions[standIn];
-          if (position) delete position.standInKey;
-        };
-        mutate();
-        await persistStateNow(mutate);
-      }).catch(() => {});
+      rekeyLiveState(standIn, found.mint);
     } catch (_) {}
   }
 
@@ -1296,7 +1297,7 @@
       if (key === tokenRecord.mint || !position || !(Number(position.qty) > 0)
         || !position.standInKey || attemptedStandInProbes.has(key)) continue;
       attemptedStandInProbes.add(key);
-      void probeStandInPosition(key, tokenRecord.mint);
+      void probeStandInPosition(key);
     }
   }
 
