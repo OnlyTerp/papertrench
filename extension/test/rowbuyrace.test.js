@@ -156,6 +156,7 @@ function bootRace(options = {}) {
     },
     __rowToastMessages: [],
     __rowMarkers: markers,
+    __rowPendingTimerCount: () => timers.filter((timer) => !timer.dead).length,
   };
 
   function sendMessage(payload) {
@@ -348,6 +349,8 @@ function bootRace(options = {}) {
     getRowBuyOwner: () => rowBuyOwner,
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
     getRowBuyQueue: () => rowBuyQueue.slice(),
+    getRowBuyExpiryTimer: () => rowBuyExpiryTimer,
+    getPendingTimerCount: () => window.__rowPendingTimerCount(),
     getToastMessages: () => window.__rowToastMessages.slice(),
     getMarkers: () => window.__rowMarkers.slice(),
     drainRowBuyQueue,
@@ -1132,6 +1135,104 @@ test('an expired queued tap is reported and the queue continues', async () => {
   );
   assert.equal(harness.getRowBuyQueue().length, 0);
   assert.ok(race.debugLines.some((line) => line.includes('outcome=expired')));
+});
+
+test('a queued tap expires on its own TTL while another fill remains in flight', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+
+  await race.advance(5001);
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  const expired = race.debugLines.filter((line) => line.includes('outcome=expired'));
+  assert.equal(expired.length, 1);
+  assert.match(expired[0], /total=5000ms/);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    0,
+    'queue expiry must not clear the chip while a fill remains in flight',
+  );
+
+  race.releasePairIdentity();
+  race.releaseB();
+  await first;
+  await waitFor(() => harness.getMarkers()
+    .filter((message) => message.type === 'row-buy-done').length === 1);
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+});
+
+test('queued entries expire in tap order and emit one final done marker', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  await race.advance(1000);
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000096, priceUsd: 0.0096 });
+
+  await race.advance(4001);
+  const expired = race.debugLines.filter((line) => line.includes('outcome=expired'));
+  assert.equal(expired.length, 1);
+  await race.advance(1000);
+  const allExpired = race.debugLines.filter((line) => line.includes('outcome=expired'));
+  assert.equal(allExpired.length, 2);
+  assert.match(allExpired[0], /total=500[01]ms/);
+  assert.match(allExpired[1], /total=500[01]ms/);
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    0,
+  );
+
+  race.releasePairIdentity();
+  race.releaseB();
+  race.releaseC();
+  await first;
+  await waitFor(() => harness.getMarkers()
+    .filter((message) => message.type === 'row-buy-done').length === 1);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    1,
+  );
+});
+
+test('draining a queued entry before its TTL cancels expiry', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  assert.ok(harness.getRowBuyExpiryTimer());
+
+  race.releasePairIdentity();
+  race.releaseB();
+  await first;
+  await waitFor(() => !harness.getRowBuyInFlight());
+  harness.drainRowBuyQueue();
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.equal(harness.getRowBuyExpiryTimer(), null);
+  await race.advance(5001);
+  assert.equal(race.debugLines.filter((line) => line.includes('outcome=expired')).length, 0);
+});
+
+test('clearing the queue through overlay disable removes its expiry timer', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  assert.ok(harness.getRowBuyExpiryTimer());
+
+  harness.disableOverlay();
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.equal(harness.getRowBuyExpiryTimer(), null);
+  assert.equal(harness.getPendingTimerCount(), 0);
+
+  race.releasePairIdentity();
+  race.releaseB();
+  await first;
 });
 
 test('a drain attempt while the latch is held leaves the queued tap intact', async () => {

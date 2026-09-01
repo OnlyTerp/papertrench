@@ -6589,6 +6589,7 @@
   const ROW_BUY_QUEUE_MAX = 3;
   const ROW_BUY_QUEUE_TTL_MS = 5000;
   let rowBuyDrainTimer = null;
+  let rowBuyExpiryTimer = null;
   // D-41: when the in-flight latch was SET, so the 1 s heartbeat can free a
   // latch whose await never settled (a hung resolver/SW RPC on a weird pair
   // once left "Row buy already in progress…" on every coin until reload —
@@ -6653,9 +6654,39 @@
     }, 0);
   }
 
+  function scheduleRowBuyExpiry() {
+    if (rowBuyExpiryTimer) {
+      clearTimeout(rowBuyExpiryTimer);
+      rowBuyExpiryTimer = null;
+    }
+    if (contextDead || !rowBuyQueue.length) return;
+    const earliest = Math.min(...rowBuyQueue.map((entry) => entry.at));
+    rowBuyExpiryTimer = setTimeout(
+      expireRowBuyQueue,
+      Math.max(0, earliest + ROW_BUY_QUEUE_TTL_MS - Date.now()),
+    );
+  }
+
+  function expireRowBuyQueue() {
+    rowBuyExpiryTimer = null;
+    const now = Date.now();
+    for (let i = 0; i < rowBuyQueue.length;) {
+      if (now - rowBuyQueue[i].at < ROW_BUY_QUEUE_TTL_MS) {
+        i += 1;
+        continue;
+      }
+      const [entry] = rowBuyQueue.splice(i, 1);
+      toast('Queued row buy expired — no fill at the tapped price');
+      rowBuyTiming(entry.at, 'queue', {}, 'expired');
+    }
+    sendRowBuyDoneIfIdle();
+    scheduleRowBuyExpiry();
+  }
+
   function drainRowBuyQueue() {
     if (contextDead || rowBuyInFlight || !rowBuyQueue.length) return;
     const entry = rowBuyQueue.shift();
+    scheduleRowBuyExpiry();
     if (Date.now() - entry.at >= ROW_BUY_QUEUE_TTL_MS) {
       toast('Queued row buy expired — no fill at the tapped price');
       rowBuyTiming(entry.at, 'queue', {}, 'expired');
@@ -6674,6 +6705,10 @@
     if (rowBuyDrainTimer) {
       clearTimeout(rowBuyDrainTimer);
       rowBuyDrainTimer = null;
+    }
+    if (rowBuyExpiryTimer) {
+      clearTimeout(rowBuyExpiryTimer);
+      rowBuyExpiryTimer = null;
     }
   }
 
@@ -7191,6 +7226,7 @@
       if (fromQueue) rowBuyQueue.unshift(entry);
       else rowBuyQueue.push(entry);
       toast('Queued — filling after the current buy');
+      scheduleRowBuyExpiry();
       scheduleRowBuyDrain();
       return;
     }
