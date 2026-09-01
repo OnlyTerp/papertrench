@@ -126,6 +126,54 @@ test('refuses a non-SOL-quoted Solana pair without a SOL/USD rate', () => {
   assert.equal(Q.normalizePair(solPair(), solPair().baseToken.address, { solUsd: 0 }), null);
 });
 
+test('token payload falls back to a shallower WSOL pool when the deeper pool needs a missing rate', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [wsol, usdc] }, mint);
+  assert.ok(token);
+  assert.equal(token.pairAddress, wsol.pairAddress);
+  assert.equal(token.priceNative, Number(wsol.priceNative));
+});
+
+test('token payload keeps the deepest USDC pool when its conversion rate is available', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const token = Q.tokenFromPayload({ pairs: [wsol, usdc] }, mint, { solUsd: 102 });
+  assert.ok(token);
+  assert.equal(token.pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(token.priceNative - Number(usdc.priceUsd) / 102) < 1e-18);
+});
+
+test('token payload with only a USDC pool refuses without a conversion rate', () => {
+  const mint = solPair().baseToken.address;
+  assert.equal(Q.tokenFromPayload({ pairs: [solPair()] }, mint), null);
+});
+
+test('requested-as-quote identity still selects a WSOL-base pair', () => {
+  const mint = solPair().baseToken.address;
+  const pair = solPair({
+    baseToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    quoteToken: { address: mint, symbol: 'BONK', name: 'Bonk' },
+    priceNative: '800000',
+  });
+  const token = Q.tokenFromPayload({ pairs: [pair] }, mint);
+  assert.ok(token);
+  assert.equal(token.mint, mint);
+  assert.equal(token.priceNative, 1 / 800000);
+});
+
 test('keeps WSOL-quoted Solana normalization unchanged for either requested side', () => {
   const baseRequested = solPair({
     baseToken: { address: solPair().baseToken.address, symbol: 'BONK', name: 'Bonk' },
@@ -154,6 +202,38 @@ test('converts a USDC-quoted Solana pair in the batch path', () => {
   assert.ok(out[mint]);
   assert.ok(Math.abs(out[mint].priceNative - 0.000003112 / 102) < 1e-18);
   assert.equal(out[mint].solUsdAtResolve, 102);
+});
+
+test('batch pricing falls back to a shallower WSOL pool without a rate', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [wsol, usdc] });
+  assert.equal(out[mint].pairAddress, wsol.pairAddress);
+});
+
+test('batch pricing keeps the deepest USDC pool when its rate is available', () => {
+  const mint = solPair().baseToken.address;
+  const usdc = solPair({ liquidity: { usd: 1000000 } });
+  const wsol = solPair({
+    pairAddress: 'WsolPair1111111111111111111111111111111111111',
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.00000003112',
+    liquidity: { usd: 500000 },
+  });
+  const out = Q.pricesFromBatch({ pairs: [wsol, usdc] }, { solUsd: 102 });
+  assert.equal(out[mint].pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(out[mint].priceNative - Number(usdc.priceUsd) / 102) < 1e-18);
+});
+
+test('batch pricing with only a USDC pool refuses without a conversion rate', () => {
+  const mint = solPair().baseToken.address;
+  assert.deepEqual(Q.pricesFromBatch({ pairs: [solPair()] }), {});
 });
 
 test('BONK USDC pricing keeps the SOL mark near the booked entry', () => {
