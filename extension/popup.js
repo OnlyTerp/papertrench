@@ -207,12 +207,12 @@ const UPDATER = (() => {
       }
     };
     const marker = await read('pt_last_backup');
-    const values = {};
+    let values = {};
     let readable = true;
-    for (const key of BACKUP_KEYS) {
-      const result = await read(key);
-      values[key] = result.value;
-      if (!result.ok) readable = false;
+    try {
+      values = await chainGet(BACKUP_KEYS);
+    } catch (_) {
+      readable = false;
     }
     let chainMeta = null;
     let chainMetaReadable = true;
@@ -933,6 +933,10 @@ async function backupWallet() {
   if (AT) {
     try {
       const { meta, chain } = await AT.readChainStore(chainGet);
+      if (chain.length !== meta.length
+        || (chain.length && chain[chain.length - 1].hash !== meta.head)) {
+        throw new Error('Attestation chain is incomplete');
+      }
       chainLength = meta.length;
       chainHead = meta.head;
       if (chain.length) stored.pt_attest_chain = chain;

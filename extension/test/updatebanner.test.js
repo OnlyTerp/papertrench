@@ -29,6 +29,7 @@ function loadPopupPage({
 }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const stored = new Map();
+  const getCalls = [];
   if (checkedAt !== undefined) stored.set('pt_update_check', { checkedAt });
   if (seenVersion !== undefined) stored.set('pt_update_seen', { version: seenVersion, at: Date.now() });
   if (lastBackup !== undefined) {
@@ -45,6 +46,7 @@ function loadPopupPage({
   if (chainMeta !== undefined) stored.set('pt_attest_meta', chainMeta);
 
   const storageGet = async (keys) => {
+    getCalls.push([...keys]);
     if (storageGetThrows) throw new Error('storage unavailable');
     if (storageStateGetThrows && keys.includes('pt_state')) throw new Error('state unavailable');
     if (storageLastBackupGetThrows && keys.includes('pt_last_backup')) throw new Error('backup unavailable');
@@ -141,6 +143,7 @@ function loadPopupPage({
     open: (...args) => { opens.push(args); },
     _els: els,
     _stored: stored,
+    _getCalls: getCalls,
     _listeners: listeners,
     _opens: opens,
     _tabs: tabs,
@@ -950,4 +953,48 @@ test('popup update nudge: a failing chain meta read is unconfirmable', async () 
   await settle();
   assert.equal(event.prevented, true);
   assert.equal(sandbox._tabs.length, 0);
+});
+
+test('popup update nudge: an incomplete attestation chain is never covered', async () => {
+  const state = { startedAt: 1234, journal: [] };
+  const attest = {
+    readChainMeta: async () => ({ segCount: 1, length: 2, head: 'head-2' }),
+    readChainStore: async () => ({
+      meta: { segCount: 1, length: 2, head: 'head-2' },
+      chain: [{ hash: 'head-1' }],
+    }),
+  };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    state,
+    attest,
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  assert.equal(sandbox._stored.get('pt_last_backup').chainMissing, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /exported without the verification chain/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._tabs.length, 0);
+});
+
+test('popup update nudge: backup content is read in one storage snapshot', async () => {
+  const { sandbox } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+  });
+  await settle();
+  const contentReads = sandbox._getCalls.filter((keys) => (
+    keys.length === 4
+    && keys.includes('pt_state')
+    && keys.includes('pt_settings')
+    && keys.includes('pt_frames')
+    && keys.includes('pt_replays')
+  ));
+  assert.equal(contentReads.length, 1);
 });
