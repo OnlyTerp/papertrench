@@ -1179,17 +1179,42 @@ function clearWarmTabState() {
  * with the browser, like the intent always should) and the coin's own chart
  * page adopts it into its own D-39 armedBuy machinery, TTL and all. */
 const ARMED_ROW_KEY = 'pt_armed_row_intent';
-function writeArmedRowIntent(intent) {
-  return new Promise((resolve) => chrome.storage.session.set({ [ARMED_ROW_KEY]: intent }, () => resolve()));
+const ARMED_ROW_MAX = 3;
+function normalizeArmedRowIntents(value) {
+  const list = Array.isArray(value) ? value : (value && value.address ? [value] : []);
+  return list.filter((intent) => intent && typeof intent.address === 'string'
+    && Number(intent.amount) > 0 && Number.isFinite(Number(intent.at)));
 }
 function readArmedRowIntent() {
   return new Promise((resolve) => chrome.storage.session.get([ARMED_ROW_KEY], (value) => {
     if (chrome.runtime && chrome.runtime.lastError) { resolve(null); return; }
-    resolve(value[ARMED_ROW_KEY] || null);
+    resolve(normalizeArmedRowIntents(value[ARMED_ROW_KEY]));
   }));
 }
-function clearArmedRowIntent() {
-  return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+async function writeArmedRowIntent(intent) {
+  const list = await readArmedRowIntent();
+  const index = list.findIndex((item) => item.address === intent.address);
+  if (index !== -1) {
+    list[index] = { address: intent.address, amount: intent.amount, at: intent.at };
+  } else {
+    list.push({ address: intent.address, amount: intent.amount, at: intent.at });
+  }
+  while (list.length > ARMED_ROW_MAX) list.shift();
+  return new Promise((resolve) => chrome.storage.session.set({ [ARMED_ROW_KEY]: list }, () => resolve()));
+}
+function clearArmedRowIntent(address) {
+  if (!address) {
+    return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+  }
+  return readArmedRowIntent().then((list) => {
+    const remaining = list.filter((intent) => intent.address !== address);
+    if (!remaining.length) {
+      return new Promise((resolve) => chrome.storage.session.remove(ARMED_ROW_KEY, () => resolve()));
+    }
+    return new Promise((resolve) => chrome.storage.session.set(
+      { [ARMED_ROW_KEY]: remaining }, () => resolve(),
+    ));
+  });
 }
 
 /** The registered viewer tab, revalidated against reality: it must still exist
@@ -2583,7 +2608,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case 'pt_armed_row_clear': {
-        await clearArmedRowIntent();
+        await clearArmedRowIntent(message.address);
         sendResponse({ ok: true });
         break;
       }

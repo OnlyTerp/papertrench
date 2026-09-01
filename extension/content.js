@@ -478,14 +478,11 @@
       // gets nothing: without a genuine recent gesture the fill is refused.
       if (Date.now() - lastGestureAt > TRADE_GESTURE_WINDOW_MS) {
         toast('Paper buy needs a real tap — websites cannot trigger fills');
-        // The chip's busy state is cleared ONLY by row-buy-done; a refusal
-        // that skipped it left the chip stuck forever (DEFECT F-08).
-        sendPadreMarker('row-buy-done', null);
+        sendRowBuyDoneIfIdle();
         return;
       }
       if (ev.payload && ev.payload.address) {
-        doRowBuy(ev.payload.address, null, ev.payload.quote)
-          .finally(() => sendPadreMarker('row-buy-done', null));
+        doRowBuy(ev.payload.address, null, ev.payload.quote);
       }
     }
     else if (ev.type === 'nav') {
@@ -1175,12 +1172,17 @@
       // wait (the click already happened; nothing here narrates). TTL from
       // the ORIGINAL tap bounds it; a mismatched mint is not this intent.
       try {
-        const intent = await sendMessage({ type: 'pt_armed_row_get' });
-        if (intent && intent.address && intent.amount > 0) {
-          const matches = intent.address === data.mint
-            || intent.address === data.pairAddress
-            || intent.address === data.srcAddress;
-          if (matches && Date.now() - intent.at <= ARMED_ROW_TTL_MS) {
+        const mirrored = await sendMessage({ type: 'pt_armed_row_get' });
+        const intents = Array.isArray(mirrored)
+          ? mirrored
+          : (mirrored && mirrored.address ? [mirrored] : []);
+        const intent = intents.find((candidate) => candidate && candidate.address
+          && candidate.amount > 0
+          && (candidate.address === data.mint
+            || candidate.address === data.pairAddress
+            || candidate.address === data.srcAddress));
+        if (intent) {
+          if (Date.now() - intent.at <= ARMED_ROW_TTL_MS) {
             if (!armedBuy) {
               armedBuy = {
                 amount: intent.amount, usd: null, at: intent.at,
@@ -1192,7 +1194,10 @@
             }
             // Consumed either way: an intent the chart adopts is never
             // re-fillable by the (likely dead) board context.
-            sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
+            sendMessage({
+              type: 'pt_armed_row_clear',
+              address: intent.address,
+            }).catch(() => {});
           }
         }
       } catch (_) { /* adoption is an enhancement, never a landing risk */ }
@@ -6592,6 +6597,13 @@
   let rowBuyInFlightAt = 0;
   let rowBuyOwner = 0;
   let rowBuyTimingState = null;
+  function rowBuyWorkOutstanding() {
+    return rowBuyInFlight || rowBuyQueue.length > 0 || rowArmed.length > 0;
+  }
+
+  function sendRowBuyDoneIfIdle() {
+    if (!rowBuyWorkOutstanding()) sendPadreMarker('row-buy-done', null);
+  }
 
   function acquireRowBuyLatch() {
     rowBuyInFlight = true;
@@ -6648,6 +6660,7 @@
     if (Date.now() - entry.at >= ROW_BUY_QUEUE_TTL_MS) {
       toast('Queued row buy expired — no fill at the tapped price');
       rowBuyTiming(entry.at, 'queue', {}, 'expired');
+      sendRowBuyDoneIfIdle();
       scheduleRowBuyDrain();
       return;
     }
@@ -6692,7 +6705,7 @@
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
     // D-40: a board tick while a row snipe is armed is the fastest possible
     // wake — the row the trader tapped just printed a price of its own.
-    if (rowArmed) flushRowArmed();
+    if (rowArmed.length) flushRowArmed();
   }
 
   /** The row's own live price when the resolver cannot answer — GMGN's
@@ -6861,7 +6874,8 @@
    * Shape: { address, amount, at } — address is the row identity (mint or
    * pool) as the page printed it; the flush re-derives the canonical mint.
    */
-  let rowArmed = null;
+  const ARMED_ROW_MAX = ROW_BUY_QUEUE_MAX;
+  let rowArmed = [];
   let rowArmedFlushing = false;
   // D-42 (Bug 4): repeating armed-row probe — see doRowBuy's arm block.
   let rowArmedFlushTimer = null;
@@ -6869,7 +6883,13 @@
   // lifetime: when this page context dies, the intent dies with it — never
   // a zombie fill from a detached page. (D-42: the SW mirror carries a copy
   // across navigations; ARMED_ROW_TTL_MS lives with the armed state above.)
-  onTeardown(() => { rowArmed = null; });
+  onTeardown(() => {
+    rowArmed.length = 0;
+    if (rowArmedFlushTimer) {
+      clearInterval(rowArmedFlushTimer);
+      rowArmedFlushTimer = null;
+    }
+  });
 
   /** The row buy's commit core — shared by the direct fill and the armed
    * flush so both paths commit identically (same guard, same engine call,
@@ -7052,18 +7072,29 @@
    * miss keeps the intent armed (the board feed, the resolver, and the chain
    * probe each get more chances until the TTL). */
   async function flushRowArmed() {
-    if (!rowArmed || rowArmedFlushing) return;
-    if (Date.now() - rowArmed.at > ARMED_ROW_TTL_MS) {
-      rowArmed = null;
-      sendPadreMarker('row-buy-done', null);
-      toast('Armed row buy expired — no fillable price arrived in time');
-      // D-42: expiry clears the SW mirror too, or the chart page would
-      // adopt an intent the board already expired.
-      sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
-      return;
+    if (!rowArmed.length || rowArmedFlushing) return;
+    const now = Date.now();
+    for (let i = rowArmed.length - 1; i >= 0; i--) {
+      const intent = rowArmed[i];
+      if (now - intent.at > ARMED_ROW_TTL_MS) {
+        rowArmed.splice(i, 1);
+        toast('Armed row buy expired — no fillable price arrived in time');
+        // D-42: expiry clears the SW mirror too, or the chart page would
+        // adopt an intent the board already expired.
+        sendMessage({
+          type: 'pt_armed_row_clear',
+          address: intent.address,
+        }).catch(() => {});
+        rowBuyTiming(intent.at, 'armed', {}, 'expired');
+      }
     }
+    sendRowBuyDoneIfIdle();
+    if (!rowArmed.length) return;
     rowArmedFlushing = true;
-    const armed = rowArmed;
+    const armed = rowArmed[0];
+    const timing = { priceSource: 'armed' };
+    let terminal = false;
+    rowBuyTimingState = timing;
     try {
       // Same source order the click itself runs: freshest resolver read,
       // then the row's own feed, then the chain. The flush may only fire
@@ -7096,29 +7127,44 @@
         if (rowBuyInFlight) return;
         const rowBuyToken = acquireRowBuyLatch();
         let result;
-        const timing = { priceSource: data.priceSource };
+        terminal = true;
+        timing.priceSource = data.priceSource;
         rowBuyTimingState = timing;
         try {
           result = await fillRowBuy(armed.address, data, armed.amount, rowBuyToken);
+          if (!result && !timing.outcome) timing.outcome = 'refused';
         } finally {
           rowBuyTimingState = null;
           releaseRowBuyLatch(rowBuyToken);
           scheduleRowBuyDrain();
         }
-        if (result) {
+        if (result || timing.outcome !== 'superseded') {
           // D-42: the SW mirror dies with the intent it belongs to — a filled
-          // snipe must never be adopted by the chart page and filled twice,
-          // and a newer intent must keep both its slot and its mirror.
-          if (rowArmed === armed) {
-            rowArmed = null;
-            sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
+          // snipe must never be adopted by the chart page and filled twice.
+          // A refusal is terminal too; only an ownership supersession keeps
+          // the intent for a later retry.
+          const index = rowArmed.indexOf(armed);
+          if (index !== -1) {
+            rowArmed.splice(index, 1);
+            sendMessage({
+              type: 'pt_armed_row_clear',
+              address: armed.address,
+            }).catch(() => {});
           }
-          sendPadreMarker('row-buy-done', null);
         }
       }
     } catch (_) {
       // A transient failure keeps the intent armed — the next wake retries.
-    } finally { rowArmedFlushing = false; }
+      if (terminal) timing.outcome = 'error';
+    } finally {
+      rowBuyTimingState = null;
+      rowArmedFlushing = false;
+      if (terminal) {
+        if (!timing.outcome) timing.outcome = 'done';
+        rowBuyTiming(armed.at, timing.priceSource, timing, timing.outcome);
+      }
+      sendRowBuyDoneIfIdle();
+    }
   }
 
   /** Paper-buy the first preset amount of a screener row's token. */
@@ -7132,6 +7178,7 @@
       if (!fromQueue && rowBuyQueue.length >= ROW_BUY_QUEUE_MAX) {
         toast('Row buy queue full — tap again after current buys finish');
         rowBuyTiming(t0, 'queue', {}, 'refused');
+        sendRowBuyDoneIfIdle();
         return;
       }
       const entry = { address, button, quote: rowQuote, amount, at: fromQueue ? queuedAt : Date.now() };
@@ -7226,7 +7273,18 @@
         // source: the row's own mint-tagged board tick (fastest wake), the
         // resolver's next pass, or a delayed chain re-probe. The same 60 s
         // TTL honesty bounds the wait; expiry says so instead of guessing.
-        rowArmed = { address, amount, at: Date.now() };
+        const armedAt = Date.now();
+        const existingArmed = rowArmed.find((intent) => intent.address === address);
+        if (existingArmed) {
+          existingArmed.amount = amount;
+          existingArmed.at = armedAt;
+        } else if (rowArmed.length >= ARMED_ROW_MAX) {
+          toast('Armed row queue full — tap again after current buys finish');
+          outcome = 'refused';
+          return;
+        } else {
+          rowArmed.push({ address, amount, at: armedAt });
+        }
         // D-42 (Bug 3): the trader's next move is to click the coin and open
         // its chart — which destroys THIS context and, before this line, the
         // armed intent with it (no fill, no position, no line: the live
@@ -7235,7 +7293,7 @@
         // armedBuy flush. Both sides clear the SW copy on fill/expiry.
         sendMessage({
           type: 'pt_armed_row_arm',
-          intent: { address, amount, at: rowArmed.at },
+          intent: { address, amount, at: armedAt },
         }).catch(() => {});
         setTimeout(() => flushRowArmed(), 1200);
         setTimeout(() => flushRowArmed(), 4000);
@@ -7248,7 +7306,7 @@
         // self-clears; managedInterval already dies with the context.
         if (!rowArmedFlushTimer) {
           rowArmedFlushTimer = managedInterval(() => {
-            if (!rowArmed) {
+            if (!rowArmed.length) {
               clearInterval(rowArmedFlushTimer);
               rowArmedFlushTimer = null;
               return;
@@ -7304,6 +7362,7 @@
       if (button) button.classList.remove('busy');
       if (timing.outcome) outcome = timing.outcome;
       rowBuyTiming(t0, timing.priceSource, timing, outcome);
+      sendRowBuyDoneIfIdle();
       scheduleRowBuyDrain();
     }
   }
@@ -9263,7 +9322,7 @@
       // D-40 armed-row watchdog: the board's 1 s heartbeat keeps the armed
       // snipe honest — re-probing the sources while it waits and expiring it
       // visibly when the TTL passes (the panel's armed-buy watchdog, ported).
-      if (rowArmed) flushRowArmed();
+      if (rowArmed.length) flushRowArmed();
       // D-41 latch hygiene: an in-flight buy/sell whose await never settled
       // (hung resolver, dying SW) must not wedge every later trade behind
       // "already in progress". A live cascade never takes 20 s; if the
@@ -9275,6 +9334,7 @@
         rowBuyInFlight = false;
         rowBuyInFlightAt = 0;
         toast('A stuck row buy was released — try again');
+        sendRowBuyDoneIfIdle();
         scheduleRowBuyDrain();
       }
       if (buyInFlight && buyInFlightAt && Date.now() - buyInFlightAt > LATCH_MAX_AGE_MS) {

@@ -342,19 +342,19 @@ test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-4
   // arms and fires the instant any source lands a fillable price.
   assert.doesNotMatch(content, /Could not price that token yet/,
     'the refusal string is scrubbed from the row path forever (D-40)');
-  assert.match(content, /rowArmed = \{ address, amount, at: Date\.now\(\) \};/,
+  assert.match(content, /rowArmed\.push\(\{ address, amount, at: armedAt \}\);/,
     'a cascade miss arms the click instead of refusing');
   assert.match(content, /async function flushRowArmed\(\)/,
     'the armed-row flush exists');
   // Wakes: the board's own mint-tagged tick is the fastest possible one.
-  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);/,
+  assert.match(content, /if \(rowArmed\.length\) flushRowArmed\(\);/,
     'a board tick wakes the armed snipe immediately');
   assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 1200\);/,
     'a near-delayed re-probe follows the arm');
   assert.match(content, /setTimeout\(\(\) => flushRowArmed\(\), 4000\);/,
     'a second delayed re-probe bridges a quiet feed');
   // The bar heartbeat is the watchdog: keep probing, expire visibly.
-  assert.match(content, /if \(rowArmed\) flushRowArmed\(\);\s*\n\s*\/\/ D-41 latch hygiene/,
+  assert.match(content, /if \(rowArmed\.length\) flushRowArmed\(\);\s*\n\s*\/\/ D-41 latch hygiene/,
     'the 1s board heartbeat watchdog keeps the armed snipe honest');
   // TTL honesty — the same doctrine as the panel's armed buys.
   assert.match(content, /ARMED_ROW_TTL_MS = 60_000/,
@@ -363,7 +363,7 @@ test('a fresh-coin chip miss ARMS the intent — the row path never refuses (D-4
     'expiry is stated, never a silent drop or a guessed fill');
   // The intent dies with the page context — no zombie fills from a
   // detached board.
-  assert.match(content, /onTeardown\(\(\) => \{ rowArmed = null; \}\);/,
+  assert.match(content, /onTeardown\(\(\) => \{\s*\n\s*rowArmed\.length = 0;/,
     'the armed intent is torn down with the content script');
   // The commit core is ONE extractor shared by the click and the flush, so
   // an armed fill commits identically to a direct one.
@@ -457,7 +457,7 @@ test('a row-snipe intent survives the navigation to the coin chart (D-42 Bug 3)'
   // with it. It must mirror into the SW and be adopted by the coin's page.
   assert.match(content, /type: 'pt_armed_row_arm'/,
     'arming a row snipe mirrors the intent to the service worker');
-  assert.match(content, /const intent = await sendMessage\(\{ type: 'pt_armed_row_get' \}\)/,
+  assert.match(content, /const mirrored = await sendMessage\(\{ type: 'pt_armed_row_get' \}\)/,
     'the coin page asks the SW for a mirrored intent at detection');
   assert.match(content, /adoptedFromRow: true/,
     'an adopted intent is marked and runs the panel D-39 flush');
@@ -468,12 +468,34 @@ test('a row-snipe intent survives the navigation to the coin chart (D-42 Bug 3)'
     'the service worker holds the intent in session storage');
 });
 
+test('armed row intents use a bounded selective service-worker mirror', () => {
+  const bg = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  assert.match(content, /const ARMED_ROW_MAX = ROW_BUY_QUEUE_MAX;/,
+    'content keeps armed intents on the same bound as queued taps');
+  assert.match(content, /rowArmed\.find\(\(intent\) => intent\.address === address\)/,
+    'same-address armed taps are deduplicated locally');
+  assert.match(content, /if \(!rowArmed\.length\) \{\s*\n\s*clearInterval\(rowArmedFlushTimer\)/,
+    'the armed probe self-clears when the list empties');
+  assert.match(bg, /const ARMED_ROW_MAX = 3;/,
+    'the service-worker mirror is bounded');
+  assert.match(bg, /Array\.isArray\(value\) \? value : \(value && value\.address \? \[value\] : \[\]\)/,
+    'legacy single-object storage is wrapped as a list');
+  assert.match(bg, /list\.findIndex\(\(item\) => item\.address === intent\.address\)/,
+    'the service-worker mirror deduplicates by address');
+  assert.match(bg, /while \(list\.length > ARMED_ROW_MAX\) list\.shift\(\)/,
+    'the service-worker mirror evicts the oldest entry');
+  assert.match(bg, /function clearArmedRowIntent\(address\)/,
+    'mirror clear accepts an optional address');
+  assert.match(content, /type: 'pt_armed_row_clear',\s*\n\s*address: intent\.address/,
+    'chart adoption clears only the matching intent');
+});
+
 test('an armed row snipe keeps probing until filled or expired (D-42 Bug 4)', () => {
   // Live report: "some coins still not instant". Two one-shot timers left
   // gaps; the repeating probe closes them inside the TTL.
   assert.match(content, /rowArmedFlushTimer = managedInterval\(\(\) => \{/,
     'the armed intent runs a repeating 1.5 s flush probe');
-  assert.match(content, /if \(!rowArmed\) \{\s*\n\s*clearInterval\(rowArmedFlushTimer\)/,
+  assert.match(content, /if \(!rowArmed\.length\) \{\s*\n\s*clearInterval\(rowArmedFlushTimer\)/,
     'the probe self-clears when the intent fills or expires');
 });
 /* ------------------------------------------------------------------------

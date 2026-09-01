@@ -19,6 +19,7 @@ const SITES = fs.readFileSync(path.join(ROOT, 'sites.js'), 'utf8');
 const A = 'A'.repeat(32);
 const B = 'B'.repeat(32);
 const C = 'C'.repeat(32);
+const D = 'D'.repeat(32);
 const PAIR = 'P'.repeat(32);
 
 function bootRace(options = {}) {
@@ -35,11 +36,11 @@ function bootRace(options = {}) {
   const listeners = new Map();
   const timers = [];
   const storage = {};
-  let bIdentityPending = true;
+  let bIdentityPending = options.unpricedB ? false : true;
   let bIdentityRequested = false;
   let releaseBIdentity;
   const bIdentity = new Promise((resolve) => { releaseBIdentity = resolve; });
-  let cIdentityPending = true;
+  let cIdentityPending = options.unpricedC ? false : true;
   let cIdentityRequested = false;
   let releaseCIdentity;
   const cIdentity = new Promise((resolve) => { releaseCIdentity = resolve; });
@@ -61,6 +62,7 @@ function bootRace(options = {}) {
   let releaseSolUsd;
   const solUsd = new Promise((resolve) => { releaseSolUsd = resolve; });
   const messages = [];
+  const markers = [];
   let settings;
   let initialState;
 
@@ -145,7 +147,7 @@ function bootRace(options = {}) {
       listeners.get(type).push(fn);
     },
     removeEventListener() {},
-    postMessage() {},
+    postMessage(message) { markers.push(message); },
     location: {
       href: 'https://axiom.trade/pulse',
       hostname: 'axiom.trade',
@@ -153,6 +155,7 @@ function bootRace(options = {}) {
       search: '',
     },
     __rowToastMessages: [],
+    __rowMarkers: markers,
   };
 
   function sendMessage(payload) {
@@ -172,6 +175,7 @@ function bootRace(options = {}) {
         });
       }
       if (payload.address === C) {
+        if (options.unpricedC) return Promise.resolve(null);
         return Promise.resolve({
           mint: C,
           pairAddress: null,
@@ -336,7 +340,8 @@ function bootRace(options = {}) {
     enableOverlay,
     getState: () => state,
     setSite: (next) => { site = next; },
-    getRowArmed: () => rowArmed,
+    getRowArmed: () => rowArmed[0] || null,
+    getRowArmedList: () => rowArmed.slice(),
     getRowArmedFlushing: () => rowArmedFlushing,
     getRowBuyInFlight: () => rowBuyInFlight,
     getRowBuyInFlightAt: () => rowBuyInFlightAt,
@@ -344,6 +349,7 @@ function bootRace(options = {}) {
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
     getRowBuyQueue: () => rowBuyQueue.slice(),
     getToastMessages: () => window.__rowToastMessages.slice(),
+    getMarkers: () => window.__rowMarkers.slice(),
     drainRowBuyQueue,
     disableOverlay,
     setPresetBuy: (amount) => { settings.presetsBuy = [amount]; },
@@ -392,6 +398,7 @@ function bootRace(options = {}) {
       releaseSolUsd(100);
     },
     messages,
+    markers,
     debugLines,
     now: () => clock,
     setNow(next) { clock = next; },
@@ -473,6 +480,144 @@ test('an armed row fill commits on its first available price without competition
   assert.equal(harness.getRowArmed(), null, 'a successful armed fill clears its intent');
 });
 
+test('multiple armed row intents fill once each in FIFO order and stay bounded', async () => {
+  const race = bootRace({ unpricedB: true, unpricedC: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  await harness.doRowBuy(B);
+  await harness.doRowBuy(C);
+  assert.equal(
+    JSON.stringify(harness.getRowArmedList().map((intent) => intent.address)),
+    JSON.stringify([A, B, C]),
+  );
+
+  await harness.doRowBuy(D);
+  assert.equal(
+    JSON.stringify(harness.getRowArmedList().map((intent) => intent.address)),
+    JSON.stringify([A, B, C]),
+    'a fourth armed intent is refused instead of silently replacing one',
+  );
+  assert.ok(harness.getToastMessages().includes(
+    'Armed row queue full — tap again after current buys finish',
+  ));
+
+  for (const [address, symbol] of [[A, 'A'], [B, 'B'], [C, 'C']]) {
+    assert.equal(harness.getRowArmedList()[0].address, address);
+    harness.noteRowPrice({
+      mint: address,
+      candidates: [{ unit: 'usd', value: 100 }],
+      symbol,
+      name: `Token ${symbol}`,
+    });
+    await harness.flushRowArmed();
+    await waitFor(() => harness.getState().journal.length >= (
+      address === A ? 1 : address === B ? 2 : 3
+    ) && !harness.getRowBuyInFlight());
+  }
+  assert.equal(harness.getState().journal.length, 3);
+});
+
+test('an expired armed entry is cleared without disturbing its sibling', async () => {
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  const first = harness.getRowArmed();
+  await race.advance(10);
+  await harness.doRowBuy(B);
+  race.setNow(first.at + 60_001);
+  await harness.flushRowArmed();
+
+  assert.equal(
+    JSON.stringify(harness.getRowArmedList().map((intent) => intent.address)),
+    JSON.stringify([B]),
+  );
+  assert.equal(
+    harness.getToastMessages().filter((message) => message === 'Armed row buy expired — no fillable price arrived in time').length,
+    1,
+  );
+  const expired = race.messages.filter((message) => message.type === 'pt_armed_row_clear');
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0].address, A);
+});
+
+test('re-tapping an armed row refreshes its existing FIFO entry', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  const first = harness.getRowArmed();
+  await race.advance(10);
+  await harness.doRowBuy(A);
+  const second = harness.getRowArmed();
+
+  assert.equal(harness.getRowArmedList().length, 1);
+  assert.equal(second, first);
+  assert.ok(second.at >= first.at);
+});
+
+test('armed completion holds the chip busy and emits one terminal timing line', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    0,
+    'arming keeps the chip busy',
+  );
+  harness.noteRowPrice({
+    mint: A,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'A',
+    name: 'Token A',
+  });
+  await waitFor(() => harness.getState().journal.length === 1 && !harness.getRowArmed());
+
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    1,
+  );
+  const terminal = race.debugLines.filter((line) => line.includes('outcome=done'));
+  assert.equal(terminal.length, 1, 'one armed completion line is emitted');
+  assert.match(terminal[0], /source=row-feed outcome=done/);
+});
+
+test('a queued row tap withholds the done marker until all work completes', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  const active = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  await harness.doRowBuy(C);
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    0,
+  );
+
+  race.releaseB();
+  race.releaseC();
+  await waitFor(() => harness.getState().journal.length === 1);
+  await waitFor(() => !harness.getRowBuyInFlight());
+  assert.equal(
+    harness.getMarkers().filter((message) => message.type === 'row-buy-done').length,
+    0,
+    'the active completion does not clear the chip while C remains outstanding',
+  );
+  harness.noteRowPrice({
+    mint: C,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'C',
+    name: 'Token C',
+  });
+  await harness.drainRowBuyQueue();
+  await waitFor(() => harness.getState().journal.length === 2);
+  await active;
+  await waitFor(() => harness.getMarkers()
+    .filter((message) => message.type === 'row-buy-done').length === 1);
+});
+
 test('a newer armed intent survives an older flush commit', async () => {
   const race = bootRace({ unpricedB: true, holdSolUsd: true });
   const { harness } = race;
@@ -490,9 +635,8 @@ test('a newer armed intent survives an older flush commit', async () => {
   await waitFor(() => race.isSolUsdRequested());
   assert.equal(harness.getRowArmedFlushing(), true, 'A should be flushing its newly available price');
 
-  race.releaseB();
   await harness.doRowBuy(B);
-  const secondIntent = harness.getRowArmed();
+  const secondIntent = harness.getRowArmedList()[1];
   assert.ok(secondIntent, 'B should arm after its own cascade misses');
   assert.notEqual(secondIntent, firstIntent, 'each unpriced click gets a fresh intent object');
   assert.equal(
@@ -509,8 +653,8 @@ test('a newer armed intent survives an older flush commit', async () => {
     'the older A flush cannot discard newer B');
   assert.equal(
     race.messages.filter((message) => message.type === 'pt_armed_row_clear').length,
-    0,
-    'the older flush cannot clear B from the service worker',
+    1,
+    'the older flush clears only A from the service worker',
   );
   assert.ok(harness.getRowArmedFlushTimer(),
     'the repeating armed flush remains alive for B');
@@ -528,7 +672,7 @@ test('a newer armed intent survives an older flush commit', async () => {
   assert.equal(harness.getRowArmed(), null, 'B clears only after its own successful fill');
   assert.equal(
     race.messages.filter((message) => message.type === 'pt_armed_row_clear').length,
-    1,
+    2,
     'the service worker mirror clears once for the filled B intent',
   );
 });
