@@ -6676,7 +6676,10 @@
     }
     if (quote.priceUsd != null) {
       const implied = Number(quote.priceUsd) / Number(quote.priceSol);
-      const rate = await R.solUsd().catch(() => 0);
+      const rate = await Promise.race([
+        Promise.resolve().then(() => R.solUsd()).catch(() => 0),
+        new Promise((resolve) => setTimeout(() => resolve(0), 2000)),
+      ]);
       if (rate > 0 && (!(implied > 0)
         || Math.max(implied / rate, rate / implied) > 1.25)) return false;
     }
@@ -6864,8 +6867,7 @@
     // The chain classifies the click address the same way prewatch does —
     // one bounded read, never blocking the fill: a miss keeps the row's own
     // address as the key, exactly the honest legacy behavior.
-    if (address && data.priceSource !== 'row-props'
-      && (!data.mint || data.mint === address)) {
+    if (address && (!data.mint || data.mint === address)) {
       try {
         const found = await R.onchainPrewatch({ mint: address, pool: address }).catch(() => null);
         if (found && found.mint && found.mint !== data.mint) {
@@ -6940,6 +6942,7 @@
     }
     rowArmedFlushing = true;
     const armed = rowArmed;
+    const rowBuyToken = rowBuyInFlight ? rowBuyOwner : null;
     try {
       // Same source order the click itself runs: freshest resolver read,
       // then the row's own feed, then the chain. The flush may only fire
@@ -6969,13 +6972,13 @@
         }
         // Serialize only the commit. The armed resolver cascade must stay free
         // to retry while a direct click is pricing or filling.
-        if (rowBuyInFlight) return;
-        const rowBuyToken = acquireRowBuyLatch();
+        if (rowBuyInFlight || (rowBuyToken !== null && rowBuyOwner !== rowBuyToken)) return;
+        const commitToken = acquireRowBuyLatch();
         let result;
         try {
           result = await fillRowBuy(armed.address, data, armed.amount);
         } finally {
-          releaseRowBuyLatch(rowBuyToken);
+          releaseRowBuyLatch(commitToken);
         }
         if (result) {
           // D-42: the SW mirror dies with the intent it belongs to — a filled
@@ -7125,6 +7128,7 @@
 
       // D-40: the commit core is shared with the armed flush — one extractor,
       // identical guard/engine/attestation/rail behaviour on both paths.
+      if (rowBuyOwner !== rowBuyToken) return;
       await fillRowBuy(address, data, amount);
     } catch (err) {
       toast(err.message || 'Row buy failed');
