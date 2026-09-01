@@ -320,6 +320,15 @@ function runOverlay(priceSeries, opts) {
   };
 }
 
+
+  // Merge-tolerance: boot persist timing varies with resolver round-trips;
+  // wait for the state to actually land instead of assuming a fixed clock.
+  async function waitReady(ov, budgetMs = 3000) {
+    for (let t = 0; t < budgetMs; t += 200) {
+      if (ov.storage().pt_state) return;
+      await ov.advance(200);
+    }
+  }
 test('a transient storage read failure must not fabricate an empty wallet', async () => {
   const ov = runOverlay([0.001, 0.0012]);
 
@@ -471,7 +480,7 @@ test('the buy-section switch still outranks the custom-amount setting', async ()
 
 test('instant preset tap fills once and an empty BUY does not fill again', async () => {
   const ov = runOverlay([0.001]);
-  await ov.advance(1200);
+  await ov.advance(1200); await waitReady(ov);
 
   assert.equal(ov.shadowNodes['pt-buy'].style.display, 'none',
     'instant presets are the visible order buttons when custom sizing is off');
@@ -498,7 +507,7 @@ test('instant BUY uses a typed custom amount once when enabled', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
   });
-  await ov.advance(1200);
+  await ov.advance(1200); await waitReady(ov);
 
   assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
     'custom sizing keeps BUY available in instant mode');
@@ -517,7 +526,7 @@ test('two-step BUY still uses the selected preset once', async () => {
   const ov = runOverlay([0.001], {
     initialSettings: { instantBuyEnabled: false, settingsRevision: E.SETTINGS_REVISION },
   });
-  await ov.advance(1200);
+  await ov.advance(1200); await waitReady(ov);
 
   assert.notEqual(ov.shadowNodes['pt-buy'].style.display, 'none',
     'two-step mode needs the BUY trigger');
