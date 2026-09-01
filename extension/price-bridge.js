@@ -194,9 +194,9 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
-  // Historical snapshots are not the live market. Padre's pump.fun
-  // `callouts[0].marketCap` ($204.53M) showed $204.53M while the live BONK
-  // cap was about $263M (captured defect), so these subtrees must not feed
+  // Historical snapshots are not the live market. On Padre, pump.fun's
+  // `callouts[0].marketCap` put $204.53M in the header while BONK's live cap
+  // was about $263M (captured defect), so these subtrees must not feed
   // prices, caps, or host-facts arithmetic.
   const HISTORICAL_SUBTREE_KEY = /^(callouts?|history|historical|snapshots?|previous|prev|ath|candles?|bars?|ohlc|past)$/i;
   const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
