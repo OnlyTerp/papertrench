@@ -42,6 +42,18 @@ function makeRow(memoizedProps, memoizedState) {
   return row;
 }
 
+function makeFiberChain(length, targetIndex, targetProps) {
+  const start = { memoizedProps: {} };
+  let fiber = start;
+  for (let index = 1; index <= length; index += 1) {
+    fiber.sibling = { memoizedProps: index === targetIndex ? targetProps : {} };
+    fiber = fiber.sibling;
+  }
+  const row = {};
+  row.__reactFiber$test = start;
+  return row;
+}
+
 test('a tapped Axiom row yields its coherent mint, pair, SOL and USD quote', () => {
   const row = makeRow(
     {
@@ -199,6 +211,96 @@ test('a GMGN bare price that disagrees with supply and cap is rejected', () => {
     usd_market_cap: 2874.92,
     total_supply: 1_000_000_000,
   }), A), null);
+});
+
+test('an Axiom row can combine bounded ancestor records for the tapped token', () => {
+  const start = {
+    tokenAddress: A,
+    pairAddress: PAIR,
+    priceSol: 0.000032,
+    tokenPriceUsd: 0.000032,
+    supply: 1_000_000_000,
+    tokenTicker: 'crap',
+    tokenName: 'dinosaur crap',
+  };
+  const row = makeRow(start);
+  let fiber = row.__reactFiber$test;
+  for (let up = 1; up <= 7; up += 1) {
+    fiber.return = { memoizedProps: up === 7
+      ? { row: { tokenAddress: A, marketCapUsd: 32_000 } }
+      : { row: { tokenAddress: A } } };
+    fiber = fiber.return;
+  }
+  assert.deepEqual(JSON.parse(JSON.stringify(quoteExtractor()(row, A))), {
+    mint: A,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: 0.000032,
+    mcapUsd: 32_000,
+    supply: 1_000_000_000,
+    symbol: 'crap',
+    name: 'dinosaur crap',
+  });
+});
+
+test('an ancestor record for another token cannot leak into the tapped row quote', () => {
+  const row = makeRow({ tokenAddress: A, priceSol: 0.1 });
+  row.__reactFiber$test.return = {
+    memoizedProps: {
+      row: { tokenAddress: B, priceSol: 9, marketCapUsd: 900_000, supply: 100_000 },
+    },
+  };
+  const quote = quoteExtractor()(row, A);
+  assert.equal(quote.mint, A);
+  assert.equal(quote.priceSol, 0.1);
+  assert.equal(quote.mcapUsd, null);
+});
+
+test('a GMGN record beyond 80 fibers is found within the 400-step bound', () => {
+  const row = makeFiberChain(220, 211, {
+    address: A,
+    pool_address: PAIR,
+    price: 0.000002,
+    usd_market_cap: 2_000,
+    total_supply: 1_000_000_000,
+  });
+  const quote = quoteExtractor()(row, A);
+  assert.equal(quote.mint, A);
+  assert.equal(quote.priceUsd, 0.000002);
+});
+
+test('a GMGN record beyond 400 fibers remains out of bounds', () => {
+  const row = makeFiberChain(420, 411, {
+    address: A,
+    pool_address: PAIR,
+    price: 0.000002,
+    usd_market_cap: 2_000,
+    total_supply: 1_000_000_000,
+  });
+  assert.equal(quoteExtractor()(row, A), null);
+});
+
+test('an incoherent USD cap is dropped while the coherent price remains', () => {
+  const quote = quoteExtractor()(makeRow({
+    tokenAddress: A,
+    priceSol: 0.000032,
+    tokenPriceUsd: 0.0032,
+    marketCapUsd: 6_400,
+    supply: 1_000_000,
+  }), A);
+  assert.equal(quote.priceUsd, 0.0032);
+  assert.equal(quote.mcapUsd, null);
+});
+
+test('symbol and name values that look like addresses are rejected', () => {
+  const quote = quoteExtractor()(makeRow({
+    tokenAddress: A,
+    priceSol: 0.000032,
+    symbol: B,
+    name: B,
+  }), A);
+  assert.equal(quote.symbol, undefined);
+  assert.equal(quote.name, undefined);
 });
 
 test('Padre dev funding amounts never become row prices', () => {

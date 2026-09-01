@@ -323,6 +323,7 @@ function bootRace(options = {}) {
   window.__rowHarness = {
     doRowBuy,
     noteRowPrice,
+    validRowPropsQuote,
     flushRowArmed,
     enableOverlay,
     getState: () => state,
@@ -750,6 +751,8 @@ test('a row-props quote fills at the tapped price without resolver or identity l
     priceUsd: 0.0032,
     mcapUsd: 3200,
     supply: 100_000_000,
+    symbol: 'CRAP',
+    name: 'dinosaur crap',
   });
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
@@ -765,6 +768,8 @@ test('a row-props quote fills at the tapped price without resolver or identity l
     'an authoritative row-props mint skips identity probing',
   );
   assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+  assert.equal(harness.getState().journal[0].symbol, 'CRAP');
+  assert.equal(harness.getState().positions[B].name, 'dinosaur crap');
 });
 
 test('a USD-only GMGN row-props quote converts with the site rate', async () => {
@@ -819,6 +824,34 @@ test('a USD-only row-props quote without a SOL/USD rate falls back', async () =>
 test('row-props validation has its own exact address check', () => {
   assert.match(CONTENT, /const ROW_ADDR_RE = \/\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\//);
   assert.match(CONTENT, /const ROW_ADDR_EXACT_RE = \/\^\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\$\//);
+});
+
+test('row-props validation drops an incoherent cap but keeps the price', async () => {
+  const race = bootRace();
+  const quote = await race.harness.validRowPropsQuote({
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: 0.0032,
+    mcapUsd: 6400,
+    supply: 1_000_000,
+  }, B);
+  assert.equal(quote.priceSol, 0.000032);
+  assert.equal(quote.priceUsd, 0.0032);
+  assert.equal(quote.mcapUsd, null);
+});
+
+test('row-props validation rejects address-shaped metadata', async () => {
+  const race = bootRace();
+  const quote = await race.harness.validRowPropsQuote({
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+    symbol: A,
+    name: A,
+  }, B);
+  assert.equal(quote.symbol, null);
+  assert.equal(quote.name, null);
 });
 
 test('an invalid row-props identity falls back to the resolver', async () => {

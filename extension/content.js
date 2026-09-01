@@ -6573,7 +6573,7 @@
   // Newest USD price per mint from the site's OWN realtime feed (GMGN's
   // token_activity ticks carry a mint). A row buy prefers this over a
   // network quote because the screener is showing that very price.
-  const recentRowPrices = new Map(); // mint -> { usd, at }
+  const recentRowPrices = new Map(); // mint -> { usd, at, seq, symbol, name, mcap }
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
@@ -6677,32 +6677,46 @@
 
   async function validRowPropsQuote(quote, address) {
     if (!quote || typeof quote !== 'object' || !ROW_ADDR_EXACT_RE.test(address || '')) return false;
-    const mint = quote.mint || null;
-    const pair = quote.pair || null;
+    const normalized = { ...quote };
+    const mint = normalized.mint || null;
+    const pair = normalized.pair || null;
     if ((mint && !ROW_ADDR_EXACT_RE.test(mint)) || (pair && !ROW_ADDR_EXACT_RE.test(pair))) return false;
     if ((!mint && !pair) || (mint !== address && pair !== address)) return false;
-    const hasPriceSol = quote.priceSol != null;
-    const hasPriceUsd = quote.priceUsd != null;
+    const hasPriceSol = normalized.priceSol != null;
+    const hasPriceUsd = normalized.priceUsd != null;
     if (!hasPriceSol && !hasPriceUsd) return false;
     for (const name of ['priceUsd', 'mcapUsd', 'supply']) {
-      if (quote[name] != null
-        && !(Number.isFinite(Number(quote[name])) && Number(quote[name]) > 0)) return false;
+      if (normalized[name] != null
+        && !(Number.isFinite(Number(normalized[name])) && Number(normalized[name]) > 0)) {
+        if (name !== 'mcapUsd') return false;
+        normalized.mcapUsd = null;
+      }
     }
     if (hasPriceSol
-        && !(Number.isFinite(Number(quote.priceSol)) && Number(quote.priceSol) > 0)) return false;
+        && !(Number.isFinite(Number(normalized.priceSol)) && Number(normalized.priceSol) > 0)) return false;
+    if (normalized.mcapUsd != null
+        && (!(Number(normalized.priceUsd) > 0 && Number(normalized.supply) > 0)
+          || Math.abs(Number(normalized.mcapUsd)
+            / (Number(normalized.priceUsd) * Number(normalized.supply)) - 1) > 0.02)) {
+      normalized.mcapUsd = null;
+    }
+    for (const [name, maxLength] of [['symbol', 24], ['name', 64]]) {
+      if (normalized[name] != null
+          && (typeof normalized[name] !== 'string'
+            || normalized[name].length > maxLength
+            || ROW_ADDR_EXACT_RE.test(normalized[name]))) normalized[name] = null;
+    }
     if (hasPriceUsd && !hasPriceSol) {
-      if (!(quote.supply > 0 && quote.mcapUsd > 0)
-          || Math.abs(Number(quote.priceUsd) * Number(quote.supply)
-            / Number(quote.mcapUsd) - 1) > 0.02) return false;
+      if (!(normalized.supply > 0 && normalized.mcapUsd > 0)) return false;
       const rate = await Promise.race([
         Promise.resolve().then(() => R.solUsd()).catch(() => 0),
         new Promise((resolve) => setTimeout(() => resolve(0), 2000)),
       ]);
       if (!(rate > 0)) return false;
-      return { ...quote, priceSol: Number(quote.priceUsd) / Number(rate) };
+      return { ...normalized, priceSol: Number(normalized.priceUsd) / Number(rate) };
     }
     if (hasPriceUsd) {
-      const implied = Number(quote.priceUsd) / Number(quote.priceSol);
+      const implied = Number(normalized.priceUsd) / Number(normalized.priceSol);
       const rate = await Promise.race([
         Promise.resolve().then(() => R.solUsd()).catch(() => 0),
         new Promise((resolve) => setTimeout(() => resolve(0), 2000)),
@@ -6710,7 +6724,7 @@
       if (rate > 0 && (!(implied > 0)
         || Math.max(implied / rate, rate / implied) > 1.25)) return false;
     }
-    return { ...quote, priceSol: Number(quote.priceSol) };
+    return { ...normalized, priceSol: Number(normalized.priceSol) };
   }
 
   /**
@@ -7056,8 +7070,8 @@
         data = {
           mint: validRowQuote.mint || address,
           pairAddress: validRowQuote.pair || null,
-          symbol: null,
-          name: null,
+          symbol: validRowQuote.symbol || null,
+          name: validRowQuote.name || null,
           priceNative: validRowQuote.priceSol,
           priceUsd: validRowQuote.priceUsd || null,
           mcap: validRowQuote.mcapUsd || null,

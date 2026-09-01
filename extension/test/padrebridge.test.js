@@ -29,6 +29,14 @@ const PADRE_NATIVE_RATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqx0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wsm5hdGl2ZVByaWNlSW5Vc2RVactAWZfzf6mDcg==',
   'base64',
 ));
+const PADRE_DOUBLED_FDV_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHORhax0b2tlbkFkZHJlc3PZLDI1YXBwb1hxTTV4cloxRnNKa3ozRDZUOW16MUpLWXF6OHhab0ZCVExwdW1wqnByaWNlSW5Vc2TLPnYzGcku/HuoZmR2SW5Vc2TLQGSuFHrhR66rdG90YWxTdXBwbHnPAAONfqTGgACoZGVjaW1hbHMGp3VwZGF0ZXOQ',
+  'base64',
+));
+const PADRE_COHERENT_FDV_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHORhax0b2tlbkFkZHJlc3PZLENvelh5M1VlTkJ4NzNib0JqRnA0UjNrZ2VVVlRYckp4cWRoeXdXTVBwdW1wqnByaWNlSW5Vc2TLPtR/YFTL1qWoZmR2SW5Vc2TLQLMXAAAAAACrdG90YWxTdXBwbHnPAAONfqTGgACoZGVjaW1hbHMGp3VwZGF0ZXOQ',
+  'base64',
+));
 
 function runBridge(opts = {}) {
   let clock = Date.now();
@@ -257,7 +265,7 @@ test('Padre decoded TradingView bars emit an immediate PaperTrench tick', () => 
     'the unknown chart close is offered as mcap so quote validation can identify chart mode');
 });
 
-test('Padre MessagePack frames emit mint-tagged USD ticks with their FDV cap', () => {
+test('Padre MessagePack frames emit mint-tagged USD ticks without an unverified cap', () => {
   const env = runBridge();
   const socket = env.openSocket();
   socket.emit(PADRE_UPDATE_FRAME.buffer);
@@ -267,7 +275,28 @@ test('Padre MessagePack frames emit mint-tagged USD ticks with their FDV cap', (
   assert.equal(message.payload.mint, 'FQTkgq6GkYzkrQF3B1crhfvYGkn2uLyME28xSHbppump');
   assert.equal(message.payload.candidates[0].unit, 'usd');
   assert.equal(message.payload.candidates[0].value, 3.10644703526886e-06);
-  assert.equal(message.payload.mcap, 3106.4470352688604);
+  assert.equal(message.payload.mcap, null);
+});
+
+test('Padre replaces a doubled FDV with price times the derived supply', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_DOUBLED_FDV_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message);
+  assert.equal(message.payload.mint, '25appoXqM5xrZ1FsJkz3D6T9mz1JKYqz8xZoFBTLpump');
+  assert.equal(message.payload.candidates[0].value, 8.27e-8);
+  assert.equal(message.payload.mcap, 82.7);
+});
+
+test('Padre keeps a coherent FDV when the derived supply proves it', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_COHERENT_FDV_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message);
+  assert.equal(message.payload.mint, 'CozXy3UeNBx73boBjFp4R3kgeUVTXrJxqdhywWMPpump');
+  assert.equal(message.payload.mcap, 4887);
 });
 
 test('Padre Blob frames are decoded without blocking the WebSocket handler', async () => {

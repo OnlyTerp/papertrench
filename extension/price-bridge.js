@@ -359,6 +359,7 @@
   // front reported ever older prices exactly as batches grew with volume
   // (DEFECT F-03). The budget only bites on pathological frames.
   const NODE_BUDGET = 20_000;
+  const padreSupplyByMint = new Map();
   // Identifier strength: on several sites `address`/`ca` carry the AMM/pool
   // address rather than the token mint, so an explicit mint-ish key must win
   // the record association when both appear on one object.
@@ -458,6 +459,47 @@
     return { records, top };
   }
 
+  function notePadreSupplies(obj) {
+    const seen = new WeakSet();
+    let budget = NODE_BUDGET;
+    (function walk(node, depth) {
+      if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
+      if (budget-- <= 0) return;
+      seen.add(node);
+      if (typeof node.tokenAddress === 'string' && BASE58_RE.test(node.tokenAddress)) {
+        const totalSupply = numberValue(node.totalSupply);
+        const decimals = numberValue(node.decimals);
+        const supply = totalSupply > 0 && Number.isInteger(decimals) && decimals >= 0 && decimals <= 30
+          ? totalSupply / (10 ** decimals)
+          : null;
+        if (supply > 0 && Number.isFinite(supply)) {
+          padreSupplyByMint.set(node.tokenAddress, supply);
+          if (padreSupplyByMint.size > 300) {
+            padreSupplyByMint.delete(padreSupplyByMint.keys().next().value);
+          }
+        }
+      }
+      for (const value of Object.values(node)) walk(value, depth + 1);
+    })(obj, 0);
+  }
+
+  function normalizePadreCaps(records) {
+    for (const rec of records.values()) {
+      const supply = padreSupplyByMint.get(rec.mint);
+      const price = rec.candidates.find((candidate) => candidate.key === 'priceInUsd');
+      if (!(supply > 0) || !(price && price.value > 0) || !(rec.mcap > 0)) {
+        rec.mcap = null;
+        continue;
+      }
+      const derived = price.value * supply;
+      if (!(derived > 0) || !Number.isFinite(derived)) {
+        rec.mcap = null;
+      } else if (Math.abs(rec.mcap / derived - 1) > 0.02) {
+        rec.mcap = derived;
+      }
+    }
+  }
+
   // GMGN's realtime WebSocket publishes every venue trade on the
   // `token_activity` channel with terse keys: `a` = token mint, `pu` = trade
   // price in USD, `e` = buy/sell. The generic key scanner cannot see these
@@ -532,7 +574,7 @@
     return true;
   }
 
-  function forwardJson(raw, source, url, receivedAt, seq) {
+  function forwardJson(raw, source, url, receivedAt, seq, padreBinary = false) {
     // No consumer, no parse — the cheapest frame is the one never read.
     if (!feedActive()) return;
     let parsed = raw;
@@ -569,6 +611,7 @@
     if (!parsed || typeof parsed !== 'object') return;
 
     if (forwardTokenActivity(parsed)) return;
+    if (padreBinary) notePadreSupplies(parsed);
 
     // GMGN's embedded TradingView chart is explicitly a market-cap chart:
     // /api/v1/token_mcap_candles/... returns USD market-cap OHLC values in
@@ -599,6 +642,7 @@
     }
 
     const { records, top } = collect(parsed);
+    if (padreBinary) normalizePadreCaps(records);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
@@ -701,12 +745,12 @@
           forwardJson(event.data, 'ws', undefined, receivedAt, seq);
         } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
           const decoded = decodeMsgpack(new Uint8Array(event.data));
-          if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq);
+          if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);
         } else if (hostIsPadre && feedActive()
           && typeof Blob === 'function' && event.data instanceof Blob) {
           Promise.resolve(event.data.arrayBuffer()).then((buffer) => {
             const decoded = decodeMsgpack(new Uint8Array(buffer));
-            if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq);
+            if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);
           }, () => {});
         }
       });
@@ -3725,7 +3769,7 @@
       const stack = [start];
       const candidates = [];
       const identityKeys = new Set([
-        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address',
+        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address', 'pair',
       ]);
       const priceKeys = new Set([
         'priceSol', 'priceNative', 'tokenPriceUsd', 'priceUsd',
@@ -3739,6 +3783,16 @@
         for (const [name, value] of Object.entries(obj)) {
           if (identityKeys.has(name)) {
             if (typeof value === 'string' && BASE58_RE.test(value)) fields[name] = value;
+            continue;
+          }
+          if ((name === 'tokenTicker' || name === 'symbol' || name === 'ticker')
+              && typeof value === 'string' && value.length <= 24 && !BASE58_RE.test(value)) {
+            fields.symbol = value;
+            continue;
+          }
+          if ((name === 'tokenName' || name === 'name')
+              && typeof value === 'string' && value.length <= 64 && !BASE58_RE.test(value)) {
+            fields.name = value;
             continue;
           }
           if (badKey.test(name)) continue;
@@ -3781,7 +3835,7 @@
         }
       };
       let steps = 0;
-      while (stack.length && steps++ < 80) {
+      while (stack.length && steps++ < 400) {
         const fiber = stack.pop();
         if (!fiber || seen.has(fiber)) continue;
         seen.add(fiber);
@@ -3789,6 +3843,12 @@
         walk(fiber.memoizedState, 0);
         if (fiber.child) stack.push(fiber.child);
         if (fiber.sibling) stack.push(fiber.sibling);
+      }
+      for (let fiber = start, ancestors = 0; fiber && ancestors < 12; fiber = fiber.return, ancestors++) {
+        if (seen.has(fiber)) continue;
+        seen.add(fiber);
+        walk(fiber.memoizedProps, 0);
+        walk(fiber.memoizedState, 0);
       }
       const matching = candidates.filter((fields) =>
         fields.tokenAddress === tappedAddress
@@ -3800,7 +3860,8 @@
       const selected = matching.reduce((best, fields) =>
         !best || Object.keys(fields).length > Object.keys(best).length ? fields : best, null);
       const usd = candidates.find((fields) =>
-        fields.tokenAddress
+        fields !== selected
+        && fields.tokenAddress
         && fields.tokenAddress === selected.tokenAddress
         && (fields.tokenPriceUsd !== undefined
           || fields.priceUsd !== undefined
@@ -3811,14 +3872,22 @@
           if (merged[name] === undefined && usd[name] !== undefined) merged[name] = usd[name];
         }
       }
-      return {
+      let mcapUsd = merged.marketCapUsd || merged.mcapUsd || null;
+      const priceUsd = merged.tokenPriceUsd || merged.priceUsd || null;
+      const supply = merged.supply || merged.total_supply || merged.totalSupply || null;
+      if (!(mcapUsd > 0 && priceUsd > 0 && supply > 0)
+          || Math.abs(mcapUsd / (priceUsd * supply) - 1) > 0.02) mcapUsd = null;
+      const quote = {
         mint: merged.tokenAddress || merged.mint || merged.address || null,
         pair: merged.pairAddress || merged.pair || merged.pool_address || null,
         priceSol: merged.priceSol || merged.priceNative || null,
-        priceUsd: merged.tokenPriceUsd || merged.priceUsd || null,
-        mcapUsd: merged.marketCapUsd || merged.mcapUsd || null,
-        supply: merged.supply || merged.total_supply || merged.totalSupply || null,
+        priceUsd,
+        mcapUsd,
+        supply,
       };
+      if (merged.symbol !== undefined) quote.symbol = merged.symbol;
+      if (merged.name !== undefined) quote.name = merged.name;
+      return quote;
     } catch (_) {
       return null;
     }
