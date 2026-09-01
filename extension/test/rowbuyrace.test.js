@@ -648,6 +648,31 @@ test('a fresh row tick without SOL/USD falls through rather than guessing', asyn
   assert.ok(Math.abs(harness.getState().journal[0].mcap - 3.2) < 1e-9);
 });
 
+test('a fresh row tick with a hung SOL/USD lookup falls through to the resolver', async () => {
+  const race = bootRace({ holdSolUsd: true });
+  const { harness } = race;
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 0.0032 }],
+    mcap: 3200,
+  });
+  const buy = harness.doRowBuy(B);
+  await waitFor(() => race.isSolUsdRequested());
+  await race.advance(2_001);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'a hung row-feed conversion must fall through to resolver pricing',
+  );
+  assert.equal(harness.getState().journal.length, 1, 'the timed-out tap still fills');
+  assert.equal(harness.getRowBuyInFlight(), false, 'the row-buy latch is released');
+});
+
 test('a row-props quote fills at the tapped price without resolver or identity lookup', async () => {
   const race = bootRace();
   const { harness } = race;

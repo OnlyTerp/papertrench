@@ -7054,7 +7054,10 @@
           priceSource: 'row-props',
         };
       } else {
-        const fresh = await rowLivePrice(address);
+        const fresh = await Promise.race([
+          rowLivePrice(address).catch(() => null),
+          new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
+        ]);
         if (fresh) {
           data = {
             mint: address, pairAddress: null,
