@@ -40,4 +40,54 @@ function sprintEntry(links, startingSol, window) {
   return Object.assign({ weekId: window.weekId }, windowEntry(links, startingSol, window));
 }
 
-module.exports = { WEEK_MS, weekIdOf, windowOf, sprintEntry };
+/**
+ * The most recently CLOSED window — the one a crown can be settled for.
+ *
+ * Settlement never touches the open week. A crown handed out mid-week would
+ * name a leader, not a winner, and would have to be revoked when somebody
+ * passed them — so the only week that can be settled is one whose endTs is
+ * already in the past.
+ */
+function lastClosedWindow(now) {
+  const t = Math.trunc(Number(now) || 0);
+  return windowOf(t - WEEK_MS);
+}
+
+/**
+ * Is this window finished and therefore settleable?
+ *
+ * Exclusive on endTs for the same reason the board is: a fill landing exactly
+ * on the boundary belongs to the NEXT window, so the week is not closed until
+ * the clock is strictly past it.
+ */
+function isClosed(window, now) {
+  return Boolean(window) && Math.trunc(Number(now) || 0) >= Number(window.endTs);
+}
+
+/**
+ * Pick the crown from a week's ranked entries.
+ *
+ * Deliberately the SAME order the Sprint board renders (score desc, then the
+ * earlier entry, then handle) — DEFECT L-05's lesson was that a board whose
+ * selection order differs from its ranking order silently crowns the wrong
+ * row. Reusing one comparator is what keeps "top of the board" and "who got
+ * the crown" from ever disagreeing.
+ *
+ * Returns null when nobody qualified: a week with no eligible entry is left
+ * uncrowned rather than awarded to the least-bad record.
+ */
+function crownFrom(entries) {
+  const list = (Array.isArray(entries) ? entries : []).filter(
+    (e) => e && Number(e.rounds) > 0);
+  if (!list.length) return null;
+  const best = list.slice().sort((a, b) =>
+    (Number(b.score) || 0) - (Number(a.score) || 0)
+    || (Number(a.updatedAt) || 0) - (Number(b.updatedAt) || 0)
+    || String(a.handle || '').localeCompare(String(b.handle || '')))[0];
+  return best || null;
+}
+
+module.exports = {
+  WEEK_MS, weekIdOf, windowOf, sprintEntry,
+  lastClosedWindow, isClosed, crownFrom,
+};
