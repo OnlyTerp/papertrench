@@ -204,6 +204,7 @@ function runBridge(opts = {}) {
   // ---- optional screener-row DOM for the chip occlusion tests (O-22) ----
   let panelOverChip = false;
   let rowDomNodes = null;
+  const chipNodes = [];
   function makeChipNode(tag) {
     return {
       tag, style: {}, isConnected: true, children: [],
@@ -250,6 +251,7 @@ function runBridge(opts = {}) {
     node.style = new Proxy(plain, {
       set(target, prop, value) { styleWrites += 1; target[prop] = value; return true; },
     });
+    chipNodes.push(node);
     return node;
   }
   if (rowDomNodes) {
@@ -341,6 +343,9 @@ function runBridge(opts = {}) {
     enableAxiom: () => { axiomVisible = true; },
     setPanelOverChip: (on) => { panelOverChip = Boolean(on); },
     rowDebug: () => (typeof win.__ptRowChipDebug === 'function' ? win.__ptRowChipDebug() : []),
+    rowChipStyles: () => chipNodes
+      .filter((node) => node.className === 'pt-rowbuy')
+      .map((node) => ({ ...node.style })),
     styleWrites: () => styleWrites,
     resetStyleWrites: () => { styleWrites = 0; },
     axiomRealtime: () => axiomRealtime,
@@ -1961,6 +1966,38 @@ test('Turbo: a steady-state chip sweep performs zero style writes', () => {
   env.runTimers();
   assert.equal(env.styleWrites(), 0,
     'an unmoved chip must cost zero style writes — writes are what dirty layout for the next read');
+});
+
+test('GMGN badge chips honor Corner while preserving Auto and unset placement', () => {
+  const env = runBridge({ rowDom: true, href: 'https://gmgn.ai/trenches' });
+  const scan = {
+    amount: 0.1, size: 1,
+    linkSelectors: ['a.testrow'],
+    placement: 'badge',
+    buyButtonPattern: null,
+    containerMode: 'heuristic',
+  };
+
+  env.send('row-scan', { ...scan, placementPref: 'bottom' });
+  assert.deepEqual(env.rowChipStyles()[0] && {
+    left: env.rowChipStyles()[0].left,
+    top: env.rowChipStyles()[0].top,
+  }, { left: '504px', top: '174px' },
+  'Corner must use the row bottom-right gutter');
+
+  env.send('row-scan', { ...scan, placementPref: 'auto' });
+  assert.deepEqual(env.rowChipStyles()[0] && {
+    left: env.rowChipStyles()[0].left,
+    top: env.rowChipStyles()[0].top,
+  }, { left: '502px', top: '100px' },
+  'Auto must retain the existing badge anchor');
+
+  env.send('row-scan', scan);
+  assert.deepEqual(env.rowChipStyles()[0] && {
+    left: env.rowChipStyles()[0].left,
+    top: env.rowChipStyles()[0].top,
+  }, { left: '502px', top: '100px' },
+  'Unset placement must retain the existing badge anchor');
 });
 
 test('Turbo source contract: the chip sweep separates reads from writes', () => {

@@ -3387,9 +3387,12 @@
         anchor = { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' };
       }
     } else if (place.mode === 'badge') {
-      // Straddling the card's top-right edge: half in the row gutter, half
-      // over the card's own top padding — clear of the MC/stat text.
-      anchor = { x: rect.right - 8, y: rect.top, align: 'right-center' };
+      // Auto/unset deliberately straddles the card's top-right edge; unlike
+      // float mode, it is not a layout guess to probe. Corner still pins the
+      // chip to the same clear bottom-right gutter as the other modes.
+      anchor = entry.placementPref === 'bottom'
+        ? { x: rect.right - 6, y: rect.bottom - 6, align: 'right-bottom' }
+        : { x: rect.right - 8, y: rect.top, align: 'right-center' };
     } else {
       anchor = { x: rect.right - 6, y: rect.top + 6, align: 'right-top' };
       // F-53 (jb, Axiom "ultra" format): compact rows put the market cap
