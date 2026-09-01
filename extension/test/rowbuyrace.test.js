@@ -13,9 +13,12 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..');
 const CONTENT = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
 const ENGINE = fs.readFileSync(path.join(ROOT, 'engine.js'), 'utf8');
+const QUOTE = fs.readFileSync(path.join(ROOT, 'quote.js'), 'utf8');
+const SITES = fs.readFileSync(path.join(ROOT, 'sites.js'), 'utf8');
 
 const A = 'A'.repeat(32);
 const B = 'B'.repeat(32);
+const C = 'C'.repeat(32);
 
 function bootRace() {
   let clock = Date.now();
@@ -24,14 +27,82 @@ function bootRace() {
     static now() { return clock; }
   }
   const listeners = new Map();
+  const timers = [];
   const storage = {};
   let bIdentityPending = true;
   let bIdentityRequested = false;
   let releaseBIdentity;
   const bIdentity = new Promise((resolve) => { releaseBIdentity = resolve; });
+  let cIdentityPending = true;
+  let cIdentityRequested = false;
+  let releaseCIdentity;
+  const cIdentity = new Promise((resolve) => { releaseCIdentity = resolve; });
   const messages = [];
   let settings;
   let initialState;
+
+  function scheduleTimer(fn, ms, every) {
+    timers.push({ fn, at: clock + (ms || 0), every: every || 0, dead: false });
+    return timers.length;
+  }
+
+  function clearTimer(id) {
+    if (timers[id - 1]) timers[id - 1].dead = true;
+  }
+
+  async function advance(ms, step) {
+    step = step || 100;
+    for (let left = ms; left > 0; left -= step) {
+      clock += Math.min(step, left);
+      for (const timer of timers) {
+        if (timer.dead || timer.at > clock) continue;
+        if (timer.every) timer.at = clock + timer.every;
+        else timer.dead = true;
+        timer.fn();
+      }
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    }
+  }
+
+  const nodesById = {};
+  function makeNode(tag) {
+    return {
+      tag,
+      id: '',
+      style: { setProperty() {}, removeProperty() {} },
+      dataset: {},
+      className: '',
+      classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+      children: [],
+      get childNodes() { return this.children; },
+      appendChild(child) { this.children.push(child); return child; },
+      querySelector() { return makeNode('div'); },
+      querySelectorAll() { return []; },
+      remove() {},
+      addEventListener() {},
+      removeEventListener() {},
+      setAttribute() {},
+      getAttribute() { return null; },
+      getBoundingClientRect() { return { top: 0, left: 0, right: 0, width: 0, height: 0 }; },
+      attachShadow() { return shadowRoot; },
+      focus() {},
+      set innerHTML(value) { this._html = value; },
+      get innerHTML() { return this._html || ''; },
+      textContent: '',
+      offsetWidth: 1,
+    };
+  }
+  const shadowRoot = {
+    set innerHTML(value) { this._html = value; },
+    get innerHTML() { return this._html || ''; },
+    getElementById(id) {
+      if (!nodesById[id]) nodesById[id] = makeNode('div');
+      return nodesById[id];
+    },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    appendChild() {},
+  };
 
   const win = {
     PaperEngine: null,
@@ -42,8 +113,10 @@ function bootRace() {
     },
     PaperTrenchSites: {},
     PaperTrenchResolver: {},
-    PTChartMarkers: {},
+    PTChartMarkers: { destroyChartMarkers() {} },
     PTTitleFeed: {},
+    innerWidth: 1400,
+    innerHeight: 1050,
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(fn);
@@ -73,6 +146,18 @@ function bootRace() {
           priceSource: 'resolver',
         });
       }
+      if (payload.address === C) {
+        return Promise.resolve({
+          mint: C,
+          pairAddress: null,
+          symbol: 'C',
+          name: 'Token C',
+          priceNative: 1,
+          priceUsd: 100,
+          mcap: 100_000,
+          priceSource: 'resolver',
+        });
+      }
       return Promise.resolve(null);
     }
     if (payload.type === 'pt_onchain_prewatch') {
@@ -80,6 +165,10 @@ function bootRace() {
       if (address === B) {
         bIdentityRequested = true;
         return bIdentityPending ? bIdentity : Promise.resolve({ mint: B });
+      }
+      if (address === C) {
+        cIdentityRequested = true;
+        return cIdentityPending ? cIdentity : Promise.resolve({ mint: C });
       }
       if (address === A) return Promise.resolve({ mint: A });
       return Promise.resolve(null);
@@ -93,19 +182,15 @@ function bootRace() {
   const document = {
     readyState: 'loading',
     hidden: false,
-    body: null,
+    body: makeNode('body'),
     documentElement: {},
     addEventListener(type, fn) {
       if (!listeners.has(`document:${type}`)) listeners.set(`document:${type}`, []);
       listeners.get(`document:${type}`).push(fn);
     },
     removeEventListener() {},
-    createElement: () => ({
-      style: {},
-      classList: { add() {}, remove() {}, toggle() {} },
-      appendChild() {},
-      addEventListener() {},
-    }),
+    createElement: (tag) => makeNode(tag),
+    getElementById: () => null,
     querySelector: () => null,
     querySelectorAll: () => [],
   };
@@ -169,16 +254,18 @@ function bootRace() {
     ResizeObserver: function () { this.observe = () => {}; this.disconnect = () => {}; },
     NodeFilter: { SHOW_TEXT: 4 },
     fetch: () => Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
-    setTimeout: () => 1,
-    clearTimeout() {},
-    setInterval: () => 1,
-    clearInterval() {},
+    setTimeout: (fn, ms) => scheduleTimer(fn, ms),
+    clearTimeout: clearTimer,
+    setInterval: (fn, ms) => scheduleTimer(fn, ms, ms),
+    clearInterval: clearTimer,
     requestAnimationFrame: (fn) => { fn(); return 1; },
     cancelAnimationFrame() {},
     performance: { now: () => 1 },
   };
   vm.createContext(sandbox);
   vm.runInContext(ENGINE, sandbox, { filename: 'engine.js' });
+  vm.runInContext(QUOTE, sandbox, { filename: 'quote.js' });
+  vm.runInContext(SITES, sandbox, { filename: 'sites.js' });
   win.PaperEngine = sandbox.window.PaperEngine;
   settings = win.PaperEngine.defaultSettings();
   settings.balanceStartSol = 100;
@@ -194,10 +281,14 @@ function bootRace() {
     doRowBuy,
     noteRowPrice,
     flushRowArmed,
+    enableOverlay,
     getState: () => state,
     setSite: (next) => { site = next; },
     getRowArmed: () => rowArmed,
     getRowArmedFlushing: () => rowArmedFlushing,
+    getRowBuyInFlight: () => rowBuyInFlight,
+    getRowBuyInFlightAt: () => rowBuyInFlightAt,
+    getRowBuyOwner: () => rowBuyOwner,
   };
 `
     + CONTENT.slice(end);
@@ -209,12 +300,18 @@ function bootRace() {
     harness,
     storage,
     isBIdentityRequested: () => bIdentityRequested,
+    isCIdentityRequested: () => cIdentityRequested,
     releaseB() {
       bIdentityPending = false;
       releaseBIdentity({ mint: B });
     },
+    releaseC() {
+      cIdentityPending = false;
+      releaseCIdentity({ mint: C });
+    },
     messages,
     setNow(next) { clock = next; },
+    advance,
   };
 }
 
@@ -290,6 +387,50 @@ test('an armed row fill commits on its first available price without competition
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [A]);
   assert.equal(harness.getRowArmed(), null, 'a successful armed fill clears its intent');
+});
+
+test('a timed-out row buy cannot release a newer latch owner', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  const first = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  const firstAt = harness.getRowBuyInFlightAt();
+  const firstOwner = harness.getRowBuyOwner();
+
+  await harness.enableOverlay();
+  race.setNow(firstAt + 20_001);
+  await race.advance(1);
+  assert.equal(harness.getRowBuyInFlight(), false,
+    'the bar watchdog releases a buy that exceeds the latch age');
+  assert.notEqual(harness.getRowBuyOwner(), firstOwner,
+    'the watchdog supersedes the timed-out operation');
+
+  const second = harness.doRowBuy(C);
+  await waitFor(() => race.isCIdentityRequested());
+  const secondOwner = harness.getRowBuyOwner();
+  assert.equal(harness.getRowBuyInFlight(), true, 'the second buy acquires the freed latch');
+  assert.notEqual(secondOwner, firstOwner, 'the second buy has a new generation');
+
+  race.releaseB();
+  await first;
+  assert.equal(harness.getRowBuyInFlight(), true,
+    'the first buy finishing cannot clear the second buy latch');
+  assert.equal(harness.getRowBuyOwner(), secondOwner,
+    'the second buy remains the latch owner');
+
+  await harness.doRowBuy(A);
+  assert.equal(harness.getRowBuyInFlight(), true,
+    'a third click is refused while the second buy remains in flight');
+  assert.equal(harness.getRowBuyOwner(), secondOwner,
+    'the refused third click cannot take ownership');
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
+    'the first fill may finish, but the newer held operation stays exclusive');
+
+  race.releaseC();
+  await second;
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [C, B],
+    'both original intents eventually commit exactly once');
 });
 
 test('a priced row click still commits without an armed intent', async () => {

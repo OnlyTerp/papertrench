@@ -6581,6 +6581,20 @@
   // once left "Row buy already in progress…" on every coin until reload —
   // live report). A settled finally clears the latch long before this ages.
   let rowBuyInFlightAt = 0;
+  let rowBuyOwner = 0;
+
+  function acquireRowBuyLatch() {
+    rowBuyInFlight = true;
+    rowBuyInFlightAt = Date.now();
+    rowBuyOwner += 1;
+    return rowBuyOwner;
+  }
+
+  function releaseRowBuyLatch(token) {
+    if (rowBuyOwner !== token) return;
+    rowBuyInFlight = false;
+    rowBuyInFlightAt = 0;
+  }
 
   function noteRowPrice(payload) {
     if (!payload || typeof payload.mint !== 'string' || !ROW_ADDR_RE.test(payload.mint)) return;
@@ -6932,14 +6946,12 @@
         // Serialize only the commit. The armed resolver cascade must stay free
         // to retry while a direct click is pricing or filling.
         if (rowBuyInFlight) return;
-        rowBuyInFlight = true;
-        rowBuyInFlightAt = Date.now();
+        const rowBuyToken = acquireRowBuyLatch();
         let result;
         try {
           result = await fillRowBuy(armed.address, data, armed.amount);
         } finally {
-          rowBuyInFlight = false;
-          rowBuyInFlightAt = 0;
+          releaseRowBuyLatch(rowBuyToken);
         }
         if (result) {
           rowArmed = null;
@@ -6957,8 +6969,7 @@
   /** Paper-buy the first preset amount of a screener row's token. */
   async function doRowBuy(address, button) {
     if (rowBuyInFlight) return toast('Row buy already in progress…');
-    rowBuyInFlight = true;
-    rowBuyInFlightAt = Date.now();
+    const rowBuyToken = acquireRowBuyLatch();
     if (button) button.classList.add('busy');
     primeAudio();
     try {
@@ -7077,7 +7088,7 @@
     } catch (err) {
       toast(err.message || 'Row buy failed');
     } finally {
-      rowBuyInFlight = false;
+      releaseRowBuyLatch(rowBuyToken);
       if (button) button.classList.remove('busy');
     }
   }
@@ -9041,10 +9052,11 @@
       // D-41 latch hygiene: an in-flight buy/sell whose await never settled
       // (hung resolver, dying SW) must not wedge every later trade behind
       // "already in progress". A live cascade never takes 20 s; if the
-      // latch is that old the operation is dead, so free it. The eventual
-      // finally is idempotent — it only clears, never re-arms.
+      // latch is that old the operation is dead, so free it. The generation
+      // token keeps its eventual finally from releasing a newer operation.
       const LATCH_MAX_AGE_MS = 20_000;
       if (rowBuyInFlight && rowBuyInFlightAt && Date.now() - rowBuyInFlightAt > LATCH_MAX_AGE_MS) {
+        rowBuyOwner += 1;
         rowBuyInFlight = false;
         rowBuyInFlightAt = 0;
         toast('A stuck row buy was released — try again');
