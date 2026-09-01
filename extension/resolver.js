@@ -203,8 +203,10 @@
     var json = token.pairAddress
       ? await getJson(BASE + '/pairs/solana/' + token.pairAddress)
       : await getJson(BASE + '/tokens/' + token.mint);
+    var rate = cachedSolUsd();
+    if (!(rate > 0)) rate = await solUsd().catch(function () { return 0; });
     var data = json
-      ? Q.tokenFromPayload(json, token.mint, { solUsd: cachedSolUsd() })
+      ? Q.tokenFromPayload(json, token.mint, { solUsd: rate })
       : null;
     if (data) { cachePut(data); return data; }
 
@@ -245,8 +247,7 @@
       var chain = (chainByMint && chainByMint[unique[g]]) || 'solana';
       (groups[chain] = groups[chain] || []).push(unique[g]);
     }
-    var anyForeign = Object.keys(groups).some(function (c) { return c !== 'solana'; });
-    var rate = anyForeign ? await solUsd().catch(function () { return 0; }) : cachedSolUsd();
+    var rate = await solUsd().catch(function () { return 0; });
 
     var out = {};
     var chainNames = Object.keys(groups);

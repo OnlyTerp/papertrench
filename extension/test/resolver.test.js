@@ -189,20 +189,33 @@ test('Solana refresh passes its cached SOL/USD rate to non-SOL pair quotes', asy
   assert.equal(token.solUsdAtResolve, 102);
 });
 
-test('Solana batch resolver passes its cached SOL/USD rate to non-SOL pair quotes', async () => {
+test('Solana batch resolver fetches a cold-cache SOL/USD rate once for non-SOL pair quotes', async () => {
+  let jupiterHits = 0;
   const R = loadResolver((url) => {
     if (url.includes('jup.ag')) {
+      jupiterHits++;
       return jsonResponse([{ id: WSOL, usdPrice: 102 }]);
     }
     if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
     return notFound();
   });
 
-  assert.equal(await R.solUsd(), 102);
   const prices = await R.batchPrices([BONK_MINT]);
   assert.ok(prices[BONK_MINT]);
   assert.ok(Math.abs(prices[BONK_MINT].priceNative - 0.000003112 / 102) < 1e-18);
   assert.equal(prices[BONK_MINT].solUsdAtResolve, 102);
+  assert.equal(jupiterHits, 1);
+});
+
+test('Solana batch resolver refuses non-SOL pair quotes when the cold rate fetch fails', async () => {
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) return Promise.reject(new Error('offline'));
+    if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
+    return notFound();
+  });
+
+  const prices = await R.batchPrices([BONK_MINT]);
+  assert.deepEqual(prices, {});
 });
 
 /* ---------------- live API (skips cleanly when offline) ---------------- */
