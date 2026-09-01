@@ -13,6 +13,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
+const PADRE_UPDATE_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wqGZkdkluVXNky0CoROThzofUqnByaWNlSW5Vc2TLPsoPC1Fz3To=',
+  'base64',
+));
+const PADRE_NATIVE_RATE_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqx0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wsm5hdGl2ZVByaWNlSW5Vc2RVactAWZfzf6mDcg==',
+  'base64',
+));
 
 function runBridge(opts = {}) {
   const timers = [];
@@ -56,8 +64,16 @@ function runBridge(opts = {}) {
     createOrderLine: makeOrderLine,
   };
 
-  function FakeWebSocket() {}
-  FakeWebSocket.prototype.addEventListener = () => {};
+  function FakeWebSocket() {
+    this.listeners = {};
+    FakeWebSocket.last = this;
+  }
+  FakeWebSocket.prototype.addEventListener = function (type, listener) {
+    this.listeners[type] = listener;
+  };
+  FakeWebSocket.prototype.emit = function (data) {
+    if (this.listeners.message) this.listeners.message({ data });
+  };
   FakeWebSocket.CONNECTING = 0;
   FakeWebSocket.OPEN = 1;
   FakeWebSocket.CLOSING = 2;
@@ -123,6 +139,11 @@ function runBridge(opts = {}) {
     WeakSet,
     Symbol,
     JSON,
+    ArrayBuffer,
+    Uint8Array,
+    DataView,
+    TextDecoder,
+    Blob,
     Promise,
     isFinite,
     setInterval(fn, ms) { timers.push(fn); return timers.length; },
@@ -147,6 +168,7 @@ function runBridge(opts = {}) {
     refreshMarksCount: () => refreshMarksCount,
     orderLines,
     win,
+    openSocket() { return new win.WebSocket('wss://backend.padre.gg/_multiplex?desc=/trenches'); },
   };
 }
 
@@ -166,6 +188,56 @@ test('Padre decoded TradingView bars emit an immediate PaperTrench tick', () => 
   assert.equal(message.payload.candidates[0].value, bar.close);
   assert.equal(message.payload.mcap, bar.close,
     'the unknown chart close is offered as mcap so quote validation can identify chart mode');
+});
+
+test('Padre MessagePack frames emit mint-tagged USD ticks with their FDV cap', () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  socket.emit(PADRE_UPDATE_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message, 'a decoded Padre update must feed the generic tick pipeline');
+  assert.equal(message.payload.mint, 'FQTkgq6GkYzkrQF3B1crhfvYGkn2uLyME28xSHbppump');
+  assert.equal(message.payload.candidates[0].unit, 'usd');
+  assert.equal(message.payload.candidates[0].value, 3.10644703526886e-06);
+  assert.equal(message.payload.mcap, 3106.4470352688604);
+});
+
+test('Padre Blob frames are decoded without blocking the WebSocket handler', async () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  socket.emit(new Blob([PADRE_UPDATE_FRAME]));
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.ok(env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'),
+    'a Padre Blob frame must reach the same generic tick pipeline');
+});
+
+test('Padre nativePriceInUsdUi is never treated as a token price', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_NATIVE_RATE_FRAME.buffer);
+
+  assert.ok(!env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'),
+    'the chain SOL/USD rate must not become an unattributed token tick');
+});
+
+test('malformed and oversized Padre frames are rejected without throwing', () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  assert.doesNotThrow(() => {
+    socket.emit(PADRE_UPDATE_FRAME.slice(0, 12).buffer);
+    socket.emit(new Uint8Array(512 * 1024 + 1).buffer);
+  });
+  assert.ok(!env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'),
+    'invalid frames must not produce partial ticks');
+});
+
+test('non-Padre hosts ignore binary WebSocket frames', () => {
+  const env = runBridge({ href: 'https://axiom.trade/pulse' });
+  env.openSocket().emit(PADRE_UPDATE_FRAME.buffer);
+  assert.ok(!env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'),
+    'binary Padre decoding must remain host-scoped');
 });
 
 test('paper buys are merged into Padre native getMarks with hover details', () => {

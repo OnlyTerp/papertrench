@@ -26,6 +26,10 @@
   const PATCHED = Symbol('papertrench-patched');
   const MAX_DEPTH = 7;
   const MAX_CANDIDATES = 32;
+  const bridgeHostname = (() => {
+    try { return location.hostname || new URL(location.href).hostname; } catch (_) { return ''; }
+  })();
+  const hostIsPadre = /(^|\.)padre\.gg$/.test(bridgeHostname);
   // Upper bound on frames the generic path will JSON.parse. Parse cost at
   // this size is ~10-20 ms occasionally; the collector walk is separately
   // bounded by NODE_BUDGET, so bigger frames cannot runaway the main thread.
@@ -179,13 +183,128 @@
     return null;
   }
 
+  // Padre's multiplex socket uses MessagePack. Decode only the first value:
+  // the transport may append another value, but the first envelope is the
+  // complete page-owned message we need. The byte and node caps keep malformed
+  // or adversarial frames from turning the bridge into an unbounded parser.
+  function decodeMsgpack(input) {
+    try {
+      const bytes = input instanceof Uint8Array
+        ? input
+        : input instanceof ArrayBuffer ? new Uint8Array(input) : null;
+      if (!bytes || bytes.byteLength > 512 * 1024) return null;
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      let offset = 0;
+      let budget = NODE_BUDGET;
+      const fail = () => { throw new Error('invalid msgpack'); };
+      const need = (count) => {
+        if (count < 0 || offset + count > bytes.byteLength) fail();
+        const start = offset;
+        offset += count;
+        return start;
+      };
+      const text = (start, length) => {
+        const chunk = bytes.subarray(start, start + length);
+        if (typeof TextDecoder === 'function') return new TextDecoder().decode(chunk);
+        let out = '';
+        for (let i = 0; i < chunk.length; i++) out += String.fromCharCode(chunk[i]);
+        return out;
+      };
+      const parse = (depth) => {
+        if (depth > MAX_DEPTH * 4 || budget-- <= 0 || offset >= bytes.byteLength) fail();
+        const tag = bytes[offset++];
+        if (tag <= 0x7f) return tag;
+        if (tag >= 0xe0) return tag - 0x100;
+        if (tag >= 0xa0 && tag <= 0xbf) {
+          const length = tag & 0x1f;
+          return text(need(length), length);
+        }
+        if (tag >= 0x90 && tag <= 0x9f) {
+          const out = [];
+          for (let i = 0; i < (tag & 0x0f); i++) out.push(parse(depth + 1));
+          return out;
+        }
+        if (tag >= 0x80 && tag <= 0x8f) {
+          const out = {};
+          for (let i = 0; i < (tag & 0x0f); i++) {
+            const key = String(parse(depth + 1));
+            out[key] = parse(depth + 1);
+          }
+          return out;
+        }
+        switch (tag) {
+          case 0xc0: return null;
+          case 0xc2: return false;
+          case 0xc3: return true;
+          case 0xcc: { const at = need(1); return view.getUint8(at); }
+          case 0xcd: { const at = need(2); return view.getUint16(at); }
+          case 0xce: { const at = need(4); return view.getUint32(at); }
+          case 0xcf: {
+            const at = need(8);
+            return view.getUint32(at) * 4294967296 + view.getUint32(at + 4);
+          }
+          case 0xd0: { const at = need(1); return view.getInt8(at); }
+          case 0xd1: { const at = need(2); return view.getInt16(at); }
+          case 0xd2: { const at = need(4); return view.getInt32(at); }
+          case 0xd3: {
+            const at = need(8);
+            const high = view.getInt32(at);
+            return high * 4294967296 + view.getUint32(at + 4);
+          }
+          case 0xca: { const at = need(4); return view.getFloat32(at); }
+          case 0xcb: { const at = need(8); return view.getFloat64(at); }
+          case 0xd9: { const length = bytes[need(1)]; return text(need(length), length); }
+          case 0xda: { const at = need(2); const length = view.getUint16(at); return text(need(length), length); }
+          case 0xdb: { const at = need(4); const length = view.getUint32(at); return text(need(length), length); }
+          case 0xc4: { const length = bytes[need(1)]; return bytes.slice(need(length), offset); }
+          case 0xc5: { const at = need(2); const length = view.getUint16(at); return bytes.slice(need(length), offset); }
+          case 0xc6: { const at = need(4); const length = view.getUint32(at); return bytes.slice(need(length), offset); }
+          case 0xdc: {
+            const at = need(2);
+            const out = [];
+            for (let i = 0; i < view.getUint16(at); i++) out.push(parse(depth + 1));
+            return out;
+          }
+          case 0xdd: {
+            const at = need(4);
+            const out = [];
+            for (let i = 0; i < view.getUint32(at); i++) out.push(parse(depth + 1));
+            return out;
+          }
+          case 0xde: {
+            const at = need(2);
+            const out = {};
+            for (let i = 0; i < view.getUint16(at); i++) {
+              const key = String(parse(depth + 1));
+              out[key] = parse(depth + 1);
+            }
+            return out;
+          }
+          case 0xdf: {
+            const at = need(4);
+            const out = {};
+            for (let i = 0; i < view.getUint32(at); i++) {
+              const key = String(parse(depth + 1));
+              out[key] = parse(depth + 1);
+            }
+            return out;
+          }
+          default: fail();
+        }
+      };
+      return parse(0);
+    } catch (_) {
+      return null;
+    }
+  }
+
   const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   // avgPrice is deliberately ABSENT: it is a position-average field, not a
   // live price. When the user holds a REAL position, the site streams their
   // real entry average under that key, and treating it as a market tick let
   // the user's own entry price pollute the paper feed (DEFECT F-30 — the
   // average line "blended" a real buy with the paper buy).
-  const PRICE_KEY = /^(price|priceNative|priceUsd|priceInSol|priceSol|solPrice|usdPrice|tokenPrice|lastPrice|last|close|c|markPrice|currentPrice|quote)$/i;
+  const PRICE_KEY = /^(price|priceNative|priceUsd|priceInSol|priceSol|priceInUsd|solPrice|usdPrice|tokenPrice|lastPrice|last|close|c|markPrice|currentPrice|quote)$/i;
   // Subtrees that describe the USER'S OWN holdings, not the market. Prices
   // inside them are historical facts about the user (entry averages, cost
   // bases, unrealized P&L) and must never become market-price candidates.
@@ -193,7 +312,7 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
-  const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
+  const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fdvInUsd|fullyDilutedValuation)$/i;
   // A record that IS a trade event — an id-carrying or user-attributed
   // swap/trade object (fomo's social feed, tx-hash trade tapes). Its price
   // and cap fields describe the moment that trade happened, minutes to
@@ -560,9 +679,16 @@
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
       socket.addEventListener('message', (event) => {
-        // Padre's multiplex messages are binary protobuf and are deliberately
-        // handled after Padre decodes them through its TradingView datafeed.
         if (typeof event.data === 'string') forwardJson(event.data, 'ws');
+        else if (hostIsPadre && event.data instanceof ArrayBuffer) {
+          const decoded = decodeMsgpack(new Uint8Array(event.data));
+          if (decoded !== null) forwardJson(decoded, 'ws');
+        } else if (hostIsPadre && typeof Blob === 'function' && event.data instanceof Blob) {
+          Promise.resolve(event.data.arrayBuffer()).then((buffer) => {
+            const decoded = decodeMsgpack(new Uint8Array(buffer));
+            if (decoded !== null) forwardJson(decoded, 'ws');
+          }, () => {});
+        }
       });
       return socket;
     };
@@ -584,9 +710,6 @@
   // port.start() — on an object the host site owns. Other sites keep their
   // native SharedWorker untouched.
   const OriginalSharedWorker = window.SharedWorker;
-  const bridgeHostname = (() => {
-    try { return location.hostname || new URL(location.href).hostname; } catch (_) { return ''; }
-  })();
   const hostUsesSharedWorkerFeed = /(^|\.)gmgn\.ai$/.test(bridgeHostname);
   if (typeof OriginalSharedWorker === 'function' && hostUsesSharedWorkerFeed) {
     const WrappedSharedWorker = function (url, options) {

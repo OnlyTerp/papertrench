@@ -6607,6 +6607,7 @@
       usd: Number(cand.value), at: Date.now(),
       symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       name: typeof payload.name === 'string' ? payload.name : null,
+      mcap: Number(payload.mcap) > 0 ? Number(payload.mcap) : null,
     });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
     // D-40: a board tick while a row snipe is armed is the fastest possible
@@ -6628,6 +6629,7 @@
       priceUsd: live.usd,
       symbol: live.symbol || null,
       name: live.name || null,
+      mcap: live.mcap || null,
     };
   }
 
@@ -7052,30 +7054,41 @@
           priceSource: 'row-props',
         };
       } else {
-        try {
-          data = await Promise.race([
-            (async () => {
-              let d = await R.resolve(address, { maxAgeMs: 3000 });
-              if (!d || !(d.priceNative > 0)) d = await R.resolve(address);
-              if (!d || !(d.priceNative > 0)) {
-                const row = await rowLivePrice(address);
-                if (row) {
-                  d = {
-                    mint: address, pairAddress: null,
-                    symbol: row.symbol, name: row.name,
-                    priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
-                    priceSource: 'row-feed',
-                  };
+        const fresh = await rowLivePrice(address);
+        if (fresh) {
+          data = {
+            mint: address, pairAddress: null,
+            symbol: fresh.symbol, name: fresh.name,
+            priceNative: fresh.priceNative, priceUsd: fresh.priceUsd,
+            mcap: fresh.mcap || null,
+            priceSource: 'row-feed',
+          };
+        } else {
+          try {
+            data = await Promise.race([
+              (async () => {
+                let d = await R.resolve(address, { maxAgeMs: 3000 });
+                if (!d || !(d.priceNative > 0)) d = await R.resolve(address);
+                if (!d || !(d.priceNative > 0)) {
+                  const row = await rowLivePrice(address);
+                  if (row) {
+                    d = {
+                      mint: address, pairAddress: null,
+                      symbol: row.symbol, name: row.name,
+                      priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: row.mcap || null,
+                      priceSource: 'row-feed',
+                    };
+                  }
                 }
-              }
-              if (!d || !(d.priceNative > 0)) {
-                d = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
-              }
-              return d;
-            })(),
-            new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
-          ]);
-        } catch (_) { data = null; }
+                if (!d || !(d.priceNative > 0)) {
+                  d = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
+                }
+                return d;
+              })(),
+              new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
+            ]);
+          } catch (_) { data = null; }
+        }
       }
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the

@@ -574,6 +574,80 @@ test('a priced row click still commits without an armed intent', async () => {
   assert.equal(harness.getRowArmed(), null, 'a priced click does not create an armed intent');
 });
 
+test('a fresh Padre row tick wins before the resolver and carries its cap', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 0.0032 }],
+    mcap: 3200,
+    symbol: 'B',
+    name: 'Token B',
+  });
+  const buy = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+  assert.equal(harness.getState().journal[0].priceUsd, 0.0032);
+  assert.equal(harness.getState().journal[0].mcap, 3200);
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    0,
+    'a fresh row tick skips resolver pricing',
+  );
+});
+
+test('a stale Padre row tick falls through to the resolver cascade', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 0.0032 }],
+    mcap: 3200,
+  });
+  race.setNow(Date.now() + 120_001);
+  const buy = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'an expired row tick must use the existing resolver cascade',
+  );
+  assert.equal(harness.getState().journal[0].priceNative, 1);
+  assert.equal(harness.getState().journal[0].mcap, 100_000);
+});
+
+test('a fresh row tick without SOL/USD falls through rather than guessing', async () => {
+  const race = bootRace({ solUsdFails: true });
+  const { harness } = race;
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 0.0032 }],
+    mcap: 3200,
+  });
+  const buy = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'without a conversion rate the row tick must fall through',
+  );
+  assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+  assert.ok(Math.abs(harness.getState().journal[0].mcap - 3.2) < 1e-9);
+});
+
 test('a row-props quote fills at the tapped price without resolver or identity lookup', async () => {
   const race = bootRace();
   const { harness } = race;
