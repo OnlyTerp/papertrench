@@ -3410,19 +3410,47 @@ async function sweepPendingBuys() {
 const SLOW_POOL_MS = 750;
 const SLOW_POOL_MIN_SAMPLES = 12;
 
+/* A pool can fail without ever being SLOW, and that is the common case.
+ * poolLatency() is built from reportSuccess() alone, so a throttled or
+ * policy-blocked endpoint contributes no sample: the one endpoint still
+ * answering reports its own healthy latency and bestMs stays under the
+ * threshold while most reads are dying. ticket-0010 (fomo.family,
+ * 2026-08-29) is the shape — a console full of "http 429 getMultipleAccounts
+ * @ tatum" and "http 403 … @ publicnode", the price taking "a very long
+ * time", and the user asking whether there is a fix. There is, it is the
+ * same two-minute fix, and this notice existed to say so but could not see
+ * the failure. Half of recent attempts failing is a pool that cannot do its
+ * job, whatever the survivors' latency says. */
+const FAILING_POOL_RATE = 0.5;
+const FAILING_POOL_MIN_ATTEMPTS = 12;
+
 async function maybeNoteSlowPool(settings) {
   try {
     if (settings && settings.rpcUrl) return; // they already fixed it
     if (!self.PTRpcPool || typeof PTRpcPool.poolLatency !== 'function') return;
     const measured = PTRpcPool.poolLatency();
-    if (!measured || measured.samples < SLOW_POOL_MIN_SAMPLES) return;
-    if (measured.bestMs <= SLOW_POOL_MS) return;
+    const stress = typeof PTRpcPool.poolStress === 'function' ? PTRpcPool.poolStress() : null;
+
+    const slow = Boolean(measured
+      && measured.samples >= SLOW_POOL_MIN_SAMPLES
+      && measured.bestMs > SLOW_POOL_MS);
+    const failing = Boolean(stress
+      && stress.attempts >= FAILING_POOL_MIN_ATTEMPTS
+      && stress.failRate >= FAILING_POOL_RATE);
+    if (!slow && !failing) return;
+
     const flags = await new Promise((resolve) =>
       chrome.storage.local.get(['pt_rpc_slow_told'], (v) => resolve(v || {})));
     if (flags.pt_rpc_slow_told) return; // once per install, never a nag
+    // Name which one it is: "slow from your region" is the wrong sentence to
+    // read when the endpoints are refusing you outright, and the wrong
+    // sentence makes a correct fix look irrelevant.
+    const notice = { reason: failing ? 'failing' : 'slow', at: Date.now() };
+    if (measured) { notice.bestMs = measured.bestMs; notice.samples = measured.samples; }
+    if (stress) { notice.failRate = Math.round(stress.failRate * 100) / 100; notice.attempts = stress.attempts; }
     await new Promise((resolve) => chrome.storage.local.set({
       pt_rpc_slow_told: Date.now(),
-      pt_rpc_notice: { bestMs: measured.bestMs, samples: measured.samples, at: Date.now() },
+      pt_rpc_notice: notice,
     }, () => resolve()));
   } catch (_) { /* a notice must never break a price path */ }
 }
