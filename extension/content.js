@@ -1161,6 +1161,7 @@
       // same coin under its old stand-in. Deterministic identity proof, one
       // rekey, no network added.
       healStandInPositions(data);
+      healStandInPositionsByChain(data);
       // Rug verdicts read Solana holder state — a foreign chain has no
       // verdict, and the guard stays silent rather than pretending.
       if (!data.chain || data.chain === 'solana') refreshRugVerdict(data.mint);
@@ -1266,6 +1267,39 @@
     for (const standIn of stranded) rekeyLiveState(standIn, tokenRecord.mint);
   }
 
+  const attemptedStandInProbes = new Set();
+
+  async function probeStandInPosition(standIn, mint) {
+    try {
+      const found = await R.onchainPrewatch({ pool: standIn, mint: standIn });
+      if (!found || !found.mint) return;
+      if (found.mint === mint) {
+        rekeyLiveState(standIn, mint);
+        return;
+      }
+      await withState(async () => {
+        const current = state.positions && state.positions[standIn];
+        if (!current || !current.standInKey) return;
+        const mutate = () => {
+          const position = state.positions && state.positions[standIn];
+          if (position) delete position.standInKey;
+        };
+        mutate();
+        await persistStateNow(mutate);
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  function healStandInPositionsByChain(tokenRecord) {
+    if (!tokenRecord || !tokenRecord.mint || !state.positions) return;
+    for (const [key, position] of Object.entries(state.positions)) {
+      if (key === tokenRecord.mint || !position || !(Number(position.qty) > 0)
+        || !position.standInKey || attemptedStandInProbes.has(key)) continue;
+      attemptedStandInProbes.add(key);
+      void probeStandInPosition(key, tokenRecord.mint);
+    }
+  }
+
   function rekeyLiveState(oldMint, newMint) {
     if (!oldMint || !newMint || oldMint === newMint) return;
     const cached = livePositionPrices[oldMint];
@@ -1274,9 +1308,13 @@
       if (!livePositionPrices[newMint]) livePositionPrices[newMint] = cached;
     }
     if (!E.rekeyMint(state, oldMint, newMint)) return;
+    if (state.positions[newMint]) delete state.positions[newMint].standInKey;
     posEls = null; // the cached card nodes belong to the stand-in's render
     withState(async () => {
-      const mutate = () => E.rekeyMint(state, oldMint, newMint);
+      const mutate = () => {
+        if (!E.rekeyMint(state, oldMint, newMint)) return;
+        if (state.positions[newMint]) delete state.positions[newMint].standInKey;
+      };
       mutate();
       await persistStateNow(mutate);
     }).catch(() => {}).then(() => {
@@ -1521,6 +1559,7 @@
       if (Array.isArray(fresh.poolAddresses)) {
         token.poolAddresses = fresh.poolAddresses;
         healStandInPositions(token);
+        healStandInPositionsByChain(token);
       }
 
       // The resolver quote becomes the new anchor immediately. Live ticks
@@ -6837,6 +6876,7 @@
         }
       } catch (_) { /* identity stays the row's own key */ }
     }
+    const standInKey = !data.mint || data.mint === address;
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
@@ -6853,6 +6893,7 @@
           priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
           ...(feeContextForOrder() || {}),
         });
+        if (standInKey) filled.position.standInKey = true;
         filled.opened = opened;
       };
       mutate();
