@@ -148,6 +148,7 @@
    * the instant it is thrown, not five minutes later.
    */
   let feedWanted = true;
+  let factsWanted = true;
 
   function feedActive() {
     return feedWanted && Date.now() - lastContentMessageAt <= CONTENT_SILENCE_LIMIT_MS;
@@ -495,6 +496,7 @@
     const { records, top } = collect(parsed);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
     const emitFacts = () => {
+      if (!factsWanted) return;
       let emitted = 0;
       for (const rec of records.values()) {
         if (emitted >= 3) break;
@@ -2919,6 +2921,8 @@
     // chip scan is proof of a consumer regardless of message ordering.
     if (type === 'page-state') {
       feedWanted = Boolean(payload && payload.wantsTicks);
+      factsWanted = !payload || !Object.prototype.hasOwnProperty.call(payload, 'factsWanted')
+        ? true : Boolean(payload.factsWanted);
       return;
     }
     if (type === 'paper-axis' || type === 'row-scan') feedWanted = true;

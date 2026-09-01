@@ -1931,7 +1931,7 @@ test('Turbo source contract: the content script publishes page-state demand', ()
   );
   assert.match(setTokenBody, /publishPageState\(\);/,
     'every token change must republish feed demand');
-  assert.match(content, /sendPadreMarker\('page-state', \{ wantsTicks: wants \}\)/,
+  assert.match(content, /sendPadreMarker\('page-state', \{ wantsTicks: wants, factsWanted: facts \}\)/,
     'the demand signal must reach the bridge as page-state');
   assert.match(content, /lastWantsTicks = null;/,
     'teardown must reset the publisher so a re-enable re-announces');

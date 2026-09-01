@@ -536,13 +536,25 @@
   const HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   const hostSupplyRefusals = new Set();
 
+  function recordHostFactsDiagnostic(message, kind, details) {
+    const EL = window.PTErrors;
+    if (!EL || typeof EL.record !== 'function') return;
+    try {
+      EL.record(message, { scope: 'content', kind, ...(details || {}) });
+    } catch (_) { /* diagnostics must never affect the trading path */ }
+  }
+
   function refuseHostSupply(mint, facts) {
     if (hostSupplyRefusals.has(mint)) return;
     hostSupplyRefusals.add(mint);
-    console.debug('PaperTrench: refused host supply for ' + mint
-      + ' (mcap/priceUsd disagreed by more than 1%)', {
+    recordHostFactsDiagnostic('refused host supply for ' + mint
+      + ' (mcap/priceUsd disagreed by more than 1%)', 'host-facts-supply-refused', {
       source: facts && facts.source,
       url: facts && facts.url,
+      values: facts ? {
+        priceUsd: facts.priceUsd, mcap: facts.mcap,
+        supply: facts.supply, decimals: facts.decimals,
+      } : null,
     });
   }
 
@@ -564,6 +576,7 @@
       sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
     }
 
+    if (factMint !== token.mint && addresses.indexOf(srcAddress) === -1) return;
     if (token.hostSupplyRejected) return;
     const priceUsd = Number(facts.priceUsd);
     const mcap = Number(facts.mcap);
@@ -576,7 +589,7 @@
     let declaredUi = null;
     if (hasSupply) {
       if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
-        refuseHostSupply(token.mint || factMint, facts);
+        refuseHostSupply(token.mint, facts);
         return;
       }
       const decimals = Number(facts.decimals);
@@ -584,7 +597,7 @@
         ? rawSupply / (10 ** decimals) : rawSupply;
       if (!(declaredUi > 0) || !Number.isFinite(declaredUi)
         || Math.abs(implied - declaredUi) / declaredUi > 0.01) {
-        refuseHostSupply(factMint || token.mint, facts);
+        refuseHostSupply(token.mint, facts);
         return;
       }
     }
@@ -1046,6 +1059,11 @@
       // coin would price mcap ticks against a supply nobody measured.
       token.pumpCurve = found.poolKind === 'pump-curve';
       onchainLive = true;
+      if (Number(found.supplyUi) > 0) {
+        reconcileHostSupply(found.supplyUi);
+        token.supplyUi = Number(found.supplyUi);
+        token.decimals = Number(found.decimals);
+      }
       renderSiteStatus();
       refreshRugVerdict(found.mint);
       // Re-anchor the bridge with the full identity so chart ticks match.
@@ -1351,7 +1369,8 @@
     token.hostSupplyUi = null;
     token.hostSupplyWitness = null;
     token.hostSupplyRejected = true;
-    console.debug('PaperTrench: host supply disagrees with measured supply', {
+    recordHostFactsDiagnostic('host supply disagrees with measured supply',
+      'host-facts-supply-mismatch', {
       mint: token.mint,
       hostSupplyUi: host,
       measuredSupplyUi: measured,
@@ -1386,7 +1405,11 @@
     // Per-token feed counters must not leak across a token switch: stale mcap
     // activity could hold a NEW token's armed buy alive (F-16), and stale
     // out-of-band tallies could trigger a premature re-anchor (F-10).
-    if (!data || data.mint !== prevMint) { lastMcapTickAt = 0; oobRejects = 0; }
+    if (!data || data.mint !== prevMint) {
+      lastMcapTickAt = 0;
+      oobRejects = 0;
+      hostSupplyRefusals.clear();
+    }
     token = data;
     // Keep a separate resolver anchor for validation. This is the price we
     // trust until a newer resolver quote or a first on-chain observation
@@ -1492,14 +1515,17 @@
    * Sent only on change; the bridge's boot default is "wanted", so a missed
    * first message costs correctness nothing (it merely parses as before). */
   let lastWantsTicks = null;
+  let lastFactsWanted = null;
   function publishPageState() {
     const chipPage = Boolean(site && site.rowBuy
       && settings.listQuickBuyEnabled !== false
       && site.rowBuy.listPaths.test(location.pathname));
     const wants = Boolean(token) || chipPage;
-    if (wants === lastWantsTicks) return;
+    const facts = Boolean(token && token.pending);
+    if (wants === lastWantsTicks && facts === lastFactsWanted) return;
     lastWantsTicks = wants;
-    sendPadreMarker('page-state', { wantsTicks: wants });
+    lastFactsWanted = facts;
+    sendPadreMarker('page-state', { wantsTicks: wants, factsWanted: facts });
   }
 
   /**

@@ -97,15 +97,17 @@ function runBridge(body) {
   for (const fn of timers.slice()) fn();
   return {
     emitted,
+    sendContent(type, payload) {
+      listeners.message({
+        source: win,
+        data: { source: 'papertrench-content', type, payload },
+      });
+    },
     async fetch() {
       await win.fetch('https://axiom.trade/api/frame');
       for (let i = 0; i < 10; i++) await Promise.resolve();
     },
   };
-}
-
-function contentSource() {
-  return fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
 }
 
 test('host identity facts are emitted for a pair-tied record', async () => {
@@ -223,12 +225,13 @@ test('pending content ignores screener facts not tied to the page address', asyn
       mint: MINT,
       addresses: [OTHER],
       poolAddress: OTHER,
-      priceUsd: null,
-      mcap: null,
-      supply: null,
-      decimals: null,
+      priceUsd: 2,
+      mcap: 200,
+      supply: 1000000,
+      decimals: 4,
     });
     assert.equal(api.getToken().mint, PAIR);
+    assert.equal(api.getToken().hostSupplyUi, undefined);
   } finally {
     loader.restore();
   }
@@ -272,16 +275,38 @@ test('pending content refuses mismatched host supply and unknown-unit prices', a
     const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
     await settleOverlay(ov);
     const api = ov.win.__hostFactsTest;
+    const records = [];
+    ov.win.PTErrors = { record: (message, details) => records.push({ message, details }) };
     ov.dispatchBridge('facts', {
       mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
       supply: 1000000, decimals: 2,
     });
     assert.equal(api.getToken().hostSupplyUi, undefined);
+    assert.equal(records.length, 1);
+    assert.equal(records[0].details.scope, 'content');
+    assert.equal(records[0].details.kind, 'host-facts-supply-refused');
     ov.dispatchBridge('facts', {
       mint: MINT, addresses: [PAIR, MINT], priceUsd: null, mcap: 200,
       supply: 1000000, decimals: 4,
     });
     assert.equal(api.getToken().hostSupplyUi, undefined);
+  } finally {
+    loader.restore();
+  }
+});
+
+test('facts do not move the pending token price by themselves', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    ov.dispatchBridge('facts', {
+      mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
+      supply: null, decimals: null,
+    });
+    assert.equal(api.getToken().priceNative, null);
+    assert.equal(api.getToken().priceUsd, null);
   } finally {
     loader.restore();
   }
@@ -333,11 +358,13 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
       const ov2 = loader2.runOverlay([0.0001], {
         url: 'https://axiom.trade/meme/' + PAIR,
         onchainPrewatch: () => measured && {
-          mint: MINT, supplyUi: measured, decimals: 4, pool: null, poolKind: null,
+          mint: MINT, supplyUi: measured, decimals: 4, pool: PAIR, poolKind: 'pump-curve',
         },
       });
       await settleOverlay(ov2);
       const api2 = ov2.win.__hostFactsTest;
+      const records2 = [];
+      ov2.win.PTErrors = { record: (message, details) => records2.push({ message, details }) };
       ov2.dispatchBridge('facts', {
         mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
         supply: 1000000, decimals: 4,
@@ -348,6 +375,7 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
       await settleOverlay(ov2);
       assert.equal(api2.getToken().hostSupplyUi, null);
       assert.equal(api2.getToken().hostSupplyRejected, true);
+      assert.ok(records2.some((record) => record.details.kind === 'host-facts-supply-mismatch'));
       ov2.dispatchBridge('facts', {
         mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
         supply: 1000000, decimals: 4,
@@ -361,46 +389,17 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
   }
 });
 
-test('content host-facts contract gates on pending and ties identity to srcAddress', () => {
-  const source = contentSource();
-  assert.match(source, /else if \(ev\.type === 'facts'\) handleHostFacts\(ev\.payload\)/);
-  assert.match(source, /if \(!facts \|\| !token \|\| !token\.pending\) return;/);
-  assert.match(source, /addresses\.indexOf\(srcAddress\) !== -1/);
-  assert.match(source, /rekeyLiveState\(oldMint, factMint\)/);
-  assert.match(source, /armedBuy && armedBuy\.mint === oldMint/);
-  assert.match(source, /factMint !== srcAddress/);
-  assert.match(source, /token\.pairAddress = facts\.poolAddress \|\| token\.pairAddress \|\| null/);
-  assert.doesNotMatch(source.slice(source.indexOf('function handleHostFacts'), source.indexOf('\n  function ', source.indexOf('function handleHostFacts') + 1)), /pumpCurve|onchainLive/);
-  assert.match(source, /token\.hostSupplyRejected/);
-  assert.match(source, /token\.hostSupplyWitness/);
-});
-
-test('content host-facts contract never routes facts through tick handling', () => {
-  const source = contentSource();
-  const branch = source.slice(source.indexOf("ev.type === 'facts'"), source.indexOf("ev.type === 'row-buy'"));
-  assert.doesNotMatch(branch, /handlePageTick/);
-});
-
-test('content host-facts contract refuses disagreement and uses the stated 1% rule', () => {
-  const source = contentSource();
-  assert.match(source, /Math\.abs\(implied - declaredUi\) \/ declaredUi > 0\.01/);
-  assert.match(source, /refuseHostSupply\(token\.mint \|\| factMint, facts\)/);
-  assert.match(source, /token\.hostSupplyUi = declaredUi \|\| implied/);
-});
-
-test('content host-facts reconciliation uses measured supply and the stated 2% rule', () => {
-  const source = contentSource();
-  assert.match(source, /Math\.abs\(measured - host\) \/ host <= 0\.02/);
-  assert.match(source, /token\.hostSupplyRejected = true/);
-  assert.match(source, /host supply disagrees with measured supply/);
-});
-
-test('facts cannot be accepted after pending resolves', () => {
-  const source = contentSource();
-  const start = source.indexOf('function handleHostFacts');
-  const end = source.indexOf('\n  function ', start + 1);
-  assert.ok(start >= 0 && end > start);
-  assert.match(source.slice(start, end), /!token\.pending/);
+test('bridge stops emitting facts after content publishes factsWanted false', async () => {
+  const env = runBridge({
+    token: MINT,
+    supply: 1000000000,
+    decimals: 9,
+    priceUsd: 0.000001,
+    marketCap: 1000,
+  });
+  env.sendContent('page-state', { wantsTicks: true, factsWanted: false });
+  await env.fetch();
+  assert.equal(env.emitted.filter((message) => message.type === 'facts').length, 0);
 });
 
 test('bootstrapSupply precedence is measured, pump constant, then host', () => {
@@ -412,15 +411,4 @@ test('bootstrapSupply precedence is measured, pump constant, then host', () => {
   assert.equal(Q.bootstrapSupply(pump), 1e9);
   const host = { mint: 'plain-mint', hostSupplyUi: 34 };
   assert.equal(Q.bootstrapSupply(host), 34);
-});
-
-test('content source preserves host supply witness fields and does not set a price', () => {
-  const source = contentSource();
-  const start = source.indexOf('function handleHostFacts');
-  const end = source.indexOf('\n  function ', start + 1);
-  const branch = source.slice(start, end);
-  assert.match(branch, /token\.hostSupplyWitness = \{/);
-  assert.match(branch, /priceUsd: facts\.priceUsd/);
-  assert.doesNotMatch(branch, /token\.priceUsd\s*=/);
-  assert.doesNotMatch(branch, /handlePageTick/);
 });
