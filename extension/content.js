@@ -6942,7 +6942,6 @@
     }
     rowArmedFlushing = true;
     const armed = rowArmed;
-    const rowBuyToken = rowBuyInFlight ? rowBuyOwner : null;
     try {
       // Same source order the click itself runs: freshest resolver read,
       // then the row's own feed, then the chain. The flush may only fire
@@ -6972,13 +6971,13 @@
         }
         // Serialize only the commit. The armed resolver cascade must stay free
         // to retry while a direct click is pricing or filling.
-        if (rowBuyInFlight || (rowBuyToken !== null && rowBuyOwner !== rowBuyToken)) return;
-        const commitToken = acquireRowBuyLatch();
+        if (rowBuyInFlight) return;
+        const rowBuyToken = acquireRowBuyLatch();
         let result;
         try {
           result = await fillRowBuy(armed.address, data, armed.amount);
         } finally {
-          releaseRowBuyLatch(commitToken);
+          releaseRowBuyLatch(rowBuyToken);
         }
         if (result) {
           // D-42: the SW mirror dies with the intent it belongs to — a filled
