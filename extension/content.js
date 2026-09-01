@@ -2250,6 +2250,9 @@
     renderBalance();
     renderPosition();
     renderClosedPnl();
+    // A fill in another tab changes the wallet-wide flow just like the
+    // balance and positions bar; repaint it with the adopted state.
+    renderFlow();
     // A fill in ANOTHER tab changes the portfolio too; without this the bar
     // would keep showing a chip for a position that is already closed.
     renderPositionsBar();
@@ -4093,6 +4096,7 @@
     .pt-box.pt-micro .pt-limit-row,
     .pt-box.pt-micro #pt-thesis,
     .pt-box.pt-micro #pt-closed,
+    .pt-box.pt-micro #pt-flow,
     .pt-box.pt-micro .pt-editor,
     .pt-box.pt-micro .pt-footer,
     .pt-box.pt-micro .pt-pos .pt-detail,
@@ -4741,6 +4745,12 @@
       transition: color 0.16s, border-color 0.16s;
     }
     .pt-footer a:hover { color: var(--pt-amber); border-color: var(--pt-amber); }
+    .pt-flow {
+      margin-top: 7px;
+      color: var(--pt-faint);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ---------------- semantic colors ---------------- */
 
@@ -5354,6 +5364,7 @@
             <div id="pt-alerts"></div>
             <div id="pt-thesis"></div>
             <div id="pt-closed"></div>
+            <div class="pt-flow" id="pt-flow" title="Lifetime flow: total bought, cost still held open, total sold back out."></div>
           </div>
           <div class="pt-footer">
             <span id="pt-site"></span>
@@ -5408,6 +5419,7 @@
     els.alerts = shadow.getElementById('pt-alerts');
     els.thesis = shadow.getElementById('pt-thesis');
     els.closed = shadow.getElementById('pt-closed');
+    els.flow = shadow.getElementById('pt-flow');
     els.effects = shadow.getElementById('pt-effects');
     els.footSite = shadow.getElementById('pt-site');
     els.subtitle = shadow.getElementById('pt-subtitle');
@@ -5792,6 +5804,21 @@
     }
   }
 
+  function renderFlow() {
+    if (!els.flow || !state) return;
+    const stats = E.sessionStats(state, settings);
+    const base = `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`;
+    // Lifetime book totals span coins, so a current foreign-chain rate cannot
+    // honestly convert them; keep this line in SOL everywhere.
+    if (stats.flowTruncated) {
+      els.flow.textContent = `${base} · bought/sold cover newest ${E.JOURNAL_CAP} fills`;
+      els.flow.title = `Lifetime flow: total bought, cost still held open, total sold back out. Bought and sold cover only the newest ${E.JOURNAL_CAP} fills; holding remains exact from open positions.`;
+      return;
+    }
+    els.flow.textContent = base;
+    els.flow.title = 'Lifetime flow: total bought, cost still held open, total sold back out.';
+  }
+
   /* ---------------- panel denomination ----------------
    * Foreign-chain panels denominate in DOLLARS. Read off the live site
    * (2026-08-05): fomo's own quick buys on a BNB token are $10/$100/$500/
@@ -6151,6 +6178,7 @@
     renderHeader();
     renderBalance();
     renderMicroWallet();
+    renderFlow();
     renderPosition();
     renderAlerts();
     renderBuyButton();
@@ -6965,6 +6993,9 @@
     // position shows up in the rail instantly, chart one click away.
     pollPositionPrices();
     renderPositionsBar();
+    // A row fill changes the wallet-wide flow even when this chart shows
+    // another token, so keep that summary in step without a full rebuild.
+    renderFlow();
     // If this token's chart happens to be on screen, refresh the card too.
     if (token && token.mint === data.mint) renderAll();
     return result;
