@@ -3216,6 +3216,16 @@
           return;
         }
       }
+      // The acquisition beat above AWAITED, and the world can change across
+      // it: an SPA navigation or a standdown sets `token` back to null, and
+      // the branch immediately above re-checks `token` for exactly that
+      // reason. Arming did not, so a click that raced a navigation threw
+      // "Cannot read properties of null (reading 'mint')" out of an async
+      // handler — an unhandled rejection nobody sees, which ate the click
+      // whole: no fill, no armed buy, and no message explaining either.
+      // Reported from the field with that stack (requestBuy), on exactly the
+      // fresh launches this arming path exists to serve.
+      if (!token) return toast('No token detected on this page');
       armedBuy = { amount: solAmount, usd: quotedUsd, at: Date.now(), mint: token.mint, fromClick: true };
       // D-39: a click-armed buy NEVER narrates its state (no arming toast
       // of any kind) and never waits for a second source — flushArmedBuy

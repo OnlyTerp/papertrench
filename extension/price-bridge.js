@@ -103,8 +103,29 @@
     // A new token means the old bar close is no longer a valid axis hint —
     // and the export dedupe must forget the old token's close, or the first
     // poll on the new token can be swallowed as "unchanged" (DEFECT F-19).
-    // The GMGN candle close is the same class of per-token evidence (C-08).
-    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; gmgnLastCandleClose = 0; barCloseLedger.clear(); }
+    //
+    // D-65: the GMGN candle close is NOT cleared here any more. It used to
+    // be, on the same "the needles changed" signal — but that signal fires
+    // for two different events, and only one of them is a new token:
+    //
+    //   a real switch      A -> B, nothing in common. Stale, must go.
+    //   identity sharpening  [PAIR] -> [PAIR, MINT, SYMBOL], as the resolver
+    //                      learns what it is looking at. Same token.
+    //
+    // The second is the normal life of a FRESH LAUNCH, whose identity
+    // resolves late and in pieces, and each sharpening wiped the axis anchor
+    // that both GMGN line lanes need. GMGN fetches its mcap candles once per
+    // chart mount, so nothing ever put the anchor back and the average lines
+    // could not be computed for the rest of the session.
+    //
+    // Clearing on a genuine switch is racy too: the new token's candles
+    // routinely land BEFORE its paper-axis does, so the clear destroyed a
+    // close that had just been captured for the token we were moving to.
+    //
+    // Both go away by tagging the close with the token it was observed for
+    // (gmgnLastCandleCloseKey) and checking that at USE time instead —
+    // staleness is then a fact about the data, not a guess about ordering.
+    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; barCloseLedger.clear(); }
   }
   // GMGN runs a private TradingView widget inside a same-origin blob iframe.
   // Its live React chart manager exposes `getActiveChart().createOrderLine()`.
@@ -117,6 +138,38 @@
   // what GMGN's Y axis actually shows, so lines and fill shapes are scaled
   // through it rather than trusting resolver-implied supply. Reset per token.
   let gmgnLastCandleClose = 0;
+  // D-65: which token that close was observed for, read from the candle
+  // request's own URL (/api/v1/token_mcap_candles/<chain>/<address>). The
+  // anchor is per-token evidence, so it carries its subject rather than
+  // relying on a clear that has to fire at exactly the right moment.
+  let gmgnLastCandleCloseKey = null;
+
+  /**
+   * The GMGN axis anchor, or 0 when we have none FOR THIS TOKEN.
+   *
+   * Every GMGN level lane needs this: the mcap lane scales through it
+   * (gmgnCapScale) and the native-ratio lanes multiply by it (C-16, D-64).
+   * A close belonging to the previous token would put every line and every
+   * fill mark at a level from a different coin, so it is refused here rather
+   * than cleared on a signal that cannot see the difference.
+   *
+   * An unparseable URL leaves the key null; that close is still used, which
+   * is exactly the pre-D-65 behaviour for a shape we do not recognise.
+   */
+  function gmgnAxisAnchor() {
+    if (!(gmgnLastCandleClose > 0)) return 0;
+    if (!gmgnLastCandleCloseKey) return gmgnLastCandleClose;
+    // Addresses only. The needle list also carries the SYMBOL, and a short
+    // symbol can appear inside an unrelated base58 address — matching on
+    // that would accept another coin's anchor.
+    const addrs = [currentSymbolInfo.pairAddress, currentSymbolInfo.mint]
+      .filter((v) => typeof v === 'string' && v.length >= 2)
+      .map((v) => v.toUpperCase());
+    // No identity resolved yet: nothing to contradict the close, and this is
+    // the ordinary state while a fresh launch is still being identified.
+    if (!addrs.length) return gmgnLastCandleClose;
+    return addrs.indexOf(gmgnLastCandleCloseKey) >= 0 ? gmgnLastCandleClose : 0;
+  }
 
   /* ---------------- content-script liveness (DEFECTS O-04/C-17) ----------
    * The MAIN world cannot observe extension death, so the bridge watches for
@@ -458,6 +511,11 @@
         // C-08: this close IS the value on GMGN's Y axis — the scale anchor
         // for every GMGN line and fill shape (see gmgnCapScale).
         gmgnLastCandleClose = mcap;
+        // D-65: tag it with the token the request names, so the anchor can be
+        // judged stale at use time instead of cleared on a signal that cannot
+        // tell a token switch from an identity merely becoming complete.
+        const forToken = /\/token_mcap_candles\/[^/?#]+\/([^/?#]+)/.exec(url);
+        gmgnLastCandleCloseKey = forToken ? forToken[1].toUpperCase() : null;
         emit('tick', {
           candidates: [],
           mcap,
@@ -2603,7 +2661,8 @@
    */
   function gmgnCapScale() {
     const current = gmgnLineSpec && numberValue(gmgnLineSpec.currentMcap);
-    if (gmgnLastCandleClose > 0 && current > 0) return gmgnLastCandleClose / current;
+    const anchor = gmgnAxisAnchor();
+    if (anchor > 0 && current > 0) return anchor / current;
     return 1;
   }
 
@@ -2620,8 +2679,9 @@
     if (mcap > 0) return mcap * gmgnCapScale();
     const native = numberValue(payload && payload.priceNative);
     const currentNative = gmgnLineSpec && numberValue(gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }
@@ -2744,8 +2804,9 @@
     // report of exactly that gap.
     const native = numberValue(gmgnLineSpec && gmgnLineSpec['avg' + side + 'Native']);
     const currentNative = numberValue(gmgnLineSpec && gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }

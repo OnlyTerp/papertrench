@@ -1420,6 +1420,64 @@ test('C-16: a capless fill is queued and drawn once the cap becomes derivable', 
     'level = close x (fillNative / currentNative): the fill expressed on GMGN’s own axis');
 });
 
+test('D-65: a fresh launch keeps its axis anchor while its identity sharpens', async () => {
+  const env = runBridge({ gmgnMounted: true });
+
+  // The ordinary fresh-launch sequence: the chart mounts and GMGN fetches its
+  // mcap candles ONCE, before the resolver has finished identifying the coin.
+  injectActivityFrame(env, JSON.stringify({ code: 0, data: { list: [{ close: 300_000_000 }] } }),
+    'https://www.gmgn.ai/api/v1/token_mcap_candles/sol/Mint1');
+
+  // Identity then arrives in pieces, as it does for a coin nobody has indexed
+  // yet — first the pair, then the mint and symbol. Each of these used to
+  // clear the anchor, and GMGN never re-fetches candles to restore it.
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: null, symbol: null });
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: 'Mint1', symbol: 'FRESH' });
+
+  // A line priced only in SOL — D-64's premise: no mcap/priceUsd yet, so the
+  // native lane is the only one that can compute a level, and it needs the
+  // anchor the sharpening identity used to destroy.
+  env.send('gmgn-lines', {
+    enabled: true,
+    avgBuyMcap: null,
+    avgBuyNative: 5e-8,
+    currentPriceNative: 1e-7,
+  });
+  env.runTimeouts();
+  await microtasks();
+
+  const line = env.orderLines.find((l) => l.values.setPrice !== undefined);
+  assert.ok(line, 'the average line must draw — this is portifly\'s report');
+  assert.equal(line.values.setPrice, 150_000_000,
+    'level = anchor x (avgNative / currentNative), with the anchor intact');
+});
+
+test('D-65: an anchor from the previous token never prices the next one', async () => {
+  const env = runBridge({ gmgnMounted: true });
+
+  // Mint1's candles and identity.
+  injectActivityFrame(env, JSON.stringify({ code: 0, data: { list: [{ close: 300_000_000 }] } }),
+    'https://www.gmgn.ai/api/v1/token_mcap_candles/sol/Mint1');
+  env.send('paper-axis', { pairAddress: 'Mint1', mint: 'Mint1', symbol: 'ONE' });
+
+  // Switch to a genuinely different coin. Its candles have NOT arrived yet,
+  // so the only anchor in memory belongs to Mint1 — and must not be used.
+  env.send('paper-axis', { pairAddress: 'Mint2', mint: 'Mint2', symbol: 'TWO' });
+  env.send('gmgn-lines', {
+    enabled: true,
+    avgBuyMcap: null,
+    avgBuyNative: 5e-8,
+    currentPriceNative: 1e-7,
+  });
+  env.runTimeouts();
+  await microtasks();
+
+  const drawn = env.orderLines.filter((l) => l.values.setPrice !== undefined);
+  assert.equal(drawn.length, 0,
+    'no line may be drawn from another coin\'s anchor — a wrong level is worse '
+    + 'than no level, and the sweep will draw it once Mint2\'s candles land');
+});
+
 test('C-13: failed GMGN shape draws are re-queued with bounded retries, never lost', async () => {
   const env = runBridge({ gmgnMounted: true });
   env.failGmgnShapes(2); // a mid-boot chart refuses the first two draws
