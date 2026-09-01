@@ -150,6 +150,40 @@ test('a GMGN row proves its bare price is USD from supply and market cap', () =>
   });
 });
 
+test('an explicit mint wins over an unrelated generic address', () => {
+  const row = makeRow({
+    mint: A,
+    address: B,
+    pairAddress: PAIR,
+    priceSol: 0.000032,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(quoteExtractor()(row, A))), {
+    mint: A,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: null,
+    mcapUsd: null,
+    supply: null,
+  });
+});
+
+test('an explicit token address wins over an unrelated generic address', () => {
+  const row = makeRow({
+    tokenAddress: A,
+    address: B,
+    pairAddress: PAIR,
+    priceSol: 0.000032,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(quoteExtractor()(row, A))), {
+    mint: A,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: null,
+    mcapUsd: null,
+    supply: null,
+  });
+});
+
 test('a GMGN bare price without its USD cap is rejected', () => {
   assert.equal(quoteExtractor()(makeRow({
     address: A,

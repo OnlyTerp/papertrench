@@ -3594,11 +3594,11 @@
         const fields = {};
         let barePrice = null;
         for (const [name, value] of Object.entries(obj)) {
-          if (badKey.test(name)) continue;
           if (identityKeys.has(name)) {
             if (typeof value === 'string' && BASE58_RE.test(value)) fields[name] = value;
             continue;
           }
+          if (badKey.test(name)) continue;
           if (name === 'supply' || name === 'total_supply' || name === 'totalSupply'
               || priceKeys.has(name)) {
             const number = numberValue(value);
@@ -3610,11 +3610,13 @@
             if (number !== null && number > 0) barePrice = number;
           }
         }
-        if (fields.address !== undefined) fields.mint = fields.address;
-        if (fields.pool_address !== undefined) fields.pair = fields.pool_address;
-        if (fields.total_supply !== undefined) fields.supply = fields.total_supply;
-        if (fields.totalSupply !== undefined) fields.supply = fields.totalSupply;
-        if (fields.usd_market_cap !== undefined) fields.mcapUsd = fields.usd_market_cap;
+        if (fields.address !== undefined && fields.mint === undefined) fields.mint = fields.address;
+        if (fields.pool_address !== undefined && fields.pair === undefined) fields.pair = fields.pool_address;
+        if (fields.total_supply !== undefined && fields.supply === undefined) fields.supply = fields.total_supply;
+        if (fields.totalSupply !== undefined && fields.supply === undefined) fields.supply = fields.totalSupply;
+        if (fields.usd_market_cap !== undefined && fields.mcapUsd === undefined) {
+          fields.mcapUsd = fields.usd_market_cap;
+        }
         const barePriceProven = barePrice !== null && fields.supply > 0 && fields.mcapUsd > 0
           && Math.abs(barePrice * fields.supply / fields.mcapUsd - 1) <= 0.02;
         if (barePriceProven) {
