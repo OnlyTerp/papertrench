@@ -6628,16 +6628,21 @@
       scheduleRowBuyDrain();
       return;
     }
-    doRowBuy(entry.address, entry.button, entry.quote, entry.at);
+    doRowBuy(entry.address, entry.button, entry.quote, {
+      queuedAt: entry.at,
+      amount: entry.amount,
+    });
   }
 
-  onTeardown(() => {
+  function clearRowBuyQueue() {
     rowBuyQueue.length = 0;
     if (rowBuyDrainTimer) {
       clearTimeout(rowBuyDrainTimer);
       rowBuyDrainTimer = null;
     }
-  });
+  }
+
+  onTeardown(clearRowBuyQueue);
 
   function noteRowPrice(payload) {
     if (!payload || typeof payload.mint !== 'string' || !ROW_ADDR_RE.test(payload.mint)) return;
@@ -7084,16 +7089,23 @@
   }
 
   /** Paper-buy the first preset amount of a screener row's token. */
-  async function doRowBuy(address, button, rowQuote, queuedAt) {
-    const t0 = Number.isFinite(queuedAt) ? queuedAt : Date.now();
-    if (rowBuyInFlight) {
+  async function doRowBuy(address, button, rowQuote, options) {
+    const queueOptions = options && typeof options === 'object' ? options : {};
+    const queuedAt = queueOptions.queuedAt;
+    const fromQueue = Number.isFinite(queuedAt);
+    const t0 = fromQueue ? queuedAt : Date.now();
+    const amount = fromQueue ? queueOptions.amount : (settings.presetsBuy || [0.1])[0];
+    if (rowBuyInFlight || (!fromQueue && rowBuyQueue.length)) {
       if (rowBuyQueue.length >= ROW_BUY_QUEUE_MAX) {
         toast('Row buy queue full — tap again after current buys finish');
         rowBuyTiming(t0, 'queue', {}, 'refused');
         return;
       }
-      rowBuyQueue.push({ address, button, quote: rowQuote, at: Date.now() });
+      const entry = { address, button, quote: rowQuote, amount, at: fromQueue ? queuedAt : Date.now() };
+      if (fromQueue) rowBuyQueue.unshift(entry);
+      else rowBuyQueue.push(entry);
       toast('Queued — filling after the current buy');
+      scheduleRowBuyDrain();
       return;
     }
     const rowBuyToken = acquireRowBuyLatch();
@@ -7102,7 +7114,6 @@
     if (button) button.classList.add('busy');
     primeAudio();
     try {
-      const amount = (settings.presetsBuy || [0.1])[0];
       // Guardrails apply to chip buys exactly like panel buys.
       const guard = E.guardCheck(state, settings, { solAmount: amount });
       if (!guard.ok) { outcome = 'guard-refused'; toast(guard.message); return; }
@@ -9250,6 +9261,7 @@
   }
 
   function disableOverlay() {
+    clearRowBuyQueue();
     if (!host) return;
     stopOverlays();
     // O-26: listeners registered per mount (drag wiring, resize re-clamp,

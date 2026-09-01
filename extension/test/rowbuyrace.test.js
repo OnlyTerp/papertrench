@@ -137,7 +137,7 @@ function bootRace(options = {}) {
     PaperTrenchSites: {},
     PaperTrenchResolver: {},
     PTChartMarkers: { destroyChartMarkers() {} },
-    PTTitleFeed: {},
+    PTTitleFeed: { start() {}, stop() {}, onMarketCap() { return () => {}; } },
     innerWidth: 1400,
     innerHeight: 1050,
     addEventListener(type, fn) {
@@ -341,6 +341,8 @@ function bootRace(options = {}) {
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
     getRowBuyQueue: () => rowBuyQueue.slice(),
     drainRowBuyQueue,
+    disableOverlay,
+    setPresetBuy: (amount) => { settings.presetsBuy = [amount]; },
     getRecentRowPrice: (mint) => recentRowPrices.get(mint) || null,
   };
 `
@@ -771,6 +773,64 @@ test('a second tap queues and fills at its own captured quote', async () => {
   assert.equal(harness.getState().journal[0].priceNative, 0.000064);
   assert.equal(harness.getState().journal[1].priceNative, 0.000032);
   assert.equal(race.debugLines.filter((line) => line.includes('row-buy')).length, 2);
+});
+
+test('a fresh tap joins the queue before a scheduled drain', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  race.releasePairIdentity();
+  await first;
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000096, priceUsd: 0.0096 });
+  assert.deepEqual(Array.from(harness.getRowBuyQueue(), (entry) => entry.address), [B, C]);
+  await race.advance(1);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await waitFor(() => harness.getState().journal.length === 2);
+  await waitFor(() => !harness.getRowBuyInFlight());
+  await race.advance(1);
+  await waitFor(() => race.isCIdentityRequested());
+  race.releaseC();
+  await waitFor(() => harness.getState().journal.length === 3);
+  assert.deepEqual(
+    Array.from(harness.getState().journal, (trade) => trade.mint),
+    [C, B, B],
+  );
+});
+
+test('a queued tap keeps the preset amount captured at tap time', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  race.releasePairIdentity();
+  await first;
+  harness.setPresetBuy(0.7);
+  await race.advance(1);
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.equal(harness.getState().journal[0].solGross, 0.1);
+});
+
+test('disabling the overlay clears queued taps without stranding them', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  await harness.enableOverlay();
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  assert.equal(harness.getRowBuyQueue().length, 1);
+  harness.disableOverlay();
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  race.releasePairIdentity();
+  await first;
+  await race.advance(1);
+  assert.equal(harness.getState().journal.length, 1);
+  assert.equal(race.isBIdentityRequested(), false);
 });
 
 test('the row-buy queue holds three taps and refuses the fifth tap', async () => {
