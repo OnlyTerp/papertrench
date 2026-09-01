@@ -163,7 +163,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   assert.match(bridge, /function scanScreenerRows\(spec\)/);
   assert.match(bridge, /function addressFromRowFiber\(row\)/);
   // Chips forward their tap back to the content script's fill pipeline.
-  assert.match(bridge, /emit\('row-buy', \{ address: entry\.address \}\)/);
+  assert.match(bridge, /emit\('row-buy', \{\s*address: entry\.address,\s*quote: rowQuoteFromFiber\(entry\.row, entry\.address\),/s);
   assert.match(content, /ev\.type === 'row-buy'/);
   // The chip shows a busy state until the content script settles the fill.
   assert.match(bridge, /type === 'row-buy-done'/);
@@ -394,8 +394,8 @@ test('chip fills run the same honesty gate as panel fills (F-56)', () => {
   assert.match(content, /Price sources disagree — paper fill refused\. Try again in a moment\./,
     'a divergent candidate with no vouching second source refuses visibly');
   // The witness must be INDEPENDENT of the candidate's source.
-  assert.match(content, /if \(data\.priceSource === 'row-feed' \|\| !data\.priceSource\) \{\s*\n\s*const obs = await R\.resolve\(address/,
-    'a row-feed candidate is witnessed by the resolver, not by itself');
+  assert.match(content, /if \(data\.priceSource === 'row-feed' \|\| data\.priceSource === 'row-props' \|\| !data\.priceSource\) \{\s*\n\s*const obs = await R\.resolve\(address/,
+    'page-row candidates are witnessed by the resolver, not by themselves');
 });
 
 test('a panel buy on a fresh coin acquires the quote on the click before arming (D-38)', () => {

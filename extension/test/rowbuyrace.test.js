@@ -19,6 +19,7 @@ const SITES = fs.readFileSync(path.join(ROOT, 'sites.js'), 'utf8');
 const A = 'A'.repeat(32);
 const B = 'B'.repeat(32);
 const C = 'C'.repeat(32);
+const PAIR = 'P'.repeat(32);
 
 function bootRace(options = {}) {
   let clock = Date.now();
@@ -519,6 +520,55 @@ test('a priced row click still commits without an armed intent', async () => {
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
   assert.equal(harness.getRowArmed(), null, 'a priced click does not create an armed intent');
+});
+
+test('a row-props quote fills at the tapped price without resolver or identity lookup', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  await harness.doRowBuy(PAIR, null, {
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: 0.0032,
+    mcapUsd: 3200,
+    supply: 100_000_000,
+  });
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getRowArmed(), null, 'a valid row-props quote never arms');
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    0,
+    'row-props pricing skips the resolver cascade',
+  );
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_onchain_prewatch').length,
+    0,
+    'an authoritative row-props mint skips identity probing',
+  );
+  assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+});
+
+test('an invalid row-props identity is refused instead of filling or arming', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  await harness.doRowBuy(B, null, {
+    mint: A,
+    pair: PAIR,
+    priceSol: 1,
+    priceUsd: 100,
+    mcapUsd: 100_000,
+  });
+
+  assert.equal(harness.getState().journal.length, 0, 'a foreign row quote cannot fill');
+  assert.equal(harness.getRowArmed(), null, 'a foreign row quote cannot arm');
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    0,
+    'a rejected row quote must not fall through to a different price source',
+  );
 });
 
 test('a row buy still expires at its existing TTL', async () => {

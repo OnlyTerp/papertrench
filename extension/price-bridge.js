@@ -3226,7 +3226,10 @@
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
         chip.classList.add('busy');
-        emit('row-buy', { address: entry.address });
+        emit('row-buy', {
+          address: entry.address,
+          quote: rowQuoteFromFiber(entry.row, entry.address),
+        });
         break;
       }
     }
@@ -3564,6 +3567,94 @@
         if (fiber.sibling) stack.push(fiber.sibling);
       }
       return best ? best.address : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function rowQuoteFromFiber(row, tappedAddress) {
+    try {
+      if (!row || !BASE58_RE.test(tappedAddress || '')) return null;
+      const key = Object.getOwnPropertyNames(row).find((k) => k.indexOf('__reactFiber$') === 0);
+      const start = key && row[key];
+      if (!start) return null;
+      const seen = new Set();
+      const stack = [start];
+      const candidates = [];
+      const identityKeys = new Set(['tokenAddress', 'mint', 'pairAddress']);
+      const priceKeys = new Set([
+        'priceSol', 'priceNative', 'tokenPriceUsd', 'priceUsd',
+        'marketCapSol', 'marketCapUsd',
+      ]);
+      const badKey = /change|pct|percent|min|hr|24h|ratio/i;
+      const fieldsFor = (obj) => {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+        const fields = {};
+        for (const [name, value] of Object.entries(obj)) {
+          if (badKey.test(name)) continue;
+          if (identityKeys.has(name)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) fields[name] = value;
+            continue;
+          }
+          if (name === 'supply' || priceKeys.has(name)) {
+            const number = numberValue(value);
+            if (number !== null && number > 0) fields[name] = number;
+          }
+        }
+        return fields;
+      };
+      const walk = (obj, depth, inheritedPrices) => {
+        if (!obj || typeof obj !== 'object' || depth > 3) return;
+        const own = fieldsFor(obj) || {};
+        const hasIdentity = own.tokenAddress || own.mint || own.pairAddress;
+        const fields = hasIdentity ? { ...inheritedPrices, ...own } : own;
+        const hasPrice = [...priceKeys].some((name) => fields[name] !== undefined);
+        if (hasIdentity && hasPrice) candidates.push(fields);
+        const childPrices = hasIdentity ? {} : { ...inheritedPrices };
+        for (const name of [...priceKeys, 'supply']) {
+          if (own[name] !== undefined) childPrices[name] = own[name];
+        }
+        for (const value of Object.values(obj)) {
+          if (value && typeof value === 'object') walk(value, depth + 1, childPrices);
+        }
+      };
+      let steps = 0;
+      while (stack.length && steps++ < 80) {
+        const fiber = stack.pop();
+        if (!fiber || seen.has(fiber)) continue;
+        seen.add(fiber);
+        walk(fiber.memoizedProps, 0, {});
+        walk(fiber.memoizedState, 0, {});
+        if (fiber.child) stack.push(fiber.child);
+        if (fiber.sibling) stack.push(fiber.sibling);
+      }
+      const matching = candidates.filter((fields) =>
+        fields.tokenAddress === tappedAddress
+        || fields.mint === tappedAddress
+        || fields.pairAddress === tappedAddress);
+      if (!matching.length) return null;
+      const selected = matching.reduce((best, fields) =>
+        !best || Object.keys(fields).length > Object.keys(best).length ? fields : best, null);
+      const usd = candidates.find((fields) =>
+        fields.tokenAddress
+        && fields.tokenAddress === selected.tokenAddress
+        && (fields.tokenPriceUsd !== undefined
+          || fields.priceUsd !== undefined
+          || fields.marketCapUsd !== undefined));
+      const merged = { ...selected };
+      if (usd) {
+        for (const name of ['tokenPriceUsd', 'priceUsd', 'marketCapUsd']) {
+          if (merged[name] === undefined && usd[name] !== undefined) merged[name] = usd[name];
+        }
+      }
+      return {
+        mint: merged.tokenAddress || merged.mint || null,
+        pair: merged.pairAddress || null,
+        priceSol: merged.priceSol || merged.priceNative || null,
+        priceUsd: merged.tokenPriceUsd || merged.priceUsd || null,
+        mcapUsd: merged.marketCapUsd || null,
+        supply: merged.supply || null,
+      };
     } catch (_) {
       return null;
     }

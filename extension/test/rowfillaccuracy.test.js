@@ -91,8 +91,8 @@ test('a first buy with no position anchors on the row\'s own print', () => {
   const body = bodyOf('async function rowPrintVouchesFirstBuy(');
   assert.match(body, /if \(posAnchor\) return true/,
     'an existing position keeps the F-56 anchor and skips this gate');
-  assert.match(body, /data\.priceSource === 'row-feed' \|\| data\.priceSource === 'row-onchain'/,
-    'row-fed and chain-fed candidates are exempt (the print IS their source)');
+  assert.match(body, /data\.priceSource === 'row-feed' \|\| data\.priceSource === 'row-props'\s*\n\s*\|\| data\.priceSource === 'row-onchain'/,
+    'page-row and chain-fed candidates are exempt (the print IS their source)');
   assert.match(body, /recentRowPrices\.get\(data\.pairAddress\)/,
     'the row print is looked up by every identity');
   assert.match(body, /> 2/, 'an aggregator diverging >2x from the print needs a witness');

@@ -484,7 +484,7 @@
         return;
       }
       if (ev.payload && ev.payload.address) {
-        doRowBuy(ev.payload.address, null)
+        doRowBuy(ev.payload.address, null, ev.payload.quote)
           .finally(() => sendPadreMarker('row-buy-done', null));
       }
     }
@@ -6568,7 +6568,7 @@
    * exactly like the site's own quick buy moves you to the position.
    */
 
-  const ROW_ADDR_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
+  const ROW_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   // Newest USD price per mint from the site's OWN realtime feed (GMGN's
   // token_activity ticks carry a mint). A row buy prefers this over a
   // network quote because the screener is showing that very price.
@@ -6660,6 +6660,20 @@
       mcap: null,
       priceSource: 'row-onchain',
     };
+  }
+
+  function validRowPropsQuote(quote, address) {
+    if (!quote || typeof quote !== 'object' || !ROW_ADDR_RE.test(address || '')) return false;
+    const mint = quote.mint || null;
+    const pair = quote.pair || null;
+    if ((mint && !ROW_ADDR_RE.test(mint)) || (pair && !ROW_ADDR_RE.test(pair))) return false;
+    if ((!mint && !pair) || (mint !== address && pair !== address)) return false;
+    if (!(Number.isFinite(Number(quote.priceSol)) && Number(quote.priceSol) > 0)) return false;
+    for (const name of ['priceUsd', 'mcapUsd', 'supply']) {
+      if (quote[name] != null
+        && !(Number.isFinite(Number(quote[name])) && Number(quote[name]) > 0)) return false;
+    }
+    return true;
   }
 
   /**
@@ -6756,7 +6770,8 @@
   async function rowPrintVouchesFirstBuy(address, data, posAnchor) {
     if (posAnchor) return true; // an existing position anchors (F-56 above)
     if (!(Number(data.priceNative) > 0) || !(Number(data.priceUsd) > 0)) return true;
-    if (data.priceSource === 'row-feed' || data.priceSource === 'row-onchain') return true;
+    if (data.priceSource === 'row-feed' || data.priceSource === 'row-props'
+      || data.priceSource === 'row-onchain') return true;
     const rowPrint = (data.mint && recentRowPrices.get(data.mint))
       || (data.pairAddress && recentRowPrices.get(data.pairAddress))
       || (address && recentRowPrices.get(address));
@@ -6805,7 +6820,7 @@
       if (ratio > 2) {
         let witnessNative = null;
         try {
-          if (data.priceSource === 'row-feed' || !data.priceSource) {
+          if (data.priceSource === 'row-feed' || data.priceSource === 'row-props' || !data.priceSource) {
             const obs = await R.resolve(address, { maxAgeMs: 3000 }).catch(() => null);
             if (obs && Number(obs.priceNative) > 0) witnessNative = Number(obs.priceNative);
           } else {
@@ -6842,7 +6857,8 @@
     // The chain classifies the click address the same way prewatch does —
     // one bounded read, never blocking the fill: a miss keeps the row's own
     // address as the key, exactly the honest legacy behavior.
-    if (address && (!data.mint || data.mint === address)) {
+    if (address && data.priceSource !== 'row-props'
+      && (!data.mint || data.mint === address)) {
       try {
         const found = await R.onchainPrewatch({ mint: address, pool: address }).catch(() => null);
         if (found && found.mint && found.mint !== data.mint) {
@@ -6936,7 +6952,8 @@
         const live = (data.mint && recentRowPrices.get(data.mint))
           || (data.pairAddress && recentRowPrices.get(data.pairAddress))
           || recentRowPrices.get(armed.address);
-        if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
+        if (data.priceSource !== 'row-props'
+            && live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
           const scale = live.usd / Number(data.priceUsd);
           data.priceUsd = live.usd;
           data.priceNative = Number(data.priceNative) * scale;
@@ -6970,7 +6987,7 @@
   }
 
   /** Paper-buy the first preset amount of a screener row's token. */
-  async function doRowBuy(address, button) {
+  async function doRowBuy(address, button, rowQuote) {
     if (rowBuyInFlight) return toast('Row buy already in progress…');
     const rowBuyToken = acquireRowBuyLatch();
     if (button) button.classList.add('busy');
@@ -6997,30 +7014,47 @@
       // nothing below may block this function's finally forever.
       const ROW_CASCADE_TIMEOUT_MS = 10_000;
       let data = null;
-      try {
-        data = await Promise.race([
-          (async () => {
-            let d = await R.resolve(address, { maxAgeMs: 3000 });
-            if (!d || !(d.priceNative > 0)) d = await R.resolve(address);
-            if (!d || !(d.priceNative > 0)) {
-              const row = await rowLivePrice(address);
-              if (row) {
-                d = {
-                  mint: address, pairAddress: null,
-                  symbol: row.symbol, name: row.name,
-                  priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
-                  priceSource: 'row-feed',
-                };
+      if (rowQuote) {
+        if (!validRowPropsQuote(rowQuote, address)) {
+          toast('Row price identity could not be confirmed — paper buy refused');
+          return;
+        }
+        data = {
+          mint: rowQuote.mint || address,
+          pairAddress: rowQuote.pair || null,
+          symbol: null,
+          name: null,
+          priceNative: rowQuote.priceSol,
+          priceUsd: rowQuote.priceUsd || null,
+          mcap: rowQuote.mcapUsd || null,
+          priceSource: 'row-props',
+        };
+      } else {
+        try {
+          data = await Promise.race([
+            (async () => {
+              let d = await R.resolve(address, { maxAgeMs: 3000 });
+              if (!d || !(d.priceNative > 0)) d = await R.resolve(address);
+              if (!d || !(d.priceNative > 0)) {
+                const row = await rowLivePrice(address);
+                if (row) {
+                  d = {
+                    mint: address, pairAddress: null,
+                    symbol: row.symbol, name: row.name,
+                    priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: null,
+                    priceSource: 'row-feed',
+                  };
+                }
               }
-            }
-            if (!d || !(d.priceNative > 0)) {
-              d = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
-            }
-            return d;
-          })(),
-          new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
-        ]);
-      } catch (_) { data = null; }
+              if (!d || !(d.priceNative > 0)) {
+                d = await rowChainQuote(address, site && site.rowBuy && site.rowBuy.kind);
+              }
+              return d;
+            })(),
+            new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
+          ]);
+        } catch (_) { data = null; }
+      }
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the
         // intent is NEVER refused. It arms exactly like the panel's D-39
@@ -7072,7 +7106,8 @@
       const live = (data.mint && recentRowPrices.get(data.mint))
         || (data.pairAddress && recentRowPrices.get(data.pairAddress))
         || (address && recentRowPrices.get(address));
-      if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
+      if (data.priceSource !== 'row-props'
+          && live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
         // F-59: the cap rides the price. The old override rewrote
         // priceUsd/priceNative and left `mcap` at the resolver's stale
         // value — the toast and the position then reported an entry MC the

@@ -29,8 +29,8 @@ test('fillRowBuy anchors its witness on the position itself', () => {
 test('a quote diverging >2x from the anchor needs independent vouching', () => {
   const body = bodyOf('async function fillRowBuy');
   assert.match(body, /ratio > 2/, 'the divergence gate is 2x');
-  assert.match(body, /data\.priceSource === 'row-feed' \|\| !data\.priceSource/,
-    'row-fed candidates are corroborated by the resolver');
+  assert.match(body, /data\.priceSource === 'row-feed' \|\| data\.priceSource === 'row-props' \|\| !data\.priceSource/,
+    'page-row candidates are corroborated by the resolver');
   assert.match(body, /recentRowPrices\.get\(data\.mint\)/,
     'resolver-fed candidates are corroborated by the row feed');
   assert.match(body, /<= 1\.6/, 'vouching tolerance is 1.6x');
