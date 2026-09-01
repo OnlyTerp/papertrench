@@ -327,7 +327,16 @@ function bootRace(options = {}) {
     getAResolveRequestCount: () => aResolveRequestCount,
     releaseAResolve() {
       aResolvePending = false;
-      releaseAResolve(null);
+      releaseAResolve({
+        mint: A,
+        pairAddress: null,
+        symbol: 'A',
+        name: 'Token A',
+        priceNative: 1,
+        priceUsd: 100,
+        mcap: 100_000,
+        priceSource: 'resolver',
+      });
     },
     setHoldResolveA(value) { aResolvePending = value; },
     releaseB() {
