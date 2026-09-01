@@ -328,3 +328,32 @@ CREATE INDEX IF NOT EXISTS idx_moderation_log_recent
   ON moderation_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_moderation_log_target
   ON moderation_log(target_kind, target_id, created_at DESC);
+
+-- ── Sprint crowns ──────────────────────────────────────────────────────────
+-- Who finished #1 on the weekly Sprint board, once that week has closed.
+--
+-- The row is a RECORD OF PLACEMENT, not a claim about process. That
+-- distinction is what keeps it clear of the achievements doctrine in
+-- server/core/achievements.js ("no profit badges") — a crown does not say
+-- somebody traded well, it says the board they were already publicly ranked
+-- on had them first for that week. The hover text on the site says exactly
+-- that and nothing more.
+--
+-- week_id is the PRIMARY KEY, so the settlement is idempotent by
+-- construction: INSERT OR IGNORE claims the week, and a retried cron, a
+-- worker restart, or two concurrent ticks can never crown a week twice or
+-- overwrite a settled one. A week nobody qualified for is left UNSETTLED
+-- rather than given to the least-bad entry — honest absence, same rule the
+-- Friday Reckoning uses for a missed bell.
+CREATE TABLE IF NOT EXISTS sprint_winners (
+  week_id TEXT PRIMARY KEY,         -- ISO week the crown is for
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  score REAL NOT NULL,              -- winning score, frozen at settlement
+  rounds INTEGER NOT NULL,          -- rounds behind it, for the evidence line
+  settled_at INTEGER NOT NULL
+);
+
+-- The profile and the board both ask "what has this user won", so the lookup
+-- is by user, newest first.
+CREATE INDEX IF NOT EXISTS idx_sprint_winners_user
+  ON sprint_winners(user_id, week_id DESC);

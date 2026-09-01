@@ -501,6 +501,91 @@
     return typeof t.mint === 'string' && /pump$/.test(t.mint);
   }
 
+  var HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  // Quote/native pool assets must never become the tracked token identity.
+  var HOST_FACT_QUOTE_MINTS = new Set([
+    'So11111111111111111111111111111111111111112',
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  ]);
+
+  function hostFactsDecision(t, facts) {
+    var result = {
+      adoptMint: null,
+      poolAddress: null,
+      supplyUi: null,
+      refused: false,
+      reason: null,
+    };
+    if (!t || !t.pending) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var payload = facts && typeof facts === 'object' ? facts : {};
+    var addresses = Array.isArray(payload.addresses) ? payload.addresses : [];
+    var srcAddress = typeof t.srcAddress === 'string' ? t.srcAddress : '';
+    var factMint = typeof payload.mint === 'string' ? payload.mint : '';
+    var tiedToPage = factMint === t.mint
+      || (srcAddress && addresses.indexOf(srcAddress) !== -1);
+    if (!tiedToPage) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var tiedToPageAddress = srcAddress && addresses.indexOf(srcAddress) !== -1;
+    var validMint = HOST_FACT_ADDRESS_RE.test(factMint);
+    if (tiedToPageAddress && validMint && factMint !== srcAddress && factMint !== t.mint) {
+      if (HOST_FACT_QUOTE_MINTS.has(factMint)) {
+        result.reason = 'quote-mint';
+      } else {
+        result.adoptMint = factMint;
+        result.poolAddress = typeof payload.poolAddress === 'string'
+          ? payload.poolAddress : null;
+      }
+    }
+
+    if (t.hostSupplyRejected) return result;
+
+    var priceUsd = Number(payload.priceUsd);
+    var mcap = Number(payload.mcap);
+    var hasSupply = payload.supply !== null && payload.supply !== undefined;
+    if (!(priceUsd > 0) || !(mcap > 0)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    var implied = mcap / priceUsd;
+    if (!(implied > 0) || !Number.isFinite(implied)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    if (!hasSupply) {
+      result.supplyUi = implied;
+      return result;
+    }
+
+    var rawSupply = Number(payload.supply);
+    if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+      return result;
+    }
+    var decimals = Number(payload.decimals);
+    var readings = [rawSupply];
+    if (Number.isInteger(decimals) && decimals >= 0) {
+      readings.push(rawSupply / (10 ** decimals));
+    }
+    result.supplyUi = readings.find(function (reading) {
+      return reading > 0 && Number.isFinite(reading)
+        && Math.abs(implied - reading) / reading <= 0.01;
+    }) || null;
+    if (!(result.supplyUi > 0)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+    }
+    return result;
+  }
+
   /**
    * The supply an mcap-scale reading may honestly be divided by, or null.
    *
@@ -513,11 +598,17 @@
    * No supply from either source means mcap readings stay unpriceable, which
    * is the honest answer, not a gap.
    */
-  function bootstrapSupply(t) {
-    if (!t) return null;
+  function bootstrapSupplyInfo(t) {
+    if (!t) return { supplyUi: null, basis: null };
     var measured = Number(t.supplyUi);
-    if (measured > 0) return measured;
-    return isPumpFamily(t) ? PUMP_FAMILY_SUPPLY : null;
+    if (measured > 0) return { supplyUi: measured, basis: 'measured' };
+    if (isPumpFamily(t)) return { supplyUi: PUMP_FAMILY_SUPPLY, basis: 'pump-constant' };
+    var host = Number(t.hostSupplyUi);
+    return host > 0 ? { supplyUi: host, basis: 'host' } : { supplyUi: null, basis: null };
+  }
+
+  function bootstrapSupply(t) {
+    return bootstrapSupplyInfo(t).supplyUi;
   }
 
   /** The unit-price band an mcap reading must land in to be credible. The
@@ -549,6 +640,7 @@
         priceUsd: null,
         mcap: null,
         basis: null,
+        supplyBasis: null,
       };
     };
 
@@ -569,7 +661,7 @@
       || tick.source === 'gmgn-mcap-candle';
     if (!trusted) return reject('untrusted-source');
 
-    var accept = function (native, usd, mcap, basis) {
+    var accept = function (native, usd, mcap, basis, supplyBasis) {
       return {
         accepted: true,
         reason: 'ok',
@@ -577,6 +669,7 @@
         priceUsd: usd > 0 ? usd : null,
         mcap: mcap > 0 ? mcap : null,
         basis: basis,
+        supplyBasis: supplyBasis || null,
       };
     };
 
@@ -640,7 +733,8 @@
         // mcap, USD mcap — are judged against the same sane band, and the
         // tick is priced only when EXACTLY ONE fits (the F-25 discipline,
         // extended).
-        var supply = bootstrapSupply(pendingToken);
+        var supplyInfo = bootstrapSupplyInfo(pendingToken);
+        var supply = supplyInfo.supplyUi;
         if (rate && supply) {
           var band = mcapUnitBand(pendingToken);
           var readings = [
@@ -658,7 +752,8 @@
           });
           if (sane.length > 1) return reject('ambiguous-unit');
           if (sane.length === 1) {
-            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis);
+            return accept(sane[0].native, sane[0].usd, sane[0].mcap, sane[0].basis,
+              supplyInfo.basis);
           }
           return reject('implausible-unit');
         }
@@ -702,7 +797,8 @@
     // A market-cap-only tick (GMGN/Axiom pre-index) can price any coin whose
     // supply is KNOWN — pump's protocol constant or a supply measured off the
     // mint account — through the same exactly-one-sane discipline.
-    var mcSupply = bootstrapSupply(pendingToken);
+    var mcSupplyInfo = bootstrapSupplyInfo(pendingToken);
+    var mcSupply = mcSupplyInfo.supplyUi;
     if (tickMcap > 0 && rate && mcSupply) {
       var mcBand = mcapUnitBand(pendingToken);
       var usdMc = tickMcap / mcSupply;
@@ -710,8 +806,9 @@
       var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.max;
       var solOk = solMc >= mcBand.min && solMc <= mcBand.max;
       if (usdOk && solOk) return reject('ambiguous-unit');
-      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap');
-      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap');
+      if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap', mcSupplyInfo.basis);
+      if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap',
+        mcSupplyInfo.basis);
     }
     // A market-cap-only tick has no token price, so nothing can be filled yet.
     if (tickMcap > 0) return reject('mcap-only-no-supply');
@@ -1610,7 +1707,9 @@
     SCALE_STEP_RATIO,
     SCALE_STEP_WINDOW_MS,
     isPumpFamily,
+    hostFactsDecision,
     bootstrapSupply,
+    bootstrapSupplyInfo,
     rugVerdict,
     parsePresetList,
     positionMark,
