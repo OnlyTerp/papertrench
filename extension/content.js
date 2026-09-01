@@ -1061,8 +1061,6 @@
       onchainLive = true;
       if (Number(found.supplyUi) > 0) {
         reconcileHostSupply(found.supplyUi);
-        token.supplyUi = Number(found.supplyUi);
-        token.decimals = Number(found.decimals);
       }
       renderSiteStatus();
       refreshRugVerdict(found.mint);

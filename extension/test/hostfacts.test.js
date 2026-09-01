@@ -375,6 +375,7 @@ test('measured prewatch supply reconciles host supply and latches discrepancies'
       await settleOverlay(ov2);
       assert.equal(api2.getToken().hostSupplyUi, null);
       assert.equal(api2.getToken().hostSupplyRejected, true);
+      assert.equal(api2.getToken().supplyUi, undefined);
       assert.ok(records2.some((record) => record.details.kind === 'host-facts-supply-mismatch'));
       ov2.dispatchBridge('facts', {
         mint: MINT, addresses: [PAIR, MINT], priceUsd: 2, mcap: 200,
