@@ -6954,6 +6954,9 @@
           releaseRowBuyLatch(rowBuyToken);
         }
         if (result) {
+          // D-42: the SW mirror dies with the intent it belongs to — a filled
+          // snipe must never be adopted by the chart page and filled twice,
+          // and a newer intent must keep both its slot and its mirror.
           if (rowArmed === armed) {
             rowArmed = null;
             sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
