@@ -22,24 +22,33 @@ const vm = require('node:vm');
 const ROOT = path.join(__dirname, '..');
 
 function loadPopupPage({
-  release, checkedAt, seenVersion, lastBackup, state, settings, frames, replays,
+  release, checkedAt, seenVersion, lastBackup, state, settings, frames, replays, chainMeta,
   backupFingerprintState, backupFingerprintData, manifestVersion, attest,
   storageGetThrows = false, storageStateGetThrows = false, storageLastBackupGetThrows = false,
+  storageMetaGetThrows = false,
 }) {
   const html = fs.readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
   const stored = new Map();
   if (checkedAt !== undefined) stored.set('pt_update_check', { checkedAt });
   if (seenVersion !== undefined) stored.set('pt_update_seen', { version: seenVersion, at: Date.now() });
-  if (lastBackup !== undefined) stored.set('pt_last_backup', lastBackup);
+  if (lastBackup !== undefined) {
+    stored.set('pt_last_backup', {
+      chainLength: 0,
+      chainHead: 'papertrench-genesis-v1',
+      ...lastBackup,
+    });
+  }
   if (state !== undefined) stored.set('pt_state', state);
   if (settings !== undefined) stored.set('pt_settings', settings);
   if (frames !== undefined) stored.set('pt_frames', frames);
   if (replays !== undefined) stored.set('pt_replays', replays);
+  if (chainMeta !== undefined) stored.set('pt_attest_meta', chainMeta);
 
   const storageGet = async (keys) => {
     if (storageGetThrows) throw new Error('storage unavailable');
     if (storageStateGetThrows && keys.includes('pt_state')) throw new Error('state unavailable');
     if (storageLastBackupGetThrows && keys.includes('pt_last_backup')) throw new Error('backup unavailable');
+    if (storageMetaGetThrows && keys.includes('pt_attest_meta')) throw new Error('meta unavailable');
     const out = {};
     for (const k of keys) if (stored.has(k)) out[k] = stored.get(k);
     return out;
@@ -136,14 +145,32 @@ function loadPopupPage({
     _opens: opens,
     _tabs: tabs,
   };
-  if (attest) sandbox.PTAttest = attest;
+  const defaultAttest = {
+    readChainMeta: async () => {
+      if (storageMetaGetThrows) throw new Error('meta unavailable');
+      return stored.get('pt_attest_meta') || {
+      segCount: 0, length: 0, head: 'papertrench-genesis-v1',
+      };
+    },
+    readChainStore: async () => {
+      if (storageMetaGetThrows) throw new Error('meta unavailable');
+      return {
+        meta: stored.get('pt_attest_meta') || {
+        segCount: 0, length: 0, head: 'papertrench-genesis-v1',
+        },
+        chain: [],
+      };
+    },
+  };
+  const effectiveAttest = attest === undefined ? defaultAttest : attest;
+  if (effectiveAttest) sandbox.PTAttest = effectiveAttest;
   sandbox.window = sandbox;
   const ctx = vm.createContext(sandbox);
   const src = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   vm.runInContext(src, ctx, { filename: 'popup.js' });
   if (lastBackup && lastBackup.fingerprint === '__from_state__') {
     stored.set('pt_last_backup', {
-      ...lastBackup,
+      ...stored.get('pt_last_backup'),
       fingerprint: typeof ctx.backupFingerprint === 'function'
         ? ctx.backupFingerprint(backupFingerprintData || {
           pt_state: backupFingerprintState || state,
@@ -667,7 +694,7 @@ test('popup update nudge: storage read failure still shows the warning and arms 
   await settle();
   assert.equal(sandbox._els['update-banner'].hidden, false);
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.');
+    'Backup status could not be read, so coverage cannot be confirmed. Back up again to be safe.');
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
   assert.equal(event.prevented, true);
@@ -685,7 +712,7 @@ test('popup update nudge: pt_last_backup read failure is unconfirmable', async (
   await settle();
   assert.equal(sandbox._els['update-banner'].hidden, false);
   assert.equal(sandbox._els['update-backup-state'].textContent,
-    'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.');
+    'Backup status could not be read, so coverage cannot be confirmed. Back up again to be safe.');
   const event = { prevented: false, preventDefault() { this.prevented = true; } };
   await click('update-link', event);
   assert.equal(event.prevented, true);
@@ -826,4 +853,101 @@ test('switching panes uses the hidden attribute the CSS guard backs', () => {
   assert.match(popupJsTabs, /pane\.hidden = !on/, 'panes toggle via the attribute');
   assert.match(popupHtmlTabs, /\[hidden\] \{ display: none !important; \}/,
     'and the guard that makes it take effect must still be here');
+});
+
+test('popup backup fingerprint: emoji-only thesis edits change the fingerprint', async () => {
+  const { ctx } = loadPopupPage({ release: { tag_name: 'v9.9.9' }, manifestVersion: '3.6.1' });
+  await settle();
+  const withOne = { pt_state: { startedAt: 1, positions: { M: { thesis: 'runner \u{1F680}' } } } };
+  // Same high surrogate, different low one: the hash must read both units.
+  const withOther = { pt_state: { startedAt: 1, positions: { M: { thesis: 'runner \u{1F681}' } } } };
+  assert.notEqual(ctx.backupFingerprint(withOne), ctx.backupFingerprint(withOther));
+});
+
+test('popup update nudge: a missing attestation helper is never a complete backup', async () => {
+  const state = { startedAt: 1234, journal: [] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    state,
+    attest: null,
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  const record = sandbox._stored.get('pt_last_backup');
+  assert.equal(record.chainMissing, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /exported without the verification chain/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /verification chain.*click again to update anyway/);
+});
+
+test('popup update nudge: a chain append after export is uncovered', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [{}] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    lastBackup: { at, startedAt: 1234, trades: 1, fingerprint: '__from_state__' },
+    backupFingerprintData: { pt_state: state },
+    state,
+    chainMeta: { segCount: 1, length: 1, head: 'link-hash-1' },
+  });
+  await settle();
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(at).toISOString().slice(0, 10)} — new verified fills since. Back up again.`);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._tabs.length, 0);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /new verified fills since.*click again to update anyway/);
+});
+
+test('popup update nudge: an empty chain install stays coverable', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: { pt_state: state },
+    state,
+    chainMeta: { segCount: 0, length: 0, head: 'papertrench-genesis-v1' },
+  });
+  await settle();
+  assert.match(sandbox._els['update-backup-state'].textContent, /· exported — check the file/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._tabs.length, 1);
+});
+
+test('popup update nudge: a failing chain meta read is unconfirmable', async () => {
+  const at = Date.now() - 2 * 24 * 60 * 60 * 1000;
+  const state = { startedAt: 1234, journal: [] };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    lastBackup: { at, startedAt: 1234, trades: 0, fingerprint: '__from_state__' },
+    backupFingerprintData: { pt_state: state },
+    state,
+    storageMetaGetThrows: true,
+  });
+  await settle();
+  assert.equal(sandbox._els['update-banner'].hidden, false);
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.');
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._tabs.length, 0);
 });

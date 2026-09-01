@@ -162,8 +162,9 @@ function backupFingerprint(data) {
     pt_replays: data.pt_replays,
   };
   let hash = 0x811c9dc5;
-  for (const char of canonicalBackupValue(copy)) {
-    hash ^= char.charCodeAt(0);
+  const canonical = canonicalBackupValue(copy);
+  for (let i = 0; i < canonical.length; i++) {
+    hash ^= canonical.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
@@ -213,25 +214,46 @@ const UPDATER = (() => {
       values[key] = result.value;
       if (!result.ok) readable = false;
     }
+    let chainMeta = null;
+    let chainMetaReadable = true;
+    if (AT) {
+      try {
+        chainMeta = await AT.readChainMeta(chainGet);
+      } catch (_) {
+        chainMetaReadable = false;
+      }
+    }
     return {
       marker: marker.ok ? marker.value || null : null,
       markerReadable: marker.ok,
       values,
       readable,
+      chainMeta,
+      chainMetaReadable,
     };
   }
 
-  function backupText(record, snapshot, readable = true, markerReadable = true) {
+  function backupText(
+    record, snapshot, readable = true, markerReadable = true,
+    chainMetaReadable = true, chainMeta = null,
+  ) {
     const at = record && Number(record.at);
     if (!markerReadable) {
-      return 'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.';
+      return 'Backup status could not be read, so coverage cannot be confirmed. Back up again to be safe.';
     }
     if (!record) {
       return 'No backup yet — updating into a new folder looks like a fresh install.';
     }
     const state = snapshot && snapshot.pt_state;
-    if (!readable || !state) {
+    if (!markerReadable || !readable || !state || (!record.chainMissing && !chainMetaReadable)) {
       return 'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.';
+    }
+    if (record.chainMissing) {
+      if (!Number.isFinite(at)) {
+        return 'Backup exists, but its date could not be read. Back up again to be safe.';
+      }
+      const date = new Date(at).toISOString().slice(0, 10);
+      return `Last backup: ${date} — exported without the verification chain. Back up again.`;
     }
     if (!Number.isFinite(at)) {
       return 'Backup exists, but its date could not be read. Back up again to be safe.';
@@ -241,8 +263,15 @@ const UPDATER = (() => {
       return `Last backup: ${date} — different wallet since. Back up again.`;
     }
     const trades = Array.isArray(state.journal) ? state.journal.length : 0;
-    if (record.chainMissing) {
-      return `Last backup: ${date} — exported without the verification chain. Back up again.`;
+    // The wallet write and the chain append are separate commits, so an
+    // export landing between them bundles a fill whose link is missing. The
+    // chain's own meta says so; records written before this field existed
+    // carry no length and fall through to the fingerprint as before.
+    if (chainMeta && Number.isInteger(Number(record.chainLength))
+      && typeof record.chainHead === 'string'
+      && (Number(record.chainLength) !== chainMeta.length
+        || record.chainHead !== chainMeta.head)) {
+      return `Last backup: ${date} — new verified fills since. Back up again.`;
     }
     if (record.fingerprint && record.fingerprint === backupFingerprint(snapshot)) {
       return `Last backup: ${date} · exported — check the file is in your downloads`;
@@ -301,6 +330,8 @@ const UPDATER = (() => {
     let lastBackup = initialBackup.marker;
     let liveSnapshot = initialBackup.values;
     let backupReadable = initialBackup.readable;
+    let liveChainMeta = initialBackup.chainMeta;
+    let chainMetaReadable = initialBackup.chainMetaReadable;
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
     version.textContent = 'v' + info.latest + ' is out';
@@ -310,21 +341,31 @@ const UPDATER = (() => {
     link.rel = 'noopener noreferrer';
     backupState.textContent = backupText(
       lastBackup, liveSnapshot, backupReadable, initialBackup.markerReadable,
+      chainMetaReadable, liveChainMeta,
     );
     const refreshBackupState = async () => {
       const current = await readBackupSnapshot();
       lastBackup = current.marker;
       liveSnapshot = current.values;
       backupReadable = current.readable;
+      liveChainMeta = current.chainMeta;
+      chainMetaReadable = current.chainMetaReadable;
       backupState.textContent = backupText(
         lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+        chainMetaReadable, liveChainMeta,
       );
       return current;
     };
     const hasBackup = () => {
       const at = lastBackup && Number(lastBackup.at);
+      const chainCurrent = !liveChainMeta
+        || !Number.isInteger(Number(lastBackup && lastBackup.chainLength))
+        || typeof (lastBackup && lastBackup.chainHead) !== 'string'
+        || (Number(lastBackup.chainLength) === liveChainMeta.length
+          && lastBackup.chainHead === liveChainMeta.head);
       return Number.isFinite(at) && backupReadable && lastBackup.fingerprint
-        && !lastBackup.chainMissing && lastBackup.fingerprint === backupFingerprint(liveSnapshot);
+        && !lastBackup.chainMissing && chainMetaReadable && chainCurrent
+        && lastBackup.fingerprint === backupFingerprint(liveSnapshot);
     };
     const openUpdate = async () => {
       try {
@@ -352,6 +393,7 @@ const UPDATER = (() => {
         downloadArmedUntil = Date.now() + 10 * 1000;
         backupState.textContent = `${backupText(
           lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+          current.chainMetaReadable, current.chainMeta,
         )} — click again to update anyway`;
       })().finally(() => { downloadCheck = null; });
       return downloadCheck;
@@ -885,10 +927,14 @@ async function backupWallet() {
   // re-segment it on any future segment size — and so the verifiable record
   // survives a reinstall exactly like the wallet does. A pre-migration
   // install still carries the chain inside pt_state; bundle that instead.
-  let chainMissing = false;
+  let chainMissing = !AT;
+  let chainLength = null;
+  let chainHead = null;
   if (AT) {
     try {
-      const { chain } = await AT.readChainStore(chainGet);
+      const { meta, chain } = await AT.readChainStore(chainGet);
+      chainLength = meta.length;
+      chainHead = meta.head;
       if (chain.length) stored.pt_attest_chain = chain;
       else if (stored.pt_state && Array.isArray(stored.pt_state.attestChain) && stored.pt_state.attestChain.length) {
         stored.pt_attest_chain = stored.pt_state.attestChain;
@@ -930,6 +976,8 @@ async function backupWallet() {
         trades: state && Array.isArray(state.journal) ? state.journal.length : 0,
         fingerprint,
         chainMissing,
+        chainLength,
+        chainHead,
       },
     });
   } catch (_) {}
