@@ -3245,6 +3245,7 @@
 
   let rowChipLayer = null;
   const rowChips = new Map(); // row element -> { el, address, place }
+  let lastRowSpec = null;
 
   function ensureRowChipLayer() {
     if (rowChipLayer && rowChipLayer.isConnected) return rowChipLayer;
@@ -3255,6 +3256,84 @@
       (document.body || document.documentElement).appendChild(rowChipLayer);
     }
     return rowChipLayer;
+  }
+
+  /*
+   * F-64: a virtualized screener can recycle a row between the periodic chip
+   * sweep and the user's press/click. harisx1's 8/30 report described the
+   * resulting wrong-coin buy while the feed kept scrolling. Bind the row's
+   * identity on pointerdown and verify it again at click instead of silently
+   * buying a recycled row's old address.
+   */
+  function currentRowAddress(entry) {
+    const row = entry && entry.row;
+    if (!row || !row.isConnected) return null;
+    const selectors = lastRowSpec && Array.isArray(lastRowSpec.linkSelectors)
+      ? lastRowSpec.linkSelectors
+      : [];
+    const nodes = [];
+    for (const selector of selectors) {
+      try {
+        if (row.matches && row.matches(selector)) nodes.push(row);
+      } catch (_) {}
+      try {
+        const link = row.querySelector(selector);
+        if (link) nodes.push(link);
+      } catch (_) {}
+    }
+    for (const node of nodes) {
+      let href = '';
+      try {
+        href = (typeof node.getAttribute === 'function' ? node.getAttribute('href') : '')
+          || node.href || '';
+      } catch (_) {
+        try { href = node.href || ''; } catch (_) {}
+      }
+      const match = String(href).match(ROW_ADDR_RE);
+      if (match) return match[0];
+    }
+    return addressFromRowFiber(row);
+  }
+
+  // Pure. `entry` reads {address, verifiedAt, pressedAddress, pressedAt};
+  // nowAddress is currentRowAddress(entry) at click time.
+  function rowChipTapDecision(entry, nowAddress, nowMs) {
+    if (!entry.pressedAt || nowMs - entry.pressedAt > 5000) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'stale-press',
+        },
+      };
+    }
+    if (nowAddress
+      && nowAddress === entry.pressedAddress) {
+      return { address: nowAddress };
+    }
+    if (nowAddress) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'row-changed',
+        },
+      };
+    }
+    if (entry.pressedAddress === entry.address
+      && nowMs - entry.verifiedAt <= 1500) {
+      return { address: entry.address };
+    }
+    return {
+      refuse: {
+        was: entry.pressedAddress || null,
+        now: null,
+        swept: entry.address || null,
+        reason: 'unverifiable',
+      },
+    };
   }
 
   /* Chip taps are handled at the WINDOW capture phase: these sites install
@@ -3275,7 +3354,25 @@
     // stuck in busy forever (DEFECT F-08). stopPropagation still keeps the
     // row underneath from navigating; the later press events stay swallowed
     // entirely.
+    if (ev.type === 'keydown') {
+      if (ev.repeat || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
+      return;
+    }
     if (ev.type === 'pointerdown') {
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
       ev.preventDefault();
       ev.stopPropagation();
       return;
@@ -3286,13 +3383,20 @@
     if (ev.type !== 'click') return;
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
-        chip.classList.add('busy');
-        emit('row-buy', { address: entry.address });
+        const decision = rowChipTapDecision(entry, currentRowAddress(entry), Date.now());
+        entry.pressedAt = 0;
+        entry.pressedAddress = null;
+        if (decision.address) {
+          chip.classList.add('busy');
+          emit('row-buy', { address: decision.address });
+        } else {
+          emit('row-buy-refused', decision.refuse);
+        }
         break;
       }
     }
   }
-  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown']) {
     window.addEventListener(type, handleRowChipTap, true);
   }
 
@@ -3672,6 +3776,10 @@
   }
 
   function scanScreenerRows(spec) {
+    lastRowSpec = {
+      linkSelectors: spec && Array.isArray(spec.linkSelectors) ? spec.linkSelectors.slice() : [],
+      containerMode: spec && spec.containerMode,
+    };
     const amount = numberValue(spec && spec.amount) || 0.1;
     const size = Math.max(0.6, Math.min(1.5, numberValue(spec && spec.size) || 1));
     // jb (#bug-reports): on Axiom's "ultra" compact terminal format the
