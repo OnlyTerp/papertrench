@@ -931,29 +931,41 @@ async function backupWallet() {
   let chainLength = null;
   let chainHead = null;
   if (AT) {
-    try {
-      const { meta, chain } = await AT.readChainStore(chainGet);
-      if (chain.length !== meta.length
-        || (chain.length && chain[chain.length - 1].hash !== meta.head)) {
-        throw new Error('Attestation chain is incomplete');
-      }
-      chainLength = meta.length;
-      chainHead = meta.head;
-      if (chain.length) stored.pt_attest_chain = chain;
-      else if (stored.pt_state && Array.isArray(stored.pt_state.attestChain) && stored.pt_state.attestChain.length) {
-        stored.pt_attest_chain = stored.pt_state.attestChain;
-      }
-      // Downgrade safety: ALSO embed the chain inside the backup's pt_state
-      // copy, exactly where a pre-segmentation extension expects it. An old
-      // restore then keeps the record intact instead of silently dropping it
-      // (and flagging a verification mismatch after the next fill); the new
-      // restore strips this copy and re-segments pt_attest_chain. The file
-      // carries the chain twice, but a backup that can lose the verifiable
-      // record on the way back in is not a backup.
-      if (stored.pt_attest_chain && stored.pt_state) {
-        stored.pt_state = { ...stored.pt_state, attestChain: stored.pt_attest_chain };
-      }
-    } catch (_) { chainMissing = true; }
+    // readChainStore reads the meta and the segments in two gets, while an
+    // append writes tail and meta in a single set. A fill landing between the
+    // two reads therefore shows an old meta beside a chain that already holds
+    // the new link — complete, but not self-consistent. Judge completeness
+    // only on a snapshot the meta held still across, and retry otherwise.
+    chainMissing = true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const { meta, chain } = await AT.readChainStore(chainGet);
+        const after = await AT.readChainMeta(chainGet);
+        if (after.length !== meta.length || after.head !== meta.head) continue;
+        if (chain.length !== meta.length
+          || (chain.length && chain[chain.length - 1].hash !== meta.head)) {
+          throw new Error('Attestation chain is incomplete');
+        }
+        chainLength = meta.length;
+        chainHead = meta.head;
+        if (chain.length) stored.pt_attest_chain = chain;
+        else if (stored.pt_state && Array.isArray(stored.pt_state.attestChain) && stored.pt_state.attestChain.length) {
+          stored.pt_attest_chain = stored.pt_state.attestChain;
+        }
+        // Downgrade safety: ALSO embed the chain inside the backup's pt_state
+        // copy, exactly where a pre-segmentation extension expects it. An old
+        // restore then keeps the record intact instead of silently dropping it
+        // (and flagging a verification mismatch after the next fill); the new
+        // restore strips this copy and re-segments pt_attest_chain. The file
+        // carries the chain twice, but a backup that can lose the verifiable
+        // record on the way back in is not a backup.
+        if (stored.pt_attest_chain && stored.pt_state) {
+          stored.pt_state = { ...stored.pt_state, attestChain: stored.pt_attest_chain };
+        }
+        chainMissing = false;
+        break;
+      } catch (_) { chainMissing = true; break; }
+    }
   }
   const backup = {
     app: 'papertrench-backup',

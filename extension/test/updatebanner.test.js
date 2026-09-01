@@ -983,6 +983,78 @@ test('popup update nudge: an incomplete attestation chain is never covered', asy
   assert.equal(sandbox._tabs.length, 0);
 });
 
+test('popup update nudge: an append racing the chain read still exports the chain', async () => {
+  const state = { startedAt: 1234, journal: [{}] };
+  const chain = [{ hash: 'h1' }, { hash: 'h2' }];
+  let storeReads = 0;
+  const attest = {
+    // First read catches the pre-append meta beside the appended link.
+    readChainStore: async () => {
+      storeReads += 1;
+      return storeReads === 1
+        ? { meta: { segCount: 1, length: 1, head: 'h1' }, chain }
+        : { meta: { segCount: 1, length: 2, head: 'h2' }, chain };
+    },
+    readChainMeta: async () => ({ segCount: 1, length: 2, head: 'h2' }),
+  };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    state,
+    attest,
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  const record = sandbox._stored.get('pt_last_backup');
+  assert.equal(storeReads, 2);
+  assert.equal(record.chainMissing, false);
+  assert.equal(record.chainLength, 2);
+  assert.equal(record.chainHead, 'h2');
+  assert.equal(sandbox._els['update-backup-state'].textContent,
+    `Last backup: ${new Date(record.at).toISOString().slice(0, 10)} \u00b7 exported \u2014 check the file is in your downloads`);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(sandbox._tabs.length, 1);
+});
+
+test('popup update nudge: a chain that never settles is exported without it', async () => {
+  const state = { startedAt: 1234, journal: [{}] };
+  const chain = [{ hash: 'h1' }];
+  let storeReads = 0;
+  let length = 1;
+  const attest = {
+    readChainStore: async () => {
+      storeReads += 1;
+      return { meta: { segCount: 1, length: 1, head: 'h1' }, chain };
+    },
+    readChainMeta: async () => {
+      length += 1;
+      return { segCount: 1, length, head: `h${length}` };
+    },
+  };
+  const { sandbox, click } = loadPopupPage({
+    release: { tag_name: 'v9.9.9' },
+    manifestVersion: '3.6.1',
+    state,
+    attest,
+  });
+  await settle();
+  await click('update-backup');
+  await settle();
+  const record = sandbox._stored.get('pt_last_backup');
+  assert.equal(storeReads, 3);
+  assert.equal(record.chainMissing, true);
+  assert.match(sandbox._els['update-backup-state'].textContent,
+    /exported without the verification chain/);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  await click('update-link', event);
+  await settle();
+  assert.equal(event.prevented, true);
+  assert.equal(sandbox._tabs.length, 0);
+});
+
 test('popup update nudge: backup content is read in one storage snapshot', async () => {
   const { sandbox } = loadPopupPage({
     release: { tag_name: 'v9.9.9' },
