@@ -361,7 +361,7 @@
     socket = new WebSocket(candidate.url);
     socket.onopen = () => {
       reconnectAttempt = 0;
-      POOL.reportSuccess(candidate.id, null);
+      POOL.reportSuccess(candidate.id, null, { transport: 'ws' });
       for (const mint of watched.keys()) subscribe(mint);
     };
     socket.onmessage = (event) => handleMessageSafe(event.data);
@@ -1004,6 +1004,45 @@
     }
   }
 
+  /**
+   * Resolve an address to its mint without opening a live subscription.
+   * Healing needs identity proof only; using prewatch here would leave a
+   * background watch behind for a coin no tab is charting.
+   */
+  async function identify({ pool, mint }) {
+    let address = null;
+    try {
+      address = pool || mint;
+      if (!address) return null;
+      const [account] = await getAccounts([address]);
+      if (!account) return null;
+
+      const kind = O.poolKindForOwner(account.owner);
+      if (kind === 'pump-curve') {
+        const found = await curveMint(address);
+        return found && found.mint ? { mint: found.mint, pool: address } : null;
+      }
+      const bytes = O.bytesFromBase64(account.data[0]);
+      if (kind === 'whirlpool' || kind === 'clmm') {
+        const poolInfo = O.decodeWhirlpool(bytes);
+        const found = whirlpoolTokenMint(poolInfo);
+        return found ? { mint: found, pool: address } : null;
+      }
+      if (kind) {
+        const found = await discoverPoolMint(bytes);
+        return found ? { mint: found, pool: address } : null;
+      }
+      const facts = mintFactsFromAccount(account, address);
+      if (facts) return { ...facts, mint: address };
+      const found = await discoverPoolMint(bytes);
+      return found ? { mint: found, pool: address } : null;
+    } catch (error) {
+      try { console.debug('PaperTrench: identify failed:', error && error.message); } catch (_) {}
+      noteFeedError(error, { fn: 'identify', pool: address || null });
+      return null;
+    }
+  }
+
   /** The known pool/curve reserve token accounts for a watched mint — the
    * holders that are LIQUIDITY, not people (used by the rug guard). */
   function reserveAccounts(mint) {
@@ -1078,7 +1117,7 @@
 
   const api = {
     configure, watch, unwatch, currentQuote, isLive, onQuote, activeEndpoint,
-    prewatch, reserveAccounts,
+    prewatch, identify, reserveAccounts,
     _getAccountsForTest: getAccounts,
     _getAccountsWithSlotForTest: getAccountsWithSlot,
     QUOTE_STALE_MS, COMMITMENT,
