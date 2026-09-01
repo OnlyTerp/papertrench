@@ -266,6 +266,7 @@
     // in `top` (frames with no identifier at all), which downstream
     // anchor-banding still validates before use.
     const records = new Map();
+    const factSnapshots = [];
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
@@ -299,6 +300,7 @@
         && (looksLikeTradeEvent(node) || looksLikePositionRecord(node))) tainted = true;
 
       let target = ctx;
+      let nodeSnapshot = null;
       if (!Array.isArray(node)) {
         let bestRank = 0;
         let bestMint = null;
@@ -311,9 +313,23 @@
           target = recordFor(bestMint);
           const addresses = new Set(target.addresses);
           for (const value of Object.values(node)) {
-            if (typeof value === 'string' && BASE58_RE.test(value)) addresses.add(value);
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              addresses.add(value);
+            }
           }
           target.addresses = Array.from(addresses);
+        }
+        if (!Array.isArray(node) && target) {
+          nodeSnapshot = {
+            candidates: [], mcap: null, mint: target.mint, symbol: null, name: null,
+            supply: null, decimals: null, poolAddress: null, addresses: [],
+          };
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              nodeSnapshot.addresses.push(value);
+            }
+          }
+          factSnapshots.push(nodeSnapshot);
         }
       }
 
@@ -337,29 +353,43 @@
           if (n > 0) {
             const unit = USD_HINT.test(key) ? 'usd' : NATIVE_HINT.test(key) ? 'native' : 'unknown';
             pushCandidate(rec, { value: n, unit, key });
+            if (nodeSnapshot) nodeSnapshot.candidates.push({ value: n, unit, key });
           }
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
+          if (n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
+            nodeSnapshot.mcap = n;
+          }
         } else if (SUPPLY_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.supply === null) rec.supply = n;
+          if (n > 0 && nodeSnapshot && nodeSnapshot.supply === null) {
+            nodeSnapshot.supply = n;
+          }
         } else if (DECIMALS_KEY.test(key)) {
           const n = numberValue(value);
           if (Number.isInteger(n) && n >= 0 && n <= 18 && rec.decimals === null) {
             rec.decimals = n;
           }
+          if (Number.isInteger(n) && n >= 0 && n <= 18
+            && nodeSnapshot && nodeSnapshot.decimals === null) {
+            nodeSnapshot.decimals = n;
+          }
         } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
           if (!rec.poolAddress) rec.poolAddress = value;
+          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = value;
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
+          if (nodeSnapshot && !nodeSnapshot.symbol) nodeSnapshot.symbol = value;
         } else if (NAME_KEY.test(key) && typeof value === 'string' && value.length <= 64) {
           rec.name = rec.name || value;
+          if (nodeSnapshot && !nodeSnapshot.name) nodeSnapshot.name = value;
         }
       }
     })(obj, 0, null, false);
 
-    return { records, top };
+    return { records, top, factSnapshots };
   }
 
   // GMGN's realtime WebSocket publishes every venue trade on the
@@ -493,21 +523,25 @@
       }
     }
 
-    const { records, top } = collect(parsed);
+    const { records, top, factSnapshots } = collect(parsed);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
     const emitFacts = () => {
       if (!factsWanted) return;
       let emitted = 0;
-      const watched = (currentSymbolInfo.mint && records.get(currentSymbolInfo.mint))
-        || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
-        || [...records.values()].find((candidate) => currentSymbolInfo.pairAddress
-          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1);
-      const emitRecord = (rec) => {
+      const canEmit = (rec) => {
         if (!rec) return false;
         const hasDifferentAddress = rec.mint
           && rec.addresses.some((address) => address !== rec.mint);
-        if (!hasDifferentAddress && rec.supply === null
-          && rec.decimals === null && !rec.poolAddress) return false;
+        return hasDifferentAddress || rec.supply !== null
+          || rec.decimals !== null || rec.poolAddress;
+      };
+      const watched = factSnapshots.find((candidate) => canEmit(candidate)
+        && ((currentSymbolInfo.mint && candidate.mint === currentSymbolInfo.mint)
+        || (currentSymbolInfo.pairAddress && candidate.mint === currentSymbolInfo.pairAddress)
+        || (currentSymbolInfo.pairAddress
+          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1)));
+      const emitRecord = (rec) => {
+        if (!canEmit(rec)) return false;
         const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
         emit('facts', {
           mint: rec.mint,
@@ -526,11 +560,12 @@
         return true;
       };
       if (watched) emitRecord(watched);
-      for (const rec of records.values()) {
+      for (const rec of factSnapshots) {
         if (emitted >= 3) break;
         if (rec !== watched) emitRecord(rec);
       }
     };
+    emitFacts();
     let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
@@ -560,7 +595,6 @@
     if (!emittedTick && (top.candidates.length || top.mcap !== null)) {
       emit('tick', { ...top, source });
     }
-    emitFacts();
   }
 
   /* ---------------- SPA navigation signal ----------------

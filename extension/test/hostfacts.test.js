@@ -37,6 +37,9 @@ function loadContentHarness() {
         ' getState: () => state,',
         ' setArmed: (value) => { armedBuy = value; },',
         ' getArmed: () => armedBuy,',
+        ' pageTick: (payload) => handlePageTick(payload),',
+        ' doBuy: (amount, quotedUsd) => doBuy(amount, quotedUsd),',
+        ' reconcile: (measured) => reconcileHostSupply(measured),',
         ' prewatch: (candidate) => prewatchPending(candidate),',
         ' resetPrewatch: () => { prewatchedAddress = null; prewatchAttempts = 0; prewatchLastTryAt = 0; prewatchBackoffFor = null; }',
         ' };',
@@ -168,7 +171,9 @@ test('facts extraction keeps descendant addresses off the parent record', async 
   await env.fetch();
   const facts = env.emitted.find((message) => message.type === 'facts');
   assert.ok(facts);
-  assert.deepEqual(facts.payload.addresses, [MINT]);
+  assert.equal(facts.payload.addresses.length, 1);
+  assert.equal(facts.payload.addresses[0], PAIR);
+  assert.equal(facts.payload.mint, MINT);
   assert.equal(facts.payload.poolAddress, PAIR);
 });
 
@@ -214,6 +219,56 @@ test('watched facts are emitted before unrelated records consume the cap', async
   assert.equal(facts[0].payload.mint, MINT);
 });
 
+test('facts arrive before a same-response tick so a one-shot page can bootstrap', async () => {
+  const env = runBridge({
+    pair: {
+      baseMint: MINT, pairAddress: PAIR, priceNative: 0.00001,
+      priceUsd: 0.002, marketCap: 0.2, supply: 100, decimals: 0,
+    },
+  });
+  env.sendContent('paper-axis', { mint: PAIR, pairAddress: PAIR });
+  await env.fetch();
+  const messages = env.emitted.filter((message) => message.type === 'facts'
+    || message.type === 'tick');
+  const factsIndex = messages.findIndex((message) => message.type === 'facts');
+  const tickIndex = messages.findIndex((message) => message.type === 'tick');
+  assert.ok(factsIndex >= 0 && factsIndex < tickIndex);
+
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    for (const message of messages) ov.dispatchBridge(message.type, message.payload);
+    assert.equal(ov.win.__hostFactsTest.getToken().mint, MINT);
+    assert.ok(ov.win.__hostFactsTest.getToken().priceNative > 0);
+  } finally {
+    loader.restore();
+  }
+});
+
+test('host facts do not merge arithmetic evidence across same-mint sibling nodes', async () => {
+  const env = runBridge({
+    quote: { mint: MINT, pairAddress: PAIR, priceUsd: 2 },
+    stats: { mint: MINT, pairAddress: PAIR, mcap: 200, supply: 100, decimals: 0 },
+  });
+  env.sendContent('paper-axis', { mint: PAIR, pairAddress: PAIR });
+  await env.fetch();
+  const facts = env.emitted.filter((message) => message.type === 'facts');
+  assert.equal(facts.length, 2);
+  assert.ok(facts.every((message) => !(message.payload.priceUsd > 0
+    && message.payload.mcap > 0 && message.payload.supply > 0)));
+
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    for (const message of facts) ov.dispatchBridge('facts', message.payload);
+    assert.equal(ov.win.__hostFactsTest.getToken().hostSupplyUi, undefined);
+  } finally {
+    loader.restore();
+  }
+});
+
 test('pending content adopts a pair-tied mint and rewrites an armed buy', async () => {
   const loader = loadContentHarness();
   try {
@@ -250,6 +305,49 @@ test('pending content adopts a pair-tied mint and rewrites an armed buy', async 
   } finally {
     loader.restore();
   }
+});
+
+test('host-facts decisions are pure and preserve the R1/R2 rules', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const token = { mint: PAIR, srcAddress: PAIR, pending: true };
+  const tied = {
+    mint: MINT, addresses: [PAIR, MINT], poolAddress: PAIR,
+    priceUsd: 2, mcap: 200, supply: 1000000, decimals: 4,
+  };
+  assert.deepEqual(Q.hostFactsDecision(token, tied), {
+    adoptMint: MINT, poolAddress: PAIR, supplyUi: 100,
+    refused: false, reason: null,
+  });
+  assert.deepEqual(Q.hostFactsDecision(token, {
+    mint: MINT, addresses: [OTHER], priceUsd: 2, mcap: 200, supply: 1000000,
+  }), {
+    adoptMint: null, poolAddress: null, supplyUi: null,
+    refused: false, reason: 'not-our-record',
+  });
+  assert.deepEqual(Q.hostFactsDecision(token, {
+    mint: 'So11111111111111111111111111111111111111112',
+    addresses: [PAIR], poolAddress: PAIR,
+  }), {
+    adoptMint: null, poolAddress: null, supplyUi: null,
+    refused: false, reason: 'quote-mint',
+  });
+  assert.deepEqual(Q.hostFactsDecision(token, {
+    mint: MINT, addresses: [PAIR], priceUsd: 2, mcap: 200,
+  }), {
+    adoptMint: MINT, poolAddress: null, supplyUi: 100,
+    refused: false, reason: null,
+  });
+  assert.deepEqual(Q.hostFactsDecision(token, {
+    mint: MINT, addresses: [PAIR], priceUsd: 2, mcap: 200,
+    supply: 1000000, decimals: 2,
+  }), {
+    adoptMint: MINT, poolAddress: null, supplyUi: null,
+    refused: true, reason: 'no-reading-agreed',
+  });
+  assert.equal(Q.hostFactsDecision(
+    { mint: PAIR, srcAddress: PAIR, pending: false }, tied
+  ).reason, 'not-our-record');
 });
 
 test('pending content ignores screener facts not tied to the page address', async () => {
@@ -358,6 +456,103 @@ test('pending content refuses mismatched host supply and unknown-unit prices', a
       supply: 1000000, decimals: 4,
     });
     assert.equal(api.getToken().hostSupplyUi, undefined);
+  } finally {
+    loader.restore();
+  }
+});
+
+test('refusal diagnostics dedupe by evidence and cap at eight per token', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const records = [];
+    ov.win.PTErrors = { record: (message, details) => records.push({ message, details }) };
+    for (let i = 0; i < 10; i++) {
+      ov.dispatchBridge('facts', {
+        mint: MINT, addresses: [PAIR, MINT], source: 'source-' + i,
+        priceUsd: 2 + i, mcap: 200, supply: 1000000, decimals: 2,
+      });
+    }
+    ov.dispatchBridge('facts', {
+      mint: MINT, addresses: [PAIR, MINT], source: 'source-0',
+      priceUsd: 2, mcap: 200, supply: 1000000, decimals: 2,
+    });
+    assert.equal(records.length, 8);
+  } finally {
+    loader.restore();
+  }
+});
+
+test('accepted bootstrap basis resets stale host provenance', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    api.getToken().mint = MINT;
+    api.getToken().hostSupplyUi = 100;
+    api.getToken().hostSupplyWitness = { source: 'axiom', url: 'page' };
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.00001, priceUsd: 0.002,
+      mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    assert.equal(api.getToken().hostSupplySource, 'site-facts');
+    assert.ok(api.getToken().hostSupplyFillWitness);
+
+    api.getToken().anchor = null;
+    api.getToken().priceNative = null;
+    api.getToken().priceUsd = null;
+    api.getToken().mcap = null;
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.00002, priceUsd: 0.004,
+      mcap: 0.4, basis: 'mcap', supplyBasis: 'pump-constant',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    assert.equal(api.getToken().hostSupplySource, null);
+    assert.equal(api.getToken().hostSupplyFillWitness, null);
+    Q.bootstrapTick = originalBootstrap;
+  } finally {
+    loader.restore();
+  }
+});
+
+test('an in-flight host-supply buy is refused after reconciliation disproves it', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const diagnostics = [];
+    ov.win.PTErrors = { record(message, details) { diagnostics.push({ message, details }); } };
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    const originalNeedsWitness = Q.needsFillWitness;
+    const originalWitnessAgrees = Q.witnessAgrees;
+    api.getToken().mint = MINT;
+    api.getToken().hostSupplyUi = 100;
+    api.getToken().hostSupplyWitness = { source: 'axiom', url: 'page' };
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.0001, priceUsd: 0.002,
+      mcap: 0.2, basis: 'mcap', supplyBasis: 'host',
+    });
+    api.pageTick({ mint: MINT, source: 'padre-chart-bar', candidates: [] });
+    Q.needsFillWitness = () => true;
+    Q.witnessAgrees = () => {
+      api.reconcile(110);
+      return true;
+    };
+    await api.doBuy(1, null);
+    await settleOverlay(ov);
+    const state = api.getState();
+    assert.equal(state.journal.filter((trade) => trade.mint === MINT).length, 0);
+    assert.ok(diagnostics.some((entry) => entry.details && entry.details.kind === 'host-facts-fill-refused'));
+    Q.bootstrapTick = originalBootstrap;
+    Q.needsFillWitness = originalNeedsWitness;
+    Q.witnessAgrees = originalWitnessAgrees;
   } finally {
     loader.restore();
   }

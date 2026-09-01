@@ -470,6 +470,91 @@
     return typeof t.mint === 'string' && /pump$/.test(t.mint);
   }
 
+  var HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  // Quote/native pool assets must never become the tracked token identity.
+  var HOST_FACT_QUOTE_MINTS = new Set([
+    'So11111111111111111111111111111111111111112',
+    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  ]);
+
+  function hostFactsDecision(t, facts) {
+    var result = {
+      adoptMint: null,
+      poolAddress: null,
+      supplyUi: null,
+      refused: false,
+      reason: null,
+    };
+    if (!t || !t.pending) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var payload = facts && typeof facts === 'object' ? facts : {};
+    var addresses = Array.isArray(payload.addresses) ? payload.addresses : [];
+    var srcAddress = typeof t.srcAddress === 'string' ? t.srcAddress : '';
+    var factMint = typeof payload.mint === 'string' ? payload.mint : '';
+    var tiedToPage = factMint === t.mint
+      || (srcAddress && addresses.indexOf(srcAddress) !== -1);
+    if (!tiedToPage) {
+      result.reason = 'not-our-record';
+      return result;
+    }
+
+    var tiedToPageAddress = srcAddress && addresses.indexOf(srcAddress) !== -1;
+    var validMint = HOST_FACT_ADDRESS_RE.test(factMint);
+    if (tiedToPageAddress && validMint && factMint !== srcAddress && factMint !== t.mint) {
+      if (HOST_FACT_QUOTE_MINTS.has(factMint)) {
+        result.reason = 'quote-mint';
+      } else {
+        result.adoptMint = factMint;
+        result.poolAddress = typeof payload.poolAddress === 'string'
+          ? payload.poolAddress : null;
+      }
+    }
+
+    if (t.hostSupplyRejected) return result;
+
+    var priceUsd = Number(payload.priceUsd);
+    var mcap = Number(payload.mcap);
+    var hasSupply = payload.supply !== null && payload.supply !== undefined;
+    if (!(priceUsd > 0) || !(mcap > 0)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    var implied = mcap / priceUsd;
+    if (!(implied > 0) || !Number.isFinite(implied)) {
+      if (hasSupply) result.reason = result.reason || 'no-united-price';
+      return result;
+    }
+    if (!hasSupply) {
+      result.supplyUi = implied;
+      return result;
+    }
+
+    var rawSupply = Number(payload.supply);
+    if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+      return result;
+    }
+    var decimals = Number(payload.decimals);
+    var readings = [rawSupply];
+    if (Number.isInteger(decimals) && decimals >= 0) {
+      readings.push(rawSupply / (10 ** decimals));
+    }
+    result.supplyUi = readings.find(function (reading) {
+      return reading > 0 && Number.isFinite(reading)
+        && Math.abs(implied - reading) / reading <= 0.01;
+    }) || null;
+    if (!(result.supplyUi > 0)) {
+      result.refused = true;
+      result.reason = 'no-reading-agreed';
+    }
+    return result;
+  }
+
   /**
    * The supply an mcap-scale reading may honestly be divided by, or null.
    *
@@ -1583,6 +1668,7 @@
     SCALE_STEP_RATIO,
     SCALE_STEP_WINDOW_MS,
     isPumpFamily,
+    hostFactsDecision,
     bootstrapSupply,
     bootstrapSupplyInfo,
     rugVerdict,

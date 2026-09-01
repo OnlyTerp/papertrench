@@ -533,14 +533,8 @@
   }
   window.addEventListener('message', onBridgeMessage);
 
-  const HOST_FACT_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-  // Quote/native pool assets must never become the tracked token identity.
-  const HOST_FACT_QUOTE_MINTS = new Set([
-    'So11111111111111111111111111111111111111112',
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-    'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-  ]);
   const hostSupplyRefusals = new Set();
+  const hostSupplyRefusalCounts = new Map();
 
   function recordHostFactsDiagnostic(message, kind, details) {
     const EL = window.PTErrors;
@@ -551,8 +545,23 @@
   }
 
   function refuseHostSupply(mint, facts) {
-    if (hostSupplyRefusals.has(mint)) return;
-    hostSupplyRefusals.add(mint);
+    const keyPart = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toPrecision(12) : String(value);
+    };
+    const key = [
+      mint,
+      facts && facts.source,
+      keyPart(facts && facts.priceUsd),
+      keyPart(facts && facts.mcap),
+      keyPart(facts && facts.supply),
+      keyPart(facts && facts.decimals),
+    ].join('|');
+    if (hostSupplyRefusals.has(key)) return;
+    const count = hostSupplyRefusalCounts.get(mint) || 0;
+    if (count >= 8) return;
+    hostSupplyRefusals.add(key);
+    hostSupplyRefusalCounts.set(mint, count + 1);
     recordHostFactsDiagnostic('refused host supply for ' + mint
       + ' (no supply reading agreed with mcap/priceUsd within 1%)', 'host-facts-supply-refused', {
       source: facts && facts.source,
@@ -566,53 +575,21 @@
 
   function handleHostFacts(facts) {
     if (!facts || !token || !token.pending) return;
-
-    const addresses = Array.isArray(facts.addresses) ? facts.addresses : [];
-    const srcAddress = typeof token.srcAddress === 'string' ? token.srcAddress : '';
-    const factMint = typeof facts.mint === 'string' ? facts.mint : '';
-    if (addresses.indexOf(srcAddress) !== -1
-      && HOST_FACT_ADDRESS_RE.test(factMint)
-      && !HOST_FACT_QUOTE_MINTS.has(factMint)
-      && factMint !== srcAddress
-      && token.mint !== factMint) {
+    const decision = Q.hostFactsDecision(token, facts);
+    if (decision.adoptMint) {
       const oldMint = token.mint;
-      if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = factMint;
-      rekeyLiveState(oldMint, factMint);
-      token.mint = factMint;
-      token.pairAddress = facts.poolAddress || token.pairAddress || null;
+      if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = decision.adoptMint;
+      rekeyLiveState(oldMint, decision.adoptMint);
+      token.mint = decision.adoptMint;
+      token.pairAddress = decision.poolAddress || token.pairAddress || null;
       sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
     }
-
-    if (factMint !== token.mint && addresses.indexOf(srcAddress) === -1) return;
-    if (token.hostSupplyRejected) return;
-    const priceUsd = Number(facts.priceUsd);
-    const mcap = Number(facts.mcap);
-    if (!(priceUsd > 0) || !(mcap > 0)) return;
-    const implied = mcap / priceUsd;
-    if (!(implied > 0) || !Number.isFinite(implied)) return;
-
-    const hasSupply = facts.supply !== null && facts.supply !== undefined;
-    const rawSupply = Number(facts.supply);
-    let declaredUi = null;
-    if (hasSupply) {
-      if (!(rawSupply > 0) || !Number.isFinite(rawSupply)) {
-        refuseHostSupply(token.mint, facts);
-        return;
-      }
-      const decimals = Number(facts.decimals);
-      const readings = [rawSupply];
-      if (Number.isInteger(decimals) && decimals >= 0) {
-        readings.push(rawSupply / (10 ** decimals));
-      }
-      declaredUi = readings.find((reading) => reading > 0 && Number.isFinite(reading)
-        && Math.abs(implied - reading) / reading <= 0.01) || null;
-      if (!(declaredUi > 0)) {
-        refuseHostSupply(token.mint, facts);
-        return;
-      }
+    if (decision.refused) {
+      refuseHostSupply(token.mint, facts);
+      return;
     }
-
-    token.hostSupplyUi = declaredUi || implied;
+    if (!(decision.supplyUi > 0)) return;
+    token.hostSupplyUi = decision.supplyUi;
     token.hostSupplyWitness = {
       source: facts.source || null,
       url: facts.url || null,
@@ -827,11 +804,10 @@
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
     token.priceSource = payload.source || 'page-feed';
-    if (verdict.supplyBasis === 'host') {
-      token.hostSupplySource = 'site-facts';
-      token.hostSupplyFillWitness = token.hostSupplyWitness
-        ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
-    }
+    token.hostSupplySource = verdict.supplyBasis === 'host' ? 'site-facts' : null;
+    token.hostSupplyFillWitness = verdict.supplyBasis === 'host'
+      && token.hostSupplyWitness
+      ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
     // Market evidence for the fill witness (F-47): only prices the validator
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
@@ -1431,6 +1407,7 @@
       lastMcapTickAt = 0;
       oobRejects = 0;
       hostSupplyRefusals.clear();
+      hostSupplyRefusalCounts.clear();
     }
     token = data;
     // Keep a separate resolver anchor for validation. This is the price we
@@ -2028,6 +2005,20 @@
       supplySource: token.hostSupplySource || null,
       hostSupplyWitness: token.hostSupplyFillWitness || null,
     };
+  }
+
+  function refuseDisprovedHostFill(fillQuote) {
+    lastQuoteRefusal = 'Host supply disagreed with measured supply'
+      + ' — paper fill refused. Try again in a moment.';
+    recordHostFactsDiagnostic('paper fill refused after host supply discrepancy',
+      'host-facts-fill-refused', {
+        mint: fillQuote && fillQuote.mint,
+        source: fillQuote && fillQuote.supplySource,
+      });
+    console.debug('PaperTrench: fill witness refused', {
+      reason: 'host supply disagreed with measured supply',
+      mint: fillQuote && fillQuote.mint,
+    });
   }
 
   function waitForNewPageQuote(afterSeq, timeoutMs) {
@@ -3390,6 +3381,11 @@
         let filled = null;
         const mutate = () => {
           if (!token || token.mint !== fillQuote.mint) throw new Error('Token changed before the paper buy could be filled');
+          if (fillQuote.supplySource === 'site-facts' && token.hostSupplyRejected) {
+            refuseDisprovedHostFill(fillQuote);
+            filled = null;
+            return;
+          }
           const hadPosition = Boolean(state.positions[token.mint]);
           filled = E.buy(state, settings, {
             ts: Date.now(), mint: token.mint, pairAddress: token.pairAddress,
@@ -3420,7 +3416,9 @@
           drawnFillIds.add(filled.trade.id);
         };
         mutate();
+        if (!filled) return null;
         await persistStateNow(mutate);
+        if (!filled) return null;
         const { trade, position, opened } = filled;
         // The evidence chain is appended AFTER the wallet commit: a chained
         // link for a fill the CAS could still reject would be a permanent
@@ -3444,6 +3442,9 @@
         return { trade, position, opened };
       });
       const tCommitted = perfNow();
+      if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
+        toast(lastQuoteRefusal);
+      }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
         lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
@@ -3633,6 +3634,11 @@
         let filled = null;
         const mutate = () => {
           if (!token || token.mint !== fillQuote.mint) throw new Error('Token changed before the paper sell could be filled');
+          if (fillQuote.supplySource === 'site-facts' && token.hostSupplyRejected) {
+            refuseDisprovedHostFill(fillQuote);
+            filled = null;
+            return;
+          }
           filled = E.sell(state, settings, {
             ts: Date.now(), mint: token.mint, site: site.id,
             qtyFraction: fraction, priceNative: fillQuote.priceNative, priceUsd: fillQuote.priceUsd, mcap: fillQuote.mcap,
@@ -3647,7 +3653,9 @@
           drawnFillIds.add(filled.trade.id);
         };
         mutate();
+        if (!filled) return null;
         await persistStateNow(mutate);
+        if (!filled) return null;
         const { trade, position, round } = filled;
         // Chain append after the wallet commit — see doBuy for the ordering.
         await commitFill(trade);
@@ -3667,6 +3675,9 @@
         return { trade, position, round };
       });
       const tCommitted = perfNow();
+      if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
+        toast(lastQuoteRefusal);
+      }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
         lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
