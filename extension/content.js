@@ -4026,6 +4026,7 @@
     .pt-box.pt-micro .pt-limit-row,
     .pt-box.pt-micro #pt-thesis,
     .pt-box.pt-micro #pt-closed,
+    .pt-box.pt-micro #pt-flow,
     .pt-box.pt-micro .pt-editor,
     .pt-box.pt-micro .pt-footer,
     .pt-box.pt-micro .pt-pos .pt-detail,
@@ -4674,6 +4675,12 @@
       transition: color 0.16s, border-color 0.16s;
     }
     .pt-footer a:hover { color: var(--pt-amber); border-color: var(--pt-amber); }
+    .pt-flow {
+      margin-top: 7px;
+      color: var(--pt-faint);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ---------------- semantic colors ---------------- */
 
@@ -5287,6 +5294,7 @@
             <div id="pt-alerts"></div>
             <div id="pt-thesis"></div>
             <div id="pt-closed"></div>
+            <div class="pt-flow" id="pt-flow" title="Lifetime flow: total bought, cost still held open, total sold back out."></div>
           </div>
           <div class="pt-footer">
             <span id="pt-site"></span>
@@ -5341,6 +5349,7 @@
     els.alerts = shadow.getElementById('pt-alerts');
     els.thesis = shadow.getElementById('pt-thesis');
     els.closed = shadow.getElementById('pt-closed');
+    els.flow = shadow.getElementById('pt-flow');
     els.effects = shadow.getElementById('pt-effects');
     els.footSite = shadow.getElementById('pt-site');
     els.subtitle = shadow.getElementById('pt-subtitle');
@@ -5725,6 +5734,14 @@
     }
   }
 
+  function renderFlow() {
+    if (!els.flow || !state) return;
+    const stats = E.sessionStats(state, settings);
+    // Lifetime book totals span coins, so a current foreign-chain rate cannot
+    // honestly convert them; keep this line in SOL everywhere.
+    els.flow.textContent = `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`;
+  }
+
   /* ---------------- panel denomination ----------------
    * Foreign-chain panels denominate in DOLLARS. Read off the live site
    * (2026-08-05): fomo's own quick buys on a BNB token are $10/$100/$500/
@@ -6084,6 +6101,7 @@
     renderHeader();
     renderBalance();
     renderMicroWallet();
+    renderFlow();
     renderPosition();
     renderAlerts();
     renderBuyButton();

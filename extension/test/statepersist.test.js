@@ -67,6 +67,13 @@ function runOverlay(priceSeries, opts) {
           this._fields[m[1]] = child;
           this.children.push(child);
         }
+        const presets = /<button class="(pt-preset[^"]*)" data-amt="([^"]+)"/g;
+        while ((m = presets.exec(v))) {
+          const child = makeNode('button');
+          child.className = m[1];
+          child.dataset.amt = m[2];
+          this.children.push(child);
+        }
       },
       get innerHTML() { return this._h || ''; },
       appendChild(c) { this.children.push(c); this.childNodes = this.children; c._parent = this; return c; },
@@ -84,7 +91,12 @@ function runOverlay(priceSeries, opts) {
         if (m && this._fields && this._fields[m[1]]) return this._fields[m[1]];
         return makeNode('span');
       },
-      querySelectorAll() { return []; },
+      querySelectorAll(sel) {
+        if (sel === '.pt-preset') {
+          return this.children.filter((c) => String(c.className || '').startsWith('pt-preset'));
+        }
+        return [];
+      },
       getBoundingClientRect() { return { top: 0 }; },
       attachShadow() { return shadowRoot; },
       focus() {}, closest() { return null; },
@@ -175,6 +187,9 @@ function runOverlay(priceSeries, opts) {
           // F-14: the worker owns the attest chain; the harness acks appends
           // so a fill does not trip the F-28 failure toast mid-test.
           if (msg.type === 'pt_attest_append') return Promise.resolve({ ok: true, seq: 0, head: 'pt-test-head' });
+          if (msg.type === 'pt_resolve' && options.resolveRecord) {
+            return Promise.resolve({ ...options.resolveRecord });
+          }
           const R = win.PaperTrenchResolver;
           if (!R) return Promise.resolve({});
           if (msg.type === 'pt_resolve') return R.resolve(msg.address);
@@ -271,9 +286,18 @@ function runOverlay(priceSeries, opts) {
     return row.children.filter((c) => c.className === 'pt-sell');
   }
 
+  function clickPreset(index) {
+    const presets = shadowNodes['pt-buy-presets'] && shadowNodes['pt-buy-presets'].children;
+    const button = presets && presets[index];
+    if (!button) throw new Error(`missing buy preset ${index}`);
+    button.click();
+    return button;
+  }
+
   return {
     advance,
     openPaperPosition,
+    clickPreset,
     sellButtons,
     storage: () => storage,
     shadowNodes,
@@ -364,6 +388,87 @@ test('the quick-sell buttons render for a position adopted from another tab', as
   const buttons = ov.sellButtons();
   assert.equal(buttons.length, 4, 'the position card must offer the four quick-sell buttons');
   assert.deepEqual(buttons.map((b) => b.textContent), ['25%', '50%', '75%', '100%']);
+});
+
+test('the panel flow line mirrors engine totals after a real panel fill', async () => {
+  const ov = runOverlay([0.001, 0.0012]);
+  await ov.advance(1200);
+
+  ov.clickPreset(0);
+  await ov.advance(1500);
+
+  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
+  const state = ov.storage().pt_state;
+  const stats = E.sessionStats(state, settings);
+  assert.equal(
+    ov.shadowNodes['pt-flow'].textContent,
+    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
+  );
+});
+
+test('the panel flow line updates when a position is sold', async () => {
+  const ov = runOverlay([0.001, 0.0012]);
+  await ov.advance(1200);
+
+  ov.clickPreset(0);
+  await ov.advance(1500);
+  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
+  const before = E.sessionStats(ov.storage().pt_state, settings);
+
+  const sell = ov.sellButtons()[1];
+  assert.ok(sell, 'the 50% sell button must render after the panel fill');
+  sell.click();
+  await ov.advance(1500);
+
+  const after = E.sessionStats(ov.storage().pt_state, settings);
+  assert.ok(after.soldSol > before.soldSol, 'selling increases lifetime outflow');
+  assert.ok(after.heldSol < before.heldSol, 'selling reduces open cost basis');
+  assert.equal(
+    ov.shadowNodes['pt-flow'].textContent,
+    `In ${E.fmt(after.boughtSol, 2)} · holding ${E.fmt(after.heldSol, 2)} · out ${E.fmt(after.soldSol, 2)} SOL`,
+  );
+});
+
+test('a fresh wallet renders zero lifetime flow values', async () => {
+  const ov = runOverlay([0.001]);
+  await ov.advance(1200);
+
+  const settings = Object.assign(E.defaultSettings(), ov.storage().pt_settings || {});
+  const stats = E.sessionStats(E.defaultState(settings), settings);
+  assert.equal(
+    ov.shadowNodes['pt-flow'].textContent,
+    `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`,
+  );
+});
+
+test('foreign-chain panels keep lifetime flow denominated in SOL', async () => {
+  const ov = runOverlay([0.001], {
+    resolveRecord: {
+      mint: BONK, pairAddress: 'PAIR1', symbol: 'BONK', name: 'Bonk',
+      priceNative: 0.001, priceUsd: 0.2, chain: 'bsc', solUsdAtResolve: 200,
+    },
+  });
+  await ov.advance(1200);
+
+  assert.match(ov.shadowNodes['pt-flow'].textContent, /SOL$/,
+    'lifetime flow must keep its SOL label on foreign-chain panels');
+  assert.doesNotMatch(ov.shadowNodes['pt-flow'].textContent, /\$/,
+    'lifetime flow must not use the current token USD denomination');
+});
+
+test('the lifetime flow line is hidden by micro density', () => {
+  const content = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+  assert.match(content,
+    /<div class="pt-flow" id="pt-flow" title="Lifetime flow: total bought, cost still held open, total sold back out\."><\/div>/,
+    'the panel body must carry the lifetime flow element and tooltip');
+  assert.match(content, /els\.flow = shadow\.getElementById\('pt-flow'\);/,
+    'the lifetime flow element must be registered with the panel elements');
+  const micro = content.slice(
+    content.indexOf('.pt-box.pt-micro #pt-thesis'),
+    content.indexOf('.pt-box.pt-focus', content.indexOf('.pt-box.pt-micro #pt-thesis')),
+  );
+  assert.match(micro, /\.pt-box\.pt-micro #pt-flow/,
+    'micro density must hide the lifetime flow line');
 });
 
 /* ---------------- overlay buy-section toggles ----------------
