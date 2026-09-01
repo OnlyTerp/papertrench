@@ -3769,7 +3769,7 @@
       const stack = [start];
       const candidates = [];
       const identityKeys = new Set([
-        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address', 'pair',
+        'tokenAddress', 'mint', 'address', 'pairAddress', 'pool_address',
       ]);
       const priceKeys = new Set([
         'priceSol', 'priceNative', 'tokenPriceUsd', 'priceUsd',
