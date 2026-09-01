@@ -20,7 +20,7 @@ const A = 'A'.repeat(32);
 const B = 'B'.repeat(32);
 const C = 'C'.repeat(32);
 
-function bootRace() {
+function bootRace(options = {}) {
   let clock = Date.now();
   class HarnessDate extends Date {
     constructor(...args) { super(...(args.length ? args : [clock])); }
@@ -37,6 +37,10 @@ function bootRace() {
   let cIdentityRequested = false;
   let releaseCIdentity;
   const cIdentity = new Promise((resolve) => { releaseCIdentity = resolve; });
+  let solUsdPending = options.holdSolUsd === true;
+  let solUsdRequested = false;
+  let releaseSolUsd;
+  const solUsd = new Promise((resolve) => { releaseSolUsd = resolve; });
   const messages = [];
   let settings;
   let initialState;
@@ -135,6 +139,7 @@ function bootRace() {
     messages.push(payload);
     if (payload.type === 'pt_resolve') {
       if (payload.address === B) {
+        if (options.unpricedB) return Promise.resolve(null);
         return Promise.resolve({
           mint: B,
           pairAddress: null,
@@ -173,7 +178,10 @@ function bootRace() {
       if (address === A) return Promise.resolve({ mint: A });
       return Promise.resolve(null);
     }
-    if (payload.type === 'pt_sol_usd') return Promise.resolve(100);
+    if (payload.type === 'pt_sol_usd') {
+      solUsdRequested = true;
+      return solUsdPending ? solUsd : Promise.resolve(100);
+    }
     if (payload.type === 'pt_state_commit') return Promise.resolve({ ok: true });
     if (payload.type === 'pt_attest_append') return Promise.resolve({ ok: true });
     return Promise.resolve({});
@@ -289,6 +297,7 @@ function bootRace() {
     getRowBuyInFlight: () => rowBuyInFlight,
     getRowBuyInFlightAt: () => rowBuyInFlightAt,
     getRowBuyOwner: () => rowBuyOwner,
+    getRowArmedFlushTimer: () => rowArmedFlushTimer,
   };
 `
     + CONTENT.slice(end);
@@ -308,6 +317,11 @@ function bootRace() {
     releaseC() {
       cIdentityPending = false;
       releaseCIdentity({ mint: C });
+    },
+    isSolUsdRequested: () => solUsdRequested,
+    releaseSolUsd() {
+      solUsdPending = false;
+      releaseSolUsd(100);
     },
     messages,
     setNow(next) { clock = next; },
@@ -387,6 +401,66 @@ test('an armed row fill commits on its first available price without competition
 
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [A]);
   assert.equal(harness.getRowArmed(), null, 'a successful armed fill clears its intent');
+});
+
+test('a newer armed intent survives an older flush commit', async () => {
+  const race = bootRace({ unpricedB: true, holdSolUsd: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(A);
+  const firstIntent = harness.getRowArmed();
+  assert.ok(firstIntent, 'A should arm when its cascade cannot price');
+
+  harness.noteRowPrice({
+    mint: A,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'A',
+    name: 'Token A',
+  });
+  await waitFor(() => race.isSolUsdRequested());
+  assert.equal(harness.getRowArmedFlushing(), true, 'A should be flushing its newly available price');
+
+  race.releaseB();
+  await harness.doRowBuy(B);
+  const secondIntent = harness.getRowArmed();
+  assert.ok(secondIntent, 'B should arm after its own cascade misses');
+  assert.notEqual(secondIntent, firstIntent, 'each unpriced click gets a fresh intent object');
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_armed_row_arm').length,
+    2,
+    'the service worker receives both armed intents',
+  );
+
+  race.releaseSolUsd();
+  await waitFor(() => harness.getState().journal.length === 1);
+  await waitFor(() => !harness.getRowArmedFlushing());
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [A]);
+  assert.equal(harness.getRowArmed(), secondIntent,
+    'the older A flush cannot discard newer B');
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_armed_row_clear').length,
+    0,
+    'the older flush cannot clear B from the service worker',
+  );
+  assert.ok(harness.getRowArmedFlushTimer(),
+    'the repeating armed flush remains alive for B');
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 100 }],
+    symbol: 'B',
+    name: 'Token B',
+  });
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B, A],
+    'the newer B intent subsequently commits exactly once');
+  await waitFor(() => harness.getRowArmed() === null);
+  assert.equal(harness.getRowArmed(), null, 'B clears only after its own successful fill');
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_armed_row_clear').length,
+    1,
+    'the service worker mirror clears once for the filled B intent',
+  );
 });
 
 test('a timed-out row buy cannot release a newer latch owner', async () => {

@@ -6954,11 +6954,11 @@
           releaseRowBuyLatch(rowBuyToken);
         }
         if (result) {
-          rowArmed = null;
+          if (rowArmed === armed) {
+            rowArmed = null;
+            sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
+          }
           sendPadreMarker('row-buy-done', null);
-          // D-42: the SW mirror dies with the local intent — a filled snipe
-          // must never be adopted by the chart page and filled twice.
-          sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
         }
       }
     } catch (_) {
