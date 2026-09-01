@@ -141,11 +141,21 @@ const UPDATER = (() => {
     return 0;
   }
 
-  function backupText(record) {
+  function backupText(record, state) {
     const at = record && Number(record.at);
-    return record && Number.isFinite(at)
-      ? `Last backup: ${new Date(at).toISOString().slice(0, 10)}`
-      : 'No backup yet — updating into a new folder looks like a fresh install.';
+    if (!record || !Number.isFinite(at) || !state) {
+      return 'No backup yet — updating into a new folder looks like a fresh install.';
+    }
+    const date = new Date(at).toISOString().slice(0, 10);
+    if (record.startedAt !== state.startedAt) {
+      return `Last backup: ${date} — different wallet since. Back up again.`;
+    }
+    const trades = Array.isArray(state.journal) ? state.journal.length : 0;
+    if (record.trades !== trades) {
+      const delta = Math.max(0, trades - Number(record.trades));
+      return `Last backup: ${date} — ${delta} ${delta === 1 ? 'trade' : 'trades'} since. Back up again.`;
+    }
+    return `Last backup: ${date}`;
   }
 
   async function check(force) {
@@ -189,7 +199,15 @@ const UPDATER = (() => {
     let seen = {};
     try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
     let lastBackup = null;
-    try { lastBackup = (await chainGet(['pt_last_backup']))['pt_last_backup'] || null; } catch (_) { lastBackup = null; }
+    let liveState = null;
+    try {
+      const current = await chainGet(['pt_last_backup', 'pt_state']);
+      lastBackup = current.pt_last_backup || null;
+      liveState = current.pt_state || null;
+    } catch (_) {
+      lastBackup = null;
+      liveState = null;
+    }
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
     version.textContent = 'v' + info.latest + ' is out';
@@ -197,17 +215,22 @@ const UPDATER = (() => {
     link.textContent = 'Download the update →';
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    backupState.textContent = backupText(lastBackup);
+    backupState.textContent = backupText(lastBackup, liveState);
     const refreshBackupState = async () => {
       try {
-        const stored = await chainGet(['pt_last_backup']);
+        const stored = await chainGet(['pt_last_backup', 'pt_state']);
         lastBackup = stored.pt_last_backup || null;
-        backupState.textContent = backupText(lastBackup);
+        liveState = stored.pt_state || null;
+        backupState.textContent = backupText(lastBackup, liveState);
       } catch (_) {}
     };
     const hasBackup = () => {
       const at = lastBackup && Number(lastBackup.at);
-      return Number.isFinite(at);
+      const currentTrades = liveState && Array.isArray(liveState.journal)
+        ? liveState.journal.length : null;
+      return Number.isFinite(at) && liveState
+        && lastBackup.startedAt === liveState.startedAt
+        && lastBackup.trades === currentTrades;
     };
     backupButton.addEventListener('click', async () => {
       try { await backupWallet(); } catch (_) {}
@@ -783,8 +806,14 @@ async function backupWallet() {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
   try {
+    const state = stored.pt_state || null;
     await chrome.storage.local.set({
-      pt_last_backup: { at: Date.now(), version: chrome.runtime.getManifest().version },
+      pt_last_backup: {
+        at: Date.now(),
+        version: chrome.runtime.getManifest().version,
+        startedAt: state && state.startedAt != null ? state.startedAt : null,
+        trades: state && Array.isArray(state.journal) ? state.journal.length : 0,
+      },
     });
   } catch (_) {}
   // DEFECT D-41: screen recordings live in IndexedDB (tens of MB) and are
