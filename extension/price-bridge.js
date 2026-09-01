@@ -400,6 +400,10 @@
       if (rec.candidates.length >= MAX_CANDIDATES) rec.candidates.shift();
       rec.candidates.push(cand);
     };
+    const validPadreSymbol = (value) => typeof value === 'string'
+      && value.length <= 24 && !BASE58_RE.test(value) ? value : null;
+    const validPadreName = (value) => typeof value === 'string'
+      && value.length <= 64 && !BASE58_RE.test(value) ? value : null;
 
     (function walk(node, depth, ctx, tainted) {
       if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
@@ -427,6 +431,16 @@
       const entries = Array.isArray(node)
         ? node.map((v, i) => [String(i), v])
         : Object.entries(node);
+      const sameObjectSymbol = !Array.isArray(node)
+        ? entries.reduce((found, [key, value]) => found || (
+          /^(tokenTicker|symbol|ticker)$/.test(key) ? validPadreSymbol(value) : null
+        ), null)
+        : null;
+      const sameObjectName = !Array.isArray(node)
+        ? entries.reduce((found, [key, value]) => found || (
+          /^(tokenName|name)$/.test(key) ? validPadreName(value) : null
+        ), null)
+        : null;
 
       for (const [key, value] of entries) {
         if (budget <= 0) return;
@@ -443,7 +457,11 @@
           const n = numberValue(value);
           if (n > 0) {
             const unit = USD_HINT.test(key) ? 'usd' : NATIVE_HINT.test(key) ? 'native' : 'unknown';
-            pushCandidate(rec, { value: n, unit, key });
+            pushCandidate(rec, {
+              value: n, unit, key,
+              ...(sameObjectSymbol ? { symbol: sameObjectSymbol } : {}),
+              ...(sameObjectName ? { name: sameObjectName } : {}),
+            });
           }
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
@@ -457,6 +475,16 @@
     })(obj, 0, null, false);
 
     return { records, top };
+  }
+
+  function padreMetadata(rec) {
+    const candidate = rec && rec.candidates
+      ? rec.candidates.find((item) => item.value > 0)
+      : null;
+    return {
+      symbol: candidate && candidate.symbol ? candidate.symbol : null,
+      name: candidate && candidate.name ? candidate.name : null,
+    };
   }
 
   function notePadreSupplies(obj) {
@@ -652,20 +680,35 @@
         || null;
       let emitted = 0;
       if (watched && hasContent(watched)) {
-        emit('tick', withFrameEvidence({ ...watched, source }, receivedAt, seq));
+        const metadata = padreBinary ? padreMetadata(watched) : null;
+        emit('tick', withFrameEvidence({
+          ...watched,
+          ...(metadata ? metadata : {}),
+          source,
+        }, receivedAt, seq));
         emitted++;
       }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', withFrameEvidence({ ...rec, source }, receivedAt, seq));
+        const metadata = padreBinary ? padreMetadata(rec) : null;
+        emit('tick', withFrameEvidence({
+          ...rec,
+          ...(metadata ? metadata : {}),
+          source,
+        }, receivedAt, seq));
       }
       if (emitted) return;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
     if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', withFrameEvidence({ ...top, source }, receivedAt, seq));
+    const metadata = padreBinary ? padreMetadata(top) : null;
+    emit('tick', withFrameEvidence({
+      ...top,
+      ...(metadata ? metadata : {}),
+      source,
+    }, receivedAt, seq));
   }
 
   /* ---------------- SPA navigation signal ----------------

@@ -2225,8 +2225,11 @@
    * (a fill, an order change). The heartbeat passes none: its marks are
    * re-applied here and there is nothing else it owns.
    */
+  let lastPersistAttempts = 0;
   async function persistStateNow(remutate) {
+    lastPersistAttempts = 0;
     for (let attempt = 0; attempt < 4; attempt++) {
+      lastPersistAttempts = attempt + 1;
       state.seq = (Number(state.seq) || 0) + 1;
       state.updatedAt = Date.now();
       lastWrittenState = state;
@@ -2271,6 +2274,7 @@
     // tries again next beat, which is what keeps the LYAR silent-eat class
     // dead: heartbeats never force.
     if (remutate) {
+      lastPersistAttempts += 1;
       state.seq = (Number(state.seq) || 0) + 1;
       state.updatedAt = Date.now();
       lastWrittenState = state;
@@ -6604,11 +6608,30 @@
 
   function rowBuyTiming(t0, priceSource, marks, outcome) {
     const elapsed = (mark) => Number.isFinite(mark) ? Math.max(0, mark - t0) : '-';
+    const fromFill = Number.isFinite(marks.fillStart) && Number.isFinite(marks.withStateStart)
+      ? Math.max(0, marks.withStateStart - marks.fillStart)
+      : '-';
+    const guardState = Number.isFinite(marks.guardStateDuration)
+      ? Math.max(0, marks.guardStateDuration) : elapsed(marks.guardState);
+    const persist = Number.isFinite(marks.persistMs) ? marks.persistMs : '-';
+    const attempts = Number.isFinite(marks.persistAttempts) ? marks.persistAttempts : '-';
     const total = Math.max(0, Date.now() - t0);
     console.debug(`PaperTrench: row-buy source=${priceSource || 'unknown'}`
       + ` outcome=${outcome || 'done'} quote=${elapsed(marks.quote)}ms`
-      + ` guard+state=${elapsed(marks.guardState)}ms commit=${elapsed(marks.commit)}ms`
-      + ` total=${total}ms`);
+      + ` guard+state=${guardState}ms commit=${elapsed(marks.commit)}ms`
+      + ` total=${total}ms withState=${fromFill}ms persist=${persist}ms attempts=${attempts}`);
+  }
+
+  function finishRowPersist(timing, startedAt) {
+    if (!timing) return;
+    timing.persistMs = Date.now() - startedAt;
+    timing.persistAttempts = lastPersistAttempts;
+    timing.guardStateDuration = Math.max(
+      0,
+      Date.now() - timing.quote
+        - (timing.withStateStart - timing.fillStart)
+        - timing.persistMs,
+    );
   }
 
   function scheduleRowBuyDrain() {
@@ -6898,6 +6921,7 @@
 
   async function fillRowBuy(address, data, amount, ownerToken) {
     const timing = rowBuyTimingState;
+    if (timing) timing.fillStart = Date.now();
     // F-56: a chip fill runs through the SAME honesty gates as a panel fill.
     // The row's own price used to price the trade blind — no witness, no
     // contradiction check — so a stale/wrong row print booked entries far
@@ -6969,7 +6993,12 @@
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
     const result = await withState(async () => {
-      if (rowBuyOwner !== ownerToken) return null;
+      if (timing) timing.withStateStart = Date.now();
+      if (rowBuyOwner !== ownerToken) {
+        toast('That tap was released after taking too long — nothing was filled');
+        if (timing) timing.outcome = 'superseded';
+        return null;
+      }
       // Re-runnable mutation — see doBuy: a lost CAS race re-applies this
       // row buy on the adopted base; only the landing attempt is chained.
       let filled = null;
@@ -6985,8 +7014,9 @@
         filled.opened = opened;
       };
       mutate();
+      const persistStartedAt = Date.now();
       await persistStateNow(mutate);
-      if (timing) timing.guardState = Date.now();
+      finishRowPersist(timing, persistStartedAt);
       // Chain append after the wallet commit — see doBuy for the ordering.
       await commitFill(filled.trade);
       if (timing) timing.commit = Date.now();
@@ -7066,9 +7096,12 @@
         if (rowBuyInFlight) return;
         const rowBuyToken = acquireRowBuyLatch();
         let result;
+        const timing = { priceSource: data.priceSource };
+        rowBuyTimingState = timing;
         try {
           result = await fillRowBuy(armed.address, data, armed.amount, rowBuyToken);
         } finally {
+          rowBuyTimingState = null;
           releaseRowBuyLatch(rowBuyToken);
           scheduleRowBuyDrain();
         }
@@ -7269,6 +7302,7 @@
     } finally {
       releaseRowBuyLatch(rowBuyToken);
       if (button) button.classList.remove('busy');
+      if (timing.outcome) outcome = timing.outcome;
       rowBuyTiming(t0, timing.priceSource, timing, outcome);
       scheduleRowBuyDrain();
     }

@@ -152,6 +152,7 @@ function bootRace(options = {}) {
       pathname: '/pulse',
       search: '',
     },
+    __rowToastMessages: [],
   };
 
   function sendMessage(payload) {
@@ -324,6 +325,8 @@ function bootRace(options = {}) {
   const end = CONTENT.lastIndexOf('\n})();');
   assert.ok(end > 0, 'content script has its IIFE terminator');
   const instrumented = CONTENT.slice(0, end)
+    .replace('  function toast(msg) {',
+      '  function toast(msg) { window.__rowToastMessages.push(msg);')
     + `
   window.__rowHarness = {
     doRowBuy,
@@ -340,6 +343,7 @@ function bootRace(options = {}) {
     getRowBuyOwner: () => rowBuyOwner,
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
     getRowBuyQueue: () => rowBuyQueue.slice(),
+    getToastMessages: () => window.__rowToastMessages.slice(),
     drainRowBuyQueue,
     disableOverlay,
     setPresetBuy: (amount) => { settings.presetsBuy = [amount]; },
@@ -773,6 +777,15 @@ test('a second tap queues and fills at its own captured quote', async () => {
   assert.equal(harness.getState().journal[0].priceNative, 0.000064);
   assert.equal(harness.getState().journal[1].priceNative, 0.000032);
   assert.equal(race.debugLines.filter((line) => line.includes('row-buy')).length, 2);
+  const timingLine = race.debugLines.find((line) => line.includes('outcome=done'));
+  const timingValues = timingLine.match(
+    /guard\+state=(\d+)ms.*withState=(\d+)ms persist=(\d+)ms attempts=(\d+)/,
+  );
+  assert.ok(timingValues, 'timing line must expose state wait, persistence, and attempts');
+  assert.ok(
+    Number(timingValues[2]) + Number(timingValues[3]) <= Number(timingValues[1]),
+    'state wait and persistence must not overlap the guard/state boundary',
+  );
 });
 
 test('a fresh tap joins the queue before a scheduled drain', async () => {
@@ -1175,6 +1188,21 @@ test('a superseded direct row buy does not commit after watchdog release', async
   assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
     'a watchdog-superseded direct operation must not commit');
   assert.equal(harness.getRowBuyInFlight(), false);
+  assert.equal(
+    race.debugLines.filter((line) => line.includes('outcome=superseded')).length,
+    1,
+    'the released direct tap must report one superseded timing line',
+  );
+  assert.match(
+    race.debugLines.find((line) => line.includes('outcome=superseded')),
+    /withState=\d+ms persist=-ms attempts=-/,
+  );
+  assert.equal(
+    harness.getToastMessages().filter((message) =>
+      message === 'That tap was released after taking too long — nothing was filled').length,
+    1,
+    'the released direct tap must toast exactly once',
+  );
 });
 
 test('a superseded armed flush does not commit and stays armed', async () => {
@@ -1209,6 +1237,12 @@ test('a superseded armed flush does not commit and stays armed', async () => {
     'a watchdog-superseded armed operation must not commit');
   assert.equal(harness.getRowArmed().address, A,
     'a superseded armed intent remains available for retry');
+  assert.equal(
+    harness.getToastMessages().filter((message) =>
+      message === 'That tap was released after taking too long — nothing was filled').length,
+    1,
+    'the released armed tap must toast exactly once',
+  );
 
   harness.noteRowPrice({
     mint: A,

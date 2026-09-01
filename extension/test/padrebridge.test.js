@@ -37,6 +37,18 @@ const PADRE_COHERENT_FDV_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHORhax0b2tlbkFkZHJlc3PZLENvelh5M1VlTkJ4NzNib0JqRnA0UjNrZ2VVVlRYckp4cWRoeXdXTVBwdW1wqnByaWNlSW5Vc2TLPtR/YFTL1qWoZmR2SW5Vc2TLQLMXAAAAAACrdG90YWxTdXBwbHnPAAONfqTGgACoZGVjaW1hbHMGp3VwZGF0ZXOQ',
   'base64',
 ));
+const PADRE_METADATA_FRAME = Uint8Array.from(Buffer.from(
+  'gqR0eXBlonVwpnVwZGF0ZYGkZGF0YZGErHRva2VuQWRkcmVzc9ksRlFUa2dxNkdrWXprclFGM0IxY3JoZnZZR2tuMnVMeU1FMjh4U0hicHB1bXCqcHJpY2VJblVzZMs/864UeuFHrqt0b2tlblRpY2tlcqZTT0xDQVSpdG9rZW5OYW1lp1NvbCBDYXQ=',
+  'base64',
+));
+const PADRE_SIBLING_METADATA_FRAME = Uint8Array.from(Buffer.from(
+  'gqR0eXBlonVwpnVwZGF0ZYGkZGF0YZKCrHRva2VuQWRkcmVzc9ksRlFUa2dxNkdrWXprclFGM0IxY3JoZnZZR2tuMnVMeU1FMjh4U0hicHB1bXCqcHJpY2VJblVzZMs/864UeuFHroKsdG9rZW5BZGRyZXNz2SAxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMat0b2tlblRpY2tlcqRMRUFL',
+  'base64',
+));
+const PADRE_ADDRESS_TICKER_FRAME = Uint8Array.from(Buffer.from(
+  'gqR0eXBlonVwpnVwZGF0ZYGkZGF0YZGDrHRva2VuQWRkcmVzc9ksRlFUa2dxNkdrWXprclFGM0IxY3JoZnZZR2tuMnVMeU1FMjh4U0hicHB1bXCqcHJpY2VJblVzZMs/864UeuFHrqt0b2tlblRpY2tlctksRlFUa2dxNkdrWXprclFGM0IxY3JoZnZZR2tuMnVMeU1FMjh4U0hicHB1bXA=',
+  'base64',
+));
 
 function runBridge(opts = {}) {
   let clock = Date.now();
@@ -276,6 +288,36 @@ test('Padre MessagePack frames emit mint-tagged USD ticks without an unverified 
   assert.equal(message.payload.candidates[0].unit, 'usd');
   assert.equal(message.payload.candidates[0].value, 3.10644703526886e-06);
   assert.equal(message.payload.mcap, null);
+});
+
+test('Padre forwards ticker and name from the price-bearing object', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_METADATA_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message);
+  assert.equal(message.payload.symbol, 'SOLCAT');
+  assert.equal(message.payload.name, 'Sol Cat');
+});
+
+test('Padre does not borrow metadata from a different mint record', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_SIBLING_METADATA_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message);
+  assert.equal(message.payload.mint, 'FQTkgq6GkYzkrQF3B1crhfvYGkn2uLyME28xSHbppump');
+  assert.equal(message.payload.symbol, null);
+  assert.equal(message.payload.name, null);
+});
+
+test('Padre rejects an address-shaped ticker', () => {
+  const env = runBridge();
+  env.openSocket().emit(PADRE_ADDRESS_TICKER_FRAME.buffer);
+
+  const message = env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws');
+  assert.ok(message);
+  assert.equal(message.payload.symbol, null);
 });
 
 test('Padre replaces a doubled FDV with price times the derived supply', () => {
