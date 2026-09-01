@@ -1559,8 +1559,8 @@
       if (Array.isArray(fresh.poolAddresses)) {
         token.poolAddresses = fresh.poolAddresses;
         healStandInPositions(token);
-        healStandInPositionsByChain(token);
       }
+      healStandInPositionsByChain(token);
 
       // The resolver quote becomes the new anchor immediately. Live ticks
       // validate against this, so the anchor never lags behind real moves.

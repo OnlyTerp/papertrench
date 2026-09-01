@@ -472,3 +472,42 @@ test('a row fill whose identity probe succeeds is not marked as stand-in', async
   assert.equal(positions[REAL_MINT].standInKey, undefined);
   assert.equal(positions[STAND_IN], undefined);
 });
+
+test('a requote with no poolAddresses still heals a flagged stand-in', async () => {
+  const rowAmount = 0.25;
+  const priceNative = 0.0004 / 200;
+  const expectedRow = fillExpected(rowAmount, priceNative);
+  const world = { chainAnswers: false };
+  const view = runHarness({
+    rowAmount,
+    // Only the chart mint is indexed, and its record carries a lone `pair`:
+    // the F-61 poolAddresses backstop never arms on this coin.
+    stage: (address) => address === REAL_MINT
+      ? { payload: pairPayload(REAL_MINT, REAL_MINT) } : 'blind',
+    prewatch: (pool, mint) => world.chainAnswers && pool === STAND_IN && mint === STAND_IN
+      ? { mint: REAL_MINT, pool: STAND_IN, priceNative } : null,
+  });
+
+  // The chart is adopted BEFORE the flagged bag exists, so setToken's pass
+  // has nothing to probe and only the requote heartbeat can heal it.
+  view.navigate(`https://axiom.trade/meme/${REAL_MINT}`);
+  await view.advance(3000);
+  assert.equal(view.chainProbes.length, 0);
+
+  view.rowTick(STAND_IN, 0.0004);
+  await view.settle();
+  view.tapChip(STAND_IN);
+  await view.settle();
+  const fillProbes = view.chainProbes.filter((key) => key === STAND_IN).length;
+  assert.equal(view.storage().pt_state.positions[STAND_IN].standInKey, true);
+
+  world.chainAnswers = true;
+  await view.advance(6000);
+  const positions = view.storage().pt_state.positions;
+  assert.equal(view.chainProbes.filter((key) => key === STAND_IN).length - fillProbes, 1,
+    'the requote heal probes the flagged key exactly once');
+  assert.equal(positions[STAND_IN], undefined);
+  assert.ok(positions[REAL_MINT]);
+  assert.equal(positions[REAL_MINT].qty, expectedRow.qty);
+  assert.equal(positions[REAL_MINT].standInKey, undefined);
+});
