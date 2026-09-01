@@ -409,6 +409,38 @@ test('markPosition tracks peak and trough unrealized P&L', () => {
   assert.ok(pos.peakPnlSol > pos.troughPnlSol);
 });
 
+test('markPosition records provenance and diagnoses a large price disagreement', () => {
+  const settings = freshSettings({ feeBps: 0, slippageBps: 0 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, {
+    ts: Date.now(), mint: 'MintA', symbol: 'X', priceNative: 0.001, solAmount: 1,
+  });
+
+  const logs = [];
+  const debug = console.debug;
+  console.debug = (...args) => logs.push(args.join(' '));
+  try {
+    E.markPosition(state, 'MintA', 0.0015, null, {
+      priceSource: 'row-props',
+      pairAddress: 'pair-row',
+    });
+    E.markPosition(state, 'MintA', 0.0016, null);
+    assert.equal(state.positions.MintA.lastPriceSource, 'row-props');
+    assert.equal(state.positions.MintA.lastPricePair, 'pair-row');
+
+    E.markPosition(state, 'MintA', 0.0002, null, {
+      priceSource: 'resolver',
+      pairAddress: 'pair-resolver',
+    });
+  } finally {
+    console.debug = debug;
+  }
+
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /MintA 0\.0002 .*resolver, pair pair-resolver/);
+  assert.match(logs[0], /held 0\.0016 .*row-props, pair pair-row/);
+});
+
 test('equity reflects cash plus marked position value', () => {
   const settings = freshSettings({ balanceStartSol: 10, feeBps: 0, slippageBps: 0 });
   const state = E.defaultState(settings);

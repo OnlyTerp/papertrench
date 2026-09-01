@@ -255,6 +255,50 @@ test('batch pricing keeps the deepest USDC pool when its rate is available', () 
   assert.ok(Math.abs(out[mint].priceNative - Number(usdc.priceUsd) / 102) < 1e-18);
 });
 
+test('GPRO batch pricing falls back from its deep USDC pool without a rate', () => {
+  const mint = 'GPRR2u6NS5yBQHWGauoJ9HXgjrTH8dDsrBfTV5zAYvDH';
+  const usdc = {
+    chainId: 'solana',
+    pairAddress: '8aRfdGqAUSDCGPROPair111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '2.4773',
+    priceUsd: '2.47',
+    liquidity: { usd: 70082 },
+  };
+  const wsol = {
+    chainId: 'solana',
+    pairAddress: 'GPROWsolPair1111111111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: WSOL, symbol: 'SOL', name: 'Wrapped SOL' },
+    priceNative: '0.02505',
+    priceUsd: '2.55',
+    liquidity: { usd: 15829 },
+  };
+
+  const withoutRate = Q.pricesFromBatch({ pairs: [wsol, usdc] });
+  assert.equal(withoutRate[mint].pairAddress, wsol.pairAddress);
+  assert.equal(withoutRate[mint].priceNative, Number(wsol.priceNative));
+
+  const withRate = Q.pricesFromBatch({ pairs: [wsol, usdc] }, { solUsd: 102 });
+  assert.equal(withRate[mint].pairAddress, usdc.pairAddress);
+  assert.ok(Math.abs(withRate[mint].priceNative - 2.47 / 102) < 1e-18);
+});
+
+test('GPRO batch pricing omits an only-USDC pool without a rate', () => {
+  const mint = 'GPRR2u6NS5yBQHWGauoJ9HXgjrTH8dDsrBfTV5zAYvDH';
+  const onlyUsdc = {
+    chainId: 'solana',
+    pairAddress: '8aRfdGqAUSDCGPROPair111111111111111111111111',
+    baseToken: { address: mint, symbol: 'GPRO', name: 'GPRO' },
+    quoteToken: { address: USDC, symbol: 'USDC', name: 'USD Coin' },
+    priceNative: '2.4773',
+    priceUsd: '2.47',
+    liquidity: { usd: 70082 },
+  };
+  assert.deepEqual(Q.pricesFromBatch({ pairs: [onlyUsdc] }), {});
+});
+
 test('batch pricing with only a USDC pool refuses without a conversion rate', () => {
   const mint = solPair().baseToken.address;
   assert.deepEqual(Q.pricesFromBatch({ pairs: [solPair()] }), {});

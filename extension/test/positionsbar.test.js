@@ -175,6 +175,17 @@ test('O-30: the bar wires the page feed through, and setToken clears the stale c
     'a token coming ON screen must shed whatever batch quote was cached while it was off-screen');
 });
 
+test('position marks retain batch and resolver quote provenance', () => {
+  const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+
+  assert.match(contentSrc, /priceSource: quote\.priceSource,\s*\n\s*pairAddress: quote\.pairAddress/,
+    'batch quotes carry their source and pair into the live mark');
+  assert.match(contentSrc, /E\.markPosition\(state, mint, quote\.priceNative, quote\.priceUsd, \{\s*\n\s*priceSource: quote\.priceSource,\s*\n\s*pairAddress: quote\.pairAddress/,
+    'batch marks pass quote provenance to the engine');
+  assert.match(contentSrc, /E\.markPosition\(state, token\.mint, fresh\.priceNative, fresh\.priceUsd, \{\s*\n\s*priceSource: fresh\.priceSource,\s*\n\s*pairAddress: fresh\.pairAddress/,
+    'resolver refresh marks pass quote provenance to the engine');
+});
+
 /* ---------------- portfolio totals ---------------- */
 
 test('portfolio totals equal the sum of their rows', () => {

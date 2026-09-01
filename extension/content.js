@@ -1576,7 +1576,10 @@
             + ' from a collapsed pool (resolver refresh, ' + fresh.liquidityUsd
             + ' USD liq) F-55');
         } else {
-          E.markPosition(state, token.mint, fresh.priceNative, fresh.priceUsd);
+          E.markPosition(state, token.mint, fresh.priceNative, fresh.priceUsd, {
+            priceSource: fresh.priceSource,
+            pairAddress: fresh.pairAddress,
+          });
         }
       }
       maybeProfitAlert(token.mint);
@@ -2255,7 +2258,12 @@
       }
       for (const mint of Object.keys(livePositionPrices)) {
         const p = livePositionPrices[mint];
-        if (p && Number(p.priceNative) > 0) E.markPosition(state, mint, p.priceNative, p.priceUsd);
+        if (p && Number(p.priceNative) > 0) {
+          E.markPosition(state, mint, p.priceNative, p.priceUsd, {
+            priceSource: p.priceSource,
+            pairAddress: p.pairAddress,
+          });
+        }
       }
       if (remutate) await remutate();
     }
@@ -3027,7 +3035,12 @@
         }
         for (const mint of Object.keys(livePositionPrices)) {
           const p = livePositionPrices[mint];
-          if (p && Number(p.priceNative) > 0) E.markPosition(state, mint, p.priceNative, p.priceUsd);
+          if (p && Number(p.priceNative) > 0) {
+            E.markPosition(state, mint, p.priceNative, p.priceUsd, {
+              priceSource: p.priceSource,
+              pairAddress: p.pairAddress,
+            });
+          }
         }
       }
       // Heartbeat persistence must never surface as a pageerror: under
@@ -7361,10 +7374,18 @@
               + ' from a collapsed pool (' + quote.liquidityUsd + ' USD liq, '
               + pos55.lastPriceNative + ' -> ' + quote.priceNative + ') F-55');
           } else {
-            livePositionPrices[mint] = { priceNative: quote.priceNative, priceUsd: quote.priceUsd };
+            livePositionPrices[mint] = {
+              priceNative: quote.priceNative,
+              priceUsd: quote.priceUsd,
+              priceSource: quote.priceSource,
+              pairAddress: quote.pairAddress,
+            };
             // Mark the engine too, so peak/trough and equity stay truthful for
             // positions the user never has on screen.
-            E.markPosition(state, mint, quote.priceNative, quote.priceUsd);
+            E.markPosition(state, mint, quote.priceNative, quote.priceUsd, {
+              priceSource: quote.priceSource,
+              pairAddress: quote.pairAddress,
+            });
             changed = true;
           }
         }

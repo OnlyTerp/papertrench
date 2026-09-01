@@ -1076,11 +1076,28 @@
   /* ---------------- marks / analytics ---------------- */
 
   /** Mark an open position to the latest tick. Tracks peak/trough P&L. */
-  function markPosition(state, mint, priceNative, priceUsd) {
+  function markPosition(state, mint, priceNative, priceUsd, meta) {
     const pos = state.positions[mint];
     if (!pos) return null;
+    const previousPrice = Number(pos.lastPriceNative);
+    const previousSource = pos.lastPriceSource || 'unknown';
+    const previousPair = pos.lastPricePair || 'none';
+    const nextSource = meta && meta.priceSource ? meta.priceSource : previousSource;
+    const nextPair = meta && meta.pairAddress ? meta.pairAddress : previousPair;
+    if (previousPrice > 0 && Number(priceNative) > 0) {
+      const ratio = Number(priceNative) / previousPrice;
+      const magnitude = ratio >= 1 ? ratio : 1 / ratio;
+      if (magnitude >= 5) {
+        console.debug('PaperTrench: mark ' + mint + ' ' + priceNative
+          + ' (' + nextSource + ', pair ' + nextPair + ') is '
+          + magnitude + 'x from held ' + previousPrice + ' ('
+          + previousSource + ', pair ' + previousPair + ')');
+      }
+    }
     pos.lastPriceNative = priceNative;
     if (priceUsd) pos.lastPriceUsd = priceUsd;
+    if (meta && meta.priceSource) pos.lastPriceSource = meta.priceSource;
+    if (meta && meta.pairAddress) pos.lastPricePair = meta.pairAddress;
     const unrealized = pos.qty * priceNative - pos.costSol;
     if (unrealized > pos.peakPnlSol) pos.peakPnlSol = unrealized;
     if (unrealized < pos.troughPnlSol) pos.troughPnlSol = unrealized;

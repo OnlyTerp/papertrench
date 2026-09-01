@@ -173,6 +173,45 @@ test('Solana resolver passes its cached SOL/USD rate to non-SOL pair quotes', as
   assert.equal(token.solUsdAtResolve, 102);
 });
 
+test('cold Jupiter rate is reused for a Dexscreener USDC quote', async () => {
+  let jupiterHits = 0;
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) {
+      jupiterHits++;
+      return jsonResponse([{ id: WSOL, usdPrice: 102 }]);
+    }
+    if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
+    return notFound();
+  });
+
+  const token = await R.resolve(BONK_MINT);
+  assert.ok(token);
+  assert.equal(token.solUsdAtResolve, 102);
+  assert.ok(Math.abs(token.priceNative - Number(usdcPair().priceUsd) / 102) < 1e-18);
+  assert.equal(jupiterHits, 1, 'the bundled Jupiter request supplies the rate');
+});
+
+test('a failed Jupiter rate gets one extra SOL/USD request before Dexscreener pricing', async () => {
+  let jupiterHits = 0;
+  const R = loadResolver((url) => {
+    if (url.includes('jup.ag')) {
+      jupiterHits++;
+      if (url.endsWith('query=' + encodeURIComponent(WSOL))) {
+        return jsonResponse([{ id: WSOL, usdPrice: 103 }]);
+      }
+      return jsonResponse([]);
+    }
+    if (url.includes('/tokens/')) return jsonResponse({ pairs: [usdcPair()] });
+    return notFound();
+  });
+
+  const token = await R.resolve(BONK_MINT);
+  assert.ok(token);
+  assert.equal(token.solUsdAtResolve, 103);
+  assert.ok(Math.abs(token.priceNative - Number(usdcPair().priceUsd) / 103) < 1e-18);
+  assert.equal(jupiterHits, 2, 'one bundled lookup plus one cache-fill rate request');
+});
+
 test('Solana refresh passes its cached SOL/USD rate to non-SOL pair quotes', async () => {
   const R = loadResolver((url) => {
     if (url.includes('jup.ag')) {

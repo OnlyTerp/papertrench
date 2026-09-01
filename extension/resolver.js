@@ -155,9 +155,23 @@
     var viaJup = results[2] || { record: null };
 
     // A pair lookup is unambiguous, so prefer it when it returned something.
-    var dexOpts = { solUsd: cachedSolUsd() };
+    // Jupiter's combined request may already have supplied a fresh SOL/USD
+    // rate even when its token leg timed out; keep that rate for Dexscreener.
+    var dexRate = cachedSolUsd() || Number(viaJup.solUsd) || 0;
+    var dexOpts = { solUsd: dexRate };
     var dexData = Q.tokenFromPayload(byPair, address, dexOpts)
       || Q.tokenFromPayload(byToken, address, dexOpts);
+    // A Dexscreener payload can arrive while the bundled Jupiter rate is
+    // unavailable. Give one cache-first rate request a chance before
+    // abandoning a USD-quoted pool for the venue fallback.
+    if (!dexData && !(dexRate > 0) && (byPair || byToken)) {
+      dexRate = await solUsd().catch(function () { return 0; });
+      if (dexRate > 0) {
+        dexOpts = { solUsd: dexRate };
+        dexData = Q.tokenFromPayload(byPair, address, dexOpts)
+          || Q.tokenFromPayload(byToken, address, dexOpts);
+      }
+    }
     var data = Q.preferResolved(dexData, viaJup.record);
     if (!data) {
       // Aggregators silent: the terminal's own quotation API may already
