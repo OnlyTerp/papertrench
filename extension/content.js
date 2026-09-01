@@ -6929,7 +6929,18 @@
           if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
           data.priceSource = 'row-feed';
         }
-        const result = await fillRowBuy(armed.address, data, armed.amount);
+        // Serialize only the commit. The armed resolver cascade must stay free
+        // to retry while a direct click is pricing or filling.
+        if (rowBuyInFlight) return;
+        rowBuyInFlight = true;
+        rowBuyInFlightAt = Date.now();
+        let result;
+        try {
+          result = await fillRowBuy(armed.address, data, armed.amount);
+        } finally {
+          rowBuyInFlight = false;
+          rowBuyInFlightAt = 0;
+        }
         if (result) {
           rowArmed = null;
           sendPadreMarker('row-buy-done', null);
