@@ -35,6 +35,16 @@ function entry(overrides = {}) {
   };
 }
 
+test('press and click identity wins over a differently-derived sweep address', () => {
+  assert.deepEqual(
+    { ...rowChipTapDecision(entry({
+      address: 'MintBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      pressedAddress: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    }), 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', 10_500) },
+    { address: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+  );
+});
+
 test('a recycled row refuses instead of buying the old coin', () => {
   const out = rowChipTapDecision(
     entry({ address: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }),
@@ -44,6 +54,7 @@ test('a recycled row refuses instead of buying the old coin', () => {
   assert.deepEqual({ ...out.refuse }, {
     was: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     now: 'MintBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+    swept: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     reason: 'row-changed',
   });
 });
@@ -67,6 +78,7 @@ test('an unreadable row with stale verification refuses', () => {
   assert.deepEqual({ ...out.refuse }, {
     was: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     now: null,
+    swept: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     reason: 'unverifiable',
   });
 });
@@ -76,6 +88,24 @@ test('a press older than five seconds refuses', () => {
   assert.deepEqual({ ...out.refuse }, {
     was: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     now: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    swept: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    reason: 'stale-press',
+  });
+});
+
+test('a second click without a new press is stale after the first decision', () => {
+  const state = entry();
+  assert.deepEqual(
+    { ...rowChipTapDecision(state, state.pressedAddress, 10_500) },
+    { address: state.pressedAddress },
+  );
+  state.pressedAt = 0;
+  state.pressedAddress = null;
+  const out = rowChipTapDecision(state, state.address, 10_501);
+  assert.deepEqual({ ...out.refuse }, {
+    was: null,
+    now: state.address,
+    swept: state.address,
     reason: 'stale-press',
   });
 });
@@ -98,6 +128,8 @@ test('a refusal emits no busy state and uses the refusal bridge message', () => 
   const end = bridge.indexOf('\n    }\n  }\n  for (const type', start);
   const click = bridge.slice(start, end);
   assert.match(click, /const decision = rowChipTapDecision\(entry, currentRowAddress\(entry\), Date\.now\(\)\)/);
+  assert.match(click, /entry\.pressedAt = 0;\s*\n\s*entry\.pressedAddress = null;/,
+    'every click decision must consume the press authorization');
   assert.match(click, /if \(decision\.address\) \{[\s\S]*chip\.classList\.add\('busy'\)[\s\S]*emit\('row-buy', \{ address: decision\.address \}\)/);
   const refusalStart = click.indexOf("else {\n          emit('row-buy-refused'");
   assert.ok(refusalStart >= 0, 'refusal branch must emit row-buy-refused');
@@ -115,6 +147,7 @@ test('content toasts and records row-buy-refused without a fill completion', () 
   assert.match(refusal, /scope: 'content'/);
   assert.match(refusal, /was: p\.was \|\| null/);
   assert.match(refusal, /now: p\.now \|\| null/);
+  assert.match(refusal, /swept: p\.swept \|\| null/);
   assert.match(refusal, /reason: p\.reason \|\| null/);
   assert.doesNotMatch(refusal, /sendPadreMarker\('row-buy-done'/,
     'a refusal never entered the busy state');

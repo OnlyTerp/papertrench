@@ -499,6 +499,7 @@
             kind: 'row-buy-refused',
             was: p.was || null,
             now: p.now || null,
+            swept: p.swept || null,
             reason: p.reason || null,
           });
         }

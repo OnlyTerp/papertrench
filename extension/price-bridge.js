@@ -3242,13 +3242,13 @@
         refuse: {
           was: entry.pressedAddress || null,
           now: nowAddress || null,
+          swept: entry.address || null,
           reason: 'stale-press',
         },
       };
     }
     if (nowAddress
-      && nowAddress === entry.pressedAddress
-      && nowAddress === entry.address) {
+      && nowAddress === entry.pressedAddress) {
       return { address: nowAddress };
     }
     if (nowAddress) {
@@ -3256,6 +3256,7 @@
         refuse: {
           was: entry.pressedAddress || null,
           now: nowAddress || null,
+          swept: entry.address || null,
           reason: 'row-changed',
         },
       };
@@ -3268,6 +3269,7 @@
       refuse: {
         was: entry.pressedAddress || null,
         now: null,
+        swept: entry.address || null,
         reason: 'unverifiable',
       },
     };
@@ -3310,6 +3312,8 @@
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
         const decision = rowChipTapDecision(entry, currentRowAddress(entry), Date.now());
+        entry.pressedAt = 0;
+        entry.pressedAddress = null;
         if (decision.address) {
           chip.classList.add('busy');
           emit('row-buy', { address: decision.address });
