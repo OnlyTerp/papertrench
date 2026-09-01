@@ -6577,12 +6577,17 @@
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
+  const rowBuyQueue = [];
+  const ROW_BUY_QUEUE_MAX = 3;
+  const ROW_BUY_QUEUE_TTL_MS = 5000;
+  let rowBuyDrainTimer = null;
   // D-41: when the in-flight latch was SET, so the 1 s heartbeat can free a
   // latch whose await never settled (a hung resolver/SW RPC on a weird pair
   // once left "Row buy already in progress…" on every coin until reload —
   // live report). A settled finally clears the latch long before this ages.
   let rowBuyInFlightAt = 0;
   let rowBuyOwner = 0;
+  let rowBuyTimingState = null;
 
   function acquireRowBuyLatch() {
     rowBuyInFlight = true;
@@ -6596,6 +6601,43 @@
     rowBuyInFlight = false;
     rowBuyInFlightAt = 0;
   }
+
+  function rowBuyTiming(t0, priceSource, marks, outcome) {
+    const elapsed = (mark) => Number.isFinite(mark) ? Math.max(0, mark - t0) : '-';
+    const total = Math.max(0, Date.now() - t0);
+    console.debug(`PaperTrench: row-buy source=${priceSource || 'unknown'}`
+      + ` outcome=${outcome || 'done'} quote=${elapsed(marks.quote)}ms`
+      + ` guard+state=${elapsed(marks.guardState)}ms commit=${elapsed(marks.commit)}ms`
+      + ` total=${total}ms`);
+  }
+
+  function scheduleRowBuyDrain() {
+    if (contextDead || rowBuyDrainTimer || rowBuyInFlight || !rowBuyQueue.length) return;
+    rowBuyDrainTimer = setTimeout(() => {
+      rowBuyDrainTimer = null;
+      drainRowBuyQueue();
+    }, 0);
+  }
+
+  function drainRowBuyQueue() {
+    if (contextDead || rowBuyInFlight || !rowBuyQueue.length) return;
+    const entry = rowBuyQueue.shift();
+    if (Date.now() - entry.at >= ROW_BUY_QUEUE_TTL_MS) {
+      toast('Queued row buy expired — no fill at the tapped price');
+      rowBuyTiming(entry.at, 'queue', {}, 'expired');
+      scheduleRowBuyDrain();
+      return;
+    }
+    doRowBuy(entry.address, entry.button, entry.quote, entry.at);
+  }
+
+  onTeardown(() => {
+    rowBuyQueue.length = 0;
+    if (rowBuyDrainTimer) {
+      clearTimeout(rowBuyDrainTimer);
+      rowBuyDrainTimer = null;
+    }
+  });
 
   function noteRowPrice(payload) {
     if (!payload || typeof payload.mint !== 'string' || !ROW_ADDR_RE.test(payload.mint)) return;
@@ -6850,6 +6892,7 @@
   }
 
   async function fillRowBuy(address, data, amount, ownerToken) {
+    const timing = rowBuyTimingState;
     // F-56: a chip fill runs through the SAME honesty gates as a panel fill.
     // The row's own price used to price the trade blind — no witness, no
     // contradiction check — so a stale/wrong row print booked entries far
@@ -6938,8 +6981,10 @@
       };
       mutate();
       await persistStateNow(mutate);
+      if (timing) timing.guardState = Date.now();
       // Chain append after the wallet commit — see doBuy for the ordering.
       await commitFill(filled.trade);
+      if (timing) timing.commit = Date.now();
       return { trade: filled.trade, position: filled.position, opened: filled.opened };
     });
     if (!result) return null;
@@ -7020,6 +7065,7 @@
           result = await fillRowBuy(armed.address, data, armed.amount, rowBuyToken);
         } finally {
           releaseRowBuyLatch(rowBuyToken);
+          scheduleRowBuyDrain();
         }
         if (result) {
           // D-42: the SW mirror dies with the intent it belongs to — a filled
@@ -7038,16 +7084,28 @@
   }
 
   /** Paper-buy the first preset amount of a screener row's token. */
-  async function doRowBuy(address, button, rowQuote) {
-    if (rowBuyInFlight) return toast('Row buy already in progress…');
+  async function doRowBuy(address, button, rowQuote, queuedAt) {
+    const t0 = Number.isFinite(queuedAt) ? queuedAt : Date.now();
+    if (rowBuyInFlight) {
+      if (rowBuyQueue.length >= ROW_BUY_QUEUE_MAX) {
+        toast('Row buy queue full — tap again after current buys finish');
+        rowBuyTiming(t0, 'queue', {}, 'refused');
+        return;
+      }
+      rowBuyQueue.push({ address, button, quote: rowQuote, at: Date.now() });
+      toast('Queued — filling after the current buy');
+      return;
+    }
     const rowBuyToken = acquireRowBuyLatch();
+    const timing = { quote: null, guardState: null, commit: null };
+    let outcome = 'done';
     if (button) button.classList.add('busy');
     primeAudio();
     try {
       const amount = (settings.presetsBuy || [0.1])[0];
       // Guardrails apply to chip buys exactly like panel buys.
       const guard = E.guardCheck(state, settings, { solAmount: amount });
-      if (!guard.ok) { toast(guard.message); return; }
+      if (!guard.ok) { outcome = 'guard-refused'; toast(guard.message); return; }
       // A screener chip fill must not price from a minute-old display cache
       // (the resolver keeps entries 60 s for display use). Demand a quote no
       // older than the live-feed staleness bound; the resolver refetches when
@@ -7154,8 +7212,11 @@
             flushRowArmed();
           }, 1500);
         }
+        timing.priceSource = 'armed';
+        rowBuyTiming(t0, timing.priceSource, timing, 'armed');
         return;
       }
+      timing.quote = Date.now();
       // The screener's own realtime price wins when it is fresh: that is the
       // number the user just looked at before tapping.
       // F-59: the lookup tries EVERY identity the token answers to. Pulse
@@ -7181,15 +7242,24 @@
         if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
         data.priceSource = 'row-feed';
       }
+      timing.priceSource = data.priceSource;
 
       // D-40: the commit core is shared with the armed flush — one extractor,
       // identical guard/engine/attestation/rail behaviour on both paths.
-      await fillRowBuy(address, data, amount, rowBuyToken);
+      rowBuyTimingState = timing;
+      try {
+        await fillRowBuy(address, data, amount, rowBuyToken);
+      } finally {
+        rowBuyTimingState = null;
+      }
     } catch (err) {
+      outcome = 'error';
       toast(err.message || 'Row buy failed');
     } finally {
       releaseRowBuyLatch(rowBuyToken);
       if (button) button.classList.remove('busy');
+      rowBuyTiming(t0, timing.priceSource, timing, outcome);
+      scheduleRowBuyDrain();
     }
   }
 
@@ -9160,6 +9230,7 @@
         rowBuyInFlight = false;
         rowBuyInFlightAt = 0;
         toast('A stuck row buy was released — try again');
+        scheduleRowBuyDrain();
       }
       if (buyInFlight && buyInFlightAt && Date.now() - buyInFlightAt > LATCH_MAX_AGE_MS) {
         buyInFlight = false;

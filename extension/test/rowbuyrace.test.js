@@ -23,6 +23,11 @@ const PAIR = 'P'.repeat(32);
 
 function bootRace(options = {}) {
   let clock = Date.now();
+  const debugLines = [];
+  const testConsole = {
+    ...console,
+    debug(...args) { debugLines.push(args.join(' ')); },
+  };
   class HarnessDate extends Date {
     constructor(...args) { super(...(args.length ? args : [clock])); }
     static now() { return clock; }
@@ -269,7 +274,7 @@ function bootRace(options = {}) {
     document,
     location: win.location,
     chrome,
-    console,
+    console: testConsole,
     URL,
     URLSearchParams,
     Promise,
@@ -334,6 +339,8 @@ function bootRace(options = {}) {
     getRowBuyInFlightAt: () => rowBuyInFlightAt,
     getRowBuyOwner: () => rowBuyOwner,
     getRowArmedFlushTimer: () => rowArmedFlushTimer,
+    getRowBuyQueue: () => rowBuyQueue.slice(),
+    drainRowBuyQueue,
     getRecentRowPrice: (mint) => recentRowPrices.get(mint) || null,
   };
 `
@@ -379,6 +386,7 @@ function bootRace(options = {}) {
       releaseSolUsd(100);
     },
     messages,
+    debugLines,
     now: () => clock,
     setNow(next) { clock = next; },
     advance,
@@ -738,6 +746,113 @@ test('a fresh row tick with a hung SOL/USD lookup falls through to the resolver'
   );
   assert.equal(harness.getState().journal.length, 1, 'the timed-out tap still fills');
   assert.equal(harness.getRowBuyInFlight(), false, 'the row-buy latch is released');
+});
+
+test('a second tap queues and fills at its own captured quote', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  const second = harness.doRowBuy(B, null, {
+    mint: B, priceSol: 0.000064, priceUsd: 0.0064,
+  });
+  await Promise.resolve();
+  assert.equal(harness.getRowBuyQueue().length, 1);
+  race.releasePairIdentity();
+  race.releaseB();
+  await first;
+  for (let i = 0; i < 4; i++) await race.advance(1);
+  await second;
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.deepEqual(
+    Array.from(harness.getState().journal, (trade) => trade.mint),
+    [B, B],
+  );
+  assert.equal(harness.getState().journal[0].priceNative, 0.000064);
+  assert.equal(harness.getState().journal[1].priceNative, 0.000032);
+  assert.equal(race.debugLines.filter((line) => line.includes('row-buy')).length, 2);
+});
+
+test('the row-buy queue holds three taps and refuses the fifth tap', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  for (const [mint, price] of [[B, 0.000064], [C, 0.000096], [A, 0.000128], [B, 0.00016]]) {
+    harness.doRowBuy(mint, null, { mint, priceSol: price, priceUsd: price * 100 });
+  }
+  assert.equal(harness.getRowBuyQueue().length, 3);
+  race.releasePairIdentity();
+  race.releaseB();
+  race.releaseC();
+  await first;
+  for (let i = 0; i < 12; i++) await race.advance(1);
+  await waitFor(() => harness.getState().journal.length === 4);
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.ok(race.debugLines.some((line) => line.includes('outcome=refused')));
+});
+
+test('an expired queued tap is reported and the queue continues', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  await race.advance(4999);
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000096, priceUsd: 0.0096 });
+  race.setNow(race.now() + 2);
+  race.releasePairIdentity();
+  race.releaseB();
+  race.releaseC();
+  await first;
+  harness.drainRowBuyQueue();
+  for (let i = 0; i < 8; i++) await race.advance(1);
+  await waitFor(() => harness.getState().journal.length === 2);
+  assert.deepEqual(
+    Array.from(harness.getState().journal, (trade) => trade.mint),
+    [C, B],
+  );
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.ok(race.debugLines.some((line) => line.includes('outcome=expired')));
+});
+
+test('a drain attempt while the latch is held leaves the queued tap intact', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  harness.drainRowBuyQueue();
+  assert.equal(harness.getRowBuyQueue().length, 1);
+  race.releasePairIdentity();
+  race.releaseB();
+  await first;
+  for (let i = 0; i < 4; i++) await race.advance(1);
+  await waitFor(() => harness.getState().journal.length === 2);
+});
+
+test('the stuck-latch watchdog releases and drains a queued tap', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  race.setHoldStateRead(true);
+  race.releasePairIdentity();
+  await waitFor(() => race.isStateReadRequested());
+  const startedAt = harness.getRowBuyInFlightAt();
+  race.setNow(startedAt + 20_001);
+  harness.doRowBuy(B, null, { mint: B, priceSol: 0.000064, priceUsd: 0.0064 });
+  await harness.enableOverlay();
+  await race.advance(1001);
+  assert.ok(harness.getRowBuyOwner() > 1);
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  race.releaseStateRead();
+  race.releaseB();
+  await first;
+  for (let i = 0; i < 4; i++) await race.advance(1);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(harness.getState().journal[0].mint, B);
+  assert.equal(harness.getRowBuyQueue().length, 0);
 });
 
 test('a row-props quote fills at the tapped price without resolver or identity lookup', async () => {
