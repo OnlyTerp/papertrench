@@ -7096,7 +7096,7 @@
     const t0 = fromQueue ? queuedAt : Date.now();
     const amount = fromQueue ? queueOptions.amount : (settings.presetsBuy || [0.1])[0];
     if (rowBuyInFlight || (!fromQueue && rowBuyQueue.length)) {
-      if (rowBuyQueue.length >= ROW_BUY_QUEUE_MAX) {
+      if (!fromQueue && rowBuyQueue.length >= ROW_BUY_QUEUE_MAX) {
         toast('Row buy queue full — tap again after current buys finish');
         rowBuyTiming(t0, 'queue', {}, 'refused');
         return;

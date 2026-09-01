@@ -833,6 +833,37 @@ test('disabling the overlay clears queued taps without stranding them', async ()
   assert.equal(race.isBIdentityRequested(), false);
 });
 
+test('a drained tap survives a full queue when the latch is retaken', async () => {
+  const race = bootRace({ holdPairIdentity: true });
+  const { harness } = race;
+  const first = harness.doRowBuy(PAIR, null, { pair: PAIR, priceSol: 0.000032 });
+  await waitFor(() => race.isPairIdentityRequested());
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000064, priceUsd: 0.0064 });
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000064, priceUsd: 0.0064 });
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000064, priceUsd: 0.0064 });
+  assert.equal(harness.getRowBuyQueue().length, 3);
+
+  // This models an already-accepted entry whose drain was interrupted after
+  // a fresh tap filled the queue back to its cap.
+  harness.doRowBuy(C, null, { mint: C, priceSol: 0.000064, priceUsd: 0.0064 }, {
+    queuedAt: race.now(),
+    amount: 0.1,
+  });
+  assert.deepEqual(
+    Array.from(harness.getRowBuyQueue(), (entry) => entry.address),
+    [C, C, C, C],
+  );
+
+  race.releasePairIdentity();
+  race.releaseB();
+  race.releaseC();
+  await first;
+  for (let i = 0; i < 16; i++) await race.advance(1);
+  await waitFor(() => harness.getState().journal.length === 5);
+  assert.equal(harness.getRowBuyQueue().length, 0);
+  assert.ok(!race.debugLines.some((line) => line.includes('outcome=refused')));
+});
+
 test('the row-buy queue holds three taps and refuses the fifth tap', async () => {
   const race = bootRace({ holdPairIdentity: true });
   const { harness } = race;
