@@ -181,6 +181,7 @@ function bootRace(options = {}) {
     }
     if (payload.type === 'pt_sol_usd') {
       solUsdRequested = true;
+      if (options.solUsdFails) return Promise.reject(new Error('rate unavailable'));
       return solUsdPending ? solUsd : Promise.resolve(100);
     }
     if (payload.type === 'pt_state_commit') return Promise.resolve({ ok: true });
@@ -550,24 +551,76 @@ test('a row-props quote fills at the tapped price without resolver or identity l
   assert.equal(harness.getState().journal[0].priceNative, 0.000032);
 });
 
-test('an invalid row-props identity is refused instead of filling or arming', async () => {
+test('row-props validation has its own exact address check', () => {
+  assert.match(CONTENT, /const ROW_ADDR_RE = \/\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\//);
+  assert.match(CONTENT, /const ROW_ADDR_EXACT_RE = \/\^\[1-9A-HJ-NP-Za-km-z\]\{32,44\}\$\//);
+});
+
+test('an invalid row-props identity falls back to the resolver', async () => {
   const race = bootRace();
   const { harness } = race;
 
-  await harness.doRowBuy(B, null, {
+  const buy = harness.doRowBuy(B, null, {
     mint: A,
     pair: PAIR,
     priceSol: 1,
     priceUsd: 100,
     mcapUsd: 100_000,
   });
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
 
-  assert.equal(harness.getState().journal.length, 0, 'a foreign row quote cannot fill');
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B],
+    'a foreign row quote falls back to the tapped address');
   assert.equal(harness.getRowArmed(), null, 'a foreign row quote cannot arm');
   assert.equal(
     race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'a rejected row quote uses the resolver cascade',
+  );
+});
+
+test('an inconsistent row-props SOL/USD rate falls back to the resolver', async () => {
+  const race = bootRace();
+  const { harness } = race;
+
+  const buy = harness.doRowBuy(B, null, {
+    mint: B,
+    priceSol: 1,
+    priceUsd: 1000,
+  });
+  await waitFor(() => race.isBIdentityRequested());
+  race.releaseB();
+  await buy;
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getState().journal[0].priceNative, 1);
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
+    1,
+    'an inconsistent row quote is discarded before the resolver cascade',
+  );
+  assert.equal(harness.getRowArmed(), null);
+});
+
+test('a coherent row-props quote survives when SOL/USD lookup fails', async () => {
+  const race = bootRace({ solUsdFails: true });
+  const { harness } = race;
+
+  await harness.doRowBuy(PAIR, null, {
+    mint: B,
+    pair: PAIR,
+    priceSol: 0.000032,
+    priceUsd: 0.0032,
+  });
+
+  assert.deepEqual(Array.from(harness.getState().journal, (trade) => trade.mint), [B]);
+  assert.equal(harness.getState().journal[0].priceNative, 0.000032);
+  assert.equal(
+    race.messages.filter((message) => message.type === 'pt_resolve').length,
     0,
-    'a rejected row quote must not fall through to a different price source',
+    'an unavailable SOL/USD rate does not force the resolver cascade',
   );
 });
 

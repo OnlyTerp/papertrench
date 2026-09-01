@@ -3603,19 +3603,26 @@
         }
         return fields;
       };
-      const walk = (obj, depth, inheritedPrices) => {
+      const walk = (obj, depth) => {
         if (!obj || typeof obj !== 'object' || depth > 3) return;
         const own = fieldsFor(obj) || {};
         const hasIdentity = own.tokenAddress || own.mint || own.pairAddress;
-        const fields = hasIdentity ? { ...inheritedPrices, ...own } : own;
-        const hasPrice = [...priceKeys].some((name) => fields[name] !== undefined);
-        if (hasIdentity && hasPrice) candidates.push(fields);
-        const childPrices = hasIdentity ? {} : { ...inheritedPrices };
-        for (const name of [...priceKeys, 'supply']) {
-          if (own[name] !== undefined) childPrices[name] = own[name];
+        const hasPrice = [...priceKeys].some((name) => own[name] !== undefined);
+        if (hasIdentity && hasPrice) candidates.push(own);
+        const hasUsdPrice = own.tokenPriceUsd !== undefined
+          || own.priceUsd !== undefined
+          || own.marketCapUsd !== undefined;
+        if (!hasIdentity && hasUsdPrice) {
+          for (const value of Object.values(obj)) {
+            const nested = fieldsFor(value);
+            if (nested && nested.tokenAddress) {
+              candidates.push({ tokenAddress: nested.tokenAddress, ...own });
+              break;
+            }
+          }
         }
         for (const value of Object.values(obj)) {
-          if (value && typeof value === 'object') walk(value, depth + 1, childPrices);
+          if (value && typeof value === 'object') walk(value, depth + 1);
         }
       };
       let steps = 0;
@@ -3623,8 +3630,8 @@
         const fiber = stack.pop();
         if (!fiber || seen.has(fiber)) continue;
         seen.add(fiber);
-        walk(fiber.memoizedProps, 0, {});
-        walk(fiber.memoizedState, 0, {});
+        walk(fiber.memoizedProps, 0);
+        walk(fiber.memoizedState, 0);
         if (fiber.child) stack.push(fiber.child);
         if (fiber.sibling) stack.push(fiber.sibling);
       }

@@ -6568,7 +6568,8 @@
    * exactly like the site's own quick buy moves you to the position.
    */
 
-  const ROW_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  const ROW_ADDR_RE = /[1-9A-HJ-NP-Za-km-z]{32,44}/;
+  const ROW_ADDR_EXACT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
   // Newest USD price per mint from the site's OWN realtime feed (GMGN's
   // token_activity ticks carry a mint). A row buy prefers this over a
   // network quote because the screener is showing that very price.
@@ -6662,16 +6663,22 @@
     };
   }
 
-  function validRowPropsQuote(quote, address) {
-    if (!quote || typeof quote !== 'object' || !ROW_ADDR_RE.test(address || '')) return false;
+  async function validRowPropsQuote(quote, address) {
+    if (!quote || typeof quote !== 'object' || !ROW_ADDR_EXACT_RE.test(address || '')) return false;
     const mint = quote.mint || null;
     const pair = quote.pair || null;
-    if ((mint && !ROW_ADDR_RE.test(mint)) || (pair && !ROW_ADDR_RE.test(pair))) return false;
+    if ((mint && !ROW_ADDR_EXACT_RE.test(mint)) || (pair && !ROW_ADDR_EXACT_RE.test(pair))) return false;
     if ((!mint && !pair) || (mint !== address && pair !== address)) return false;
     if (!(Number.isFinite(Number(quote.priceSol)) && Number(quote.priceSol) > 0)) return false;
     for (const name of ['priceUsd', 'mcapUsd', 'supply']) {
       if (quote[name] != null
         && !(Number.isFinite(Number(quote[name])) && Number(quote[name]) > 0)) return false;
+    }
+    if (quote.priceUsd != null) {
+      const implied = Number(quote.priceUsd) / Number(quote.priceSol);
+      const rate = await R.solUsd().catch(() => 0);
+      if (rate > 0 && (!(implied > 0)
+        || Math.max(implied / rate, rate / implied) > 1.25)) return false;
     }
     return true;
   }
@@ -7014,11 +7021,7 @@
       // nothing below may block this function's finally forever.
       const ROW_CASCADE_TIMEOUT_MS = 10_000;
       let data = null;
-      if (rowQuote) {
-        if (!validRowPropsQuote(rowQuote, address)) {
-          toast('Row price identity could not be confirmed — paper buy refused');
-          return;
-        }
+      if (rowQuote && await validRowPropsQuote(rowQuote, address)) {
         data = {
           mint: rowQuote.mint || address,
           pairAddress: rowQuote.pair || null,

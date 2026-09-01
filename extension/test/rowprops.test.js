@@ -100,6 +100,18 @@ test('a richer neighboring fiber cannot replace the tapped row record', () => {
   assert.equal(quote.priceUsd, null);
 });
 
+test('a parent price is not inherited by a descendant identity record', () => {
+  const row = makeRow({
+    priceSol: 9,
+    child: { tokenAddress: A, pairAddress: PAIR },
+  });
+  assert.equal(
+    quoteExtractor()(row, A),
+    null,
+    'identity and price must come from the same coherent record',
+  );
+});
+
 test('unitless prices and percentage changes never become row quotes', () => {
   const extract = quoteExtractor();
   assert.equal(extract(makeRow({
