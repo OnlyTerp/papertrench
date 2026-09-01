@@ -486,8 +486,14 @@ test('armed row intents use a bounded selective service-worker mirror', () => {
     'the service-worker mirror evicts the oldest entry');
   assert.match(bg, /function clearArmedRowIntent\(address\)/,
     'mirror clear accepts an optional address');
+  assert.match(bg, /let armedRowChain = Promise\.resolve\(\)/,
+    'mirror updates serialize through one chain');
+  assert.match(bg, /function readArmedRowList\(\)/,
+    'mirror reads expose controlled success state');
   assert.match(content, /type: 'pt_armed_row_clear',\s*\n\s*address: intent\.address/,
     'chart adoption clears only the matching intent');
+  assert.match(content, /&& Date\.now\(\) - candidate\.at <= ARMED_ROW_TTL_MS/,
+    'chart adoption ignores expired candidates before selecting one');
 });
 
 test('an armed row snipe keeps probing until filled or expired (D-42 Bug 4)', () => {

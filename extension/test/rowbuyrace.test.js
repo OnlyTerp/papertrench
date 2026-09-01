@@ -353,6 +353,7 @@ function bootRace(options = {}) {
     drainRowBuyQueue,
     disableOverlay,
     setPresetBuy: (amount) => { settings.presetsBuy = [amount]; },
+    setSettings: (patch) => { Object.assign(settings, patch); },
     getRecentRowPrice: (mint) => recentRowPrices.get(mint) || null,
   };
 `
@@ -1263,6 +1264,28 @@ test('an inconsistent row-props SOL/USD rate falls back to the resolver', async 
     'an inconsistent row quote is discarded before the resolver cascade',
   );
   assert.equal(harness.getRowArmed(), null);
+});
+
+test('a direct row-buy refusal reports refused rather than done', async () => {
+  const race = bootRace();
+  const { harness } = race;
+  harness.setSettings({ guardMaxPositionPct: 100 });
+
+  const buy = harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  harness.setSettings({ guardMaxPositionPct: 0.01 });
+  race.releaseB();
+  await buy;
+
+  assert.equal(harness.getState().journal.length, 0);
+  assert.equal(
+    race.debugLines.filter((line) => line.includes('outcome=refused')).length,
+    1,
+  );
+  assert.equal(
+    race.debugLines.filter((line) => line.includes('outcome=done')).length,
+    0,
+  );
 });
 
 test('a coherent row-props quote survives when SOL/USD lookup fails', async () => {

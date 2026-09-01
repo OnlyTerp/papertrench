@@ -1178,27 +1178,26 @@
           : (mirrored && mirrored.address ? [mirrored] : []);
         const intent = intents.find((candidate) => candidate && candidate.address
           && candidate.amount > 0
+          && Date.now() - candidate.at <= ARMED_ROW_TTL_MS
           && (candidate.address === data.mint
             || candidate.address === data.pairAddress
             || candidate.address === data.srcAddress));
         if (intent) {
-          if (Date.now() - intent.at <= ARMED_ROW_TTL_MS) {
-            if (!armedBuy) {
-              armedBuy = {
-                amount: intent.amount, usd: null, at: intent.at,
-                mint: data.mint, fromClick: true,
-                adoptedFromRow: true,
-              };
-              renderBuyButton();
-              flushArmedBuy();
-            }
-            // Consumed either way: an intent the chart adopts is never
-            // re-fillable by the (likely dead) board context.
-            sendMessage({
-              type: 'pt_armed_row_clear',
-              address: intent.address,
-            }).catch(() => {});
+          if (!armedBuy) {
+            armedBuy = {
+              amount: intent.amount, usd: null, at: intent.at,
+              mint: data.mint, fromClick: true,
+              adoptedFromRow: true,
+            };
+            renderBuyButton();
+            flushArmedBuy();
           }
+          // Consumed either way: an intent the chart adopts is never
+          // re-fillable by the (likely dead) board context.
+          sendMessage({
+            type: 'pt_armed_row_clear',
+            address: intent.address,
+          }).catch(() => {});
         }
       } catch (_) { /* adoption is an enhancement, never a landing risk */ }
       // The site publishes its live market cap in document.title, which changes
@@ -7350,7 +7349,8 @@
       // identical guard/engine/attestation/rail behaviour on both paths.
       rowBuyTimingState = timing;
       try {
-        await fillRowBuy(address, data, amount, rowBuyToken);
+        const result = await fillRowBuy(address, data, amount, rowBuyToken);
+        if (!result && !timing.outcome) outcome = 'refused';
       } finally {
         rowBuyTimingState = null;
       }
