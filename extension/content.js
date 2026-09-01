@@ -7213,7 +7213,7 @@
           }, 1500);
         }
         timing.priceSource = 'armed';
-        rowBuyTiming(t0, timing.priceSource, timing, 'armed');
+        outcome = 'armed';
         return;
       }
       timing.quote = Date.now();
