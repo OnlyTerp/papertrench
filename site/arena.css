@@ -124,6 +124,48 @@
 .ar-pane-head .spacer { margin-left: auto; }
 .ar-pane-head .glyph { color: var(--green); font-size: 15px; }
 
+/* ---------------------------------------------------- reference panes ---
+ *
+ * A pane that explains rather than shows. Every competitive page had several,
+ * open by default and stacked under the thing people came for: on /clans the
+ * two rule panes ran to 2,541 characters against 63 characters of actual
+ * board, and /duels carried 3,577 characters of documentation under four
+ * small tools. The pages were not missing information — they were burying the
+ * live part underneath it.
+ *
+ * So reference panes collapse. Nothing is deleted and every word stays on the
+ * page (this project explains itself for a reason, and a rule you cannot read
+ * is a rule you cannot check); it simply stops competing with the board.
+ *
+ * <details> rather than a JS toggle: keyboard- and screen-reader-operable for
+ * free, findable by the browser's own in-page search, deep-linkable, and it
+ * survives a re-render with no state to keep.
+ */
+details.ar-doc > summary {
+  cursor: pointer;
+  list-style: none;
+  /* Closed, the head IS the whole pane, so its divider would draw a line
+     under nothing. */
+  transition: border-color 0.15s linear;
+}
+details.ar-doc:not([open]) > summary { border-bottom-color: transparent; }
+details.ar-doc > summary::-webkit-details-marker { display: none; }
+details.ar-doc > summary::marker { content: ''; }
+details.ar-doc > summary:hover { background: rgba(255, 255, 255, 0.02); }
+details.ar-doc > summary:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+
+.ar-doc .doc-tag {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.ar-doc .doc-chev { flex: none; color: var(--dim); transition: transform 0.2s var(--ease, ease), color 0.2s linear; }
+details.ar-doc[open] .doc-chev { transform: rotate(180deg); color: var(--orange2); }
+
 /* ============================================================== hero ===== */
 
 .ar-hero { padding: 104px 0 22px; position: relative; overflow: hidden; }
