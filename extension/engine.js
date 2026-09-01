@@ -656,6 +656,8 @@
     // (the solNet pattern) — the attestation preimage is untouched.
     if (o.priceSource) trade.priceSource = String(o.priceSource);
     if (Number.isFinite(o.priceAgeMs)) trade.priceAgeMs = Math.max(0, Math.round(o.priceAgeMs));
+    if (o.supplySource) trade.supplySource = String(o.supplySource);
+    if (o.hostSupplyWitness) trade.hostSupplyWitness = o.hostSupplyWitness;
     state.journal.unshift(trade);
     pruneJournal(state);
     return { trade, position: pos };
@@ -745,6 +747,8 @@
     // F-48: price provenance — see buy().
     if (o.priceSource) trade.priceSource = String(o.priceSource);
     if (Number.isFinite(o.priceAgeMs)) trade.priceAgeMs = Math.max(0, Math.round(o.priceAgeMs));
+    if (o.supplySource) trade.supplySource = String(o.supplySource);
+    if (o.hostSupplyWitness) trade.hostSupplyWitness = o.hostSupplyWitness;
     state.journal.unshift(trade);
     pruneJournal(state);
 

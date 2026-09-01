@@ -206,6 +206,7 @@
    * the instant it is thrown, not five minutes later.
    */
   let feedWanted = true;
+  let factsWanted = true;
 
   function feedActive() {
     return feedWanted && Date.now() - lastContentMessageAt <= CONTENT_SILENCE_LIMIT_MS;
@@ -251,7 +252,15 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
+  // Historical snapshots are not the live market. On Padre, pump.fun's
+  // `callouts[0].marketCap` put $204.53M in the header while BONK's live cap
+  // was about $263M (captured defect), so these subtrees must not feed
+  // prices, caps, or host-facts arithmetic.
+  const HISTORICAL_SUBTREE_KEY = /^(callouts?|history|historical|snapshots?|previous|prev|ath|candles?|bars?|ohlc|past)$/i;
   const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
+  const SUPPLY_KEY = /^(supply|totalSupply|circulatingSupply|tokenSupply)$/i;
+  const DECIMALS_KEY = /^decimals$/i;
+  const POOL_KEY = /^(pairAddress|poolAddress|lpAddress|pool|pairId)$/i;
   // A record that IS a trade event — an id-carrying or user-attributed
   // swap/trade object (fomo's social feed, tx-hash trade tapes). Its price
   // and cap fields describe the moment that trade happened, minutes to
@@ -320,6 +329,7 @@
     // in `top` (frames with no identifier at all), which downstream
     // anchor-banding still validates before use.
     const records = new Map();
+    const factSnapshots = factsWanted ? [] : null;
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
@@ -327,7 +337,10 @@
     const recordFor = (mint) => {
       let rec = records.get(mint);
       if (!rec) {
-        rec = { candidates: [], mcap: null, mint, symbol: null, name: null };
+        rec = {
+          candidates: [], mcap: null, mint, symbol: null, name: null,
+          supply: null, decimals: null, poolAddress: null, addresses: [],
+        };
         records.set(mint, rec);
       }
       return rec;
@@ -350,6 +363,7 @@
         && (looksLikeTradeEvent(node) || looksLikePositionRecord(node))) tainted = true;
 
       let target = ctx;
+      let nodeSnapshot = null;
       if (!Array.isArray(node)) {
         let bestRank = 0;
         let bestMint = null;
@@ -358,7 +372,28 @@
           const rank = mintKeyRank(key);
           if (rank > bestRank) { bestRank = rank; bestMint = value; }
         }
-        if (bestMint) target = recordFor(bestMint);
+        if (bestMint) {
+          target = recordFor(bestMint);
+          const addresses = new Set(target.addresses);
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              addresses.add(value);
+            }
+          }
+          target.addresses = Array.from(addresses);
+        }
+        if (factsWanted && !Array.isArray(node) && target) {
+          nodeSnapshot = {
+            candidates: [], mcap: null, mint: target.mint, symbol: null, name: null,
+            supply: null, decimals: null, poolAddress: null, addresses: [],
+          };
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              nodeSnapshot.addresses.push(value);
+            }
+          }
+          factSnapshots.push(nodeSnapshot);
+        }
       }
 
       const entries = Array.isArray(node)
@@ -372,7 +407,8 @@
           // USER, not the market: entry averages and cost bases inside it
           // must never tick the price (DEFECT F-30). Identity fields still
           // flow; prices and caps do not.
-          walk(value, depth + 1, target, tainted || POSITION_SUBTREE_KEY.test(key));
+          walk(value, depth + 1, target,
+            tainted || POSITION_SUBTREE_KEY.test(key) || HISTORICAL_SUBTREE_KEY.test(key));
           continue;
         }
         const rec = target || top;
@@ -381,19 +417,43 @@
           if (n > 0) {
             const unit = USD_HINT.test(key) ? 'usd' : NATIVE_HINT.test(key) ? 'native' : 'unknown';
             pushCandidate(rec, { value: n, unit, key });
+            if (nodeSnapshot) nodeSnapshot.candidates.push({ value: n, unit, key });
           }
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
+          if (!tainted && n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
+            nodeSnapshot.mcap = n;
+          }
+        } else if (!tainted && SUPPLY_KEY.test(key)) {
+          const n = numberValue(value);
+          if (n > 0 && rec.supply === null) rec.supply = n;
+          if (n > 0 && nodeSnapshot && nodeSnapshot.supply === null) {
+            nodeSnapshot.supply = n;
+          }
+        } else if (DECIMALS_KEY.test(key)) {
+          const n = numberValue(value);
+          if (Number.isInteger(n) && n >= 0 && n <= 18 && rec.decimals === null) {
+            rec.decimals = n;
+          }
+          if (Number.isInteger(n) && n >= 0 && n <= 18
+            && nodeSnapshot && nodeSnapshot.decimals === null) {
+            nodeSnapshot.decimals = n;
+          }
+        } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
+          if (!rec.poolAddress) rec.poolAddress = value;
+          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = value;
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
+          if (nodeSnapshot && !nodeSnapshot.symbol) nodeSnapshot.symbol = value;
         } else if (NAME_KEY.test(key) && typeof value === 'string' && value.length <= 64) {
           rec.name = rec.name || value;
+          if (nodeSnapshot && !nodeSnapshot.name) nodeSnapshot.name = value;
         }
       }
     })(obj, 0, null, false);
 
-    return { records, top };
+    return { records, top, factSnapshots };
   }
 
   // GMGN's realtime WebSocket publishes every venue trade on the
@@ -532,8 +592,50 @@
       }
     }
 
-    const { records, top } = collect(parsed);
+    const { records, top, factSnapshots } = collect(parsed);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
+    const emitFacts = () => {
+      if (!factsWanted) return;
+      let emitted = 0;
+      const canEmit = (rec) => {
+        if (!rec) return false;
+        const hasDifferentAddress = rec.mint
+          && rec.addresses.some((address) => address !== rec.mint);
+        return hasDifferentAddress || rec.supply !== null
+          || rec.decimals !== null || rec.poolAddress;
+      };
+      const watched = factSnapshots.find((candidate) => canEmit(candidate)
+        && ((currentSymbolInfo.mint && candidate.mint === currentSymbolInfo.mint)
+        || (currentSymbolInfo.pairAddress && candidate.mint === currentSymbolInfo.pairAddress)
+        || (currentSymbolInfo.pairAddress
+          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1)));
+      const emitRecord = (rec) => {
+        if (!canEmit(rec)) return false;
+        const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
+        emit('facts', {
+          mint: rec.mint,
+          symbol: rec.symbol,
+          name: rec.name,
+          supply: rec.supply,
+          decimals: rec.decimals,
+          poolAddress: rec.poolAddress,
+          addresses: rec.addresses.slice(),
+          priceUsd: usdCandidate ? usdCandidate.value : null,
+          mcap: rec.mcap,
+          source,
+          url: url || null,
+        });
+        emitted++;
+        return true;
+      };
+      if (watched) emitRecord(watched);
+      for (const rec of factSnapshots) {
+        if (emitted >= 3) break;
+        if (rec !== watched) emitRecord(rec);
+      }
+    };
+    emitFacts();
+    let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
       // a bounded top-up so screener row chips keep their mint-tagged prices.
@@ -541,18 +643,27 @@
         || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
         || null;
       let emitted = 0;
-      if (watched && hasContent(watched)) { emit('tick', { ...watched, source }); emitted++; }
+      const emitTick = (rec) => emit('tick', {
+        candidates: rec.candidates,
+        mcap: rec.mcap,
+        mint: rec.mint,
+        symbol: rec.symbol,
+        name: rec.name,
+        source,
+      });
+      if (watched && hasContent(watched)) { emitTick(watched); emitted++; }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', { ...rec, source });
+        emitTick(rec);
       }
-      if (emitted) return;
+      emittedTick = emitted > 0;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
-    if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', { ...top, source });
+    if (!emittedTick && (top.candidates.length || top.mcap !== null)) {
+      emit('tick', { ...top, source });
+    }
   }
 
   /* ---------------- SPA navigation signal ----------------
@@ -2986,6 +3097,8 @@
     // chip scan is proof of a consumer regardless of message ordering.
     if (type === 'page-state') {
       feedWanted = Boolean(payload && payload.wantsTicks);
+      factsWanted = !payload || !Object.prototype.hasOwnProperty.call(payload, 'factsWanted')
+        ? true : Boolean(payload.factsWanted);
       return;
     }
     if (type === 'paper-axis' || type === 'row-scan') feedWanted = true;

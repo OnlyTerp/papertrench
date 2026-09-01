@@ -472,6 +472,7 @@
     if (event.origin && event.origin !== location.origin) return;
     const ev = event.data;
     if (ev.type === 'tick') { noteRowPrice(ev.payload); handlePageTick(ev.payload); }
+    else if (ev.type === 'facts') handleHostFacts(ev.payload);
     else if (ev.type === 'row-buy') {
       // A quick-buy chip injected by the MAIN-world bridge was tapped; the
       // fill pipeline itself lives here. The done-signal lets the bridge
@@ -549,6 +550,101 @@
     }
   }
   window.addEventListener('message', onBridgeMessage);
+
+  const hostSupplyRefusals = new Set();
+  const hostSupplyRefusalCounts = new Map();
+
+  function recordHostFactsDiagnostic(message, kind, details) {
+    const EL = window.PTErrors;
+    if (!EL || typeof EL.record !== 'function') return;
+    try {
+      EL.record(message, { scope: 'content', kind, ...(details || {}) });
+    } catch (_) { /* diagnostics must never affect the trading path */ }
+  }
+
+  function hostSupplyEvidenceKey(mint, facts) {
+    const keyPart = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toPrecision(12) : String(value);
+    };
+    return [
+      mint,
+      facts && facts.source,
+      keyPart(facts && facts.priceUsd),
+      keyPart(facts && facts.mcap),
+      keyPart(facts && facts.supply),
+      keyPart(facts && facts.decimals),
+    ].join('|');
+  }
+
+  function recordHostSupplyDiagnostic(mint, facts, message, kind, details) {
+    const key = hostSupplyEvidenceKey(mint, facts);
+    if (hostSupplyRefusals.has(key)) return;
+    const count = hostSupplyRefusalCounts.get(mint) || 0;
+    if (count >= 8) return;
+    hostSupplyRefusals.add(key);
+    hostSupplyRefusalCounts.set(mint, count + 1);
+    recordHostFactsDiagnostic(message, kind, {
+      source: facts && facts.source,
+      url: facts && facts.url,
+      values: facts ? {
+        priceUsd: facts.priceUsd, mcap: facts.mcap,
+        supply: facts.supply, decimals: facts.decimals,
+      } : null,
+      ...(details || {}),
+    });
+  }
+
+  function refuseHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts, 'refused host supply for ' + mint
+      + ' (no supply reading agreed with mcap/priceUsd within 1%)',
+    'host-facts-supply-refused');
+  }
+
+  function noteUncorroboratedHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts,
+      'host supply for ' + mint + ' lacks corroborating USD price and live market cap',
+      'host-facts-supply-uncorroborated', {
+        missing: {
+          priceUsd: !(Number(facts && facts.priceUsd) > 0),
+          mcap: !(Number(facts && facts.mcap) > 0),
+        },
+      });
+  }
+
+  function handleHostFacts(facts) {
+    if (!facts || !token || !token.pending) return;
+    const decision = Q.hostFactsDecision(token, facts);
+    if (decision.adoptMint) {
+      const oldMint = token.mint;
+      if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = decision.adoptMint;
+      rekeyLiveState(oldMint, decision.adoptMint);
+      token.mint = decision.adoptMint;
+      token.pairAddress = decision.poolAddress || token.pairAddress || null;
+      sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
+    }
+    if (decision.refused) {
+      refuseHostSupply(token.mint, facts);
+      return;
+    }
+    if (decision.reason === 'no-united-price') {
+      noteUncorroboratedHostSupply(token.mint, facts);
+      return;
+    }
+    if (!(decision.supplyUi > 0)) return;
+    token.hostSupplyUi = decision.supplyUi;
+    token.hostSupplyWitness = {
+      source: facts.source || null,
+      url: facts.url || null,
+      keys: {
+        priceUsd: facts.priceUsd,
+        mcap: facts.mcap,
+        supply: facts.supply,
+        decimals: facts.decimals,
+      },
+      atMs: Date.now(),
+    };
+  }
 
   function sendPadreMarker(type, payload) {
     window.postMessage({ source: 'papertrench-content', type, payload: payload || null }, '*');
@@ -751,6 +847,13 @@
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
     token.priceSource = payload.source || 'page-feed';
+    if (verdict.supplyBasis === 'host') {
+      token.hostSupplySource = 'site-facts';
+      token.hostSupplyFillWitness = token.hostSupplyWitness
+        ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
+    } else if (verdict.supplyBasis) {
+      clearHostSupplyLineage();
+    }
     // Market evidence for the fill witness (F-47): only prices the validator
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
@@ -971,6 +1074,7 @@
           sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
         }
         if (Number(found.supplyUi) > 0) {
+          reconcileHostSupply(found.supplyUi);
           token.supplyUi = Number(found.supplyUi);
           token.decimals = Number(found.decimals);
         }
@@ -992,11 +1096,15 @@
       // coin would price mcap ticks against a supply nobody measured.
       token.pumpCurve = found.poolKind === 'pump-curve';
       onchainLive = true;
+      if (Number(found.supplyUi) > 0) {
+        reconcileHostSupply(found.supplyUi);
+      }
       renderSiteStatus();
       refreshRugVerdict(found.mint);
       // Re-anchor the bridge with the full identity so chart ticks match.
       sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
       if (Number(found.priceNative) > 0) {
+        clearHostSupplyLineage();
         handlePageTick({
           mint: found.mint,
           source: 'onchain-prewatch',
@@ -1285,6 +1393,42 @@
     for (const standIn of stranded) rekeyLiveState(standIn, tokenRecord.mint);
   }
 
+  function reconcileHostSupply(measuredSupplyUi) {
+    if (!token || !(Number(token.hostSupplyUi) > 0)) return;
+    const measured = Number(measuredSupplyUi);
+    const host = Number(token.hostSupplyUi);
+    if (!(measured > 0) || !Number.isFinite(measured)) return;
+    if (Math.abs(measured - host) / host <= 0.02) {
+      token.hostSupplyUi = null;
+      token.hostSupplyWitness = null;
+      token.hostSupplySource = null;
+      token.hostSupplyFillWitness = null;
+      return;
+    }
+    token.hostSupplyUi = null;
+    token.hostSupplyWitness = null;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
+    token.hostSupplyRejected = true;
+    const pos = state.positions && state.positions[token.mint];
+    if (pos) {
+      pos.hostSupplyDiscrepancy = true;
+      persistSoon();
+    }
+    recordHostFactsDiagnostic('host supply disagrees with measured supply',
+      'host-facts-supply-mismatch', {
+      mint: token.mint,
+      hostSupplyUi: host,
+      measuredSupplyUi: measured,
+    });
+  }
+
+  function clearHostSupplyLineage() {
+    if (!token) return;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
+  }
+
   const attemptedStandInProbes = new Set();
 
   async function probeStandInPosition(standIn) {
@@ -1350,8 +1494,16 @@
     // Per-token feed counters must not leak across a token switch: stale mcap
     // activity could hold a NEW token's armed buy alive (F-16), and stale
     // out-of-band tallies could trigger a premature re-anchor (F-10).
-    if (!data || data.mint !== prevMint) { lastMcapTickAt = 0; oobRejects = 0; }
+    if (!data || data.mint !== prevMint) {
+      lastMcapTickAt = 0;
+      oobRejects = 0;
+      hostSupplyRefusals.clear();
+      hostSupplyRefusalCounts.clear();
+    }
     token = data;
+    // Resolver adoption is an independent price basis. Do not carry a
+    // host-derived fill label onto the newly resolved token record.
+    if (token && Number(token.priceNative) > 0) clearHostSupplyLineage();
     // Keep a separate resolver anchor for validation. This is the price we
     // trust until a newer resolver quote or a first on-chain observation
     // confirms the live level. Live chart ticks validate against this, so one
@@ -1456,14 +1608,17 @@
    * Sent only on change; the bridge's boot default is "wanted", so a missed
    * first message costs correctness nothing (it merely parses as before). */
   let lastWantsTicks = null;
+  let lastFactsWanted = null;
   function publishPageState() {
     const chipPage = Boolean(site && site.rowBuy
       && settings.listQuickBuyEnabled !== false
       && site.rowBuy.listPaths.test(location.pathname));
     const wants = Boolean(token) || chipPage;
-    if (wants === lastWantsTicks) return;
+    const facts = Boolean(token && token.pending);
+    if (wants === lastWantsTicks && facts === lastFactsWanted) return;
     lastWantsTicks = wants;
-    sendPadreMarker('page-state', { wantsTicks: wants });
+    lastFactsWanted = facts;
+    sendPadreMarker('page-state', { wantsTicks: wants, factsWanted: facts });
   }
 
   /**
@@ -1613,6 +1768,7 @@
         return;
       }
 
+      clearHostSupplyLineage();
       token.priceNative = fresh.priceNative;
       if (fresh.priceUsd) token.priceUsd = fresh.priceUsd;
       if (fresh.mcap) token.mcap = fresh.mcap;
@@ -1942,7 +2098,23 @@
       mcap: Number(token.mcap) > 0 ? Number(token.mcap) : null,
       source: token.priceSource || 'unknown',
       receivedAt: lastPriceAt,
+      supplySource: token.hostSupplySource || null,
+      hostSupplyWitness: token.hostSupplyFillWitness || null,
     };
+  }
+
+  function refuseDisprovedHostFill(fillQuote) {
+    lastQuoteRefusal = 'Host supply disagreed with measured supply'
+      + ' — paper fill refused. Try again in a moment.';
+    recordHostFactsDiagnostic('paper fill refused after host supply discrepancy',
+      'host-facts-fill-refused', {
+        mint: fillQuote && fillQuote.mint,
+        source: fillQuote && fillQuote.supplySource,
+      });
+    console.debug('PaperTrench: fill witness refused', {
+      reason: 'host supply disagreed with measured supply',
+      mint: fillQuote && fillQuote.mint,
+    });
   }
 
   function waitForNewPageQuote(afterSeq, timeoutMs) {
@@ -3183,6 +3355,10 @@
       if (token.srcAddress !== token.mint && token.pairAddress && token.pairAddress !== freshMint) return null;
       token.mint = freshMint;
     }
+    if (data.priceSource === 'resolver' || data.priceSource === 'chain'
+      || data.priceSource === 'row-onchain') {
+      clearHostSupplyLineage();
+    }
     token.priceNative = Number(data.priceNative);
     if (data.priceUsd) token.priceUsd = Number(data.priceUsd);
     if (data.mcap) token.mcap = Number(data.mcap);
@@ -3318,6 +3494,11 @@
         let filled = null;
         const mutate = () => {
           if (!token || token.mint !== fillQuote.mint) throw new Error('Token changed before the paper buy could be filled');
+          if (fillQuote.supplySource === 'site-facts' && token.hostSupplyRejected) {
+            refuseDisprovedHostFill(fillQuote);
+            filled = null;
+            return;
+          }
           const hadPosition = Boolean(state.positions[token.mint]);
           filled = E.buy(state, settings, {
             ts: Date.now(), mint: token.mint, pairAddress: token.pairAddress,
@@ -3329,6 +3510,8 @@
             // report into a journal lookup instead of a screenshot forensic.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
             chain: token.chain || 'solana',
             solAmount,
             // The dollar amount the trader actually tapped on a foreign-chain
@@ -3346,7 +3529,9 @@
           drawnFillIds.add(filled.trade.id);
         };
         mutate();
+        if (!filled) return null;
         await persistStateNow(mutate);
+        if (!filled) return null;
         const { trade, position, opened } = filled;
         // The evidence chain is appended AFTER the wallet commit: a chained
         // link for a fill the CAS could still reject would be a permanent
@@ -3370,6 +3555,9 @@
         return { trade, position, opened };
       });
       const tCommitted = perfNow();
+      if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
+        toast(lastQuoteRefusal);
+      }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
         lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
@@ -3566,6 +3754,8 @@
             // F-48: fill price provenance — see doBuy.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
           });
           // F-41: claimed before the journal can be observed (see doBuy).
           drawnFillIds.add(filled.trade.id);
@@ -7683,6 +7873,9 @@
     // Armed levels change from the chart (a drag, a cancel) and from the
     // wallet (an order firing), neither of which rebuilds the card.
     renderOrderList();
+    posEls.pnl.title = pos.hostSupplyDiscrepancy
+      ? 'Warning: entry price and P&L use a host supply that disagreed with measured supply.'
+      : '';
 
     const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
     if (!mark) return;
@@ -7806,6 +7999,7 @@
     posEls.entry.textContent = DASH;
     posEls.value.textContent = DASH;
     posEls.pnl.textContent = DASH;
+    posEls.pnl.title = '';
     posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
 
     if (posEls.ledger) {
