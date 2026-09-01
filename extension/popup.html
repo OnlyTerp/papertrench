@@ -198,8 +198,28 @@
     line-height: 1.45;
   }
   .update-banner .upd-ico { font-size: 15px; line-height: 1.2; }
-  .update-banner .upd-txt { flex: 1; min-width: 0; }
+  .update-banner .upd-txt {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start;
+  }
   .update-banner .upd-txt b { color: var(--amber-2); font-weight: 600; }
+  .update-banner .upd-txt #update-backup {
+    flex: none;
+    margin-top: 6px;
+    padding: 4px 8px;
+    border: 1px solid rgba(255, 192, 129, 0.55);
+    border-radius: 5px;
+    background: transparent;
+    color: var(--amber-2);
+    cursor: pointer;
+    font: inherit;
+  }
+  .update-banner .upd-txt #update-backup:hover { background: rgba(255, 157, 69, 0.12); }
+  .update-banner .upd-txt #update-backup-state {
+    display: block;
+    margin-top: 4px;
+    color: var(--faint);
+    font-size: 11px;
+  }
   .update-banner .upd-txt a {
     color: var(--amber-2);
     text-decoration: none;
@@ -222,7 +242,12 @@
 
   <div class="update-banner" id="update-banner" hidden>
     <span class="upd-ico">⬆</span>
-    <span class="upd-txt" id="update-txt">A newer PaperTrench is out.</span>
+    <span class="upd-txt" id="update-txt">
+      <b id="update-version"></b>
+      <a id="update-link"></a>
+      <button id="update-backup" type="button">Back up wallet first</button>
+      <span id="update-backup-state"></span>
+    </span>
     <button class="upd-dismiss" id="update-dismiss" title="Dismiss">×</button>
   </div>
 

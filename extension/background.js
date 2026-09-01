@@ -3020,6 +3020,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
+      case 'pt_onchain_identify': {
+        const pool = isSolanaAddress(message.pool) ? message.pool : null;
+        const mint = isSolanaAddress(message.mint) ? message.mint : null;
+        if (!FEED || (!pool && !mint)) { sendResponse(null); break; }
+        try {
+          const settings = await getSettings();
+          FEED.configure({ rpcUrl: settings.rpcUrl || null });
+          sendResponse(await FEED.identify({ pool, mint }));
+        } catch (e) { sendResponse(null); }
+        break;
+      }
+
       // The authoritative price at click time. Null means no fresh on-chain
       // observation exists, and the caller must not invent one.
       case 'pt_onchain_quote':

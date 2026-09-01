@@ -5,56 +5,198 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PaperTrench Desk</title>
   <style>
-    :root { color-scheme: dark; }
+    /* Side-panel desk (DELIGHT-MAP.md D1).
+     *
+     * The desk is docked next to a chart for a whole session, so it is the
+     * PaperTrench surface a trader looks at longest. It shipped with its own
+     * palette and system-ui type, which made it the one surface that did not
+     * look like the product: #0b0e14 against the popup's #0A0D13, a link in a
+     * blue that appears nowhere else, and italic grey for every empty state.
+     *
+     * It now uses the popup's tokens verbatim. Two surfaces a click apart
+     * disagreeing about the background colour reads as an unfinished build.
+     */
+    :root {
+      color-scheme: dark;
+      --bg: #0A0D13;
+      --raised: rgba(255, 255, 255, 0.045);
+      --line: rgba(255, 255, 255, 0.075);
+      --line-2: rgba(255, 255, 255, 0.14);
+      --text: #EAEFF7;
+      --dim: #8D97A9;
+      --faint: #5A6273;
+      --amber: #FF9D45;
+      --amber-2: #FFC081;
+      --green: #34D399;
+      --red: #FF5F56;
+      --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    }
     * { box-sizing: border-box; }
+
+    /* The UA's [hidden] rule loses to any class selector, so a component
+     * styled display:flex renders while carrying the attribute (popup.html
+     * carries the same guard, for the same reason). */
+    [hidden] { display: none !important; }
+
+    /* A docked panel is a tall thin column that is ALWAYS taller than its
+     * content early on — a new trader has no streak, no position and no
+     * closed rounds, which is the exact state in the bug report: a third of a
+     * screen of content over two thirds of void. The column stretches to the
+     * viewport and the footer is pinned to the bottom of it, so the empty
+     * desk reads as a laid-out page rather than as content that ran out. */
+    html, body { height: 100%; }
     body {
-      margin: 0; padding: 12px; font: 13px/1.45 system-ui, sans-serif;
-      background: #0b0e14; color: #e7ebf3;
+      margin: 0; padding: 14px 14px 12px;
+      display: flex; flex-direction: column; gap: 18px;
+      font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Inter, sans-serif;
+      background: var(--bg); color: var(--text);
+      -webkit-font-smoothing: antialiased;
     }
-    h1 { font-size: 13px; margin: 0 0 2px; letter-spacing: 0.04em; }
-    .sub { color: #8b93a7; font-size: 11px; margin: 0 0 12px; }
-    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
-    .chip {
-      border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
-      padding: 2px 9px; font-size: 11px; color: #c6cdd9;
+    main { flex: 1; display: flex; flex-direction: column; gap: 18px; }
+
+    /* ---------- header ---------- */
+    header { display: flex; align-items: center; gap: 9px; }
+    header .mark { flex: none; color: var(--amber); }
+    h1 {
+      font-size: 11px; font-weight: 800; margin: 0;
+      letter-spacing: 0.14em; text-transform: uppercase;
     }
-    .chip strong { color: #e7ebf3; }
+    .sub { color: var(--dim); font-size: 11.5px; margin: 2px 0 0; line-height: 1.4; }
+
+    /* ---------- streak row ----------
+     * Was three pill chips reading "0 journal (best 0)" — a sentence with the
+     * number buried in it, three times over. A streak is a figure, so it is
+     * set as one: the count leads at display size, the axis labels it, the
+     * best sits under as reference. */
+    .streaks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .streak {
+      background: var(--raised); border: 1px solid var(--line);
+      border-radius: 9px; padding: 9px 8px 8px; text-align: center;
+      min-width: 0;
+    }
+    .streak .n {
+      font-family: var(--mono); font-size: 19px; font-weight: 700;
+      line-height: 1; letter-spacing: -0.02em; color: var(--faint);
+    }
+    /* A live streak earns the colour; a zero does not. An always-amber row
+     * says "you are on a streak" to somebody who has never traded. */
+    .streak.on { border-color: rgba(255, 157, 69, 0.3); background: rgba(255, 157, 69, 0.06); }
+    .streak.on .n { color: var(--amber-2); }
+    .streak .axis {
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--dim); margin-top: 5px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .streak .best { font-size: 9.5px; color: var(--faint); margin-top: 2px; font-family: var(--mono); }
+    .streak .tier {
+      display: block; font-size: 9px; font-weight: 700; color: var(--amber);
+      margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ---------- sections ----------
+     * The After feed is the section that grows, so the slack in a tall panel
+     * is absorbed by the last panel rather than pooling as a dead band above
+     * the footer. Pinning the footer alone was not enough: it moved the void
+     * from the bottom to the middle, which reads the same. */
+    section { display: flex; flex-direction: column; }
+    section.grow { flex: 1; min-height: 0; }
+    section.grow .feed { flex: 1; }
     h2 {
-      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-      color: #8b93a7; margin: 14px 0 6px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--faint); margin: 0 0 7px;
     }
+
     .card {
-      border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
-      padding: 10px; background: rgba(255,255,255,0.03);
+      border: 1px solid var(--line-2); border-radius: 10px;
+      padding: 11px 12px; background: var(--raised);
     }
-    .card .sym { font-weight: 700; font-size: 14px; }
-    .card .meta { color: #8b93a7; font-size: 11px; margin-top: 2px; }
+    .card .sym { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; }
+    .card .meta {
+      color: var(--dim); font-size: 11.5px; margin-top: 3px;
+      font-family: var(--mono);
+    }
     .nudge {
-      margin-top: 8px; font-size: 11px; color: #f5c451;
-      border: 1px dashed rgba(245,196,81,0.45); border-radius: 6px; padding: 5px 7px;
+      margin-top: 9px; font-size: 11px; color: var(--amber-2); line-height: 1.45;
+      border: 1px dashed rgba(255, 157, 69, 0.4); border-radius: 7px;
+      padding: 6px 8px; background: rgba(255, 157, 69, 0.05);
     }
-    .empty { color: #8b93a7; font-size: 12px; font-style: italic; }
+
+    /* An empty state is a designed state, not the absence of one. Centred in
+     * a dashed frame it reads as "nothing here yet, by design" — the italic
+     * grey line it replaces read as a rendering failure. */
+    .empty {
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
+      flex: 1; justify-content: center;
+      text-align: center; color: var(--dim); font-size: 11.5px; line-height: 1.5;
+      border: 1px dashed var(--line-2); border-radius: 10px;
+      padding: 18px 14px;
+    }
+    .empty .mark { color: var(--faint); }
+    .empty b { display: block; color: var(--text); font-size: 12.5px; font-weight: 700; }
+
+    /* ---------- after feed ---------- */
     .feed { display: flex; flex-direction: column; gap: 6px; }
     .row {
-      display: flex; justify-content: space-between; gap: 8px;
-      border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 6px 8px;
+      display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+      background: var(--raised);
     }
-    .row .sym { font-weight: 600; }
-    .row .what { color: #8b93a7; font-size: 11px; }
-    .pos { color: #34D399; } .neg { color: #FF5F56; } .amber { color: #f5c451; }
-    footer { margin-top: 16px; }
-    a { color: #7dd3fc; font-size: 12px; }
+    .row .sym { font-weight: 700; font-size: 12.5px; }
+    .row .when { color: var(--faint); font-size: 10.5px; font-family: var(--mono); }
+    .row .right { text-align: right; flex: none; }
+    .row .pnl { font-family: var(--mono); font-size: 12.5px; font-weight: 700; }
+    .row .what { display: block; color: var(--dim); font-size: 10.5px; margin-top: 2px; }
+    .pos { color: var(--green); } .neg { color: var(--red); } .amber { color: var(--amber-2); }
+
+    /* ---------- footer ---------- */
+    footer { flex: none; padding-top: 2px; }
+    .dash-btn {
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: 100%; padding: 9px 12px;
+      font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+      color: var(--text); background: var(--raised);
+      border: 1px solid var(--line-2); border-radius: 9px;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .dash-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.22); }
   </style>
 </head>
 <body>
-  <h1>PAPER TRENCH · DESK</h1>
-  <div class="sub">Your round, your discipline, and what the coin did after you left.</div>
-  <div class="chips" id="chips"></div>
-  <h2>Active round</h2>
-  <div id="active"></div>
-  <h2>After feed</h2>
-  <div class="feed" id="after"></div>
-  <footer><a href="#" id="dash">Open full dashboard →</a></footer>
+  <header>
+    <svg class="mark" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M3 20.5 12 3l9 17.5-9-4.6z"/>
+    </svg>
+    <div>
+      <h1>PaperTrench · Desk</h1>
+      <p class="sub">Your round, your discipline, and what the coin did after you left.</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="streaks" id="chips"></div>
+
+    <section>
+      <h2>Active round</h2>
+      <div id="active"></div>
+    </section>
+
+    <section class="grow">
+      <h2>After feed</h2>
+      <div class="feed" id="after"></div>
+    </section>
+  </main>
+
+  <footer>
+    <a class="dash-btn" href="#" id="dash">
+      Open full dashboard
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h13M13 6.5 18.5 12 13 17.5"/>
+      </svg>
+    </a>
+  </footer>
+
   <script src="gamify.js"></script>
   <script src="panel-data.js"></script>
   <script src="panel.js"></script>

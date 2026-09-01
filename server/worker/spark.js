@@ -142,15 +142,13 @@ async function sparkChart(env, mint, budget) {
 }
 
 /**
- * GET /api/spark/today
- * Blind puzzle: { day, mint, tTs, bars: [... up to tTs] }.
- * The bars are the ONLY data the client may see before acting. Anything
- * after tTs is a spoiler and must never leave this handler.
+ * The puzzle for a day key: memo -> candidates -> deterministic pick -> pin.
+ * Shared by the daily puzzle (day = UTC date) and practice rounds
+ * (day = 'practice-<seed>') — the ONLY difference between the two is the key,
+ * which is exactly the point: grading needs no special case either.
+ * Returns the json Response: { ok, day, mint, tTs, bars } or an honest error.
  */
-async function handleSparkToday(request, env) {
-  const url = new URL(request.url);
-  const now = Date.now();
-  const day = dayKey(now);
+async function puzzleFor(env, day) {
   const memo = await dayMemo(env, day);
   let mint = memo ? memo.mint : null;
   let tTs = memo ? memo.tTs : 0;
@@ -209,10 +207,45 @@ async function handleSparkToday(request, env) {
 }
 
 /**
+ * GET /api/spark/today
+ * Blind puzzle: { day, mint, tTs, bars: [... up to tTs] }.
+ * The bars are the ONLY data the client may see before acting. Anything
+ * after tTs is a spoiler and must never leave this handler.
+ */
+async function handleSparkToday(request, env) {
+  return puzzleFor(env, dayKey(Date.now()));
+}
+
+/**
+ * GET /api/spark/practice[?seed=N]
+ * The same puzzle machinery keyed on a seed instead of the calendar: the
+ * ritual stays daily, the practice is infinite. Deterministic per seed — the
+ * same seed is the same chart for every player, so a round can be shared by
+ * sharing its number — and pinned in D1 exactly like the daily pick, so the
+ * grade path needs no special case at all. The client supplies a fresh
+ * random seed per round; the server mints one when asked without.
+ */
+async function handleSparkPractice(request, env) {
+  const url = new URL(request.url);
+  const raw = Number(url.searchParams.get('seed'));
+  const seed = Number.isInteger(raw) && raw >= 0 && raw < 2 ** 31
+    ? raw
+    : Math.floor(Math.random() * 2 ** 31);
+  return puzzleFor(env, 'practice-' + seed);
+}
+
+/**
  * POST /api/spark/grade
  * Body: { day, mint, actions: [{type:'buy'|'sell', ts}] }
  * Verdict: the process-grade (S/A/B/C/D/F) + the tone axes + the story.
  * Deterministic: same actions + same day => same grade. No PnL figure ever.
+ *
+ * The response also carries `reveal.bars` — the pinned chart's bars AFTER T,
+ * up to the window end. Until grading these are a spoiler and never leave the
+ * worker; once the verdict is computed the run is committed and showing the
+ * player what they were graded against is the point. (Re-grading a day is
+ * allowed — this is a practice tool, and the share card is self-reported —
+ * but the reveal arrives only WITH a verdict, never before it.)
  */
 async function handleSparkGrade(request, env) {
   const url = new URL(request.url);
@@ -245,7 +278,13 @@ async function handleSparkGrade(request, env) {
   }
   const verdict = spark.gradeRun(valid, chart, memo.tTs);
   if (verdict.error) return json({ ok: false, reason: verdict.error }, 400);
-  return json({ ok: true, day, mint, verdict });
+  return json({
+    ok: true,
+    day,
+    mint,
+    verdict,
+    reveal: { bars: spark.forwardSlice(chart, memo.tTs, 4) },
+  });
 }
 
-module.exports = { handleSparkToday, handleSparkGrade, dayKey, candidateMints, dayMemo, setDayMemo, sparkChart };
+module.exports = { handleSparkToday, handleSparkPractice, handleSparkGrade, dayKey, candidateMints, dayMemo, setDayMemo, sparkChart, puzzleFor };

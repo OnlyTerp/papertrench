@@ -26,6 +26,10 @@ test('preset taps route through the shared buy path when instant is on', () => {
     'a preset tap must fire the order when one-click quick buy is enabled');
   assert.match(content, /if \(!\(amt > 0\)\) return toast\(panelUsd\(\) \? 'Pick a dollar amount first' : 'Pick a SOL amount first'\);\s*\n\s*requestBuy\(amt\);/,
     'the BUY button must use the same shared path (currency-aware refusal)');
+  assert.match(content, /els\.btnBuy\.style\.display = sectionOn && \(!instant \|\| customOn\) \? '' : 'none';/,
+    'instant mode hides BUY unless custom sizing is enabled');
+  assert.match(content, /const sel = !instant && els\.buyPresets\.querySelector\('\.pt-preset\.sel'\);/,
+    'instant BUY must ignore a chip selection and read custom sizing only');
   assert.match(content, /let buyInFlight = false;/,
     'rapid taps must be guarded against stacking fills');
   assert.match(content, /buyInFlight = true;\s*\n\s*buyInFlightAt = Date\.now\(\);\s*\n\s*doBuy\(solAmount, quotedUsd\)\.finally\(\(\) => \{ buyInFlight = false; \}\);/,
@@ -173,7 +177,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // so a listener on the chip element itself never fires.
   assert.match(bridge, /function handleRowChipTap\(ev\)/);
   assert.match(bridge, /window\.addEventListener\(type, handleRowChipTap, true\)/);
-  assert.match(bridge, /\['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'\]/,
+  assert.match(bridge, /\['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown'\]/,
     'press events must be swallowed so the row never navigates from a chip tap');
   // The tap must not trigger the row's own navigation or click handlers.
   assert.match(bridge, /ev\.preventDefault\(\);\s*\n\s*ev\.stopPropagation\(\);\s*\n\s*ev\.stopImmediatePropagation\(\);/);
