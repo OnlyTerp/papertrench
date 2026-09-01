@@ -779,7 +779,7 @@ test('a second tap queues and fills at its own captured quote', async () => {
   assert.equal(race.debugLines.filter((line) => line.includes('row-buy')).length, 2);
   const timingLine = race.debugLines.find((line) => line.includes('outcome=done'));
   const timingValues = timingLine.match(
-    /guard\+state=(\d+)ms.*withState=(\d+)ms persist=(\d+)ms attempts=(\d+)/,
+    /guard\+state=(\d+)ms.*fill->state=(\d+)ms persist=(\d+)ms attempts=(\d+)/,
   );
   assert.ok(timingValues, 'timing line must expose state wait, persistence, and attempts');
   assert.ok(
@@ -1195,7 +1195,7 @@ test('a superseded direct row buy does not commit after watchdog release', async
   );
   assert.match(
     race.debugLines.find((line) => line.includes('outcome=superseded')),
-    /withState=\d+ms persist=-ms attempts=-/,
+    /fill->state=\d+ms persist=-ms attempts=-/,
   );
   assert.equal(
     harness.getToastMessages().filter((message) =>

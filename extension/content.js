@@ -6619,7 +6619,7 @@
     console.debug(`PaperTrench: row-buy source=${priceSource || 'unknown'}`
       + ` outcome=${outcome || 'done'} quote=${elapsed(marks.quote)}ms`
       + ` guard+state=${guardState}ms commit=${elapsed(marks.commit)}ms`
-      + ` total=${total}ms withState=${fromFill}ms persist=${persist}ms attempts=${attempts}`);
+      + ` total=${total}ms fill->state=${fromFill}ms persist=${persist}ms attempts=${attempts}`);
   }
 
   function finishRowPersist(timing, startedAt) {
