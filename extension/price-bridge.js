@@ -678,15 +678,28 @@
       const socket = protocols === undefined
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
+      let socketSeq = 0;
+      let lastForwardedSeq = 0;
       socket.addEventListener('message', (event) => {
-        if (typeof event.data === 'string') forwardJson(event.data, 'ws');
-        else if (hostIsPadre && event.data instanceof ArrayBuffer) {
+        const seq = ++socketSeq;
+        if (typeof event.data === 'string') {
+          if (seq >= lastForwardedSeq) {
+            lastForwardedSeq = seq;
+            forwardJson(event.data, 'ws');
+          }
+        } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
           const decoded = decodeMsgpack(new Uint8Array(event.data));
-          if (decoded !== null) forwardJson(decoded, 'ws');
-        } else if (hostIsPadre && typeof Blob === 'function' && event.data instanceof Blob) {
+          if (decoded !== null && seq >= lastForwardedSeq) {
+            lastForwardedSeq = seq;
+            forwardJson(decoded, 'ws');
+          }
+        } else if (hostIsPadre && feedActive()
+          && typeof Blob === 'function' && event.data instanceof Blob) {
           Promise.resolve(event.data.arrayBuffer()).then((buffer) => {
             const decoded = decodeMsgpack(new Uint8Array(buffer));
-            if (decoded !== null) forwardJson(decoded, 'ws');
+            if (decoded === null || seq < lastForwardedSeq) return;
+            lastForwardedSeq = seq;
+            forwardJson(decoded, 'ws');
           }, () => {});
         }
       });

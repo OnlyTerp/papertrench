@@ -17,6 +17,10 @@ const PADRE_UPDATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wqGZkdkluVXNky0CoROThzofUqnByaWNlSW5Vc2TLPsoPC1Fz3To=',
   'base64',
 ));
+const PADRE_NEWER_UPDATE_FRAME = Uint8Array.from(Buffer.from(
+  'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wqnByaWNlSW5Vc2TLQCP64UeuFHuoZmR2SW5Vc2TNJwY=',
+  'base64',
+));
 const PADRE_NATIVE_RATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqx0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wsm5hdGl2ZVByaWNlSW5Vc2RVactAWZfzf6mDcg==',
   'base64',
@@ -26,10 +30,52 @@ function runBridge(opts = {}) {
   const timers = [];
   const emitted = [];
   const listeners = {};
+  let dataViewCalls = 0;
+  const pendingBlobs = [];
   let realtimeCallback = null;
   let clearMarksCount = 0;
   let refreshMarksCount = 0;
   const orderLines = [];
+  const NativeDataView = DataView;
+
+  class TestBlob {
+    constructor(parts) {
+      const bytes = Uint8Array.from(parts[0] || []);
+      this.bytes = bytes;
+      this.arrayBufferCalls = 0;
+      if (opts.deferBlobs) {
+        this.promise = new Promise((resolve) => {
+          this.resolve = resolve;
+        });
+        pendingBlobs.push(this);
+      }
+    }
+
+    arrayBuffer() {
+      this.arrayBufferCalls++;
+      if (this.promise) return this.promise;
+      return Promise.resolve(this.bytes.buffer.slice(
+        this.bytes.byteOffset,
+        this.bytes.byteOffset + this.bytes.byteLength,
+      ));
+    }
+
+    resolveFrame() {
+      if (this.resolve) {
+        this.resolve(this.bytes.buffer.slice(
+          this.bytes.byteOffset,
+          this.bytes.byteOffset + this.bytes.byteLength,
+        ));
+        this.resolve = null;
+      }
+    }
+  }
+
+  function TestDataView(...args) {
+    dataViewCalls++;
+    return new NativeDataView(...args);
+  }
+  TestDataView.prototype = NativeDataView.prototype;
 
   function makeOrderLine() {
     const line = { removed: false, values: {}, calls: [] };
@@ -141,9 +187,9 @@ function runBridge(opts = {}) {
     JSON,
     ArrayBuffer,
     Uint8Array,
-    DataView,
+    DataView: TestDataView,
     TextDecoder,
-    Blob,
+    Blob: TestBlob,
     Promise,
     isFinite,
     setInterval(fn, ms) { timers.push(fn); return timers.length; },
@@ -168,6 +214,16 @@ function runBridge(opts = {}) {
     refreshMarksCount: () => refreshMarksCount,
     orderLines,
     win,
+    Blob: TestBlob,
+    dataViewCalls: () => dataViewCalls,
+    pendingBlobs,
+    send(type, payload) {
+      listeners.message({
+        source: win,
+        data: { source: 'papertrench-content', type, payload },
+      });
+    },
+    resolveBlob(index) { pendingBlobs[index].resolveFrame(); },
     openSocket() { return new win.WebSocket('wss://backend.padre.gg/_multiplex?desc=/trenches'); },
   };
 }
@@ -206,12 +262,69 @@ test('Padre MessagePack frames emit mint-tagged USD ticks with their FDV cap', (
 test('Padre Blob frames are decoded without blocking the WebSocket handler', async () => {
   const env = runBridge();
   const socket = env.openSocket();
-  socket.emit(new Blob([PADRE_UPDATE_FRAME]));
+  socket.emit(new env.Blob([PADRE_UPDATE_FRAME]));
   await Promise.resolve();
   await Promise.resolve();
 
   assert.ok(env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'),
     'a Padre Blob frame must reach the same generic tick pipeline');
+});
+
+test('Padre Blob frames preserve receive order when conversions complete backwards', async () => {
+  const env = runBridge({ deferBlobs: true });
+  const socket = env.openSocket();
+  socket.emit(new env.Blob([PADRE_UPDATE_FRAME]));
+  socket.emit(new env.Blob([PADRE_NEWER_UPDATE_FRAME]));
+  assert.equal(env.pendingBlobs.length, 2);
+
+  env.resolveBlob(1);
+  await Promise.resolve();
+  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 1);
+  assert.equal(
+    env.emitted.find((m) => m.type === 'tick' && m.payload?.source === 'ws').payload.candidates[0].value,
+    9.99,
+  );
+  env.resolveBlob(0);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 1,
+    'an older Blob completion must be discarded after a newer frame publishes');
+});
+
+test('Padre binary frame sequence state is independent per socket', async () => {
+  const env = runBridge({ deferBlobs: true });
+  const socketA = env.openSocket();
+  const socketB = env.openSocket();
+  socketA.emit(new env.Blob([PADRE_UPDATE_FRAME]));
+  socketB.emit(PADRE_UPDATE_FRAME.buffer);
+  env.resolveBlob(0);
+  await Promise.resolve();
+
+  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 2,
+    'one socket must not suppress a frame from another socket');
+});
+
+test('Padre binary frames are gated before decoding when feed demand is off', () => {
+  const env = runBridge();
+  env.send('page-state', { wantsTicks: false });
+  const socket = env.openSocket();
+  const blob = new env.Blob([PADRE_UPDATE_FRAME]);
+  socket.emit(PADRE_UPDATE_FRAME.buffer);
+  socket.emit(blob);
+
+  assert.equal(env.dataViewCalls(), 0, 'inactive feeds must not decode binary frames');
+  assert.equal(blob.arrayBufferCalls, 0, 'inactive feeds must not copy Blob bodies');
+  assert.equal(env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws').length, 0);
+});
+
+test('Padre binary frames decode when feed demand is on', () => {
+  const env = runBridge();
+  const socket = env.openSocket();
+  socket.emit(PADRE_UPDATE_FRAME.buffer);
+
+  assert.ok(env.dataViewCalls() > 0, 'active feeds decode the captured binary envelope');
+  assert.ok(env.emitted.some((m) => m.type === 'tick' && m.payload?.source === 'ws'));
 });
 
 test('Padre nativePriceInUsdUi is never treated as a token price', () => {
