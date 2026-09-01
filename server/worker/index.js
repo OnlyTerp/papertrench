@@ -44,6 +44,11 @@ const STREAMER_APPLIES_PER_HOUR = 5;
 // The X feed endpoint: only cache MISSES cost an upstream fetch, so the
 // per-IP leash sits on those, not on reads a cache can answer.
 const XFEED_PER_HOUR = 120;
+// Daily Spark grading is anonymous and origin-exempt (see the POST gate in
+// fetch()): the leash is what stands in for the origin check. Practice mode
+// makes grading a many-times-a-session act, so the leash is generous — two a
+// minute sustained — while still making a hammer pointless.
+const SPARK_GRADES_PER_HOUR = 120;
 const XFEED_FRESH_MS = 20 * 60 * 1000;
 const XFEED_STALE_MS = 7 * 24 * 3600 * 1000;
 /** window_id for a clan's since-join season slice, alongside ISO week ids. */
@@ -2264,7 +2269,17 @@ export default {
 
     // The OAuth callback is a top-level navigation from x.com and carries no
     // Origin; everything else that changes state must prove where it came from.
-    if (request.method === 'POST' && !requireOrigin(request, env)) {
+    //
+    // The one exemption is Daily Spark grading. It is the only POST a shipped
+    // page makes from an origin this gate can never allowlist: the extension
+    // dashboard, whose chrome-extension://<id> origin differs per install and
+    // per unpacked dev copy — so before this exemption the extension's grade
+    // button was a guaranteed 403 'bad-origin' and the feature never worked.
+    // Opening it is sound because the gate's threat (a foreign site riding
+    // the visitor's session cookie) does not exist on that route: grading
+    // reads no session, writes no user state, and is a pure function of the
+    // day's pinned chart. SPARK_GRADES_PER_HOUR bounds it instead.
+    if (request.method === 'POST' && path !== '/api/spark/grade' && !requireOrigin(request, env)) {
       const denied = json({ ok: false, reason: 'bad-origin' }, 403);
       for (const [key, value] of Object.entries(cors)) denied.headers.set(key, value);
       return denied;
@@ -2392,8 +2407,20 @@ export default {
       else if (path === '/api/spark/today') {
         response = await edgeCached(request, ctx, 60, () => sparkWorker.handleSparkToday(request, env));
       }
+      else if (path === '/api/spark/practice') {
+        // NOT edge-cached even with a seed: the first hit on a seed PINS the
+        // puzzle in D1, and that write must happen on the origin isolate.
+        // The memo path after that is one D1 read — cheap enough to skip the
+        // cache dance entirely.
+        response = await sparkWorker.handleSparkPractice(request, env);
+      }
       else if (path === '/api/spark/grade' && request.method === 'POST') {
-        response = await sparkWorker.handleSparkGrade(request, env);
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        if (!(await allowRate(env, 'spark-grade:' + ip, SPARK_GRADES_PER_HOUR))) {
+          response = json({ ok: false, reason: 'rate-limited' }, 429);
+        } else {
+          response = await sparkWorker.handleSparkGrade(request, env);
+        }
       }
       // Moderation. Every one of these re-checks `moderator()` itself — the
       // routing table is not the gate, the handler is.
