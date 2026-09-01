@@ -25,6 +25,63 @@ function decision() {
 
 const rowChipTapDecision = decision();
 
+function tapHarness({ href, address = 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS' } = {}) {
+  const start = bridge.indexOf('const ROW_ADDR_RE');
+  const end = bridge.indexOf("\n  for (const type of ['pointerdown'", start);
+  assert.ok(start !== -1 && end > start, 'row-chip tap wiring must ship in the bridge');
+  const emitted = [];
+  const busy = [];
+  const ctx = {
+    Map,
+    addressFromRowFiber: () => null,
+    emit: (type, payload) => emitted.push({ type, payload }),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(`${bridge.slice(start, end)}
+lastRowSpec = { linkSelectors: ['a'], containerMode: null };
+this.rowChips = rowChips;
+this.handleRowChipTap = handleRowChipTap;`, ctx);
+  const row = {
+    isConnected: true,
+    matches: () => false,
+    querySelector: () => href == null ? null : {
+      getAttribute: () => href,
+      href,
+    },
+  };
+  const chip = {
+    closest: () => chip,
+    classList: { add: (name) => busy.push(name) },
+  };
+  const entry = {
+    row,
+    el: chip,
+    address,
+    verifiedAt: Date.now(),
+  };
+  ctx.rowChips.set(row, entry);
+  const dispatch = (type, key) => {
+    const event = {
+      type,
+      key,
+      target: chip,
+      preventDefault() { this.prevented = true; },
+      stopPropagation() { this.propagated = true; },
+      stopImmediatePropagation() { this.immediate = true; },
+    };
+    ctx.handleRowChipTap(event);
+    return event;
+  };
+  return {
+    entry,
+    emitted,
+    busy,
+    setHref(next) { href = next; },
+    key(key) { return dispatch('keydown', key); },
+    click() { return dispatch('click'); },
+  };
+}
+
 function entry(overrides = {}) {
   return {
     address: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -57,6 +114,69 @@ test('a recycled row refuses instead of buying the old coin', () => {
     swept: 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
     reason: 'row-changed',
   });
+});
+
+test('Enter activation binds and fills the focused chip identity', () => {
+  const pressed = 'MintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const h = tapHarness({
+    href: `/trade/${pressed}`,
+    address: 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+  });
+  const key = h.key('Enter');
+  assert.equal(key.prevented, undefined, 'keyboard binding must not suppress native activation');
+  h.click();
+  assert.equal(h.emitted.length, 1);
+  assert.equal(h.emitted[0].type, 'row-buy');
+  assert.equal(h.emitted[0].payload.address, pressed);
+  assert.deepEqual(h.busy, ['busy']);
+});
+
+test('Space activation binds and fills the focused chip identity', () => {
+  const pressed = 'MintBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const h = tapHarness({
+    href: `/trade/${pressed}`,
+    address: 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+  });
+  const key = h.key(' ');
+  assert.equal(key.prevented, undefined, 'keyboard binding must not suppress native activation');
+  h.click();
+  assert.equal(h.emitted.length, 1);
+  assert.equal(h.emitted[0].type, 'row-buy');
+  assert.equal(h.emitted[0].payload.address, pressed);
+  assert.deepEqual(h.busy, ['busy']);
+});
+
+test('a row recycled between keyboard press and activation refuses', () => {
+  const pressed = 'MintCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+  const current = 'MintDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD';
+  const h = tapHarness({ href: `/trade/${pressed}` });
+  h.key('Enter');
+  h.setHref(`/trade/${current}`);
+  h.click();
+  assert.equal(h.emitted[0].type, 'row-buy-refused');
+  assert.deepEqual({ ...h.emitted[0].payload }, {
+    was: pressed,
+    now: current,
+    swept: 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+    reason: 'row-changed',
+  });
+  assert.deepEqual(h.busy, []);
+});
+
+test('an unreadable press refuses even when sweep verification is fresh', () => {
+  const h = tapHarness({
+    href: null,
+    address: 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+  });
+  h.key('Enter');
+  h.click();
+  assert.deepEqual({ ...h.emitted[0].payload }, {
+    was: null,
+    now: null,
+    swept: 'MintSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+    reason: 'unverifiable',
+  });
+  assert.deepEqual(h.busy, []);
 });
 
 test('a stable row fills with the address verified at press time', () => {
@@ -111,7 +231,7 @@ test('a second click without a new press is stale after the first decision', () 
 });
 
 test('the bridge records current row identity on pointerdown', () => {
-  assert.match(bridge, /entry\.pressedAddress = currentRowAddress\(entry\) \|\| entry\.address;/);
+  assert.match(bridge, /entry\.pressedAddress = currentRowAddress\(entry\);/);
   assert.match(bridge, /entry\.pressedAt = Date\.now\(\);/);
   assert.match(bridge, /if \(ev\.type === 'pointerdown'\) \{[\s\S]{0,360}entry\.pressedAddress/);
   const start = bridge.indexOf("if (ev.type === 'pointerdown')");
@@ -121,6 +241,15 @@ test('the bridge records current row identity on pointerdown', () => {
     /stopImmediatePropagation/,
     'pointerdown must leave the content gesture stamp listener reachable',
   );
+});
+
+test('keyboard activation records identity without swallowing native click', () => {
+  assert.match(bridge, /if \(ev\.type === 'keydown'\) \{[\s\S]{0,420}entry\.pressedAddress = currentRowAddress\(entry\);[\s\S]{0,180}return;/);
+  assert.match(bridge, /ev\.key !== 'Enter' && ev\.key !== ' ' && ev\.key !== 'Spacebar'/);
+  assert.match(bridge, /'click', 'keydown'\]/);
+  const start = bridge.indexOf("if (ev.type === 'keydown')");
+  const end = bridge.indexOf("\n    if (ev.type === 'pointerdown')", start);
+  assert.doesNotMatch(bridge.slice(start, end), /preventDefault|stopPropagation|stopImmediatePropagation/);
 });
 
 test('a refusal emits no busy state and uses the refusal bridge message', () => {

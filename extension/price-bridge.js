@@ -3293,10 +3293,21 @@
     // stuck in busy forever (DEFECT F-08). stopPropagation still keeps the
     // row underneath from navigating; the later press events stay swallowed
     // entirely.
+    if (ev.type === 'keydown') {
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
+      return;
+    }
     if (ev.type === 'pointerdown') {
       for (const entry of rowChips.values()) {
         if (entry.el === chip) {
-          entry.pressedAddress = currentRowAddress(entry) || entry.address;
+          entry.pressedAddress = currentRowAddress(entry);
           entry.pressedAt = Date.now();
           break;
         }
@@ -3324,7 +3335,7 @@
       }
     }
   }
-  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown']) {
     window.addEventListener(type, handleRowChipTap, true);
   }
 
