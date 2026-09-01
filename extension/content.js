@@ -6604,16 +6604,17 @@
       : null;
     if (!cand) return;
     const now = Date.now();
-    const candidateAt = Number(payload.at);
-    const frameAt = Number.isFinite(candidateAt)
-      && candidateAt > now - 30_000
-      && candidateAt <= now
-      ? candidateAt
-      : now;
+    const hasFrameAt = Number.isFinite(payload.at);
+    if (hasFrameAt && (payload.at <= now - 30_000 || payload.at > now)) return;
+    const frameAt = hasFrameAt ? payload.at : now;
+    const frameSeq = Number(payload.seq);
     const prev = recentRowPrices.get(payload.mint);
-    if (prev && frameAt < prev.at) return;
+    if (prev && (frameAt < prev.at
+      || (frameAt === prev.at && Number.isFinite(frameSeq)
+        && Number.isFinite(prev.seq) && frameSeq < prev.seq))) return;
     recentRowPrices.set(payload.mint, {
       usd: Number(cand.value), at: frameAt,
+      seq: Number.isFinite(frameSeq) ? frameSeq : null,
       symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       name: typeof payload.name === 'string' ? payload.name : null,
       mcap: Number(payload.mcap) > 0 ? Number(payload.mcap) : null,

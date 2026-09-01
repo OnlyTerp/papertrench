@@ -584,34 +584,60 @@ test('row ticks use bounded frame times and reject older same-mint ticks', () =>
   harness.noteRowPrice({
     mint: A,
     at: now - 1_000,
+    seq: 10,
     candidates: [{ unit: 'usd', value: 100 }],
     mcap: 100_000,
   });
   harness.noteRowPrice({
     mint: A,
     at: now - 2_000,
+    seq: 9,
     candidates: [{ unit: 'usd', value: 90 }],
     mcap: 90_000,
   });
   const retained = harness.getRecentRowPrice(A);
   assert.equal(retained.usd, 100);
   assert.equal(retained.at, now - 1_000);
+  assert.equal(retained.seq, 10);
   assert.equal(retained.symbol, null);
   assert.equal(retained.name, null);
   assert.equal(retained.mcap, 100_000);
 
   harness.noteRowPrice({
     mint: B,
-    at: now + 60_000,
+    at: now - 45_000,
+    source: 'ws',
     candidates: [{ unit: 'usd', value: 200 }],
   });
   harness.noteRowPrice({
     mint: C,
-    at: now - 60_000,
+    at: now + 60_000,
     candidates: [{ unit: 'usd', value: 300 }],
   });
+  assert.equal(harness.getRecentRowPrice(B), null);
+  assert.equal(harness.getRecentRowPrice(C), null);
+
+  harness.noteRowPrice({
+    mint: B,
+    candidates: [{ unit: 'usd', value: 250 }],
+  });
   assert.equal(harness.getRecentRowPrice(B).at, now);
-  assert.equal(harness.getRecentRowPrice(C).at, now);
+  assert.equal(harness.getRecentRowPrice(B).seq, null);
+
+  harness.noteRowPrice({
+    mint: C,
+    at: now,
+    seq: 20,
+    candidates: [{ unit: 'usd', value: 400 }],
+  });
+  harness.noteRowPrice({
+    mint: C,
+    at: now,
+    seq: 19,
+    candidates: [{ unit: 'usd', value: 390 }],
+  });
+  assert.equal(harness.getRecentRowPrice(C).usd, 400);
+  assert.equal(harness.getRecentRowPrice(C).seq, 20);
 });
 
 test('a fresh Padre row tick wins before the resolver and carries its cap', async () => {

@@ -285,7 +285,6 @@ test('Padre Blob frames carry their receive time when conversions complete backw
   const env = runBridge({ deferBlobs: true });
   const socket = env.openSocket();
   socket.emit(new env.Blob([PADRE_UPDATE_FRAME]));
-  env.advanceNow(10);
   socket.emit(new env.Blob([PADRE_NEWER_UPDATE_FRAME]));
   assert.equal(env.pendingBlobs.length, 2);
 
@@ -299,7 +298,9 @@ test('Padre Blob frames carry their receive time when conversions complete backw
   const ticks = env.emitted.filter((m) => m.type === 'tick' && m.payload?.source === 'ws');
   assert.equal(ticks.length, 2);
   assert.equal(ticks[0].payload.candidates[0].value, 9.99);
-  assert.equal(ticks[0].payload.at, ticks[1].payload.at + 10);
+  assert.equal(ticks[0].payload.at, ticks[1].payload.at);
+  assert.equal(ticks[0].payload.seq, 2);
+  assert.equal(ticks[1].payload.seq, 1);
 });
 
 test('a later Padre frame without a quote does not suppress a valid tick', () => {
