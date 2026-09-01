@@ -114,6 +114,62 @@ async function shareDebugLogs() {
   }
 }
 
+function canonicalBackupValue(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalBackupValue).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => (
+      `${JSON.stringify(key)}:${canonicalBackupValue(value[key])}`
+    )).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function backupFingerprint(data) {
+  if (!data || typeof data !== 'object') return null;
+  const state = data.pt_state && typeof data.pt_state === 'object'
+    ? { ...data.pt_state } : data.pt_state;
+  if (state && typeof state === 'object') {
+    // seq and updatedAt move on every heartbeat, not on durable wallet edits.
+    delete state.seq;
+    delete state.updatedAt;
+    // markPosition writes these on price ticks; they are not backup content.
+    if (state.positions && typeof state.positions === 'object') {
+      state.positions = Object.fromEntries(Object.entries(state.positions).map(([key, position]) => {
+        if (!position || typeof position !== 'object') return [key, position];
+        const durable = { ...position };
+        delete durable.lastPriceNative;
+        delete durable.lastPriceUsd;
+        delete durable.peakPnlSol;
+        delete durable.troughPnlSol;
+        return [key, durable];
+      }));
+    }
+    // attestChain is embedded into the exported copy for downgrade safety.
+    delete state.attestChain;
+  }
+  const frames = Array.isArray(data.pt_frames) ? data.pt_frames.map((frame) => {
+    if (!frame || typeof frame !== 'object') return frame;
+    const metadata = { ...frame };
+    // Frame data is a large JPEG; append-and-evict metadata still detects
+    // every add or eviction without hashing megabytes on each popup open.
+    delete metadata.dataUrl;
+    return metadata;
+  }) : data.pt_frames;
+  const copy = {
+    pt_state: state,
+    pt_settings: data.pt_settings,
+    pt_frames: frames,
+    pt_replays: data.pt_replays,
+  };
+  let hash = 0x811c9dc5;
+  const canonical = canonicalBackupValue(copy);
+  for (let i = 0; i < canonical.length; i++) {
+    hash ^= canonical.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
 /* ---- update nudge ---------------------------------------------------
  * PaperTrench ships as a zip from GitHub — no Chrome Web Store, so Chrome
  * never auto-updates it. Field reports from 8/16–19 described bugs fixed
@@ -129,6 +185,7 @@ async function shareDebugLogs() {
 const UPDATER = (() => {
   const REL_URL = 'https://api.github.com/repos/OnlyTerp/papertrench/releases/latest';
   const DAY_MS = 24 * 60 * 60 * 1000;
+  let downloadArmedUntil = 0;
 
   function vCmp(a, b) {
     const pa = String(a).split('.').map(Number);
@@ -138,6 +195,95 @@ const UPDATER = (() => {
       if (d) return d;
     }
     return 0;
+  }
+
+  async function readBackupSnapshot() {
+    const read = async (key) => {
+      try {
+        const result = await chainGet([key]);
+        return { ok: true, value: result[key] };
+      } catch (_) {
+        return { ok: false, value: undefined };
+      }
+    };
+    const marker = await read('pt_last_backup');
+    let values = {};
+    let readable = true;
+    try {
+      values = await chainGet(BACKUP_KEYS);
+    } catch (_) {
+      readable = false;
+    }
+    let chainMeta = null;
+    let chainMetaReadable = true;
+    if (AT) {
+      try {
+        chainMeta = await AT.readChainMeta(chainGet);
+      } catch (_) {
+        chainMetaReadable = false;
+      }
+    }
+    return {
+      marker: marker.ok ? marker.value || null : null,
+      markerReadable: marker.ok,
+      values,
+      readable,
+      chainMeta,
+      chainMetaReadable,
+    };
+  }
+
+  function backupText(
+    record, snapshot, readable = true, markerReadable = true,
+    chainMetaReadable = true, chainMeta = null,
+  ) {
+    const at = record && Number(record.at);
+    if (!markerReadable) {
+      return 'Backup status could not be read, so coverage cannot be confirmed. Back up again to be safe.';
+    }
+    if (!record) {
+      return 'No backup yet — updating into a new folder looks like a fresh install.';
+    }
+    const state = snapshot && snapshot.pt_state;
+    if (!markerReadable || !readable || !state || (!record.chainMissing && !chainMetaReadable)) {
+      return 'Backup exists, but the wallet could not be read, so coverage cannot be confirmed. Back up again to be safe.';
+    }
+    if (record.chainMissing) {
+      if (!Number.isFinite(at)) {
+        return 'Backup exists, but its date could not be read. Back up again to be safe.';
+      }
+      const date = new Date(at).toISOString().slice(0, 10);
+      return `Last backup: ${date} — exported without the verification chain. Back up again.`;
+    }
+    if (!Number.isFinite(at)) {
+      return 'Backup exists, but its date could not be read. Back up again to be safe.';
+    }
+    const date = new Date(at).toISOString().slice(0, 10);
+    if (record.startedAt !== state.startedAt) {
+      return `Last backup: ${date} — different wallet since. Back up again.`;
+    }
+    const trades = Array.isArray(state.journal) ? state.journal.length : 0;
+    // The wallet write and the chain append are separate commits, so an
+    // export landing between them bundles a fill whose link is missing. The
+    // chain's own meta says so; records written before this field existed
+    // carry no length and fall through to the fingerprint as before.
+    if (chainMeta && Number.isInteger(Number(record.chainLength))
+      && typeof record.chainHead === 'string'
+      && (Number(record.chainLength) !== chainMeta.length
+        || record.chainHead !== chainMeta.head)) {
+      return `Last backup: ${date} — new verified fills since. Back up again.`;
+    }
+    if (record.fingerprint && record.fingerprint === backupFingerprint(snapshot)) {
+      return `Last backup: ${date} · exported — check the file is in your downloads`;
+    }
+    if (Number.isFinite(Number(record.trades)) && trades > Number(record.trades)) {
+      const delta = trades - Number(record.trades);
+      return `Last backup: ${date} — ${delta} ${delta === 1 ? 'trade' : 'trades'} since. Back up again.`;
+    }
+    if (!Number.isFinite(Number(record.trades)) || trades < Number(record.trades)) {
+      return `Last backup: ${date} — wallet history changed. Back up again.`;
+    }
+    return `Last backup: ${date} — wallet changed since. Back up again.`;
   }
 
   async function check(force) {
@@ -168,7 +314,11 @@ const UPDATER = (() => {
     const banner = document.getElementById('update-banner');
     const txt = document.getElementById('update-txt');
     const dismiss = document.getElementById('update-dismiss');
-    if (!banner || !txt || !dismiss) return;
+    const version = document.getElementById('update-version');
+    const link = document.getElementById('update-link');
+    const backupButton = document.getElementById('update-backup');
+    const backupState = document.getElementById('update-backup-state');
+    if (!banner || !txt || !dismiss || !version || !link || !backupButton || !backupState) return;
     let info = null;
     try { info = await check(); } catch (_) { return; }
     if (!info || !info.latest || vCmp(info.latest, chrome.runtime.getManifest().version) <= 0) {
@@ -176,19 +326,78 @@ const UPDATER = (() => {
     }
     let seen = {};
     try { seen = (await chainGet(['pt_update_seen']))['pt_update_seen'] || {}; } catch (_) {}
+    const initialBackup = await readBackupSnapshot();
+    let lastBackup = initialBackup.marker;
+    let liveSnapshot = initialBackup.values;
+    let backupReadable = initialBackup.readable;
+    let liveChainMeta = initialBackup.chainMeta;
+    let chainMetaReadable = initialBackup.chainMetaReadable;
     const nowMs = Date.now();
     if (seen.version === info.latest && (seen.at || 0) > nowMs - 30 * DAY_MS) return;
-    txt.innerHTML = '';
-    const b = document.createElement('b');
-    b.textContent = 'v' + info.latest + ' is out';
-    txt.appendChild(b);
-    txt.appendChild(document.createElement('br'));
-    const a = document.createElement('a');
-    a.href = info.url;
-    a.textContent = 'Download the update →';
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    txt.appendChild(a);
+    version.textContent = 'v' + info.latest + ' is out';
+    link.href = info.url;
+    link.textContent = 'Download the update →';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    backupState.textContent = backupText(
+      lastBackup, liveSnapshot, backupReadable, initialBackup.markerReadable,
+      chainMetaReadable, liveChainMeta,
+    );
+    const refreshBackupState = async () => {
+      const current = await readBackupSnapshot();
+      lastBackup = current.marker;
+      liveSnapshot = current.values;
+      backupReadable = current.readable;
+      liveChainMeta = current.chainMeta;
+      chainMetaReadable = current.chainMetaReadable;
+      backupState.textContent = backupText(
+        lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+        chainMetaReadable, liveChainMeta,
+      );
+      return current;
+    };
+    const hasBackup = () => {
+      const at = lastBackup && Number(lastBackup.at);
+      const chainCurrent = !liveChainMeta
+        || !Number.isInteger(Number(lastBackup && lastBackup.chainLength))
+        || typeof (lastBackup && lastBackup.chainHead) !== 'string'
+        || (Number(lastBackup.chainLength) === liveChainMeta.length
+          && lastBackup.chainHead === liveChainMeta.head);
+      return Number.isFinite(at) && backupReadable && lastBackup.fingerprint
+        && !lastBackup.chainMissing && chainMetaReadable && chainCurrent
+        && lastBackup.fingerprint === backupFingerprint(liveSnapshot);
+    };
+    const openUpdate = async () => {
+      try {
+        if (chrome.tabs && typeof chrome.tabs.create === 'function') {
+          await chrome.tabs.create({ url: link.href });
+          return;
+        }
+      } catch (_) {}
+      try { window.open(link.href, '_blank', 'noopener'); } catch (_) {}
+    };
+    backupButton.addEventListener('click', async () => {
+      try { await backupWallet(); } catch (_) {}
+      await refreshBackupState();
+    });
+    let downloadCheck = null;
+    link.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (downloadCheck) return downloadCheck;
+      downloadCheck = (async () => {
+        const current = await refreshBackupState();
+        if (hasBackup() || Date.now() < downloadArmedUntil) {
+          await openUpdate();
+          return;
+        }
+        downloadArmedUntil = Date.now() + 10 * 1000;
+        backupState.textContent = `${backupText(
+          lastBackup, liveSnapshot, backupReadable, current.markerReadable,
+          current.chainMetaReadable, current.chainMeta,
+        )} — click again to update anyway`;
+      })().finally(() => { downloadCheck = null; });
+      return downloadCheck;
+    });
     banner.hidden = false;
     const onDismiss = () => {
       try { chrome.storage.local.set({ pt_update_seen: { version: info.latest, at: Date.now() } }); } catch (_) {}
@@ -712,30 +921,51 @@ const BACKUP_KEYS = ['pt_state', 'pt_settings', 'pt_frames', 'pt_replays'];
 
 async function backupWallet() {
   const stored = await chrome.storage.local.get(BACKUP_KEYS);
+  const fingerprint = backupFingerprint(stored);
   // F-14: the attestation chain lives in segmented storage, not in pt_state.
   // The backup bundles it as ONE array (pt_attest_chain) so a restore can
   // re-segment it on any future segment size — and so the verifiable record
   // survives a reinstall exactly like the wallet does. A pre-migration
   // install still carries the chain inside pt_state; bundle that instead.
-  let chainMissing = false;
+  let chainMissing = !AT;
+  let chainLength = null;
+  let chainHead = null;
   if (AT) {
-    try {
-      const { chain } = await AT.readChainStore(chainGet);
-      if (chain.length) stored.pt_attest_chain = chain;
-      else if (stored.pt_state && Array.isArray(stored.pt_state.attestChain) && stored.pt_state.attestChain.length) {
-        stored.pt_attest_chain = stored.pt_state.attestChain;
-      }
-      // Downgrade safety: ALSO embed the chain inside the backup's pt_state
-      // copy, exactly where a pre-segmentation extension expects it. An old
-      // restore then keeps the record intact instead of silently dropping it
-      // (and flagging a verification mismatch after the next fill); the new
-      // restore strips this copy and re-segments pt_attest_chain. The file
-      // carries the chain twice, but a backup that can lose the verifiable
-      // record on the way back in is not a backup.
-      if (stored.pt_attest_chain && stored.pt_state) {
-        stored.pt_state = { ...stored.pt_state, attestChain: stored.pt_attest_chain };
-      }
-    } catch (_) { chainMissing = true; }
+    // readChainStore reads the meta and the segments in two gets, while an
+    // append writes tail and meta in a single set. A fill landing between the
+    // two reads therefore shows an old meta beside a chain that already holds
+    // the new link — complete, but not self-consistent. Judge completeness
+    // only on a snapshot the meta held still across, and retry otherwise.
+    chainMissing = true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const { meta, chain } = await AT.readChainStore(chainGet);
+        const after = await AT.readChainMeta(chainGet);
+        if (after.length !== meta.length || after.head !== meta.head) continue;
+        if (chain.length !== meta.length
+          || (chain.length && chain[chain.length - 1].hash !== meta.head)) {
+          throw new Error('Attestation chain is incomplete');
+        }
+        chainLength = meta.length;
+        chainHead = meta.head;
+        if (chain.length) stored.pt_attest_chain = chain;
+        else if (stored.pt_state && Array.isArray(stored.pt_state.attestChain) && stored.pt_state.attestChain.length) {
+          stored.pt_attest_chain = stored.pt_state.attestChain;
+        }
+        // Downgrade safety: ALSO embed the chain inside the backup's pt_state
+        // copy, exactly where a pre-segmentation extension expects it. An old
+        // restore then keeps the record intact instead of silently dropping it
+        // (and flagging a verification mismatch after the next fill); the new
+        // restore strips this copy and re-segments pt_attest_chain. The file
+        // carries the chain twice, but a backup that can lose the verifiable
+        // record on the way back in is not a backup.
+        if (stored.pt_attest_chain && stored.pt_state) {
+          stored.pt_state = { ...stored.pt_state, attestChain: stored.pt_attest_chain };
+        }
+        chainMissing = false;
+        break;
+      } catch (_) { chainMissing = true; break; }
+    }
   }
   const backup = {
     app: 'papertrench-backup',
@@ -752,6 +982,21 @@ async function backupWallet() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  try {
+    const state = stored.pt_state || null;
+    await chrome.storage.local.set({
+      pt_last_backup: {
+        at: Date.now(),
+        version: chrome.runtime.getManifest().version,
+        startedAt: state && state.startedAt != null ? state.startedAt : null,
+        trades: state && Array.isArray(state.journal) ? state.journal.length : 0,
+        fingerprint,
+        chainMissing,
+        chainLength,
+        chainHead,
+      },
+    });
+  } catch (_) {}
   // DEFECT D-41: screen recordings live in IndexedDB (tens of MB) and are
   // deliberately NOT exported. The status line must say so — silently
   // implying "everything is in the file" is an overpromise the user only

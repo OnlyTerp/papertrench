@@ -167,7 +167,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   assert.match(bridge, /function scanScreenerRows\(spec\)/);
   assert.match(bridge, /function addressFromRowFiber\(row\)/);
   // Chips forward their tap back to the content script's fill pipeline.
-  assert.match(bridge, /emit\('row-buy', \{ address: entry\.address \}\)/);
+  assert.match(bridge, /emit\('row-buy', \{ address: decision\.address \}\)/);
   assert.match(content, /ev\.type === 'row-buy'/);
   // The chip shows a busy state until the content script settles the fill.
   assert.match(bridge, /type === 'row-buy-done'/);
@@ -177,7 +177,7 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // so a listener on the chip element itself never fires.
   assert.match(bridge, /function handleRowChipTap\(ev\)/);
   assert.match(bridge, /window\.addEventListener\(type, handleRowChipTap, true\)/);
-  assert.match(bridge, /\['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click'\]/,
+  assert.match(bridge, /\['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown'\]/,
     'press events must be swallowed so the row never navigates from a chip tap');
   // The tap must not trigger the row's own navigation or click handlers.
   assert.match(bridge, /ev\.preventDefault\(\);\s*\n\s*ev\.stopPropagation\(\);\s*\n\s*ev\.stopImmediatePropagation\(\);/);

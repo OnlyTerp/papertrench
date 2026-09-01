@@ -29,6 +29,7 @@
     solUsd: () => sendMessage({ type: 'pt_sol_usd' }).then((r) => (typeof r === 'number' && r > 0 ? r : 0)).catch(() => 0),
     onchainWatch: (mint, pool) => sendMessage({ type: 'pt_onchain_watch', mint, pool }).then(okOrNull),
     onchainPrewatch: (ids) => sendMessage({ type: 'pt_onchain_prewatch', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
+    onchainIdentify: (ids) => sendMessage({ type: 'pt_onchain_identify', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
     rugCheck: (mint) => sendMessage({ type: 'pt_rug_check', mint }).then(okOrNull),
     onchainUnwatch: (mint) => sendMessage({ type: 'pt_onchain_unwatch', mint }).catch(() => null),
     onchainQuote: (mint) => sendMessage({ type: 'pt_onchain_quote', mint }).then(okOrNull),
@@ -471,6 +472,7 @@
     if (event.origin && event.origin !== location.origin) return;
     const ev = event.data;
     if (ev.type === 'tick') { noteRowPrice(ev.payload); handlePageTick(ev.payload); }
+    else if (ev.type === 'facts') handleHostFacts(ev.payload);
     else if (ev.type === 'row-buy') {
       // A quick-buy chip injected by the MAIN-world bridge was tapped; the
       // fill pipeline itself lives here. The done-signal lets the bridge
@@ -487,6 +489,23 @@
         doRowBuy(ev.payload.address, null)
           .finally(() => sendPadreMarker('row-buy-done', null));
       }
+    }
+    else if (ev.type === 'row-buy-refused') {
+      const p = ev.payload || {};
+      toast('That row changed under your cursor — paper buy refused (the chip now shows a different coin).');
+      try {
+        const EL = window.PTErrors;
+        if (EL && typeof EL.record === 'function') {
+          EL.record('Paper buy refused: screener row identity changed', {
+            scope: 'content',
+            kind: 'row-buy-refused',
+            was: p.was || null,
+            now: p.now || null,
+            swept: p.swept || null,
+            reason: p.reason || null,
+          });
+        }
+      } catch (_) { /* diagnostics must never affect the trading path */ }
     }
     else if (ev.type === 'nav') {
       // The page's router moved (pushState/replaceState in the MAIN world);
@@ -531,6 +550,101 @@
     }
   }
   window.addEventListener('message', onBridgeMessage);
+
+  const hostSupplyRefusals = new Set();
+  const hostSupplyRefusalCounts = new Map();
+
+  function recordHostFactsDiagnostic(message, kind, details) {
+    const EL = window.PTErrors;
+    if (!EL || typeof EL.record !== 'function') return;
+    try {
+      EL.record(message, { scope: 'content', kind, ...(details || {}) });
+    } catch (_) { /* diagnostics must never affect the trading path */ }
+  }
+
+  function hostSupplyEvidenceKey(mint, facts) {
+    const keyPart = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toPrecision(12) : String(value);
+    };
+    return [
+      mint,
+      facts && facts.source,
+      keyPart(facts && facts.priceUsd),
+      keyPart(facts && facts.mcap),
+      keyPart(facts && facts.supply),
+      keyPart(facts && facts.decimals),
+    ].join('|');
+  }
+
+  function recordHostSupplyDiagnostic(mint, facts, message, kind, details) {
+    const key = hostSupplyEvidenceKey(mint, facts);
+    if (hostSupplyRefusals.has(key)) return;
+    const count = hostSupplyRefusalCounts.get(mint) || 0;
+    if (count >= 8) return;
+    hostSupplyRefusals.add(key);
+    hostSupplyRefusalCounts.set(mint, count + 1);
+    recordHostFactsDiagnostic(message, kind, {
+      source: facts && facts.source,
+      url: facts && facts.url,
+      values: facts ? {
+        priceUsd: facts.priceUsd, mcap: facts.mcap,
+        supply: facts.supply, decimals: facts.decimals,
+      } : null,
+      ...(details || {}),
+    });
+  }
+
+  function refuseHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts, 'refused host supply for ' + mint
+      + ' (no supply reading agreed with mcap/priceUsd within 1%)',
+    'host-facts-supply-refused');
+  }
+
+  function noteUncorroboratedHostSupply(mint, facts) {
+    recordHostSupplyDiagnostic(mint, facts,
+      'host supply for ' + mint + ' lacks corroborating USD price and live market cap',
+      'host-facts-supply-uncorroborated', {
+        missing: {
+          priceUsd: !(Number(facts && facts.priceUsd) > 0),
+          mcap: !(Number(facts && facts.mcap) > 0),
+        },
+      });
+  }
+
+  function handleHostFacts(facts) {
+    if (!facts || !token || !token.pending) return;
+    const decision = Q.hostFactsDecision(token, facts);
+    if (decision.adoptMint) {
+      const oldMint = token.mint;
+      if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = decision.adoptMint;
+      rekeyLiveState(oldMint, decision.adoptMint);
+      token.mint = decision.adoptMint;
+      token.pairAddress = decision.poolAddress || token.pairAddress || null;
+      sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
+    }
+    if (decision.refused) {
+      refuseHostSupply(token.mint, facts);
+      return;
+    }
+    if (decision.reason === 'no-united-price') {
+      noteUncorroboratedHostSupply(token.mint, facts);
+      return;
+    }
+    if (!(decision.supplyUi > 0)) return;
+    token.hostSupplyUi = decision.supplyUi;
+    token.hostSupplyWitness = {
+      source: facts.source || null,
+      url: facts.url || null,
+      keys: {
+        priceUsd: facts.priceUsd,
+        mcap: facts.mcap,
+        supply: facts.supply,
+        decimals: facts.decimals,
+      },
+      atMs: Date.now(),
+    };
+  }
 
   function sendPadreMarker(type, payload) {
     window.postMessage({ source: 'papertrench-content', type, payload: payload || null }, '*');
@@ -733,6 +847,13 @@
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
     token.priceSource = payload.source || 'page-feed';
+    if (verdict.supplyBasis === 'host') {
+      token.hostSupplySource = 'site-facts';
+      token.hostSupplyFillWitness = token.hostSupplyWitness
+        ? JSON.parse(JSON.stringify(token.hostSupplyWitness)) : null;
+    } else if (verdict.supplyBasis) {
+      clearHostSupplyLineage();
+    }
     // Market evidence for the fill witness (F-47): only prices the validator
     // actually ACCEPTED count — never a resolver adoption, which is exactly
     // the source class that once resurrected a pre-crash price.
@@ -953,6 +1074,7 @@
           sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
         }
         if (Number(found.supplyUi) > 0) {
+          reconcileHostSupply(found.supplyUi);
           token.supplyUi = Number(found.supplyUi);
           token.decimals = Number(found.decimals);
         }
@@ -974,11 +1096,15 @@
       // coin would price mcap ticks against a supply nobody measured.
       token.pumpCurve = found.poolKind === 'pump-curve';
       onchainLive = true;
+      if (Number(found.supplyUi) > 0) {
+        reconcileHostSupply(found.supplyUi);
+      }
       renderSiteStatus();
       refreshRugVerdict(found.mint);
       // Re-anchor the bridge with the full identity so chart ticks match.
       sendPadreMarker('paper-axis', { pairAddress: token.pairAddress, mint: token.mint });
       if (Number(found.priceNative) > 0) {
+        clearHostSupplyLineage();
         handlePageTick({
           mint: found.mint,
           source: 'onchain-prewatch',
@@ -1161,6 +1287,7 @@
       // same coin under its old stand-in. Deterministic identity proof, one
       // rekey, no network added.
       healStandInPositions(data);
+      healStandInPositionsByChain(data);
       // Rug verdicts read Solana holder state — a foreign chain has no
       // verdict, and the guard stays silent rather than pretending.
       if (!data.chain || data.chain === 'solana') refreshRugVerdict(data.mint);
@@ -1266,6 +1393,75 @@
     for (const standIn of stranded) rekeyLiveState(standIn, tokenRecord.mint);
   }
 
+  function reconcileHostSupply(measuredSupplyUi) {
+    if (!token || !(Number(token.hostSupplyUi) > 0)) return;
+    const measured = Number(measuredSupplyUi);
+    const host = Number(token.hostSupplyUi);
+    if (!(measured > 0) || !Number.isFinite(measured)) return;
+    if (Math.abs(measured - host) / host <= 0.02) {
+      token.hostSupplyUi = null;
+      token.hostSupplyWitness = null;
+      token.hostSupplySource = null;
+      token.hostSupplyFillWitness = null;
+      return;
+    }
+    token.hostSupplyUi = null;
+    token.hostSupplyWitness = null;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
+    token.hostSupplyRejected = true;
+    const pos = state.positions && state.positions[token.mint];
+    if (pos) {
+      pos.hostSupplyDiscrepancy = true;
+      persistSoon();
+    }
+    recordHostFactsDiagnostic('host supply disagrees with measured supply',
+      'host-facts-supply-mismatch', {
+      mint: token.mint,
+      hostSupplyUi: host,
+      measuredSupplyUi: measured,
+    });
+  }
+
+  function clearHostSupplyLineage() {
+    if (!token) return;
+    token.hostSupplySource = null;
+    token.hostSupplyFillWitness = null;
+  }
+
+  const attemptedStandInProbes = new Set();
+
+  async function probeStandInPosition(standIn) {
+    try {
+      const found = await R.onchainIdentify({ pool: standIn, mint: standIn });
+      if (!found || !found.mint) return;
+      if (found.mint === standIn) {
+        await withState(async () => {
+          const current = state.positions && state.positions[standIn];
+          if (!current || !current.standInKey) return;
+          const mutate = () => {
+            const position = state.positions && state.positions[standIn];
+            if (position) delete position.standInKey;
+          };
+          mutate();
+          await persistStateNow(mutate);
+        }).catch(() => {});
+        return;
+      }
+      rekeyLiveState(standIn, found.mint);
+    } catch (_) {}
+  }
+
+  function healStandInPositionsByChain(tokenRecord) {
+    if (!tokenRecord || !tokenRecord.mint || !state.positions) return;
+    for (const [key, position] of Object.entries(state.positions)) {
+      if (key === tokenRecord.mint || !position || !(Number(position.qty) > 0)
+        || !position.standInKey || attemptedStandInProbes.has(key)) continue;
+      attemptedStandInProbes.add(key);
+      void probeStandInPosition(key);
+    }
+  }
+
   function rekeyLiveState(oldMint, newMint) {
     if (!oldMint || !newMint || oldMint === newMint) return;
     const cached = livePositionPrices[oldMint];
@@ -1274,9 +1470,13 @@
       if (!livePositionPrices[newMint]) livePositionPrices[newMint] = cached;
     }
     if (!E.rekeyMint(state, oldMint, newMint)) return;
+    if (state.positions[newMint]) delete state.positions[newMint].standInKey;
     posEls = null; // the cached card nodes belong to the stand-in's render
     withState(async () => {
-      const mutate = () => E.rekeyMint(state, oldMint, newMint);
+      const mutate = () => {
+        if (!E.rekeyMint(state, oldMint, newMint)) return;
+        if (state.positions[newMint]) delete state.positions[newMint].standInKey;
+      };
       mutate();
       await persistStateNow(mutate);
     }).catch(() => {}).then(() => {
@@ -1294,8 +1494,16 @@
     // Per-token feed counters must not leak across a token switch: stale mcap
     // activity could hold a NEW token's armed buy alive (F-16), and stale
     // out-of-band tallies could trigger a premature re-anchor (F-10).
-    if (!data || data.mint !== prevMint) { lastMcapTickAt = 0; oobRejects = 0; }
+    if (!data || data.mint !== prevMint) {
+      lastMcapTickAt = 0;
+      oobRejects = 0;
+      hostSupplyRefusals.clear();
+      hostSupplyRefusalCounts.clear();
+    }
     token = data;
+    // Resolver adoption is an independent price basis. Do not carry a
+    // host-derived fill label onto the newly resolved token record.
+    if (token && Number(token.priceNative) > 0) clearHostSupplyLineage();
     // Keep a separate resolver anchor for validation. This is the price we
     // trust until a newer resolver quote or a first on-chain observation
     // confirms the live level. Live chart ticks validate against this, so one
@@ -1400,14 +1608,17 @@
    * Sent only on change; the bridge's boot default is "wanted", so a missed
    * first message costs correctness nothing (it merely parses as before). */
   let lastWantsTicks = null;
+  let lastFactsWanted = null;
   function publishPageState() {
     const chipPage = Boolean(site && site.rowBuy
       && settings.listQuickBuyEnabled !== false
       && site.rowBuy.listPaths.test(location.pathname));
     const wants = Boolean(token) || chipPage;
-    if (wants === lastWantsTicks) return;
+    const facts = Boolean(token && token.pending);
+    if (wants === lastWantsTicks && facts === lastFactsWanted) return;
     lastWantsTicks = wants;
-    sendPadreMarker('page-state', { wantsTicks: wants });
+    lastFactsWanted = facts;
+    sendPadreMarker('page-state', { wantsTicks: wants, factsWanted: facts });
   }
 
   /**
@@ -1522,6 +1733,7 @@
         token.poolAddresses = fresh.poolAddresses;
         healStandInPositions(token);
       }
+      healStandInPositionsByChain(token);
 
       // The resolver quote becomes the new anchor immediately. Live ticks
       // validate against this, so the anchor never lags behind real moves.
@@ -1556,6 +1768,7 @@
         return;
       }
 
+      clearHostSupplyLineage();
       token.priceNative = fresh.priceNative;
       if (fresh.priceUsd) token.priceUsd = fresh.priceUsd;
       if (fresh.mcap) token.mcap = fresh.mcap;
@@ -1885,7 +2098,23 @@
       mcap: Number(token.mcap) > 0 ? Number(token.mcap) : null,
       source: token.priceSource || 'unknown',
       receivedAt: lastPriceAt,
+      supplySource: token.hostSupplySource || null,
+      hostSupplyWitness: token.hostSupplyFillWitness || null,
     };
+  }
+
+  function refuseDisprovedHostFill(fillQuote) {
+    lastQuoteRefusal = 'Host supply disagreed with measured supply'
+      + ' — paper fill refused. Try again in a moment.';
+    recordHostFactsDiagnostic('paper fill refused after host supply discrepancy',
+      'host-facts-fill-refused', {
+        mint: fillQuote && fillQuote.mint,
+        source: fillQuote && fillQuote.supplySource,
+      });
+    console.debug('PaperTrench: fill witness refused', {
+      reason: 'host supply disagreed with measured supply',
+      mint: fillQuote && fillQuote.mint,
+    });
   }
 
   function waitForNewPageQuote(afterSeq, timeoutMs) {
@@ -2193,6 +2422,9 @@
     renderBalance();
     renderPosition();
     renderClosedPnl();
+    // A fill in another tab changes the wallet-wide flow just like the
+    // balance and positions bar; repaint it with the adopted state.
+    renderFlow();
     // A fill in ANOTHER tab changes the portfolio too; without this the bar
     // would keep showing a chip for a position that is already closed.
     renderPositionsBar();
@@ -3123,6 +3355,10 @@
       if (token.srcAddress !== token.mint && token.pairAddress && token.pairAddress !== freshMint) return null;
       token.mint = freshMint;
     }
+    if (data.priceSource === 'resolver' || data.priceSource === 'chain'
+      || data.priceSource === 'row-onchain') {
+      clearHostSupplyLineage();
+    }
     token.priceNative = Number(data.priceNative);
     if (data.priceUsd) token.priceUsd = Number(data.priceUsd);
     if (data.mcap) token.mcap = Number(data.mcap);
@@ -3216,6 +3452,16 @@
           return;
         }
       }
+      // The acquisition beat above AWAITED, and the world can change across
+      // it: an SPA navigation or a standdown sets `token` back to null, and
+      // the branch immediately above re-checks `token` for exactly that
+      // reason. Arming did not, so a click that raced a navigation threw
+      // "Cannot read properties of null (reading 'mint')" out of an async
+      // handler — an unhandled rejection nobody sees, which ate the click
+      // whole: no fill, no armed buy, and no message explaining either.
+      // Reported from the field with that stack (requestBuy), on exactly the
+      // fresh launches this arming path exists to serve.
+      if (!token) return toast('No token detected on this page');
       armedBuy = { amount: solAmount, usd: quotedUsd, at: Date.now(), mint: token.mint, fromClick: true };
       // D-39: a click-armed buy NEVER narrates its state (no arming toast
       // of any kind) and never waits for a second source — flushArmedBuy
@@ -3248,6 +3494,11 @@
         let filled = null;
         const mutate = () => {
           if (!token || token.mint !== fillQuote.mint) throw new Error('Token changed before the paper buy could be filled');
+          if (fillQuote.supplySource === 'site-facts' && token.hostSupplyRejected) {
+            refuseDisprovedHostFill(fillQuote);
+            filled = null;
+            return;
+          }
           const hadPosition = Boolean(state.positions[token.mint]);
           filled = E.buy(state, settings, {
             ts: Date.now(), mint: token.mint, pairAddress: token.pairAddress,
@@ -3259,6 +3510,8 @@
             // report into a journal lookup instead of a screenshot forensic.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
             chain: token.chain || 'solana',
             solAmount,
             // The dollar amount the trader actually tapped on a foreign-chain
@@ -3276,7 +3529,9 @@
           drawnFillIds.add(filled.trade.id);
         };
         mutate();
+        if (!filled) return null;
         await persistStateNow(mutate);
+        if (!filled) return null;
         const { trade, position, opened } = filled;
         // The evidence chain is appended AFTER the wallet commit: a chained
         // link for a fill the CAS could still reject would be a permanent
@@ -3300,6 +3555,9 @@
         return { trade, position, opened };
       });
       const tCommitted = perfNow();
+      if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
+        toast(lastQuoteRefusal);
+      }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
         lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
@@ -3496,6 +3754,8 @@
             // F-48: fill price provenance — see doBuy.
             priceSource: fillQuote.source || null,
             priceAgeMs: fillQuote.receivedAt > 0 ? Date.now() - fillQuote.receivedAt : null,
+            supplySource: fillQuote.supplySource || null,
+            hostSupplyWitness: fillQuote.hostSupplyWitness || null,
           });
           // F-41: claimed before the journal can be observed (see doBuy).
           drawnFillIds.add(filled.trade.id);
@@ -4026,6 +4286,7 @@
     .pt-box.pt-micro .pt-limit-row,
     .pt-box.pt-micro #pt-thesis,
     .pt-box.pt-micro #pt-closed,
+    .pt-box.pt-micro #pt-flow,
     .pt-box.pt-micro .pt-editor,
     .pt-box.pt-micro .pt-footer,
     .pt-box.pt-micro .pt-pos .pt-detail,
@@ -4674,6 +4935,12 @@
       transition: color 0.16s, border-color 0.16s;
     }
     .pt-footer a:hover { color: var(--pt-amber); border-color: var(--pt-amber); }
+    .pt-flow {
+      margin-top: 7px;
+      color: var(--pt-faint);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
 
     /* ---------------- semantic colors ---------------- */
 
@@ -5287,6 +5554,7 @@
             <div id="pt-alerts"></div>
             <div id="pt-thesis"></div>
             <div id="pt-closed"></div>
+            <div class="pt-flow" id="pt-flow" title="Lifetime flow: total bought, cost still held open, total sold back out."></div>
           </div>
           <div class="pt-footer">
             <span id="pt-site"></span>
@@ -5341,6 +5609,7 @@
     els.alerts = shadow.getElementById('pt-alerts');
     els.thesis = shadow.getElementById('pt-thesis');
     els.closed = shadow.getElementById('pt-closed');
+    els.flow = shadow.getElementById('pt-flow');
     els.effects = shadow.getElementById('pt-effects');
     els.footSite = shadow.getElementById('pt-site');
     els.subtitle = shadow.getElementById('pt-subtitle');
@@ -5726,6 +5995,21 @@
     }
   }
 
+  function renderFlow() {
+    if (!els.flow || !state) return;
+    const stats = E.sessionStats(state, settings);
+    const base = `In ${E.fmt(stats.boughtSol, 2)} · holding ${E.fmt(stats.heldSol, 2)} · out ${E.fmt(stats.soldSol, 2)} SOL`;
+    // Lifetime book totals span coins, so a current foreign-chain rate cannot
+    // honestly convert them; keep this line in SOL everywhere.
+    if (stats.flowTruncated) {
+      els.flow.textContent = `${base} · bought/sold cover newest ${E.JOURNAL_CAP} fills`;
+      els.flow.title = `Lifetime flow: total bought, cost still held open, total sold back out. Bought and sold cover only the newest ${E.JOURNAL_CAP} fills; holding remains exact from open positions.`;
+      return;
+    }
+    els.flow.textContent = base;
+    els.flow.title = 'Lifetime flow: total bought, cost still held open, total sold back out.';
+  }
+
   /* ---------------- panel denomination ----------------
    * Foreign-chain panels denominate in DOLLARS. Read off the live site
    * (2026-08-05): fomo's own quick buys on a BNB token are $10/$100/$500/
@@ -6085,6 +6369,7 @@
     renderHeader();
     renderBalance();
     renderMicroWallet();
+    renderFlow();
     renderPosition();
     renderAlerts();
     renderBuyButton();
@@ -6582,6 +6867,20 @@
   // once left "Row buy already in progress…" on every coin until reload —
   // live report). A settled finally clears the latch long before this ages.
   let rowBuyInFlightAt = 0;
+  let rowBuyOwner = 0;
+
+  function acquireRowBuyLatch() {
+    rowBuyInFlight = true;
+    rowBuyInFlightAt = Date.now();
+    rowBuyOwner += 1;
+    return rowBuyOwner;
+  }
+
+  function releaseRowBuyLatch(token) {
+    if (rowBuyOwner !== token) return;
+    rowBuyInFlight = false;
+    rowBuyInFlightAt = 0;
+  }
 
   function noteRowPrice(payload) {
     if (!payload || typeof payload.mint !== 'string' || !ROW_ADDR_RE.test(payload.mint)) return;
@@ -6838,6 +7137,7 @@
         }
       } catch (_) { /* identity stays the row's own key */ }
     }
+    const standInKey = !data.mint || data.mint === address;
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }
@@ -6854,6 +7154,7 @@
           priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
           ...(feeContextForOrder() || {}),
         });
+        if (standInKey) filled.position.standInKey = true;
         filled.opened = opened;
       };
       mutate();
@@ -6883,6 +7184,9 @@
     // position shows up in the rail instantly, chart one click away.
     pollPositionPrices();
     renderPositionsBar();
+    // A row fill changes the wallet-wide flow even when this chart shows
+    // another token, so keep that summary in step without a full rebuild.
+    renderFlow();
     // If this token's chart happens to be on screen, refresh the card too.
     if (token && token.mint === data.mint) renderAll();
     return result;
@@ -6930,13 +7234,25 @@
           if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
           data.priceSource = 'row-feed';
         }
-        const result = await fillRowBuy(armed.address, data, armed.amount);
+        // Serialize only the commit. The armed resolver cascade must stay free
+        // to retry while a direct click is pricing or filling.
+        if (rowBuyInFlight) return;
+        const rowBuyToken = acquireRowBuyLatch();
+        let result;
+        try {
+          result = await fillRowBuy(armed.address, data, armed.amount);
+        } finally {
+          releaseRowBuyLatch(rowBuyToken);
+        }
         if (result) {
-          rowArmed = null;
+          // D-42: the SW mirror dies with the intent it belongs to — a filled
+          // snipe must never be adopted by the chart page and filled twice,
+          // and a newer intent must keep both its slot and its mirror.
+          if (rowArmed === armed) {
+            rowArmed = null;
+            sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
+          }
           sendPadreMarker('row-buy-done', null);
-          // D-42: the SW mirror dies with the local intent — a filled snipe
-          // must never be adopted by the chart page and filled twice.
-          sendMessage({ type: 'pt_armed_row_clear' }).catch(() => {});
         }
       }
     } catch (_) {
@@ -6947,8 +7263,7 @@
   /** Paper-buy the first preset amount of a screener row's token. */
   async function doRowBuy(address, button) {
     if (rowBuyInFlight) return toast('Row buy already in progress…');
-    rowBuyInFlight = true;
-    rowBuyInFlightAt = Date.now();
+    const rowBuyToken = acquireRowBuyLatch();
     if (button) button.classList.add('busy');
     primeAudio();
     try {
@@ -7067,7 +7382,7 @@
     } catch (err) {
       toast(err.message || 'Row buy failed');
     } finally {
-      rowBuyInFlight = false;
+      releaseRowBuyLatch(rowBuyToken);
       if (button) button.classList.remove('busy');
     }
   }
@@ -7559,6 +7874,9 @@
     // Armed levels change from the chart (a drag, a cancel) and from the
     // wallet (an order firing), neither of which rebuilds the card.
     renderOrderList();
+    posEls.pnl.title = pos.hostSupplyDiscrepancy
+      ? 'Warning: entry price and P&L use a host supply that disagreed with measured supply.'
+      : '';
 
     const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
     if (!mark) return;
@@ -7682,6 +8000,7 @@
     posEls.entry.textContent = DASH;
     posEls.value.textContent = DASH;
     posEls.pnl.textContent = DASH;
+    posEls.pnl.title = '';
     posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
 
     if (posEls.ledger) {
@@ -9031,10 +9350,11 @@
       // D-41 latch hygiene: an in-flight buy/sell whose await never settled
       // (hung resolver, dying SW) must not wedge every later trade behind
       // "already in progress". A live cascade never takes 20 s; if the
-      // latch is that old the operation is dead, so free it. The eventual
-      // finally is idempotent — it only clears, never re-arms.
+      // latch is that old the operation is dead, so free it. The generation
+      // token keeps its eventual finally from releasing a newer operation.
       const LATCH_MAX_AGE_MS = 20_000;
       if (rowBuyInFlight && rowBuyInFlightAt && Date.now() - rowBuyInFlightAt > LATCH_MAX_AGE_MS) {
+        rowBuyOwner += 1;
         rowBuyInFlight = false;
         rowBuyInFlightAt = 0;
         toast('A stuck row buy was released — try again');

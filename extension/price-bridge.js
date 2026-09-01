@@ -103,13 +103,39 @@
     // A new token means the old bar close is no longer a valid axis hint —
     // and the export dedupe must forget the old token's close, or the first
     // poll on the new token can be swallowed as "unchanged" (DEFECT F-19).
-    // The GMGN candle close is the same class of per-token evidence (C-08).
-    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; gmgnLastCandleClose = 0; barCloseLedger.clear(); }
+    //
+    // D-65: the GMGN candle close is NOT cleared here any more. It used to
+    // be, on the same "the needles changed" signal — but that signal fires
+    // for two different events, and only one of them is a new token:
+    //
+    //   a real switch      A -> B, nothing in common. Stale, must go.
+    //   identity sharpening  [PAIR] -> [PAIR, MINT, SYMBOL], as the resolver
+    //                      learns what it is looking at. Same token.
+    //
+    // The second is the normal life of a FRESH LAUNCH, whose identity
+    // resolves late and in pieces, and each sharpening wiped the axis anchor
+    // that both GMGN line lanes need. GMGN fetches its mcap candles once per
+    // chart mount, so nothing ever put the anchor back and the average lines
+    // could not be computed for the rest of the session.
+    //
+    // Clearing on a genuine switch is racy too: the new token's candles
+    // routinely land BEFORE its paper-axis does, so the clear destroyed a
+    // close that had just been captured for the token we were moving to.
+    //
+    // Both go away by tagging the close with the token it was observed for
+    // (gmgnLastCandleCloseKey) and checking that at USE time instead —
+    // staleness is then a fact about the data, not a guess about ordering.
+    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; barCloseLedger.clear(); }
   }
   // GMGN runs a private TradingView widget inside a same-origin blob iframe.
   // Its live React chart manager exposes `getActiveChart().createOrderLine()`.
   let gmgnChart = null;
   let gmgnLineSpec = null;
+  // Why the GMGN lines last failed to draw. The paper path has had
+  // lastLineSyncReason since F-41 and D-63 extended it; the GMGN path had no
+  // diagnostic at all, which is why portifly's report (D-64) arrived as
+  // "they never show up" with nothing to say which of the causes it was.
+  let lastGmgnLineReason = null;
   let gmgnRetryTimer = null;
   // DEFECT C-08: the newest close from GMGN's own mcap-candle feed. GMGN's
   // cap definition can differ from the resolver's (circulating vs total,
@@ -117,6 +143,38 @@
   // what GMGN's Y axis actually shows, so lines and fill shapes are scaled
   // through it rather than trusting resolver-implied supply. Reset per token.
   let gmgnLastCandleClose = 0;
+  // D-65: which token that close was observed for, read from the candle
+  // request's own URL (/api/v1/token_mcap_candles/<chain>/<address>). The
+  // anchor is per-token evidence, so it carries its subject rather than
+  // relying on a clear that has to fire at exactly the right moment.
+  let gmgnLastCandleCloseKey = null;
+
+  /**
+   * The GMGN axis anchor, or 0 when we have none FOR THIS TOKEN.
+   *
+   * Every GMGN level lane needs this: the mcap lane scales through it
+   * (gmgnCapScale) and the native-ratio lanes multiply by it (C-16, D-64).
+   * A close belonging to the previous token would put every line and every
+   * fill mark at a level from a different coin, so it is refused here rather
+   * than cleared on a signal that cannot see the difference.
+   *
+   * An unparseable URL leaves the key null; that close is still used, which
+   * is exactly the pre-D-65 behaviour for a shape we do not recognise.
+   */
+  function gmgnAxisAnchor() {
+    if (!(gmgnLastCandleClose > 0)) return 0;
+    if (!gmgnLastCandleCloseKey) return gmgnLastCandleClose;
+    // Addresses only. The needle list also carries the SYMBOL, and a short
+    // symbol can appear inside an unrelated base58 address — matching on
+    // that would accept another coin's anchor.
+    const addrs = [currentSymbolInfo.pairAddress, currentSymbolInfo.mint]
+      .filter((v) => typeof v === 'string' && v.length >= 2)
+      .map((v) => v.toUpperCase());
+    // No identity resolved yet: nothing to contradict the close, and this is
+    // the ordinary state while a fresh launch is still being identified.
+    if (!addrs.length) return gmgnLastCandleClose;
+    return addrs.indexOf(gmgnLastCandleCloseKey) >= 0 ? gmgnLastCandleClose : 0;
+  }
 
   /* ---------------- content-script liveness (DEFECTS O-04/C-17) ----------
    * The MAIN world cannot observe extension death, so the bridge watches for
@@ -148,6 +206,7 @@
    * the instant it is thrown, not five minutes later.
    */
   let feedWanted = true;
+  let factsWanted = true;
 
   function feedActive() {
     return feedWanted && Date.now() - lastContentMessageAt <= CONTENT_SILENCE_LIMIT_MS;
@@ -193,7 +252,15 @@
   // positions-of-SOMEONE either way, and prices inside them are entries,
   // not the market.
   const POSITION_SUBTREE_KEY = /^(positions?|holdings?|portfolio|userPositions?|myPositions?|openOrders?|hodlers?|holders?|topHolders?|toptraders?|balances?)$/i;
+  // Historical snapshots are not the live market. On Padre, pump.fun's
+  // `callouts[0].marketCap` put $204.53M in the header while BONK's live cap
+  // was about $263M (captured defect), so these subtrees must not feed
+  // prices, caps, or host-facts arithmetic.
+  const HISTORICAL_SUBTREE_KEY = /^(callouts?|history|historical|snapshots?|previous|prev|ath|candles?|bars?|ohlc|past)$/i;
   const MCAP_KEY = /^(marketCap|marketCapInUsd|mcap|mcapInUsd|fdv|fullyDilutedValuation)$/i;
+  const SUPPLY_KEY = /^(supply|totalSupply|circulatingSupply|tokenSupply)$/i;
+  const DECIMALS_KEY = /^decimals$/i;
+  const POOL_KEY = /^(pairAddress|poolAddress|lpAddress|pool|pairId)$/i;
   // A record that IS a trade event — an id-carrying or user-attributed
   // swap/trade object (fomo's social feed, tx-hash trade tapes). Its price
   // and cap fields describe the moment that trade happened, minutes to
@@ -262,6 +329,7 @@
     // in `top` (frames with no identifier at all), which downstream
     // anchor-banding still validates before use.
     const records = new Map();
+    const factSnapshots = factsWanted ? [] : null;
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
@@ -269,7 +337,10 @@
     const recordFor = (mint) => {
       let rec = records.get(mint);
       if (!rec) {
-        rec = { candidates: [], mcap: null, mint, symbol: null, name: null };
+        rec = {
+          candidates: [], mcap: null, mint, symbol: null, name: null,
+          supply: null, decimals: null, poolAddress: null, addresses: [],
+        };
         records.set(mint, rec);
       }
       return rec;
@@ -292,6 +363,7 @@
         && (looksLikeTradeEvent(node) || looksLikePositionRecord(node))) tainted = true;
 
       let target = ctx;
+      let nodeSnapshot = null;
       if (!Array.isArray(node)) {
         let bestRank = 0;
         let bestMint = null;
@@ -300,7 +372,28 @@
           const rank = mintKeyRank(key);
           if (rank > bestRank) { bestRank = rank; bestMint = value; }
         }
-        if (bestMint) target = recordFor(bestMint);
+        if (bestMint) {
+          target = recordFor(bestMint);
+          const addresses = new Set(target.addresses);
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              addresses.add(value);
+            }
+          }
+          target.addresses = Array.from(addresses);
+        }
+        if (factsWanted && !Array.isArray(node) && target) {
+          nodeSnapshot = {
+            candidates: [], mcap: null, mint: target.mint, symbol: null, name: null,
+            supply: null, decimals: null, poolAddress: null, addresses: [],
+          };
+          for (const value of Object.values(node)) {
+            if (typeof value === 'string' && BASE58_RE.test(value)) {
+              nodeSnapshot.addresses.push(value);
+            }
+          }
+          factSnapshots.push(nodeSnapshot);
+        }
       }
 
       const entries = Array.isArray(node)
@@ -314,7 +407,8 @@
           // USER, not the market: entry averages and cost bases inside it
           // must never tick the price (DEFECT F-30). Identity fields still
           // flow; prices and caps do not.
-          walk(value, depth + 1, target, tainted || POSITION_SUBTREE_KEY.test(key));
+          walk(value, depth + 1, target,
+            tainted || POSITION_SUBTREE_KEY.test(key) || HISTORICAL_SUBTREE_KEY.test(key));
           continue;
         }
         const rec = target || top;
@@ -323,19 +417,43 @@
           if (n > 0) {
             const unit = USD_HINT.test(key) ? 'usd' : NATIVE_HINT.test(key) ? 'native' : 'unknown';
             pushCandidate(rec, { value: n, unit, key });
+            if (nodeSnapshot) nodeSnapshot.candidates.push({ value: n, unit, key });
           }
         } else if (!tainted && MCAP_KEY.test(key)) {
           const n = numberValue(value);
           if (n > 0 && rec.mcap === null) rec.mcap = n;
+          if (!tainted && n > 0 && nodeSnapshot && nodeSnapshot.mcap === null) {
+            nodeSnapshot.mcap = n;
+          }
+        } else if (!tainted && SUPPLY_KEY.test(key)) {
+          const n = numberValue(value);
+          if (n > 0 && rec.supply === null) rec.supply = n;
+          if (n > 0 && nodeSnapshot && nodeSnapshot.supply === null) {
+            nodeSnapshot.supply = n;
+          }
+        } else if (DECIMALS_KEY.test(key)) {
+          const n = numberValue(value);
+          if (Number.isInteger(n) && n >= 0 && n <= 18 && rec.decimals === null) {
+            rec.decimals = n;
+          }
+          if (Number.isInteger(n) && n >= 0 && n <= 18
+            && nodeSnapshot && nodeSnapshot.decimals === null) {
+            nodeSnapshot.decimals = n;
+          }
+        } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
+          if (!rec.poolAddress) rec.poolAddress = value;
+          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = value;
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
+          if (nodeSnapshot && !nodeSnapshot.symbol) nodeSnapshot.symbol = value;
         } else if (NAME_KEY.test(key) && typeof value === 'string' && value.length <= 64) {
           rec.name = rec.name || value;
+          if (nodeSnapshot && !nodeSnapshot.name) nodeSnapshot.name = value;
         }
       }
     })(obj, 0, null, false);
 
-    return { records, top };
+    return { records, top, factSnapshots };
   }
 
   // GMGN's realtime WebSocket publishes every venue trade on the
@@ -458,6 +576,11 @@
         // C-08: this close IS the value on GMGN's Y axis — the scale anchor
         // for every GMGN line and fill shape (see gmgnCapScale).
         gmgnLastCandleClose = mcap;
+        // D-65: tag it with the token the request names, so the anchor can be
+        // judged stale at use time instead of cleared on a signal that cannot
+        // tell a token switch from an identity merely becoming complete.
+        const forToken = /\/token_mcap_candles\/[^/?#]+\/([^/?#]+)/.exec(url);
+        gmgnLastCandleCloseKey = forToken ? forToken[1].toUpperCase() : null;
         emit('tick', {
           candidates: [],
           mcap,
@@ -469,8 +592,50 @@
       }
     }
 
-    const { records, top } = collect(parsed);
+    const { records, top, factSnapshots } = collect(parsed);
     const hasContent = (rec) => rec.candidates.length || rec.mcap !== null;
+    const emitFacts = () => {
+      if (!factsWanted) return;
+      let emitted = 0;
+      const canEmit = (rec) => {
+        if (!rec) return false;
+        const hasDifferentAddress = rec.mint
+          && rec.addresses.some((address) => address !== rec.mint);
+        return hasDifferentAddress || rec.supply !== null
+          || rec.decimals !== null || rec.poolAddress;
+      };
+      const watched = factSnapshots.find((candidate) => canEmit(candidate)
+        && ((currentSymbolInfo.mint && candidate.mint === currentSymbolInfo.mint)
+        || (currentSymbolInfo.pairAddress && candidate.mint === currentSymbolInfo.pairAddress)
+        || (currentSymbolInfo.pairAddress
+          && candidate.addresses.indexOf(currentSymbolInfo.pairAddress) !== -1)));
+      const emitRecord = (rec) => {
+        if (!canEmit(rec)) return false;
+        const usdCandidate = rec.candidates.find((candidate) => candidate.unit === 'usd');
+        emit('facts', {
+          mint: rec.mint,
+          symbol: rec.symbol,
+          name: rec.name,
+          supply: rec.supply,
+          decimals: rec.decimals,
+          poolAddress: rec.poolAddress,
+          addresses: rec.addresses.slice(),
+          priceUsd: usdCandidate ? usdCandidate.value : null,
+          mcap: rec.mcap,
+          source,
+          url: url || null,
+        });
+        emitted++;
+        return true;
+      };
+      if (watched) emitRecord(watched);
+      for (const rec of factSnapshots) {
+        if (emitted >= 3) break;
+        if (rec !== watched) emitRecord(rec);
+      }
+    };
+    emitFacts();
+    let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
       // a bounded top-up so screener row chips keep their mint-tagged prices.
@@ -478,18 +643,27 @@
         || (currentSymbolInfo.pairAddress && records.get(currentSymbolInfo.pairAddress))
         || null;
       let emitted = 0;
-      if (watched && hasContent(watched)) { emit('tick', { ...watched, source }); emitted++; }
+      const emitTick = (rec) => emit('tick', {
+        candidates: rec.candidates,
+        mcap: rec.mcap,
+        mint: rec.mint,
+        symbol: rec.symbol,
+        name: rec.name,
+        source,
+      });
+      if (watched && hasContent(watched)) { emitTick(watched); emitted++; }
       for (const rec of records.values()) {
         if (rec === watched || !hasContent(rec)) continue;
         if (emitted++ >= 5) break;
-        emit('tick', { ...rec, source });
+        emitTick(rec);
       }
-      if (emitted) return;
+      emittedTick = emitted > 0;
       // Records existed but carried no prices; fall through to the
       // unattributed finds so a lone top-level price still ticks.
     }
-    if (!top.candidates.length && top.mcap === null) return;
-    emit('tick', { ...top, source });
+    if (!emittedTick && (top.candidates.length || top.mcap !== null)) {
+      emit('tick', { ...top, source });
+    }
   }
 
   /* ---------------- SPA navigation signal ----------------
@@ -2603,7 +2777,8 @@
    */
   function gmgnCapScale() {
     const current = gmgnLineSpec && numberValue(gmgnLineSpec.currentMcap);
-    if (gmgnLastCandleClose > 0 && current > 0) return gmgnLastCandleClose / current;
+    const anchor = gmgnAxisAnchor();
+    if (anchor > 0 && current > 0) return anchor / current;
     return 1;
   }
 
@@ -2620,8 +2795,9 @@
     if (mcap > 0) return mcap * gmgnCapScale();
     const native = numberValue(payload && payload.priceNative);
     const currentNative = gmgnLineSpec && numberValue(gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }
@@ -2744,24 +2920,78 @@
     // report of exactly that gap.
     const native = numberValue(gmgnLineSpec && gmgnLineSpec['avg' + side + 'Native']);
     const currentNative = numberValue(gmgnLineSpec && gmgnLineSpec.currentPriceNative);
-    if (native > 0 && currentNative > 0 && gmgnLastCandleClose > 0) {
-      return gmgnLastCandleClose * (native / currentNative);
+    const anchor = gmgnAxisAnchor();
+    if (native > 0 && currentNative > 0 && anchor > 0) {
+      return anchor * (native / currentNative);
     }
     return null;
   }
 
+  /** D-64's want-rule, in one place. The sweep and the sync both have to
+   * decide "is a line wanted here", and they have to agree: the sweep calling
+   * a sync that then disagrees is how a line gets re-armed forever without
+   * ever being drawn. Either level source counts, because either can produce
+   * a level (mcap directly, or the native ratio lane). */
+  function gmgnWants(side) {
+    const spec = gmgnLineSpec;
+    if (!spec) return false;
+    return Number(spec['avg' + side + 'Mcap']) > 0 || Number(spec['avg' + side + 'Native']) > 0;
+  }
+
   function syncGmgnAverageLines() {
+    lastGmgnLineReason = null;
     if (!gmgnLineSpec || !gmgnLineSpec.enabled) {
       clearGmgnAverageLines();
       return true;
     }
     const chart = findGmgnChart();
-    if (!chart) return false;
+    if (!chart) { lastGmgnLineReason = 'no-chart'; return false; }
     if (gmgnChart && gmgnChart !== chart) { clearLineSlot(gmgnBuySlot); clearLineSlot(gmgnSellSlot); }
     gmgnChart = chart;
-    const buyOk = syncLineSlot(gmgnBuySlot, chart, gmgnLineLevel('Buy'), gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399');
-    const sellOk = syncLineSlot(gmgnSellSlot, chart, gmgnLineLevel('Sell'), gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56');
-    return buyOk && sellOk;
+
+    const wantsBuy = gmgnWants('Buy');
+    const wantsSell = gmgnWants('Sell');
+    const buyLevel = gmgnLineLevel('Buy');
+    const sellLevel = gmgnLineLevel('Sell');
+
+    // D-63 parity. That fix landed on syncPaperAverageLines only, but GMGN
+    // draws through the SAME createOrderLine on the SAME TradingView chart,
+    // so an off-range GMGN average line feeds GMGN's autoscale exactly the
+    // way dashgirn's and ark_trades13's did on Padre/Axiom — axis dragged
+    // through zero into negative mcaps, candles squashed into a corner.
+    // Same remedy: don't draw it, clear the slot so it stops feeding
+    // autoscale, name the reason, let the sweep bring it back when the axis
+    // scrolls to it. offVisibleRange fails safe — a chart it cannot measure
+    // accuses nothing.
+    const buyOffRange = offVisibleRange(chart, [buyLevel]) === 'off-range';
+    const sellOffRange = offVisibleRange(chart, [sellLevel]) === 'off-range';
+    if (buyOffRange) clearLineSlot(gmgnBuySlot);
+    if (sellOffRange) clearLineSlot(gmgnSellSlot);
+
+    // The sixth argument is `wanted`, and omitting it was its own defect:
+    // syncLineSlot reads it to tell "there is no line to draw" (clear it)
+    // from "a line IS wanted but its level is momentarily uncomputable"
+    // (keep what is drawn, retry) — F-41's split, which the paper path has
+    // had since. undefined is falsy, so every uncomputable tick CLEARED a
+    // correct line and reported success. D-64 made levels computable far
+    // more often; it did not make them always computable — gmgnLastCandleClose
+    // resets to 0 on every token switch, and both level lanes need it.
+    const buyOk = buyOffRange ? false
+      : syncLineSlot(gmgnBuySlot, chart, buyLevel, gmgnLineSpec.avgBuyText || 'PT Avg Buy', '#34D399', wantsBuy);
+    const sellOk = sellOffRange ? false
+      : syncLineSlot(gmgnSellSlot, chart, sellLevel, gmgnLineSpec.avgSellText || 'PT Avg Sell', '#FF5F56', wantsSell);
+
+    const missingBuy = wantsBuy && !(buyLevel > 0);
+    const missingSell = wantsSell && !(sellLevel > 0);
+    if (buyOffRange || sellOffRange) {
+      lastGmgnLineReason = 'off-range'
+        + (buyOffRange ? ':buy' : '') + (sellOffRange ? ':sell' : '');
+    } else if (missingBuy || missingSell) {
+      lastGmgnLineReason = 'no-level' + (gmgnLastCandleClose > 0 ? '' : ':no-close');
+    } else if (!(buyOk && sellOk)) {
+      lastGmgnLineReason = 'draw-refused';
+    }
+    return buyOk && sellOk && !missingBuy && !missingSell;
   }
 
   function retryGmgnAverageLines() {
@@ -2769,7 +2999,14 @@
     let attempts = 0;
     const retry = () => {
       gmgnRetryTimer = null;
-      if (syncGmgnAverageLines() || ++attempts >= 30) return;
+      if (syncGmgnAverageLines()) return;
+      if (++attempts >= 30) {
+        // Giving up silently after 15s is how "the Avg lines never show up"
+        // reached us with nothing to act on (D-64). Say which cause it was,
+        // once — the sweep still keeps trying afterwards.
+        emit('gmgn-lines-status', { action: 'sync', ok: false, reason: lastGmgnLineReason || 'unknown' });
+        return;
+      }
       gmgnRetryTimer = setTimeout(retry, 500);
     };
     retry();
@@ -2860,6 +3097,8 @@
     // chip scan is proof of a consumer regardless of message ordering.
     if (type === 'page-state') {
       feedWanted = Boolean(payload && payload.wantsTicks);
+      factsWanted = !payload || !Object.prototype.hasOwnProperty.call(payload, 'factsWanted')
+        ? true : Boolean(payload.factsWanted);
       return;
     }
     if (type === 'paper-axis' || type === 'row-scan') feedWanted = true;
@@ -3184,6 +3423,7 @@
 
   let rowChipLayer = null;
   const rowChips = new Map(); // row element -> { el, address, place }
+  let lastRowSpec = null;
 
   function ensureRowChipLayer() {
     if (rowChipLayer && rowChipLayer.isConnected) return rowChipLayer;
@@ -3194,6 +3434,84 @@
       (document.body || document.documentElement).appendChild(rowChipLayer);
     }
     return rowChipLayer;
+  }
+
+  /*
+   * F-64: a virtualized screener can recycle a row between the periodic chip
+   * sweep and the user's press/click. harisx1's 8/30 report described the
+   * resulting wrong-coin buy while the feed kept scrolling. Bind the row's
+   * identity on pointerdown and verify it again at click instead of silently
+   * buying a recycled row's old address.
+   */
+  function currentRowAddress(entry) {
+    const row = entry && entry.row;
+    if (!row || !row.isConnected) return null;
+    const selectors = lastRowSpec && Array.isArray(lastRowSpec.linkSelectors)
+      ? lastRowSpec.linkSelectors
+      : [];
+    const nodes = [];
+    for (const selector of selectors) {
+      try {
+        if (row.matches && row.matches(selector)) nodes.push(row);
+      } catch (_) {}
+      try {
+        const link = row.querySelector(selector);
+        if (link) nodes.push(link);
+      } catch (_) {}
+    }
+    for (const node of nodes) {
+      let href = '';
+      try {
+        href = (typeof node.getAttribute === 'function' ? node.getAttribute('href') : '')
+          || node.href || '';
+      } catch (_) {
+        try { href = node.href || ''; } catch (_) {}
+      }
+      const match = String(href).match(ROW_ADDR_RE);
+      if (match) return match[0];
+    }
+    return addressFromRowFiber(row);
+  }
+
+  // Pure. `entry` reads {address, verifiedAt, pressedAddress, pressedAt};
+  // nowAddress is currentRowAddress(entry) at click time.
+  function rowChipTapDecision(entry, nowAddress, nowMs) {
+    if (!entry.pressedAt || nowMs - entry.pressedAt > 5000) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'stale-press',
+        },
+      };
+    }
+    if (nowAddress
+      && nowAddress === entry.pressedAddress) {
+      return { address: nowAddress };
+    }
+    if (nowAddress) {
+      return {
+        refuse: {
+          was: entry.pressedAddress || null,
+          now: nowAddress || null,
+          swept: entry.address || null,
+          reason: 'row-changed',
+        },
+      };
+    }
+    if (entry.pressedAddress === entry.address
+      && nowMs - entry.verifiedAt <= 1500) {
+      return { address: entry.address };
+    }
+    return {
+      refuse: {
+        was: entry.pressedAddress || null,
+        now: null,
+        swept: entry.address || null,
+        reason: 'unverifiable',
+      },
+    };
   }
 
   /* Chip taps are handled at the WINDOW capture phase: these sites install
@@ -3214,7 +3532,25 @@
     // stuck in busy forever (DEFECT F-08). stopPropagation still keeps the
     // row underneath from navigating; the later press events stay swallowed
     // entirely.
+    if (ev.type === 'keydown') {
+      if (ev.repeat || (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar')) return;
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
+      return;
+    }
     if (ev.type === 'pointerdown') {
+      for (const entry of rowChips.values()) {
+        if (entry.el === chip) {
+          entry.pressedAddress = currentRowAddress(entry);
+          entry.pressedAt = Date.now();
+          break;
+        }
+      }
       ev.preventDefault();
       ev.stopPropagation();
       return;
@@ -3225,13 +3561,20 @@
     if (ev.type !== 'click') return;
     for (const entry of rowChips.values()) {
       if (entry.el === chip) {
-        chip.classList.add('busy');
-        emit('row-buy', { address: entry.address });
+        const decision = rowChipTapDecision(entry, currentRowAddress(entry), Date.now());
+        entry.pressedAt = 0;
+        entry.pressedAddress = null;
+        if (decision.address) {
+          chip.classList.add('busy');
+          emit('row-buy', { address: decision.address });
+        } else {
+          emit('row-buy-refused', decision.refuse);
+        }
         break;
       }
     }
   }
-  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'keydown']) {
     window.addEventListener(type, handleRowChipTap, true);
   }
 
@@ -3611,6 +3954,10 @@
   }
 
   function scanScreenerRows(spec) {
+    lastRowSpec = {
+      linkSelectors: spec && Array.isArray(spec.linkSelectors) ? spec.linkSelectors.slice() : [],
+      containerMode: spec && spec.containerMode,
+    };
     const amount = numberValue(spec && spec.amount) || 0.1;
     const size = Math.max(0.6, Math.min(1.5, numberValue(spec && spec.size) || 1));
     // jb (#bug-reports): on Axiom's "ultra" compact terminal format the
@@ -3876,8 +4223,8 @@
       // D-64: want-detection must consider every level source — a side whose
       // mcap candidate is null but whose native average exists (C-16 lane)
       // wants a line just as much, and previously never re-armed the sync.
-      const wantsBuy = Number(gmgnLineSpec.avgBuyMcap) > 0 || Number(gmgnLineSpec.avgBuyNative) > 0;
-      const wantsSell = Number(gmgnLineSpec.avgSellMcap) > 0 || Number(gmgnLineSpec.avgSellNative) > 0;
+      const wantsBuy = gmgnWants('Buy');
+      const wantsSell = gmgnWants('Sell');
       const buyMissing = wantsBuy && !gmgnBuySlot.adapter && !gmgnBuySlot.pending;
       const sellMissing = wantsSell && !gmgnSellSlot.adapter && !gmgnSellSlot.pending;
       if (buyMissing || sellMissing) syncGmgnAverageLines();

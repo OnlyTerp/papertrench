@@ -144,6 +144,23 @@
    sizing. Colour and hatching stay exactly as arena.css defines them. */
 .ar-prof-chips .ar-chip { font-size: 10.5px; padding: 5px 11px; }
 
+/* The weekly crown: weeks this account finished #1 on the Sprint board.
+   Gold is the board's rank-1 colour everywhere on this site, and that is the
+   one thing the chip borrows. It sits BESIDE the badge case rather than in
+   it — the case is process claims derived from the chain, and a crown is a
+   placement record, which is a different kind of statement. */
+.ar-crown {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 8px; border-radius: 999px; vertical-align: middle;
+  background: linear-gradient(135deg, rgba(255,192,129,0.2), rgba(255,157,69,0.1));
+  border: 1px solid rgba(255,192,129,0.45); cursor: help;
+}
+.ar-crown .n {
+  font-family: var(--mono); font-size: 12.5px; font-weight: 800;
+  color: var(--orange2); letter-spacing: -0.02em;
+}
+.ar-crown .w { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+
 .ar-prof .ar-spec { margin-top: 24px; }
 
 @media (max-width: 560px) {
@@ -623,6 +640,30 @@
       Their record above is all-time and is a different figure by design.</p>`;
   }
 
+  /* The weekly crown: weeks this account finished #1 on the Sprint board.
+   *
+   * Deliberately NOT filed with the badges. Every badge in the case is a
+   * process claim derived from the chain (server/core/achievements.js is
+   * explicit that there are no profit, streak or volume badges); a crown is a
+   * record of PLACEMENT on a board that is already public. Mixing the two
+   * would quietly turn the badge case into something it refuses to be, so the
+   * crown sits beside them and its tooltip states exactly what it means. */
+  function crownChip(crowns) {
+    const list = Array.isArray(crowns) ? crowns : [];
+    if (!list.length) return '';
+    const weeks = list.map((c) => c.weekId).filter(Boolean);
+    const shown = weeks.slice(0, 3).join(', ');
+    const more = weeks.length > 3 ? ` +${weeks.length - 3} more` : '';
+    const title = `Finished #1 on the weekly board: ${shown}${more}. `
+      + 'Awarded when the week closes and kept permanently. It records where '
+      + 'this account placed on a public board — it is not a claim about how '
+      + 'well they traded.';
+    return `<span class="ar-crown" title="${esc(title)}">
+      <span class="n">#1</span>
+      <span class="w">&times;${weeks.length}</span>
+    </span>`;
+  }
+
   function renderHero(profile, record) {
     const tier = record ? topTier(record.badges) : null;
     const nameLine = profile.displayName && profile.displayName !== profile.handle
@@ -667,9 +708,13 @@
             <h1 class="ar-prof-handle">@${esc(profile.handle)}</h1>
             ${nameLine}
             <div class="ar-prof-chips">
+              
               ${record ? chipFor(record.status) : '<span class="ar-provisional">No record submitted</span>'}
+              
               ${profile.clan ? L.clanTag(profile.clan.tag, { title: profile.clan.name }) : ''}
+              
               ${record && !(record.stats.rankable && record.status === 'verified') ? '<span class="ar-provisional">Unranked · ' + (record.status === 'verified' ? '5 rounds minimum' : 'verification pending') + '</span>' : ''}
+              
               ${tier ? `<div class="ar-badge t-${esc(tier)}" title="Highest badge tier in this trader's case. The card's edge follows it."><div class="mark" aria-hidden="true">★</div><div><div class="nm">${esc(tier[0].toUpperCase() + tier.slice(1))} case</div><div class="ev">${esc(String((record.badges || []).length))} badge${(record.badges || []).length === 1 ? '' : 's'} earned</div></div></div>` : ''}
             </div>
             ${clanLine(profile.clan, record)}
@@ -841,12 +886,15 @@
           const unit = badge.evidence ? String(badge.evidence.unit || '') : '';
           const evidence = badge.evidence
             ? fmt(badge.evidence.value, Number.isInteger(Number(badge.evidence.value)) ? 0 : 2)
+              
               + (/^[%x]/.test(unit) ? '' : ' ') + unit
             : '';
           return `<div class="ar-badge t-${esc(tier)}" title="${esc(badge.blurb || '')}">
             <div class="mark" aria-hidden="true">${esc(mark)}</div>
             <div>
+              
               <div class="nm">${esc(badge.name)}</div>
+              
               ${evidence ? `<div class="ev">${esc(evidence.trim())}</div>` : ''}
             </div>
           </div>`;

@@ -12,7 +12,7 @@
  * under an external-API budget.
  */
 import { fastChecks, priceRecord } from '../core/submission.js';
-import { windowOf, sprintEntry } from '../core/sprint.js';
+import { windowOf, sprintEntry, lastClosedWindow, isClosed } from '../core/sprint.js';
 import { windowEntry } from '../core/window.js';
 import { awarded } from '../core/achievements.js';
 import * as duel from '../core/duel.js';
@@ -44,6 +44,11 @@ const STREAMER_APPLIES_PER_HOUR = 5;
 // The X feed endpoint: only cache MISSES cost an upstream fetch, so the
 // per-IP leash sits on those, not on reads a cache can answer.
 const XFEED_PER_HOUR = 120;
+// Daily Spark grading is anonymous and origin-exempt (see the POST gate in
+// fetch()): the leash is what stands in for the origin check. Practice mode
+// makes grading a many-times-a-session act, so the leash is generous — two a
+// minute sustained — while still making a hammer pointless.
+const SPARK_GRADES_PER_HOUR = 120;
 const XFEED_FRESH_MS = 20 * 60 * 1000;
 const XFEED_STALE_MS = 7 * 24 * 3600 * 1000;
 /** window_id for a clan's since-join season slice, alongside ISO week ids. */
@@ -383,7 +388,8 @@ async function handleLeaderboard(env) {
     SELECT u.handle, u.display_name, u.avatar_url,
            r.status, r.stats_json, r.badges_json, r.chain_len,
            r.verified_at, r.submitted_at,
-           cl.tag AS clan_tag, cl.name AS clan_name
+           cl.tag AS clan_tag, cl.name AS clan_name,
+           (SELECT COUNT(*) FROM sprint_winners w WHERE w.user_id = r.user_id) AS crowns
     FROM records r JOIN users u ON u.id = r.user_id
     LEFT JOIN clan_members cm ON cm.user_id = r.user_id
     LEFT JOIN clans cl ON cl.id = cm.clan_id
@@ -437,6 +443,7 @@ async function handleLeaderboard(env) {
         verifiedAt: row.verified_at,
         clanTag: row.clan_tag || null,
         clanName: row.clan_name || null,
+        crowns: Number(row.crowns) || 0,
         stats,
         // Only the ids and tiers ride on the board; full evidence lives on
         // the profile, where there is room to show why each was earned.
@@ -578,6 +585,11 @@ async function handleProfile(env, handle) {
   const sprints = await env.DB.prepare(
     'SELECT week_id, entry_json FROM sprint_entries WHERE user_id = ? ORDER BY week_id DESC LIMIT 12')
     .bind(user.id).all();
+  // Weeks this account finished first on the Sprint board. Settled rows only,
+  // so a profile can never show a crown for the week still running.
+  const crowns = await env.DB.prepare(
+    'SELECT week_id, score, rounds, settled_at FROM sprint_winners WHERE user_id = ? ORDER BY week_id DESC')
+    .bind(user.id).all();
   // Their clan, and what they have actually contributed to it since joining —
   // which is a different number from their record above, and says so.
   const clanRow = await env.DB.prepare(`
@@ -612,6 +624,9 @@ async function handleProfile(env, handle) {
       verifiedAt: record.verified_at,
     } : null,
     sprints: sprints.results.map((row) => ({ weekId: row.week_id, entry: JSON.parse(row.entry_json) })),
+    crowns: crowns.results.map((row) => ({
+      weekId: row.week_id, score: row.score, rounds: row.rounds, settledAt: row.settled_at,
+    })),
   });
 }
 
@@ -1467,6 +1482,62 @@ async function handleClanUpdate(request, env) {
   return json({ ok: true });
 }
 
+/* ---------------- sprint crown settlement ----------------
+ *
+ * At most one row per closed week, written once. The crown is a record of
+ * PLACEMENT on a board that is already public — not a claim that the winner
+ * traded well — which is what keeps it clear of the achievements doctrine
+ * ("no profit badges", server/core/achievements.js). The site says exactly
+ * that where the tag is shown.
+ *
+ * Three properties this has to hold, and how:
+ *
+ *   Never mid-week.  Only lastClosedWindow() is ever settled. A crown handed
+ *                    out while the week runs names a leader, not a winner,
+ *                    and would have to be taken back when somebody passed
+ *                    them.
+ *   Never twice.     week_id is the PRIMARY KEY and the insert is OR IGNORE,
+ *                    so a retried cron, a restart, or two concurrent ticks
+ *                    all collapse to one row. The mark IS the claim.
+ *   Never invented.  The eligibility WHERE is copied from handleSprint, so a
+ *                    pending, banned or disqualified account cannot be
+ *                    crowned by a settlement path that forgot about them —
+ *                    and a week with no eligible entry stays UNCROWNED
+ *                    rather than being given to the least-bad row.
+ */
+async function settleSprintCrown(env, now) {
+  const t = Number(now) || Date.now();
+  const window = lastClosedWindow(t);
+  if (!isClosed(window, t)) return null;
+
+  // Already claimed? Cheapest possible exit — this runs every minute, and on
+  // all but the first tick after a week closes there is nothing to do.
+  const done = await env.DB.prepare('SELECT week_id FROM sprint_winners WHERE week_id = ?')
+    .bind(window.weekId).first();
+  if (done) return null;
+
+  // Same eligibility and the same ORDER BY as the board renders (DEFECT
+  // L-05: a selection order that differs from the ranking order crowns the
+  // wrong row). LIMIT 1 is the crown.
+  const top = await env.DB.prepare(`
+    SELECT s.user_id, s.score, s.rounds
+    FROM sprint_entries s
+    JOIN users u ON u.id = s.user_id
+    LEFT JOIN records r ON r.user_id = s.user_id
+    WHERE s.week_id = ? AND s.rounds > 0 AND r.status = 'verified'
+      AND COALESCE(u.banned_at, 0) = 0
+      AND COALESCE(r.dq_at, 0) = 0
+    ORDER BY s.score DESC, s.updated_at ASC, u.handle ASC LIMIT 1`)
+    .bind(window.weekId).first();
+  if (!top) return null;
+
+  await env.DB.prepare(`
+    INSERT OR IGNORE INTO sprint_winners (week_id, user_id, score, rounds, settled_at)
+    VALUES (?, ?, ?, ?, ?)`)
+    .bind(window.weekId, top.user_id, top.score, top.rounds, Date.now()).run();
+  return { weekId: window.weekId, userId: top.user_id };
+}
+
 /* ---------------- pricing cron ---------------- */
 
 async function drainPricing(env) {
@@ -2264,7 +2335,17 @@ export default {
 
     // The OAuth callback is a top-level navigation from x.com and carries no
     // Origin; everything else that changes state must prove where it came from.
-    if (request.method === 'POST' && !requireOrigin(request, env)) {
+    //
+    // The one exemption is Daily Spark grading. It is the only POST a shipped
+    // page makes from an origin this gate can never allowlist: the extension
+    // dashboard, whose chrome-extension://<id> origin differs per install and
+    // per unpacked dev copy — so before this exemption the extension's grade
+    // button was a guaranteed 403 'bad-origin' and the feature never worked.
+    // Opening it is sound because the gate's threat (a foreign site riding
+    // the visitor's session cookie) does not exist on that route: grading
+    // reads no session, writes no user state, and is a pure function of the
+    // day's pinned chart. SPARK_GRADES_PER_HOUR bounds it instead.
+    if (request.method === 'POST' && path !== '/api/spark/grade' && !requireOrigin(request, env)) {
       const denied = json({ ok: false, reason: 'bad-origin' }, 403);
       for (const [key, value] of Object.entries(cors)) denied.headers.set(key, value);
       return denied;
@@ -2392,8 +2473,20 @@ export default {
       else if (path === '/api/spark/today') {
         response = await edgeCached(request, ctx, 60, () => sparkWorker.handleSparkToday(request, env));
       }
+      else if (path === '/api/spark/practice') {
+        // NOT edge-cached even with a seed: the first hit on a seed PINS the
+        // puzzle in D1, and that write must happen on the origin isolate.
+        // The memo path after that is one D1 read — cheap enough to skip the
+        // cache dance entirely.
+        response = await sparkWorker.handleSparkPractice(request, env);
+      }
       else if (path === '/api/spark/grade' && request.method === 'POST') {
-        response = await sparkWorker.handleSparkGrade(request, env);
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        if (!(await allowRate(env, 'spark-grade:' + ip, SPARK_GRADES_PER_HOUR))) {
+          response = json({ ok: false, reason: 'rate-limited' }, 429);
+        } else {
+          response = await sparkWorker.handleSparkGrade(request, env);
+        }
       }
       // Moderation. Every one of these re-checks `moderator()` itself — the
       // routing table is not the gate, the handler is.
@@ -2447,6 +2540,13 @@ export default {
         dryRun: env.RECKONING_DRY_RUN !== 'false',
         killSwitch: env.KILL_SWITCH === 'true',
       }).catch((e) => console.error('reckoning lane error:', e && e.message))
+    );
+    // Sprint crown: settles the week that just closed, once. Exits on a
+    // single indexed read for every tick but the first one after a rollover,
+    // and is its own lane so a settlement fault cannot silence pricing.
+    ctx.waitUntil(
+      settleSprintCrown(env, Date.now())
+        .catch((e) => console.error('crown lane error:', e && e.message || e))
     );
   },
 };
