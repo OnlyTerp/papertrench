@@ -302,6 +302,56 @@ nav[aria-label="Primary"] {
     box-shadow: 0 18px 40px rgba(0,0,0,0.45);
   }
   nav.nav-open .nav-links { display: flex; }
+  /* Destinations are rows; an action is a button. Live and the profile chip
+     keep their identity (the red dot, the avatar) but drop the desktop pill
+     chrome — inside a stretched column a content-sized pill is a smudge,
+     not a control. */
+  nav[aria-label="Primary"] .nav-links .nav-live,
+  nav[aria-label="Primary"] .nav-links .nav-profile {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    margin: 0;
+    padding: 12px 6px;
+    border-radius: 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+    font-size: 15px;
+    white-space: normal;
+  }
+  nav[aria-label="Primary"] .nav-links .nav-live:hover,
+  nav[aria-label="Primary"] .nav-links .nav-profile:hover {
+    background: rgba(255,255,255,0.04);
+    transform: none;
+    box-shadow: none;
+  }
+  nav[aria-label="Primary"] .nav-links .nav-profile { gap: 10px; }
+  nav[aria-label="Primary"] .nav-links .nav-profile img,
+  nav[aria-label="Primary"] .nav-links .nav-profile-dot { width: 26px; height: 26px; }
+  nav[aria-label="Primary"] .nav-links #nav-profile,
+  nav[aria-label="Primary"] .nav-links #nav-wallet { display: block; }
+  nav[aria-label="Primary"] .nav-links .nav-wallet {
+    width: 100%;
+    margin: 0;
+    padding: 12px 6px;
+    border-radius: 0;
+    border: 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  nav[aria-label="Primary"] .nav-links .nav-wallet-num { font-size: 14px; }
+  /* The one true button in the sheet: set apart from the rows it sits under,
+     full width, tall enough to land a thumb on. */
+  nav[aria-label="Primary"] .nav-links .nav-cta {
+    display: block;
+    text-align: center;
+    margin: 14px 0 2px;
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 14.5px;
+  }
 }
 @media (max-width: 470px) {
   /* Icon-only mark: the wordmark plus Live plus Download overflowed 375,
