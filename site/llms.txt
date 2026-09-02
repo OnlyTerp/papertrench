@@ -1,0 +1,50 @@
+# PaperTrench
+
+> PaperTrench is a free, open-source (MIT) Chrome extension for paper trading Solana memecoins and perps. It overlays the trading terminal you already use (Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Lute, Hyperliquid, Kalshi, Polymarket, Limitless) so you practise on real charts and live prices with fake SOL. No wallet, no telemetry; trades stay in local browser storage.
+
+Key facts:
+- Every paper fill is priced from the live quote on the chart; if no live rate can be read the ticket stays shut. No price is ever invented.
+- Fills are hash-chained as they happen. The public leaderboard, weekly Sprint, Duels and Clans only rank records whose chain survives a server-side replay re-priced against public market history.
+- Fees, priority fees, bribes, slippage, funding and liquidation are modelled so paper costs match real costs.
+- Install: download the latest GitHub release zip, load it unpacked at chrome://extensions with Developer mode on.
+- Website: https://papertrench.com/ · Source: https://github.com/OnlyTerp/papertrench · X: https://x.com/PaperTrench_ · Discord: https://discord.gg/papertrench
+
+## Product
+
+- [Home](https://papertrench.com/): what PaperTrench is, supported terminals, install steps, FAQ
+- [Install guide](https://papertrench.com/#install): load-unpacked steps for Chrome
+- [Links](https://papertrench.com/links): referral links to every supported terminal
+- [Privacy policy](https://papertrench.com/privacy): no telemetry in the extension; what the optional leaderboard receives
+- [GitHub releases](https://github.com/OnlyTerp/papertrench/releases/latest): download the extension zip
+
+## Arena
+
+- [Leaderboard](https://papertrench.com/leaderboard): season standings recomputed from verified trade chains
+- [Weekly Sprint](https://papertrench.com/sprint): one shared week, everyone back to zero
+- [Events](https://papertrench.com/events): Top of the Trench weekly crown
+- [Duels](https://papertrench.com/duels): head-to-head over one shared window
+- [Clans](https://papertrench.com/clans): team standings from the same verified chains
+- [Replay](https://papertrench.com/replay): rebuild any Solana memecoin and replay a wallet on it
+- [Live streams](https://papertrench.com/streams): streamers running the PaperTrench Challenge on Twitch
+
+## News and patch notes
+
+- [News index](https://papertrench.com/news): every release, newest first
+- [v3.0.0 perps](https://papertrench.com/news-perps): leveraged paper trading on Hyperliquid and Jupiter
+- [Trench Rank](https://papertrench.com/news-trench-rank): process grade S to F for every closed round
+- [Rug guard and fresh launches](https://papertrench.com/news-rugguard): pump.fun bonding-curve reads and float checks
+- [Chain rebuild](https://papertrench.com/news-chain): the v2.8.0 chain break, disclosed and fixed
+- [Fill accuracy](https://papertrench.com/news-fills): fills land on the chart you are looking at
+- [Terminal Turbo](https://papertrench.com/news-turbo): instant terminal links
+- [X-Ray](https://papertrench.com/news-xray): every coin an X account has ever posted
+- [Instant X links](https://papertrench.com/news-instant-x)
+- [Flex Pack](https://papertrench.com/news-flex): share cards with a PAPER watermark
+- [Fees and costs](https://papertrench.com/news-fees)
+- [The After](https://papertrench.com/news-the-after): what happened after you sold
+- [Quick edit](https://papertrench.com/news-quickedit)
+- [Out of alpha](https://papertrench.com/news-v2): 139 defects published
+
+## Optional
+
+- [Streamer application](https://papertrench.com/streamer-signup)
+- [Sitemap](https://papertrench.com/sitemap.xml)
