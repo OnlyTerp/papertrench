@@ -130,10 +130,16 @@ nav[aria-label="Primary"] {
 .nav-cta {
   margin-left: 8px; font-size: 13px; font-weight: 800;
   padding: 8px 16px; border-radius: 999px;
-  background: var(--orange);
-  color: #1a0c00; transition: transform .2s, background .2s;
+  background: linear-gradient(180deg, #ffb163 0%, var(--orange) 55%, #f7902f 100%);
+  color: #1a0c00;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), 0 6px 18px rgba(255, 157, 69, 0.18);
+  transition: transform .2s, background .2s, box-shadow .2s;
 }
-.nav-cta:hover { transform: translateY(-1px); background: #ffb05e; }
+.nav-cta:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, #ffc081 0%, #ffa855 55%, var(--orange) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 10px 26px rgba(255, 157, 69, 0.32);
+}
 /* Profile control — the one nav item whose content depends on who is looking.
    Sized like the pills beside it so the bar does not reflow when the answer
    arrives, and painted from cache first for the same reason. */
@@ -300,13 +306,31 @@ h1 .grad-green { color: var(--green); }
   padding: 14px 28px; border-radius: 14px; border: 0; cursor: pointer;
   transition: transform .2s, box-shadow .2s, background .2s, color .2s, border-color .2s;
 }
+/* One button recipe for the whole site. The primary is lit along its top
+   edge and shaded at the foot, the way the extension's own quick-buy presets
+   are drawn, so the site's buttons and the product's buttons read as kin. */
 .btn-primary {
-  background: var(--orange);
-  color: #1a0c00; box-shadow: 0 8px 24px rgba(255,157,69,0.22);
+  background: linear-gradient(180deg, #ffb163 0%, var(--orange) 52%, #f7902f 100%);
+  color: #1a0c00;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(120, 50, 0, 0.18),
+    0 8px 24px rgba(255, 157, 69, 0.22);
 }
-.btn-primary:hover { transform: translateY(-2px); background: #ffb05e; box-shadow: 0 12px 36px rgba(255,157,69,0.38); }
-.btn-ghost { background: rgba(255,255,255,0.05); border: 1px solid var(--line2); color: var(--text); }
-.btn-ghost:hover { background: rgba(255,255,255,0.09); transform: translateY(-2px); }
+.btn-primary:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(180deg, #ffc081 0%, #ffa855 52%, var(--orange) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(120, 50, 0, 0.18),
+    0 14px 36px rgba(255, 157, 69, 0.38);
+}
+.btn-ghost {
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line2); color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.btn-ghost:hover { background: rgba(255,255,255,0.09); border-color: rgba(255, 255, 255, 0.22); transform: translateY(-2px); }
+.btn:active:not(:disabled) { transform: translateY(0) scale(0.985); transition-duration: .08s; }
 .btn:disabled { cursor: not-allowed; transform: none; }
 
 .hero-stats { display: flex; gap: 40px; margin-top: 46px; flex-wrap: wrap; }
@@ -802,9 +826,21 @@ b, strong, td, .ar-note code, .ed-ver, .ed-when, .ar-urlbox,
   .foot-social { justify-content: flex-end; }
 }
 /* ---------- footer ---------- */
-footer { border-top: 1px solid var(--line); padding: 42px 0; }
+footer {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding: 56px 0 40px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.014), transparent 45%);
+}
+/* A single orange thread along the top edge: the footer is the one place the
+   brand colour is allowed to be a line rather than a button. */
+footer::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 157, 69, 0.5) 50%, transparent 100%);
+}
 .foot-inner { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
-.foot-inner .nav-logo { font-size: 15px; }
+.foot-inner .nav-logo { font-size: 17px; }
+.foot-inner .nav-logo img { width: 30px; height: 30px; }
 /* Wraps rather than running off the edge: the link list grew past one line's
    worth on phones once the Arena pages were added to it. */
 .foot-links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 12px 22px; font-size: 13.5px; color: var(--muted); font-weight: 600; }
@@ -905,7 +941,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   transform: translateY(-50%);
   font-size: clamp(6rem, 18vw, 13rem);
   font-weight: 800; letter-spacing: -0.07em; line-height: 0.8;
-  color: rgba(234, 239, 247, 0.12);
+  color: rgba(234, 239, 247, 0.11);
   pointer-events: none; user-select: none;
 }
 .home-copy {
@@ -927,7 +963,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 .home-ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 1.6rem; }
 .home-ctas .btn {
   height: 48px; padding: 0 22px; border-radius: 999px;
-  font-size: 14px; gap: 8px; box-shadow: none;
+  font-size: 14px; gap: 8px;
 }
 .home-ctas .btn-primary:hover { transform: translateY(-1px); }
 .home-ctas .btn-ghost {
@@ -973,28 +1009,6 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 .home-door:hover .home-door-go,
 .home-door:focus-visible .home-door-go,
 .home-door.is-on .home-door-go { opacity: 1; transform: none; }
-.home-quiet {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 36px;
-  padding: 22px 4vw;
-  font-family: var(--mono); font-size: 12px;
-  letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--dim);
-  border-bottom: 1px solid var(--line);
-}
-.home-quiet b { color: var(--text); font-weight: 400; letter-spacing: 0.08em; }
-.home-credits-kicker {
-  color: var(--orange);
-  letter-spacing: 0.18em;
-}
-.home-credits-item {
-  display: inline-flex; align-items: baseline; gap: 10px; min-width: 0;
-}
-.home-credits-role { color: var(--dim); }
-.home-credits-rule {
-  display: inline-block; min-width: 1.6rem; height: 0;
-  border-bottom: 1px dotted rgba(234,239,247,0.22);
-  flex: 1 1 1.6rem;
-}
 .home-keep { white-space: nowrap; }
 .site-index {
   display: flex; flex-wrap: wrap; gap: 8px 18px;
@@ -1124,6 +1138,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 }
 
 .home-ch, .home-work, .home-end, .try { content-visibility: auto; contain-intrinsic-size: 1000px; }
+.home-show { content-visibility: auto; contain-intrinsic-size: 1600px; }
 
 .try {
   position: relative;
@@ -1194,11 +1209,11 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   background: rgba(7, 9, 14, 0.78);
   border: 1px solid rgba(234, 239, 247, 0.14);
   border-radius: 16px;
-  box-shadow: 0 28px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,157,69,.1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 28px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,157,69,.1);
   backdrop-filter: blur(18px);
   overflow: hidden;
 }
-.try-hud.is-live { border-color: rgba(255, 157, 69, 0.42); box-shadow: 0 28px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,157,69,.28); }
+.try-hud.is-live { border-color: rgba(255, 157, 69, 0.42); box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 28px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,157,69,.28); }
 .try-hud.is-cheated { border-color: rgba(224, 67, 58, 0.55); }
 .try-hud-bar {
   display: flex; align-items: center; gap: 8px;
@@ -1229,7 +1244,7 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 }
 .try-hud-price {
   margin: 4px 0 0;
-  font-size: clamp(1.35rem, 2.1vw, 1.85rem);
+  font-size: clamp(1.6rem, 2.4vw, 2.15rem);
   font-weight: 800; letter-spacing: -0.03em; line-height: 1.1;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -1485,11 +1500,16 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
   border-bottom: 1px solid var(--line);
 }
 .home-rail .n {
+  display: inline-grid; place-items: center;
+  width: 2.1rem; height: 2.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 157, 69, 0.35);
+  background: rgba(255, 157, 69, 0.08);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 400;
   color: var(--orange);
-  padding-top: 0.35rem;
+  margin-top: 0.1rem;
 }
 .home-rail h3 {
   margin: 0;
@@ -1966,4 +1986,266 @@ footer { border-top: 1px solid var(--line); padding: 42px 0; }
 @media (prefers-reduced-motion: reduce) {
   .lt-mark, .lt-copy, .lt-btn, .lt-term { transition: none; }
   .lt-mark:hover, .lt-copy:hover, .lt-btn:hover, .lt-term:hover { transform: none; }
+}
+
+/* =========================================================================
+   VISUAL PASS (v3.19)
+   Depth and hierarchy, site-wide: a lit edge on every primary button, a nav
+   that settles from film-transparent to solid as the page moves, balanced
+   headings, and on the homepage a proof band and a product showcase between
+   the film stages. Nothing here changes a number; it changes how they sit.
+   ========================================================================= */
+:root { --film-muted: #b4bdcb; }
+
+/* Balanced headings, orphan-free paragraphs. Engines without text-wrap wrap
+   exactly as before. */
+h1, h2, h3, .post-title { text-wrap: balance; }
+p, figcaption { text-wrap: pretty; }
+
+/* Copy sitting on a film still needs more contrast than copy on the flat
+   page: --muted was tuned for the panel background, not for a face. */
+.home-copy .lede, .try-lede, .try-chart > p:not(.try-mark),
+.home-work p, .home-credits p, .home-ch-copy p { color: var(--film-muted); }
+.ledger-empty { color: var(--muted); }
+
+/* Nav: near-transparent over the film at the top of the page, solid once the
+   page moves. Scroll-driven, so no scroll listener and no layout read; an
+   engine without animation-timeline keeps the constant bar declared above. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    nav[aria-label="Primary"] {
+      animation: nav-settle linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 180px;
+    }
+  }
+}
+@keyframes nav-settle {
+  from { background: rgba(7, 9, 14, 0.3); border-bottom-color: rgba(255, 255, 255, 0); }
+  to { background: rgba(7, 9, 14, 0.84); border-bottom-color: rgba(255, 255, 255, 0.07); }
+}
+/* The page you are on is marked, not merely brightened. */
+.nav-links a[aria-current="page"]:not(.nav-live) { color: var(--text); position: relative; }
+.nav-links a[aria-current="page"]:not(.nav-live)::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -7px;
+  height: 2px; border-radius: 2px; background: var(--orange);
+}
+
+/* Panels catch a little light on the top edge. */
+.rel-card, .pnav, .callout, .pn-panel, .ba, .news-strip, .nav-wallet-panel {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+/* Door strip: one hairline where the film meets the doors. */
+.home-doors::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+  z-index: 6; pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05));
+}
+@media (max-width: 767px) { .home-doors::before { display: none; } }
+
+/* ---------- proof band ----------
+   The four figures the release gate verifies (data-check), set large enough
+   to be the point rather than the footnote. */
+.home-proof {
+  position: relative; padding: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.proof-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.proof-cell {
+  display: flex; flex-direction: column; gap: 0.45rem;
+  padding: 1.7rem 4vw 1.6rem;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+}
+.proof-cell:first-child { border-left: 0; }
+.proof-cell b {
+  font-size: clamp(1.9rem, 3.3vw, 2.8rem);
+  font-weight: 700; letter-spacing: -0.045em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.proof-cell span {
+  font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.proof-cell.is-accent b { color: var(--orange); }
+@media (max-width: 767px) {
+  .proof-grid { grid-template-columns: 1fr 1fr; }
+  .proof-cell { padding: 1.1rem 16px 1rem; }
+  .proof-cell:nth-child(3) { border-left: 0; }
+  .proof-cell:nth-child(n + 3) { border-top: 1px solid var(--line); }
+}
+
+/* ---------- product showcase ----------
+   The one flat section between film stages: real screens of the extension,
+   demo figures in every one of them, and the six things the overlay does
+   that a film still cannot show. */
+.home-show {
+  position: relative; padding: 6.5rem 0 6rem;
+  background: var(--bg);
+  overflow: hidden;
+}
+.home-show::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 420px at 12% 0%, rgba(255, 157, 69, 0.10), transparent 65%),
+    radial-gradient(760px 380px at 92% 100%, rgba(52, 211, 153, 0.06), transparent 65%);
+}
+.home-show::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 20%, transparent 100%);
+}
+.home-show .wrap { position: relative; z-index: 1; }
+.show-head { max-width: 62rem; }
+.show-kicker {
+  margin: 0 0 1rem;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--orange);
+}
+.show-head h2 {
+  margin: 0; max-width: 17ch;
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  letter-spacing: -0.05em; line-height: 0.96;
+}
+.show-sub {
+  margin-top: 1.1rem; max-width: 54ch;
+  color: var(--muted); font-size: clamp(1rem, 1.5vw, 1.15rem); line-height: 1.5;
+}
+.show-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px; margin-top: 3rem;
+}
+.show-card {
+  margin: 0; min-width: 0;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line2); border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 30px 70px -34px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  transition: transform .4s cubic-bezier(.22, 1, .36, 1), border-color .3s, box-shadow .4s;
+}
+.show-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 157, 69, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 36px 80px -30px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 157, 69, 0.12);
+}
+.show-wide {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(17rem, 0.85fr);
+  align-items: stretch;
+}
+.show-shot { position: relative; padding: 18px 18px 0; min-width: 0; }
+.show-wide .show-shot { padding: 22px 0 22px 22px; display: flex; align-items: center; }
+.show-shot img {
+  width: 100%; height: auto; display: block;
+  border-radius: 12px 12px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.09); border-bottom: 0;
+  background: #0a0d13;
+  box-shadow: 0 20px 40px -22px rgba(0, 0, 0, 0.9);
+}
+.show-wide .show-shot img { border-radius: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.09); }
+.show-card:not(.show-wide) .show-shot img { aspect-ratio: 16 / 10; object-fit: cover; object-position: left top; }
+.show-card figcaption {
+  padding: 16px 20px 20px;
+  border-top: 1px solid var(--line);
+  background: rgba(7, 9, 14, 0.35);
+  font-size: 14.5px; line-height: 1.55; color: var(--muted);
+}
+.show-wide figcaption {
+  border-top: 0; border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 28px;
+  background: none;
+}
+.show-card figcaption b {
+  display: block; margin-bottom: 5px;
+  color: var(--text); font-weight: 700; font-size: 15.5px; letter-spacing: -0.01em;
+}
+.show-wide figcaption b {
+  font-size: clamp(1.25rem, 1.8vw, 1.55rem); letter-spacing: -0.03em; line-height: 1.15;
+  margin-bottom: 10px;
+}
+.show-wide figcaption p { margin: 0; }
+.show-points {
+  list-style: none; margin: 18px 0 0; padding: 0;
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.show-points li {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+  font-size: 13.5px; color: var(--muted);
+}
+.show-points li::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--orange); flex: none; transform: translateY(-1px);
+}
+.show-points b { color: var(--text); font-weight: 700; }
+
+.show-list {
+  list-style: none; margin: 18px 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 22px;
+  border-top: 1px solid var(--line);
+}
+.show-list li {
+  display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px;
+  padding: 22px 0 24px;
+  border-bottom: 1px solid var(--line);
+}
+.show-list .ic {
+  width: 40px; height: 40px; border-radius: 12px;
+  display: grid; place-items: center;
+  border: 1px solid rgba(255, 157, 69, 0.28);
+  background: rgba(255, 157, 69, 0.07);
+  color: var(--orange);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.show-list .ic svg { width: 20px; height: 20px; display: block; }
+.show-list b { display: block; margin-bottom: 4px; font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
+.show-list span { font-size: 14px; color: var(--muted); line-height: 1.5; }
+@media (max-width: 1010px) {
+  .show-list { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 900px) {
+  .show-wide { grid-template-columns: 1fr; }
+  .show-wide .show-shot { padding: 18px 18px 0; }
+  .show-wide .show-shot img { border-radius: 12px 12px 0 0; border-bottom: 0; }
+  .show-wide figcaption { border-left: 0; border-top: 1px solid var(--line); padding: 18px 20px 22px; }
+}
+@media (max-width: 767px) {
+  .home-show { padding: 4rem 0 3.5rem; }
+  .show-grid { grid-template-columns: 1fr; gap: 14px; margin-top: 2rem; }
+  .show-list { grid-template-columns: 1fr; }
+  .show-list li { padding: 16px 0 18px; }
+  .show-card:not(.show-wide) .show-shot img { aspect-ratio: 16 / 11; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show-card { transition: none; }
+  .show-card:hover { transform: none; }
+}
+
+/* ---------- demo steps ----------
+   Three lines under the demo copy so the ticket beside them explains itself. */
+.try-steps {
+  list-style: none; margin: 1.6rem 0 0; padding: 0;
+  max-width: 36ch;
+  border-top: 1px solid rgba(234, 239, 247, 0.12);
+}
+.try-steps li {
+  display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 12px;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid rgba(234, 239, 247, 0.12);
+  font-size: 14px; line-height: 1.45; color: var(--film-muted);
+}
+.try-steps .n { font-family: var(--mono); font-size: 12px; color: var(--orange); padding-top: 2px; }
+.try-steps b { color: var(--text); font-weight: 700; }
+@media (max-width: 767px) {
+  .try-steps { max-width: none; margin-top: 1.2rem; }
 }

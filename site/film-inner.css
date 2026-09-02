@@ -40,15 +40,23 @@
 }
 .film-mast-copy .lede {
   margin-top: 1rem; max-width: 38ch;
-  color: var(--muted); font-size: clamp(1rem, 1.6vw, 1.2rem);
+  color: var(--film-muted); font-size: clamp(1rem, 1.6vw, 1.2rem);
 }
 
+/* The masthead figures, set like the homepage proof band: the number is the
+   point, the label is the footnote. */
 .ed-line {
-  display: flex; flex-wrap: wrap; gap: 8px 22px;
-  margin-top: 1.5rem;
-  font-family: var(--mono); font-size: 12px; color: var(--dim);
+  display: flex; flex-wrap: wrap; gap: 14px 36px;
+  margin-top: 1.75rem;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--dim);
 }
-.ed-line b { color: var(--muted); font-weight: 400; }
+.ed-line span { display: flex; flex-direction: column; gap: 6px; }
+.ed-line b {
+  font-family: var(--font); font-size: clamp(1.5rem, 2.4vw, 2.1rem);
+  font-weight: 700; letter-spacing: -0.04em; line-height: 1;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
 
 .ed-sec { padding: 4.5rem 0 1rem; }
 .ed-sec h2 {
@@ -142,12 +150,11 @@
   max-width: 16ch;
   color: var(--text);
 }
-.film-end p { max-width: 36ch; color: var(--muted); }
+.film-end p { max-width: 36ch; color: var(--film-muted); }
 .film-end .hero-ctas { margin-top: 1.5rem; display: flex; flex-wrap: wrap; gap: 12px; }
 .film-end .btn {
   height: 48px; padding: 0 22px; border-radius: 999px; font-size: 14px;
 }
-.film-end .btn-primary { background: var(--orange); color: #1a0c00; box-shadow: none; }
 .film-end .btn-ghost {
   background: rgba(7, 9, 14, 0.35);
   border: 1px solid rgba(234, 239, 247, 0.28);
@@ -180,7 +187,7 @@
   font-size: clamp(1.8rem, 4.4vw, 3.2rem);
   letter-spacing: -0.04em; line-height: 0.95;
 }
-.lost-copy p { max-width: 36ch; color: var(--muted); }
+.lost-copy p { max-width: 36ch; color: var(--film-muted); }
 .lost-copy .path {
   font-family: var(--mono); font-size: 13px; color: var(--orange2);
   word-break: break-all;
