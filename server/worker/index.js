@@ -1753,6 +1753,59 @@ async function handleStreamerApply(request, env) {
 }
 
 /**
+ * POST /api/streamer/add — a moderator puts a channel straight onto the roster.
+ *
+ * The public apply endpoint exists so strangers can ask; this one exists so
+ * the owner never has to file a GitHub issue against their own project to add
+ * a streamer they have already decided on. The row lands approved, attributed
+ * to the moderator who added it (reviewed_by/reviewed_at — the audit fields
+ * the review path fills, filled here too), and through the same machine gate
+ * the public form faces: an approved row becomes a public card either way, so
+ * the name/blurb content rule and the channel-URL rule hold for mods too.
+ *
+ * discord/viewers are NOT NULL columns of the shared table with no public
+ * surface — the roster SELECT serves only name/login/blurb/platform/url — so
+ * a direct add stores empty strings rather than pretending to know them.
+ */
+async function handleStreamerAdd(request, env) {
+  const mod = await moderator(request, env);
+  if (!mod) return json({ ok: false, reason: 'not-a-moderator' }, 403);
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+
+  const problem = streamer.addProblem(body);
+  if (problem) return json({ ok: false, reason: problem }, 422);
+
+  const added = streamer.normalizeAdd(body);
+  try {
+    await env.DB.prepare(`
+      INSERT INTO streamer_applications
+        (name, channel_url, platform, twitch_login, discord, viewers, blurb,
+         notes, contact_method, contact_link, best_time, status,
+         reviewed_by, reviewed_at, created_at)
+      VALUES (?, ?, ?, ?, '', '', ?, NULL, NULL, NULL, NULL, 'approved', ?, ?, ?)`)
+      .bind(added.name, added.channelUrl, added.platform, added.twitchLogin,
+        added.blurb || null, mod.id, Date.now(), Date.now())
+      .run();
+  } catch {
+    // The partial unique index on channel_url is what decides: a channel
+    // already pending or approved is a duplicate, not a server fault.
+    return json({ ok: false, reason: 'already-listed' }, 409);
+  }
+  return json({
+    ok: true,
+    streamer: {
+      name: added.name,
+      channelUrl: added.channelUrl,
+      platform: added.platform,
+      twitchLogin: added.twitchLogin,
+      blurb: added.blurb,
+    },
+  });
+}
+
+/**
  * The mod queue. Every column, including contact details — which is exactly
  * why it is behind moderator() and why nothing else selects from this table.
  */
@@ -2454,6 +2507,9 @@ export default {
       }
       else if (path === '/api/streamer/review' && request.method === 'POST') {
         response = await handleStreamerReview(request, env);
+      }
+      else if (path === '/api/streamer/add' && request.method === 'POST') {
+        response = await handleStreamerAdd(request, env);
       }
       else if (path === '/api/streamer/roster') {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
