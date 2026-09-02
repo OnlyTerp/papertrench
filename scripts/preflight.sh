@@ -95,6 +95,22 @@ for page in site/*.html; do
 done
 [ -z "$A11Y_MISSING" ] || fail "pages missing accessibility landmarks —$A11Y_MISSING"
 echo "a11y OK (skip link, main landmark and named nav on $(grep -lc 'class="skip-link"' site/*.html | wc -l) pages)"
+
+# The hamburger is part of the nav contract. Below 860px the row hides every
+# page link, so a page that carries the standard nav but not the burger (or
+# not the toggle that opens it) ships a phone view with exactly two
+# destinations and no way to reach the rest of the site. Checked, not
+# remembered — same rule as the nav destinations above.
+MOBILE_NAV_MISSING=""
+for page in site/*.html; do
+  grep -q 'class="nav-links"' "$page" || continue
+  grep -q 'class="nav-burger"' "$page" || MOBILE_NAV_MISSING="$MOBILE_NAV_MISSING $(basename "$page"):burger"
+  grep -q 'id="nav-menu"'      "$page" || MOBILE_NAV_MISSING="$MOBILE_NAV_MISSING $(basename "$page"):menu-id"
+  grep -q 'nav-toggle.js'      "$page" || MOBILE_NAV_MISSING="$MOBILE_NAV_MISSING $(basename "$page"):toggle-script"
+done
+[ -z "$MOBILE_NAV_MISSING" ] || fail "mobile nav incomplete —$MOBILE_NAV_MISSING"
+echo "mobile nav OK (burger, menu id and toggle on $(grep -lc 'class="nav-burger"' site/*.html | wc -l) pages)"
+
 # The site links its pages extensionless. A "<page>.html" string left in JS
 # is not a broken link — .html still resolves — which is exactly why it
 # survives review: it works, it is just the wrong spelling, and it escapes
