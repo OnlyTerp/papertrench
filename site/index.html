@@ -113,13 +113,92 @@
   </div>
 </section>
 
-<p class="home-quiet home-proof home-credits-line" aria-label="15 terminals, 0 invented prices, 2299 tests, 100 percent local">
-  <span class="home-credits-kicker">proof</span>
-  <span class="home-credits-item"><span class="home-credits-role">terminals</span><span class="home-credits-rule" aria-hidden="true"></span><b data-check="sites">15</b></span>
-  <span class="home-credits-item"><span class="home-credits-role">invented prices</span><span class="home-credits-rule" aria-hidden="true"></span><b>0</b></span>
-  <span class="home-credits-item"><span class="home-credits-role">tests</span><span class="home-credits-rule" aria-hidden="true"></span><b data-check="tests">2460</b></span>
-  <span class="home-credits-item"><span class="home-credits-role">local</span><span class="home-credits-rule" aria-hidden="true"></span><b>100%</b></span>
-</p>
+<section class="home-proof" aria-label="15 terminals, 0 invented prices, 2712 tests passing, 100 percent local">
+  <div class="proof-grid">
+    <div class="proof-cell"><b data-check="sites">15</b><span>terminals</span></div>
+    <div class="proof-cell is-accent"><b>0</b><span>invented prices</span></div>
+    <!-- 2712 = 2392 extension + 300 server + 20 bot. Preflight recomputes the
+         tests and terminals figures and fails the release if the page claims
+         more than the suites and the manifest deliver. -->
+    <div class="proof-cell"><b data-check="tests">2712</b><span>tests passing</span></div>
+    <div class="proof-cell"><b>100%</b><span>local <span aria-hidden="true">·</span> no telemetry</span></div>
+  </div>
+</section>
+
+<section class="home-show" id="overlay" aria-labelledby="showTitle">
+  <div class="wrap">
+    <header class="show-head">
+      <p class="show-kicker">The overlay <span aria-hidden="true">·</span> demo data</p>
+      <h2 id="showTitle">Trade the real chart. Keep a record that can't be quietly edited.</h2>
+      <p class="show-sub">A quick-buy ticket on the terminal you already use, filled at a price that had to come from somewhere real. Then every round graded on what you did, not on whether it worked.</p>
+    </header>
+
+    <div class="show-grid">
+      <figure class="show-card show-wide">
+        <div class="show-shot">
+          <img src="/assets/product/overlay.webp" alt="The PaperTrench quick-buy panel docked on a live chart: paper balance, SOL presets, a buy button and an open position with unrealised P&amp;L" width="1600" height="800" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <b>The ticket sits on the chart you already have open.</b>
+          <p>Presets, percentage sells, and a P&amp;L that moves on the site's own price feed. Event-driven, not polled.</p>
+          <ul class="show-points">
+            <li><span><b>Live price or nothing.</b> Every fill is validated against a trusted anchor. No source, no number.</span></li>
+            <li><span><b>Positions bar.</b> Every open position pinned to the top of the page. Click one to jump to its chart.</span></li>
+            <li><span><b>Paper, visibly.</b> Banner and watermark on the panel, so a screenshot never passes as a real trade.</span></li>
+          </ul>
+        </figcaption>
+      </figure>
+
+      <figure class="show-card">
+        <div class="show-shot">
+          <img src="/assets/product/dashboard.webp" alt="The PaperTrench dashboard overview: paper equity, total return, an equity curve and recent round trips" width="1600" height="978" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <b>Every round on one page.</b>
+          Equity curve, recent round trips, open positions. All of it read from your own local record, none of it uploaded.
+        </figcaption>
+      </figure>
+
+      <figure class="show-card">
+        <div class="show-shot">
+          <img src="/assets/product/coach.webp" alt="The PaperTrench coach tab: exit discipline, position sizing, setups traded and plan discipline, each scored" width="1600" height="1000" loading="lazy" decoding="async">
+        </div>
+        <figcaption>
+          <b>Graded on process, not P&amp;L.</b>
+          Exit discipline, position sizing, plan discipline and win rate per setup. Trades that broke their plan and won anyway are counted separately.
+        </figcaption>
+      </figure>
+    </div>
+
+    <ul class="show-list" role="list">
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
+        <div><b>Armed buys</b><span>Click buy before a brand-new coin has a quote. The order arms, then fills the instant the first trusted price lands.</span></div>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 4-6 5 4"/><circle cx="16" cy="8" r="2.2" fill="currentColor" stroke="none"/></svg></span>
+        <div><b>Native chart fills</b><span>On Padre, paper buys and sells render as real TradingView markers, with average fill and exit lines.</span></div>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg></span>
+        <div><b>Exit quality</b><span>Every round graded excellent, sold early or round-tripped, with the SOL you left on the table quantified.</span></div>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg></span>
+        <div><b>Session replay</b><span>Scrub any trade: every fill, chart frames, and the screen recording if you made one, on a single timeline.</span></div>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13.5a4.5 4.5 0 0 0 6.4 0l2.6-2.6a4.5 4.5 0 0 0-6.4-6.4l-1.1 1.1"/><path d="M14 10.5a4.5 4.5 0 0 0-6.4 0L5 13.1a4.5 4.5 0 0 0 6.4 6.4l1.1-1.1"/></svg></span>
+        <div><b>Hash-chained record</b><span>Every fill commits to a hash chain the moment it happens. Ordering, pre-commitment and price are all checkable later.</span></div>
+      </li>
+      <li>
+        <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></svg></span>
+        <div><b>X-Ray</b><span>Land on any X profile and the intel card is already there: account age, name changes, every contract address it has posted.</span></div>
+      </li>
+    </ul>
+  </div>
+</section>
+
 
 <section class="try" id="try" aria-label="Paper demo">
   <span id="bubbles"></span>
@@ -130,6 +209,11 @@
       <p class="try-mark">PAPER · DEMO</p>
       <h2>Sit the overlay on the chart. Then try to cheat.</h2>
       <p class="try-lede">Quote is Dexscreener $PT or the ticket stays shut.</p>
+      <ol class="try-steps" aria-label="How the demo works">
+        <li><span class="n">01</span><span><b>Quote lands</b> from Dexscreener, or the ticket stays shut.</span></li>
+        <li><span class="n">02</span><span><b>Paper buy</b> at that quote, sized in fake SOL.</span></li>
+        <li><span class="n">03</span><span><b>Edit the fill.</b> Every link after it breaks, in front of you.</span></li>
+      </ol>
     </div>
     <aside class="try-hud try-ticket" aria-live="polite">
       <div class="try-hud-bar">
@@ -426,6 +510,16 @@
           obs.disconnect();
         }
       }, { threshold: 0.28 }).observe(trySec);
+    }
+    const show = document.getElementById('overlay');
+    if (show && 'IntersectionObserver' in window) {
+      new IntersectionObserver((entries, obs) => {
+        if (entries[0] && entries[0].isIntersecting) {
+          window.gsap.from('.show-card', { y: 30, duration: 0.8, stagger: 0.09, ease: 'power3.out', clearProps: 'transform' });
+          window.gsap.from('.show-list li', { y: 18, duration: 0.6, stagger: 0.05, delay: 0.25, ease: 'power3.out', clearProps: 'transform' });
+          obs.disconnect();
+        }
+      }, { threshold: 0.1 }).observe(show);
     }
   }
 })();
