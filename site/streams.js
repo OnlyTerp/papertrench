@@ -519,7 +519,13 @@
     // player — needs the parent domain.
     const wantChat = spec.chat && !!PARENT;
     chatShell.style.display = wantChat ? '' : 'none';
-    if (!wantChat) $('chatFrame').innerHTML = '';
+    if (wantChat) {
+      $('chatFrame').innerHTML = `<iframe
+        src="${esc(spec.chatUrl(handle))}"
+        title="${esc(spec.label)} chat: ${who}"></iframe>`;
+    } else {
+      $('chatFrame').innerHTML = '';
+    }
 
     // Twitch refuses embeds without a parent domain, which file:// has no way
     // to supply. Kick and YouTube do not take a parent, so they still play.
@@ -549,16 +555,33 @@
       return;
     }
 
+    // THE LIVE GATE. The probes already answer whether this channel is live;
+    // mounting the player anyway is what produced Kick's "This embed seems to
+    // be misconfigured" — its player's answer to being pointed at a channel
+    // that is not broadcasting. Only a DEFINITIVE offline answer blocks the
+    // mount: an unknown state (probe failed, or the first poll has not
+    // landed) mounts as before and lets the player self-report, so a flaky
+    // probe can never black out a channel that is actually live.
+    // Signal-less platforms are exempt entirely: nobody reports YouTube's
+    // state, so its own player is the honest one (see the boot note below).
+    if (hasLiveSignal(s) && live.get(keyOf(s)) === false) {
+      frame.innerHTML = `
+        <div class="player-empty">
+          <div class="inner">
+            ${MARK_EXTERNAL}
+            <h3>${who} is offline</h3>
+            <p>Nobody is behind the mic right now. When ${who} goes live it plays
+            right here${href ? ` — meanwhile, the channel lives at <a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>` : ''}.
+            Pick a LIVE card below to watch someone who is.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
     frame.innerHTML = `<iframe
       src="${esc(spec.player(handle))}"
       allowfullscreen allow="autoplay; fullscreen"
       title="${esc(spec.label)} stream: ${who}"></iframe>`;
-
-    if (wantChat) {
-      $('chatFrame').innerHTML = `<iframe
-        src="${esc(spec.chatUrl(handle))}"
-        title="${esc(spec.label)} chat: ${who}"></iframe>`;
-    }
   }
 
   function setFeatured(key, { pinned = false, scroll = false } = {}) {
@@ -709,6 +732,15 @@
     if (!userPinned) {
       const firstLive = orderedRoster().find((s) => live.get(keyOf(s)) === true);
       if (firstLive && live.get(featured) !== true) setFeatured(keyOf(firstLive));
+    }
+    // When the FEATURED channel's own state flips, the gate in renderFeatured
+    // must re-judge it: offline → live mounts the stream, live → offline
+    // swaps the player for the honest card. Only a flip re-renders — a poll
+    // that rebuilt the iframe every 60s would restart the stream mid-watch.
+    const current = featured && entryFor(featured);
+    if (current && hasLiveSignal(current)) {
+      const wantsIframe = live.get(keyOf(current)) !== false;
+      if (wantsIframe !== !!document.querySelector('#playerFrame iframe')) renderFeatured();
     }
     renderGrid();
   }
