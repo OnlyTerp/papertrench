@@ -1,22 +1,22 @@
 {
-  "version": "3.18.0",
-  "date": "2026-08-30",
+  "version": "3.18.1",
+  "date": "2026-09-02",
   "entries": [
     {
-      "title": "The community bug-sweep: buying works again for everyone, and the chart axis can no longer be wrecked by an entry line.",
+      "title": "The field-recovery release: RPC refusal memory ends the 30-second new-pair wait for heavy users, and quick-buy can no longer buy the previous coin on page switch.",
       "text": ""
     },
     {
       "title": null,
-      "text": "Every report in the Discord (195 messages across 4 days) was triaged against live debug exports; three defects shipped fixed here, each pinned by a test that fails on the old code."
+      "text": "Two defects triaged directly from Discord debug logs and user reports:"
     },
     {
       "title": null,
-      "text": "- **\"Fetching live price\" for heavy users is dead (D-62).** ark_trades13,   cheng.4848 and giovinastro's debug logs told the story: the free Solana RPC   endpoints started refusing the `getMultipleAccounts` call (HTTP 403) once a   session's request weight ran high — 65 grouped refusals across 3.5 hours in   one export — and EVERY on-chain read rode that one method, so those users   could not price a coin at all while light users were fine. Reads now go out   in smaller batches (the oversized request is what the limit hits first) and   a refused batch falls back to per-account `getAccountInfo` reads — a   cheaper call in a different weight class that none of the logs show being   blocked. Slow beats dead on the sniping path. - **An off-range average line can no longer stretch the chart axis (D-63).**   dashgirn (\"if price goes below 5k the avg entry goes off the charts\") and   ark_trades13 (\"Avg fill line is not correct\"): TradingView's autoscale   includes order lines, so a snipe-era fill market cap (e.g. $200 on a $60K   chart) dragged the y-axis through zero into negative territory, squashing   the candles and detaching the bubbles. An average that falls outside the   visible range is now simply not drawn — the axis springs back, the reason   is named in the debug log, and the line returns on its own the moment the   axis scrolls back to it. - **GMGN average lines now draw on fresh launches (D-64).** portifly's   report: marks worked but the Avg Price / Avg Exit lines never appeared. The   line level needed the token's market cap, which a brand-new coin doesn't   have yet — the fill markers already had a price-ratio fallback for exactly   this case, the lines didn't. Now they do."
+      "text": "- **Heavy users no longer wait 30 seconds for new-pair prices (D-65).** Ark and   Cheng's debug exports showed that even after v3.18.0 added the per-account   fallback, public RPC endpoints with hard rate limits (403s on   `getMultipleAccounts`) forced every batch read through a doomed round trip   before falling back. The RPC pool now remembers method-level policy refusals   with a sliding 10-minute memory, ranking refused endpoints behind healthy ones   and skipping doomed batch calls entirely when universal. Fallback transition   error logging is throttled to once per minute to eliminate error-log storms. - **Quick-buy on a new pair page can never fill the previous token (D-67).**   Haris reported that quick-buying on a brand-new pair could fill against the   token just navigated away from before the page fully resolved. `requestBuy`   now gates instant fills on a `tokenHref` identity anchor stamped by the detect   loop, pausing quick-buy with an honest toast until the new token is identified."
     },
     {
       "title": null,
-      "text": "Tested: three new defect suites (13 tests) all fail on the old code and pass on the fix (negative controls verified); full extension suite 2148/2148."
+      "text": "Tested: new defect suites (14 tests) fail on the old code and pass on the fix; full extension suite 2406/2406, full repo 2726/2726."
     }
   ]
 }

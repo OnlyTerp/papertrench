@@ -3,6 +3,29 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.18.1 — 2026-09-02
+
+**The field-recovery release: RPC refusal memory ends the 30-second new-pair wait for heavy users, and quick-buy can no longer buy the previous coin on page switch.**
+
+Two defects triaged directly from Discord debug logs and user reports:
+
+- **Heavy users no longer wait 30 seconds for new-pair prices (D-65).** Ark and
+  Cheng's debug exports showed that even after v3.18.0 added the per-account
+  fallback, public RPC endpoints with hard rate limits (403s on
+  `getMultipleAccounts`) forced every batch read through a doomed round trip
+  before falling back. The RPC pool now remembers method-level policy refusals
+  with a sliding 10-minute memory, ranking refused endpoints behind healthy ones
+  and skipping doomed batch calls entirely when universal. Fallback transition
+  error logging is throttled to once per minute to eliminate error-log storms.
+- **Quick-buy on a new pair page can never fill the previous token (D-67).**
+  Haris reported that quick-buying on a brand-new pair could fill against the
+  token just navigated away from before the page fully resolved. `requestBuy`
+  now gates instant fills on a `tokenHref` identity anchor stamped by the detect
+  loop, pausing quick-buy with an honest toast until the new token is identified.
+
+Tested: new defect suites (14 tests) fail on the old code and pass on the fix;
+full extension suite 2406/2406, full repo 2726/2726.
+
 ## v3.18.0 — 2026-08-30
 
 **The community bug-sweep: buying works again for everyone, and the chart axis

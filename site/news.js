@@ -28,6 +28,12 @@
 
   const RELEASES = [
       {
+        v: '3.18.1', date: 'Sep 2, 2026', iso: '2026-09-02',
+        tags: ['fix', 'speed'],
+        title: 'Field-recovery: RPC refusal memory and identity-gated quick-buy',
+        body: 'Two defects triaged directly from Discord debug logs and user reports. For heavy users (Ark, Cheng, Ace), public RPC endpoints returning 403s on getMultipleAccounts forced every batch read through a doomed round trip before falling back; the RPC pool now remembers method-level policy refusals for 10 minutes and routes straight to the healthy per-account lane, ending the 30-second new-pair price wait and throttling log noise to once per minute. And Haris’s quick-buy report is fixed: quick-buying immediately after navigating to a brand-new pair is now gated on a page-identity anchor, preventing instant fills against the previous token with an honest pause toast until the new pair is identified.',
+      },
+      {
         v: '3.18.0', date: 'Aug 30, 2026', iso: '2026-08-30',
         tags: ['fix'],
         title: 'The community bug-sweep: buying works for everyone again',

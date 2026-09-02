@@ -280,7 +280,7 @@ test('D-66/5: the armed fill lands under the DISCOVERED mint after the first quo
     // The pair resolves into its base mint — the discovered identity.
     // Same schema the resolver's own dexPair fixture carries (chainId and
     // marketCap are load-bearing in quote.js's tokenFromPayload).
-    dexPair: () => ({ chainId: 'solana', pairAddress: PAIR_ADDR, baseToken: { address: REAL_MINT, symbol: 'REAL', name: 'Real' }, priceNative: '0.0000011', priceUsd: '0.00016', liquidity: { usd: 22000 }, marketCap: 160000 }),
+    dexPair: () => ({ chainId: 'solana', pairAddress: PAIR_ADDR, baseToken: { address: REAL_MINT, symbol: 'REAL', name: 'Real' }, quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' }, priceNative: '0.0000011', priceUsd: '0.00016', liquidity: { usd: 22000 }, marketCap: 160000 }),
   });
   await ov.advance(2000);
   ov.setInput('pt-custom', '1');
