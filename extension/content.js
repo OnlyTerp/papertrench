@@ -4919,10 +4919,17 @@
     .pt-box.pt-micro .pt-led .k { font-size: 7.5px; }
     .pt-box.pt-micro .pt-led .v { font-size: 10px; }
     .pt-box.pt-focus .pt-ledger { gap: 3px; }
-    /* Direction is colour before it is text: the buy chips read green, the
-       sell ladder red, so a mis-click is visible before it is a fill. */
+    /* Direction is colour before it is text: the preset chips read green, the
+       sell ladder red, so a mis-click is visible before it is a fill.
+       .pt-buy is deliberately NOT in this list. Its own rule above already
+       sets high-contrast dark text (#032B1B) against its solid green
+       gradient — a bare .pt-buy here overrode that with --pt-green (#34D399)
+       text on the SAME green gradient, which is green-on-green: "BUY" went
+       to near-zero contrast, reported from the field as the label being
+       invisible on the main panel's buy button. The preset chips and the
+       sell button do not have this collision — their backgrounds are
+       transparent/dark, not drawn from the same swatch as their text. */
     .pt-preset { color: var(--pt-green); }
-    .pt-buy { color: var(--pt-green); }
     .pt-sell { color: var(--pt-red); }
     .pt-sell:disabled, .pt-preset:disabled { opacity: 0.4; cursor: not-allowed; }
 
