@@ -59,7 +59,10 @@
 <nav aria-label="Primary">
   <div class="nav-inner">
     <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
-    <div class="nav-links">
+    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="nav-menu" aria-label="Open menu">
+      <span class="nav-burger-box" aria-hidden="true"><i></i><i></i><i></i></span>
+    </button>
+    <div class="nav-links" id="nav-menu">
       <a href="/leaderboard">Leaderboard</a>
       <a href="/sprint">Sprint</a>
       <a href="/events">Events</a>
@@ -285,6 +288,7 @@
 
 <script src="reveal.js"></script>
 <script src="/nav-wallet.js"></script>
+<script src="/nav-toggle.js"></script>
 <script src="/nav-profile.js"></script>
 <!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
 </body>

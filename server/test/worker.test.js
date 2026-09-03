@@ -810,9 +810,13 @@ test('layering: logged-out page empty falls through to the user token', async ()
 
 test('sealed OAuth tokens survive the round trip and refuse tampering', async () => {
   const xfeed = (await import('../worker/xfeed.js')).default;
-  const pair = { access: 'tok-abc', refresh: 'r1', exp: 123456789 };
+  // The refresh token must be long enough that a coincidental base64url
+  // substring match cannot happen: 'r1' collides with ~1.4% of random
+  // ciphertexts, flaking this test (and preflight with it) about one run
+  // in seventy through no fault of the cipher.
+  const pair = { access: 'tok-abc', refresh: 'refresh-token-material', exp: 123456789 };
   const sealed = await xfeed.sealTokens(SECRET, pair);
-  assert.ok(!sealed.includes('tok-abc') && !sealed.includes('r1'),
+  assert.ok(!sealed.includes('tok-abc') && !sealed.includes('refresh-token-material'),
     'ciphertext carries no plaintext token material');
   assert.deepEqual(await xfeed.openTokens(SECRET, sealed), pair);
   const mid = Math.floor(sealed.length / 2);
