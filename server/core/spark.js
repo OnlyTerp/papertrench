@@ -261,7 +261,17 @@ function gradePass(chart, tTs, endTs) {
   else if (rip < 1.15) tone = 'yellow';  // nothing was there — fair pass
   else tone = 'red';                     // it paid to be in
   return {
-    grade: letterForScore(AXIS_SCORE[tone]),
+    // letterForScore reads a THREE-axis sum (3..9). A pass is judged on one
+    // axis, so handing it AXIS_SCORE[tone] directly fed the table 1, 2 or 3 —
+    // and every value at or below 4 returns 'D'. Every pass therefore graded
+    // D, including the perfect one: the card printed a green "the pass dodged
+    // the bleed" next to a D, while TRADING the same trap scored a B. It made
+    // the one decision this product most wants to teach — not taking the
+    // trade — the only decision that could never be rewarded.
+    //
+    // A pass expresses on its single axis what a trade expresses on three, so
+    // it scales by three: green -> 9 (S), yellow -> 6 (C), red -> 3 (D).
+    grade: letterForScore(AXIS_SCORE[tone] * 3),
     passed: true, heldToEnd: false,
     axes: [{ key: 'read', tone, label: AXIS.read.label, emoji: EMOJI[tone], text: AXIS.read[tone] }],
     story: PASS_STORY[tone],
