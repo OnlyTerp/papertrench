@@ -304,3 +304,31 @@ test('an over-long URL is rejected whole, never stored as a broken prefix', () =
   // is stripped before judging, so this is still over.
   assert.equal(S.safeUrl('  ' + over + '  ', 200), null);
 });
+
+/* -------------------------------------------------- the moderator's direct add */
+
+test('addProblem is applyProblem minus the contact block', () => {
+  // A mod-added row skips the queue, so the checks that survive are exactly
+  // the ones that protect the PUBLIC card: name, channel, blurb. Discord and
+  // viewers have no public surface (the roster SELECT never serves them), so
+  // demanding them here would just be a second form nobody reads.
+  const base = { name: 'Zurp52', channelUrl: 'https://twitch.tv/zurp52' };
+  assert.equal(S.addProblem(base), null);
+  assert.equal(S.addProblem({}), 'name-required');
+  assert.equal(S.addProblem({ name: 'x', channelUrl: 'https://kick.com/x' }), 'name-required');
+  assert.equal(S.addProblem({ name: `Stream ${HATE_CODE}`, channelUrl: 'https://kick.com/x' }), 'name-blocked');
+  assert.equal(S.addProblem({ name: 'Ok', channelUrl: 'javascript:alert(1)' }), 'channel-url-invalid');
+  assert.equal(S.addProblem({ name: 'Ok', channelUrl: 'https://kick.com/x', blurb: `gm ${HATE_CODE}` }), 'blurb-blocked');
+});
+
+test('normalizeAdd derives platform and Twitch login from the URL alone', () => {
+  const kick = S.normalizeAdd({ name: 'Ark1317', channelUrl: 'https://kick.com/ark1317', blurb: 'Night runs.' });
+  assert.equal(kick.platform, 'kick');
+  assert.equal(kick.twitchLogin, null, 'no invented login for a platform we cannot embed');
+  assert.equal(kick.blurb, 'Night runs.');
+
+  const twitch = S.normalizeAdd({ name: 'Zurp52', channelUrl: 'twitch.tv/Zurp52', blurb: '' });
+  assert.equal(twitch.platform, 'twitch');
+  assert.equal(twitch.twitchLogin, 'zurp52', 'lowercased, embeddable, same rules as apply');
+  assert.equal(twitch.blurb, '', 'an absent blurb is stored absent, not as a placeholder lie');
+});

@@ -149,6 +149,31 @@
   .state { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
   .state .big { font-size: 38px; margin-bottom: 12px; opacity: 0.8; }
 
+  /* ---------- direct add ----------
+     The owner's own door onto the roster: no GitHub issue, no round trip.
+     Collapsed by default so the queue stays the first thing on the page. */
+  .add-panel { background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); margin-bottom: 22px; overflow: hidden; }
+  .add-sum { display: flex; align-items: center; gap: 10px; padding: 15px 20px;
+    cursor: pointer; list-style: none; font-size: 14px; font-weight: 800;
+    color: var(--orange2); transition: background .15s; }
+  .add-sum::-webkit-details-marker { display: none; }
+  .add-sum:hover { background: rgba(255,255,255,0.025); }
+  .add-sum .plus { font-family: var(--mono); font-size: 17px; font-weight: 800; }
+  .add-form { padding: 4px 20px 18px; border-top: 1px solid var(--line); }
+  .add-note { font-size: 12.5px; color: var(--muted); line-height: 1.6; margin: 12px 0 14px; }
+  .add-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 14px; }
+  @media (max-width: 620px) { .add-grid { grid-template-columns: 1fr; } }
+  .add-grid label { display: flex; flex-direction: column; gap: 6px;
+    font-size: 11.5px; font-weight: 750; letter-spacing: 0.5px;
+    text-transform: uppercase; color: var(--dim); }
+  .add-grid .opt { text-transform: none; letter-spacing: 0; font-weight: 600; opacity: 0.8; }
+  .add-grid input { font: inherit; font-size: 14px; color: var(--text);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line2); border-radius: 8px;
+    padding: 10px 12px; }
+  .add-grid input:focus { outline: none; border-color: rgba(255,157,69,0.5); }
+  .add-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+
   .who { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin-bottom: 20px; }
   .who img { width: 26px; height: 26px; border-radius: 50%; }
   .who b { color: var(--text); font-weight: 750; }
@@ -224,6 +249,28 @@
         <span>Signed in as <b id="whoHandle"></b> · moderator</span>
         <button class="ar-btn" type="button" id="refreshBtn">Refresh</button>
       </div>
+
+      <details class="add-panel" id="addPanel">
+        <summary class="add-sum"><span class="plus" aria-hidden="true">+</span> Add a streamer to the roster</summary>
+        <form id="addForm" class="add-form">
+          <p class="add-note">Lands on the public roster immediately, credited to you in the audit trail. Twitch, Kick and YouTube all work — the platform is read from the link, not chosen. Twitch plays inline; the others get a card that links out.</p>
+          <div class="add-grid">
+            <label>Channel URL
+              <input id="addUrl" type="text" inputmode="url" placeholder="https://kick.com/name" autocomplete="off" required>
+            </label>
+            <label>Card name
+              <input id="addName" type="text" maxlength="40" placeholder="Shown as the card title" autocomplete="off" required>
+            </label>
+            <label class="add-wide" style="grid-column:1/-1">Card blurb <span class="opt">(optional — one line under the name)</span>
+              <input id="addBlurb" type="text" maxlength="160" placeholder="Weekend challenge runs — fresh eyes on the trenches." autocomplete="off">
+            </label>
+          </div>
+          <div class="add-acts">
+            <button class="ar-btn good" type="submit" id="addSubmit">Add to roster</button>
+            <span class="act-msg" id="addMsg" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </details>
 
       <div class="tabs" id="tabs">
         <button class="tab on" type="button" data-status="pending">Pending<span class="n" id="nPending"></span></button>

@@ -302,6 +302,74 @@
 
   $('refreshBtn').addEventListener('click', loadQueue);
 
+  /* ---------------- direct add ----------------
+   * POST /api/streamer/add — the owner's own door onto the roster, so adding a
+   * streamer is a form here rather than a GitHub issue against this repo. The
+   * server gates it on moderator() exactly like every other write on this
+   * page; this form is a courtesy, not the control.
+   */
+
+  // Reason codes come from core/streamer.js addProblem() — assert on the map,
+  // never on the server's exact sentence.
+  const ADD_REASON = {
+    'name-required': 'A card name is needed — at least two characters.',
+    'name-blocked': 'That name was refused by the content filter.',
+    'channel-url-invalid': "That channel URL didn't parse as a web link.",
+    'blurb-blocked': 'That blurb was refused by the content filter.',
+    'already-listed': 'That channel is already on the roster or waiting in the queue.',
+    'not-a-moderator': 'Your moderator access changed — refresh the page.',
+  };
+
+  /** twitch.tv/name -> name, for prefilling the card-name field. Same shape
+   * the server accepts; anything else leaves the field alone. */
+  function slugFromUrlText(text) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : 'https://' + raw;
+    try {
+      const first = new URL(withScheme).pathname.split('/').filter(Boolean)[0] || '';
+      return /^[a-z0-9_]{3,25}$/i.test(first) ? first : '';
+    } catch { return ''; }
+  }
+
+  $('addUrl').addEventListener('change', () => {
+    if ($('addName').value.trim()) return; // never overwrite a typed name
+    const slug = slugFromUrlText($('addUrl').value);
+    if (slug) $('addName').value = slug;
+  });
+
+  $('addForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const msg = $('addMsg');
+    const say = (text, err) => { msg.textContent = text; msg.className = 'act-msg' + (err ? ' err' : ''); };
+    const button = $('addSubmit');
+    button.disabled = true;
+    say('Adding…');
+
+    const { status, body } = await api('/api/streamer/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: $('addName').value,
+        channelUrl: $('addUrl').value,
+        blurb: $('addBlurb').value,
+      }),
+    });
+
+    button.disabled = false;
+    if (status >= 200 && status < 300 && body && body.ok) {
+      const added = body.streamer || {};
+      say('Added — ' + (added.name || 'streamer') + ' is on the roster'
+        + (added.twitchLogin ? ', and plays inline on the streams page.' : ', with a card that links out.'), false);
+      $('addForm').reset();
+      // Counts and the current tab's list catch up; the roster itself is
+      // edge-cached for 60s, so the streams page may take a minute to show it.
+      loadQueue();
+      return;
+    }
+    say(ADD_REASON[(body && body.reason)] || 'That didn’t save — try again.', true);
+  });
+
   /* ---------------- boot ---------------- */
 
   async function boot() {

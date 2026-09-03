@@ -27,6 +27,7 @@ Routes on the Worker:
 | `POST /api/streamer/apply` | Anyone. Rate-limited to 5/hour per IP. |
 | `GET /api/streamer/applications?status=` | Moderators only (403 otherwise). |
 | `POST /api/streamer/review` | Moderators only (403 otherwise). |
+| `POST /api/streamer/add` | Moderators only (403 otherwise). Lands the row **approved**, attributed to the calling moderator — the direct door from the `/admin` form, replacing the add-a-streamer-by-GitHub-issue ritual. |
 | `GET /api/streamer/roster` | Anyone. Approved rows, public columns only. |
 
 ### One-time setup

@@ -239,6 +239,38 @@ function normalizeApplication(fields) {
   };
 }
 
+/**
+ * Why a moderator's DIRECT add cannot be accepted, or null when it can.
+ *
+ * The add form is the apply form minus the contact block: a mod-added row
+ * skips the queue entirely, so the checks that protect the PUBLIC card are
+ * precisely the ones that stay — name and blurb against the content rule,
+ * the channel against the URL rule. Discord/viewers have no public surface
+ * (the roster SELECT never serves them), so a direct add carries none.
+ */
+function addProblem(fields) {
+  const f = fields || {};
+  const name = clean(f.name, LIMITS.name);
+  if (name.length < 2) return 'name-required';
+  if (blockedContent(name)) return 'name-blocked';
+  if (!safeUrl(f.channelUrl, LIMITS.channelUrl)) return 'channel-url-invalid';
+  if (blockedContent(clean(f.blurb, LIMITS.blurb))) return 'blurb-blocked';
+  return null;
+}
+
+/** The approved row for a direct add. Call only after addProblem() is null. */
+function normalizeAdd(fields) {
+  const f = fields || {};
+  const channelUrl = safeUrl(f.channelUrl, LIMITS.channelUrl);
+  return {
+    name: clean(f.name, LIMITS.name),
+    channelUrl,
+    platform: platformOf(channelUrl),
+    twitchLogin: twitchLogin(channelUrl),
+    blurb: clean(f.blurb, LIMITS.blurb),
+  };
+}
+
 const STATUSES = ['pending', 'approved', 'rejected'];
 const isStatus = (s) => STATUSES.includes(trim(s));
 
@@ -273,6 +305,8 @@ module.exports = {
   twitchLogin,
   applyProblem,
   normalizeApplication,
+  addProblem,
+  normalizeAdd,
   isStatus,
   isAdmin,
 };
