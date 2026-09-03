@@ -60,6 +60,14 @@
       channelUrl: 'https://kick.com/ark1317',
       blurb: 'PaperTrench streamer on Kick.',
     },
+    {
+      // OnlyTerp's own Kick channel (issue #110) — same shape as Ark1317:
+      // no `login` (that is the Twitch login), slug comes from channelUrl.
+      name: 'OnlyTerp',
+      platform: 'kick',
+      channelUrl: 'https://kick.com/onlyterp',
+      blurb: 'Builds PaperTrench and trades the same paper wallet as everyone else — live launches, real charts, zero real money.',
+    },
   ];
 
   // Where "Sign up as a streamer" points — the on-site form, which posts to
