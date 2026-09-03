@@ -148,7 +148,13 @@
    */
   function chartGeom(w, h, nBars) {
     const pad = 8;
-    const laneFrac = 0.25;
+    // The lane is the PLAYING FIELD — every tap the game accepts lands in it,
+    // and it has to hold sixty distinct minutes. At a quarter of the width it
+    // was ~2.5px per minute on the shipped canvas: placing a specific minute
+    // meant nudging with the steppers because the tap could not be aimed.
+    // Giving it over a third makes the target real, and it also stops the
+    // board reading as "a chart, with a sliver of something at the end".
+    const laneFrac = 0.38;
     const tX = pad + (w - pad * 2) * (1 - laneFrac);
     return {
       w, h, pad, tX,
@@ -257,8 +263,20 @@
     } catch (err) {
       console.warn('PaperTrench: spark practice failed —', err && err.sparkReason ? err.sparkReason : err);
       if (el) {
-        el.innerHTML = '<p class="spark-error">Practice is unavailable right now — try again in a moment. '
-          + '<button type="button" class="linkish" id="spark-practice-retry">Try again</button></p>';
+        // "Try again in a moment" is only true for a TRANSIENT failure. When
+        // the grader answers 404/not-found the practice route is not there to
+        // be retried — the server is older than this build — and inviting a
+        // retry that can never work is how a broken feature reads as a flaky
+        // one. Say which it is, and only offer the retry when retrying can
+        // actually change the answer.
+        const reason = String((err && err.sparkReason) || '');
+        const missing = /404|not-found/.test(reason);
+        el.innerHTML = missing
+          ? '<p class="spark-error">Practice rounds aren\'t available on the server yet — '
+            + 'today\'s puzzle still works. <button type="button" class="linkish" '
+            + 'id="spark-practice-retry">Check again</button></p>'
+          : '<p class="spark-error">Couldn\'t load a practice round — the grader didn\'t answer. '
+            + '<button type="button" class="linkish" id="spark-practice-retry">Try again</button></p>';
         const retry = el.querySelector('#spark-practice-retry');
         if (retry) retry.addEventListener('click', () => loadPractice(el));
       }
@@ -272,46 +290,69 @@
     if (!el || !model) return;
     const practice = !!(opts && opts.practice);
     el.innerHTML = '';
+    const stage = document.createElement('div');
+    stage.className = 'spark-stage';
+    el.appendChild(stage);
+
     const head = document.createElement('div');
     head.className = 'spark-head';
     head.innerHTML = `
-      <div class="spark-title">DAILY SPARK</div>
-      <div class="spark-date">${practice
-        ? 'Practice round · seed ' + String(model.day).replace(/^practice-/, '')
+      <div class="spark-title">${practice ? 'Practice Round' : 'Daily Spark'}</div>
+      <div class="spark-date"><span class="dot"></span>${practice
+        ? 'Seed ' + String(model.day).replace(/^practice-/, '')
         : model.dateText}</div>
     `;
-    el.appendChild(head);
+    stage.appendChild(head);
 
+    // One sentence. The step rail below teaches the rest, in the order it is
+    // needed — the old paragraph explained the whole game up front and was
+    // the first thing standing between a player and the board.
     const about = document.createElement('p');
     about.className = 'spark-about';
-    about.textContent = practice
-      ? 'Same game as the daily, unlimited: a real launch with the name hidden, played blind. Tap the shaded lane where you\'d get in and out — you\'re graded on entry, exit and nerve, never on money.'
-      : 'One real launch a day, name hidden. The tape stops at the line — the shaded lane is the next hour, which you never get to see. Tap the lane where you\'d get in and out. You\'re graded on entry, exit and nerve — never on money. Want more than one a day? Practice rounds are unlimited.';
-    el.appendChild(about);
+    about.innerHTML = practice
+      ? 'A real launch with its name hidden. Guess <b>when you\'d buy</b> — and when you\'d sell — in the hour the chart doesn\'t show you.'
+      : 'One real launch a day, name hidden. Guess <b>when you\'d buy</b> — and when you\'d sell — in the hour the chart doesn\'t show you.';
+    stage.appendChild(about);
+
+    // The wait people fear does not exist: the tape is history the server
+    // already holds, so the grade is one request away. Saying so here is the
+    // difference between a daily puzzle and a daily errand.
+    const instant = document.createElement('div');
+    instant.style.textAlign = 'center';
+    instant.innerHTML = '<span class="spark-instant">'
+      + '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">'
+      + '<path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12z"/></svg>'
+      + 'Graded the moment you commit — no waiting</span>';
+    stage.appendChild(instant);
 
     const body = document.createElement('div');
     body.className = 'spark-body';
     body.innerHTML = `
+      <div class="spark-steps">
+        <div class="spark-step" data-step="1"><span class="n">1</span><span>Pick your buy</span></div>
+        <div class="spark-step" data-step="2"><span class="n">2</span><span>Pick your sell <span style="opacity:.65">(optional)</span></span></div>
+        <div class="spark-step" data-step="3"><span class="n">3</span><span>See your grade</span></div>
+      </div>
       <div class="spark-chart">
-        <canvas class="spark-canvas" width="760" height="230" role="img"></canvas>
+        <canvas class="spark-canvas" width="1120" height="420" role="img"></canvas>
         <div class="spark-chart-legend">
-          <span class="spark-legend-item"><i style="background:${TONE.green.color}"></i> entry</span>
-          <span class="spark-legend-item"><i style="background:${EXIT_COLOR}"></i> exit</span>
-          <span class="spark-legend-item"><i class="spark-lane-key"></i> the unknown hour</span>
+          <span class="spark-legend-item"><i style="background:${TONE.green.color}"></i> your buy</span>
+          <span class="spark-legend-item"><i style="background:${EXIT_COLOR}"></i> your sell</span>
+          <span class="spark-legend-item"><i class="spark-lane-key"></i> the hidden hour — tap in here</span>
         </div>
       </div>
       <p class="spark-hint" role="status" aria-live="polite"></p>
       <div class="spark-picks"></div>
       <div class="spark-actions">
-        <button type="button" class="spark-btn spark-pass">I'D SIT THIS ONE OUT</button>
-        <button type="button" class="spark-btn spark-reset" hidden>START OVER</button>
-        <button type="button" class="spark-btn spark-reveal" disabled>REVEAL GRADE</button>
-        <button type="button" class="spark-btn spark-practice" title="${practice ? 'Another random blind chart' : 'Unlimited rounds on random blind charts'}">${practice ? 'NEXT PUZZLE' : 'PRACTICE'}</button>
+        <button type="button" class="spark-btn primary spark-reveal" disabled>SEE MY GRADE</button>
+        <button type="button" class="spark-btn spark-pass">I'd skip this one</button>
+        <button type="button" class="spark-btn spark-reset" hidden>Play again</button>
+        <button type="button" class="spark-btn spark-practice" title="${practice ? 'Another random blind chart' : 'Unlimited rounds on random blind charts'}">${practice ? 'New puzzle' : 'Practice round'}</button>
       </div>
       <p class="spark-error" hidden></p>
       <div class="spark-verdict" hidden></div>
     `;
-    el.appendChild(body);
+    stage.appendChild(body);
 
     const canvas = body.querySelector('.spark-canvas');
     const hintEl = body.querySelector('.spark-hint');
@@ -326,6 +367,7 @@
     const geom = chartGeom(canvas.width, canvas.height, model.bars.length);
     let plan = { pass: false, entryMin: null, exitMin: null };
     let aftermath = null; // bars revealed with the verdict
+    let locked = false;   // the round is committed; picks are final
 
     const paint = () => {
       drawChart(canvas, model.bars, model.tTs, {
@@ -344,18 +386,30 @@
     };
 
     const hintFor = () => {
-      if (aftermath) return 'The lane now shows the tape you didn\'t get — your call was graded against exactly this.';
-      if (plan.pass) return 'You\'d sit this one out. Reveal to see whether the pass was the right call.';
-      if (plan.entryMin === null) return 'Tap the shaded lane where you\'d get in — minute 1 is just after the line, 60 is the end. The +/- buttons work too.';
-      if (plan.exitMin === null) return `Entry +${plan.entryMin}m. Now tap when you'd get out — or leave it unset to hold to the end of the hour.`;
-      return `Entry +${plan.entryMin}m, exit +${plan.exitMin}m. Tap near a marker to move it, or reveal.`;
+      if (aftermath) return 'That\'s the hour you couldn\'t see — your call was graded against exactly this tape.';
+      if (plan.pass) return 'You\'re skipping this one. Hit SEE MY GRADE to find out whether that was the right call.';
+      if (plan.entryMin === null) return 'Tap anywhere in the shaded lane — that\'s the hidden hour. Where would you have bought?';
+      if (plan.exitMin === null) return `Buying ${plan.entryMin} min in. Now tap where you'd sell — or just hit SEE MY GRADE to hold to the end.`;
+      return `Buy at +${plan.entryMin} min, sell at +${plan.exitMin} min. Tap near a marker to move it.`;
     };
 
-    const setLocked = (locked) => {
+    /* Committed state, held as DATA rather than applied once.
+     *
+     * setLocked used to disable the controls directly, and every later sync()
+     * put them straight back: sync() rebuilds the pick rows from scratch, so
+     * the fresh +/-/x buttons came back enabled, and the grade handler's
+     * `finally` re-enabled the reveal button after setLocked(true) had just
+     * disabled it. The round was therefore never actually committed — you
+     * could nudge an entry after seeing the grade and re-reveal, fishing for
+     * a better one. Keeping it as state and applying it at the END of sync
+     * is what makes "committed" mean committed. */
+    const setLocked = (value) => { locked = value; };
+    const applyLock = () => {
       // The practice button is deliberately NOT locked: the loop is the
       // feature — a verdict never traps the player, another round is always
       // one click away.
-      for (const b of [passBtn, revealBtn, ...picksEl.querySelectorAll('button')]) b.disabled = locked;
+      for (const b of [passBtn, ...picksEl.querySelectorAll('button')]) b.disabled = locked;
+      if (locked) revealBtn.disabled = true;
       resetBtn.hidden = !locked;
     };
 
@@ -366,11 +420,11 @@
         row.className = 'spark-pick';
         row.innerHTML = `
           <span class="spark-pick-name"><i style="background:${color}"></i> ${name}</span>
-          <span class="spark-pick-min">+${minute}m after the line</span>
+          <span class="spark-pick-min">+${minute} min</span>
           <span class="spark-pick-ctl">
-            <button type="button" aria-label="${name} one minute earlier">−</button>
-            <button type="button" aria-label="${name} one minute later">+</button>
-            <button type="button" aria-label="Clear ${name.toLowerCase()}">×</button>
+            <button type="button" aria-label="${name} one minute earlier" title="One minute earlier">−</button>
+            <button type="button" aria-label="${name} one minute later" title="One minute later">+</button>
+            <button type="button" aria-label="Clear ${name.toLowerCase()}" title="Clear">×</button>
           </span>`;
         const [minus, plus, clear] = row.querySelectorAll('button');
         minus.addEventListener('click', () => onNudge(-1));
@@ -381,13 +435,13 @@
       if (plan.pass) {
         const row = document.createElement('div');
         row.className = 'spark-pick';
-        row.innerHTML = '<span class="spark-pick-name"><i style="background:#8b93a7"></i> No trade</span>'
-          + '<span class="spark-pick-min">sitting this one out</span>';
+        row.innerHTML = '<span class="spark-pick-name"><i style="background:#8b93a7"></i> Skipping</span>'
+          + '<span class="spark-pick-min">no trade</span>';
         picksEl.appendChild(row);
         return;
       }
       if (plan.entryMin !== null) {
-        picksEl.appendChild(mkRow('Entry', ENTRY_COLOR, plan.entryMin, (d) => {
+        picksEl.appendChild(mkRow('Buy', ENTRY_COLOR, plan.entryMin, (d) => {
           plan = plan.entryMin + d >= 1
             ? planWithEntry(plan, plan.entryMin + d)
             : plan;
@@ -395,19 +449,45 @@
         }, () => { plan = { ...plan, entryMin: null, exitMin: null }; sync(); }));
       }
       if (plan.exitMin !== null) {
-        picksEl.appendChild(mkRow('Exit', EXIT_COLOR, plan.exitMin, (d) => {
+        picksEl.appendChild(mkRow('Sell', EXIT_COLOR, plan.exitMin, (d) => {
           const next = planWithExit(plan, plan.exitMin + d);
           if (next && next.exitMin > plan.entryMin) { plan = next; sync(); }
         }, () => { plan = { ...plan, exitMin: null }; sync(); }));
       }
     };
 
+    /* Which step the player is actually on, so the rail says where they are
+     * rather than lighting everything at once. A pass skips straight to the
+     * commit — sitting out IS a complete answer. */
+    const syncSteps = () => {
+      const steps = body.querySelectorAll('.spark-step');
+      const state = aftermath ? 'done'
+        : plan.pass ? 'commit'
+          : plan.entryMin === null ? 'entry'
+            : plan.exitMin === null ? 'exit' : 'commit';
+      const at = { entry: 1, exit: 2, commit: 3, done: 4 }[state];
+      steps.forEach((s) => {
+        const n = Number(s.dataset.step);
+        s.classList.toggle('on', n === at);
+        s.classList.toggle('done', n < at);
+      });
+    };
+
     const sync = () => {
       passBtn.classList.toggle('armed', plan.pass);
-      revealBtn.disabled = !(plan.pass || plan.entryMin !== null);
+      const ready = plan.pass || plan.entryMin !== null;
+      revealBtn.disabled = !ready;
+      // A disabled control that will not say what it wants is a dead end.
+      revealBtn.title = ready
+        ? 'Grade this call now'
+        : 'Tap the shaded lane to pick your buy first — or choose "I\'d skip this one"';
       hintEl.textContent = hintFor();
       renderPicks();
+      syncSteps();
       paint();
+      // Last: renderPicks() has just built fresh controls, so the lock has to
+      // be applied after them or a committed round hands back live steppers.
+      applyLock();
     };
 
     canvas.addEventListener('click', (e) => {
@@ -448,7 +528,7 @@
       verdictBox.innerHTML = '';
       errorEl.hidden = true;
       setLocked(false);
-      revealBtn.textContent = 'REVEAL GRADE';
+      revealBtn.textContent = 'SEE MY GRADE';
       sync();
     });
 
@@ -485,8 +565,11 @@
         errorEl.textContent = gradeErrorCopy(isNetwork ? 'network' : (err && err.sparkReason) || '');
         errorEl.hidden = false;
       } finally {
-        revealBtn.textContent = 'REVEAL GRADE';
-        revealBtn.disabled = false;
+        // Restore the label, then let sync() decide whether the button may be
+        // pressed again. Forcing `disabled = false` here is what un-committed
+        // a graded round: a failed grade must be retryable, a successful one
+        // must not, and only the lock knows which happened.
+        revealBtn.textContent = 'SEE MY GRADE';
         sync();
       }
     });

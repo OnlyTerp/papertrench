@@ -2132,6 +2132,17 @@ ark_trades13, Discord debug exports on v3.18.0, 2026-08-30: the 12:39 export car
 
 **fixed v3.18.1** (refusal memory: a FIRST 403 on (endpoint, method) records a sliding 10-minute entry — any later 403 refreshes it, a 200 clears it — that ranks the endpoint behind the healthy hedge for that method WITHOUT the two-strike requirement and WITHOUT feeding methodBlockedEverywhere; when every pool endpoint carries live refusal memory for getMultipleAccounts, getAccountsResilient skips the doomed batch entirely and goes straight to getAccountsIndividually; fallback-transition noteFeedError is throttled to once per (fn, minute). D-62 chunking at GMA_MAX_KEYS=20 preserved; a decayed trial restores the batch lane. Locked by `test/d65_refusal_memory.test.js` — 8 tests; negative control: stashed fix = 3/8, restored = 8/8. Contract: `.contracts/validation-contract-d65.md`.)
 
+**D-69 · S1 · Every Daily Spark pass graded D — including the perfect one, while TRADING the same trap scored a B**
+`server/core/spark.js` gradePass
+
+Found in playtest: *"why is it always a bad grade — I get a D when I skip because I knew it was going down anyway."* It was not variance. `letterForScore` reads a THREE-axis sum and its table only awards above D from 5 up (`>=9 S | 8 A | 7 B | 6,5 C | else D`). `gradePass` judges ONE axis and handed that table `AXIS_SCORE[tone]` directly — 3, 2 or 1 — so green, yellow and red all fell into the `else` and returned the same letter. The tone and the story were computed correctly throughout, which is what made it unreadable to play: the card printed a green 🟩 "the pass dodged the bleed" beside a red **D**.
+
+Measured on a flat chart that dropped 40% after T: pass = **D**, buying that same dip and selling the bounce = **B**. The rubric therefore paid better for taking a trap than for avoiding it — inverting the product's own doctrine, since not taking the trade is the discipline Spark exists to teach and was the only call that could never be rewarded.
+
+The existing rubric test asserted the pass's axis emoji and story but never its letter, which is the gap this shipped through.
+
+**fixed** (a pass expresses on its single axis what a trade expresses on three, so it scales by three: `AXIS_SCORE[tone] * 3` → green 9 = S, yellow 6 = C, red 3 = D. Verdict shape, axis count and the no-PnL doctrine are untouched. Locked by `server/test/spark-passgrade.test.js` — 6 tests, including one pinning that the three tones produce three DIFFERENT letters and one pinning that a correct pass is never out-scored by trading the same trap; negative control: restored bug = 2/6, fix = 6/6.)
+
 ---
 
 ## V — Visual polish

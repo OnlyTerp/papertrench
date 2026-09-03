@@ -906,50 +906,160 @@
     .tg-legend .tg-cell { width: 12px; height: 12px; }
     .tg-sub { max-width: 720px; margin: 4px 0 10px; }
 
-    /* ---- Daily Spark (A2) ---- */
-    .spark-head { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 10px; }
-    .spark-title { font-size: 13px; font-weight: 800; letter-spacing: 1.4px; color: var(--text); }
-    .spark-date { font-size: 12px; color: var(--dim); }
-    .spark-about { font-size: 12.5px; color: var(--muted, #8b93a7); line-height: 1.55;
-      margin: 0 0 12px; max-width: 640px; }
-    .spark-body { max-width: 720px; }
-    .spark-chart { position: relative; border: 1px solid rgba(255,255,255,0.10);
-      border-radius: 10px; padding: 10px; background: rgba(10,13,19,0.5); }
-    .spark-canvas { width: 100%; height: auto; display: block; cursor: crosshair; }
-    .spark-chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--dim); }
-    .spark-legend-item { display: inline-flex; align-items: center; gap: 5px; }
-    .spark-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    /* ---- Daily Spark (A2) ----
+       A game, laid out like one: a centred stage with the board at the
+       middle of it. The first pass rendered into the section's normal
+       left-aligned prose column at 760x230, so on a wide dashboard it read
+       as a screenshot somebody had pasted in rather than a thing you play. */
+    .spark-stage { max-width: 980px; margin: 0 auto; padding: 4px 0 8px; }
+
+    /* The title carries the game, so it is sized like a title. */
+    .spark-head { text-align: center; margin: 0 0 6px; }
+    .spark-title {
+      font-size: clamp(30px, 4.4vw, 46px); font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.02; color: var(--text);
+    }
+    .spark-date {
+      display: inline-flex; align-items: center; gap: 7px; margin-top: 9px;
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      letter-spacing: 1.1px; text-transform: uppercase; color: var(--dim);
+      background: var(--raised); border: 1px solid var(--line);
+      border-radius: 999px; padding: 5px 12px;
+    }
+    .spark-date .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+
+    /* One sentence, centred. The old three-line paragraph explained the
+       whole game before you were allowed to touch it — the steps below do
+       that job now, in the order you actually need them. */
+    .spark-about {
+      font-size: 14px; color: var(--dim); line-height: 1.6;
+      margin: 12px auto 0; max-width: 56ch; text-align: center;
+    }
+    .spark-about b { color: var(--text); font-weight: 700; }
+
+    /* The instant-result promise, stated where the wait would be feared.
+       The tape is history the server already holds; nothing is pending. */
+    .spark-instant {
+      display: inline-flex; align-items: center; gap: 7px; margin-top: 12px;
+      font-size: 12px; font-weight: 650; color: var(--green);
+      background: rgba(52,211,153,0.09); border: 1px solid rgba(52,211,153,0.28);
+      border-radius: 999px; padding: 5px 13px;
+    }
+
+    /* ---- the step rail: what to do, in order ---- */
+    .spark-steps {
+      display: flex; align-items: stretch; justify-content: center;
+      gap: 8px; margin: 20px auto 14px; flex-wrap: wrap;
+    }
+    .spark-step {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 14px; border-radius: var(--r-md);
+      border: 1px solid var(--line); background: var(--raised);
+      font-size: 12.5px; font-weight: 650; color: var(--dim);
+      transition: color .18s, border-color .18s, background .18s;
+    }
+    .spark-step .n {
+      width: 20px; height: 20px; flex: none; border-radius: 50%;
+      display: grid; place-items: center;
+      font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+      background: rgba(255,255,255,0.07); color: var(--faint);
+    }
+    /* Only the step you are ON lights up — a rail where everything glows
+       tells you nothing about where you are. */
+    .spark-step.on {
+      color: var(--text); border-color: rgba(255,157,69,0.45);
+      background: rgba(255,157,69,0.08);
+    }
+    .spark-step.on .n { background: var(--amber); color: #2A1400; }
+    .spark-step.done { color: var(--green); border-color: rgba(52,211,153,0.3); }
+    .spark-step.done .n { background: rgba(52,211,153,0.18); color: var(--green); }
+
+    /* ---- the board ---- */
+    .spark-chart {
+      position: relative; border: 1px solid var(--line-2);
+      border-radius: var(--r-lg); padding: 14px; background: rgba(6,8,12,0.6);
+      box-shadow: var(--shadow-md);
+    }
+    .spark-canvas { width: 100%; height: auto; display: block; cursor: crosshair; border-radius: var(--r-sm); }
+    .spark-chart-legend {
+      display: flex; gap: 16px; margin-top: 11px; flex-wrap: wrap;
+      font-size: 11.5px; color: var(--dim);
+    }
+    .spark-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .spark-legend-item i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
     .spark-lane-key { background: rgba(255,157,69,0.18);
-      border: 1px dashed rgba(255,157,69,0.55); border-radius: 2px; }
-    .spark-hint { font-size: 12.5px; color: var(--dim); margin: 10px 0 0; line-height: 1.5; min-height: 1.5em; }
-    .spark-picks { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
-    .spark-pick { display: flex; align-items: center; gap: 10px; font-size: 12.5px;
-      border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 6px 10px;
-      background: rgba(255,255,255,0.03); max-width: 480px; }
-    .spark-pick-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 750; }
-    .spark-pick-name i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-    .spark-pick-min { color: var(--dim); }
-    .spark-pick-ctl { margin-left: auto; display: inline-flex; gap: 4px; }
-    .spark-pick-ctl button { border: 1px solid rgba(255,255,255,0.16); border-radius: 6px;
-      background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer;
-      min-width: 26px; height: 24px; font-size: 13px; line-height: 1; }
-    .spark-pick-ctl button:hover:not(:disabled) { border-color: var(--accent, #FF9D45); }
+      border: 1px dashed rgba(255,157,69,0.55); border-radius: 3px; }
+
+    .spark-hint {
+      font-size: 13.5px; color: var(--text); margin: 14px 0 0; line-height: 1.55;
+      min-height: 1.55em; text-align: center; font-weight: 600;
+    }
+
+    /* ---- the picks ---- */
+    .spark-picks {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 8px; margin: 14px 0 0; min-height: 0;
+    }
+    .spark-pick {
+      display: flex; align-items: center; gap: 10px; font-size: 13px;
+      border: 1px solid var(--line-2); border-radius: var(--r-md);
+      padding: 8px 10px 8px 13px; background: var(--raised);
+    }
+    .spark-pick-name { display: inline-flex; align-items: center; gap: 7px; font-weight: 750; }
+    .spark-pick-name i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+    .spark-pick-min { color: var(--dim); font-family: var(--mono); font-size: 12px; }
+    .spark-pick-ctl { display: inline-flex; gap: 4px; }
+    .spark-pick-ctl button {
+      border: 1px solid var(--line-2); border-radius: var(--r-sm);
+      background: rgba(255,255,255,0.05); color: var(--text); cursor: pointer;
+      min-width: 30px; height: 28px; font-size: 15px; line-height: 1;
+      transition: border-color .15s, background .15s;
+    }
+    .spark-pick-ctl button:hover:not(:disabled) { border-color: var(--amber); background: rgba(255,157,69,0.12); }
     .spark-pick-ctl button:disabled { opacity: 0.4; cursor: default; }
-    .spark-actions { display: flex; gap: 8px; margin: 12px 0 6px; flex-wrap: wrap; }
-    .spark-btn { border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;
-      padding: 8px 14px; font-size: 12.5px; font-weight: 750; letter-spacing: 0.8px;
-      background: rgba(255,255,255,0.04); color: var(--text); cursor: pointer; }
-    .spark-btn:hover:not(:disabled) { border-color: var(--accent, #FF9D45); color: var(--accent, #FF9D45); }
-    .spark-btn:disabled { opacity: 0.4; cursor: default; }
-    .spark-btn.armed { border-color: var(--green); color: var(--green); }
-    .spark-verdict { margin-top: 14px; border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 10px; padding: 14px; background: rgba(10,13,19,0.5); }
-    .spark-grade { font-size: 64px; font-weight: 800; line-height: 1; }
-    .spark-grade-label { font-size: 15px; font-weight: 750; margin-top: 4px; }
-    .spark-axis-line { font-size: 12.5px; color: var(--dim); margin-top: 8px; }
-    .spark-story { font-size: 12.5px; color: var(--muted, #8b93a7); margin-top: 10px; line-height: 1.5; }
-    .spark-share-row { margin-top: 12px; }
-    .spark-error { color: var(--red); font-size: 12.5px; margin: 8px 0 0; }
+
+    /* ---- actions: one primary, the rest quiet ---- */
+    .spark-actions {
+      display: flex; gap: 10px; margin: 18px 0 6px;
+      flex-wrap: wrap; justify-content: center;
+    }
+    .spark-btn {
+      border: 1px solid var(--line-2); border-radius: var(--r-md);
+      padding: 11px 18px; font-size: 13px; font-weight: 700; letter-spacing: 0.2px;
+      background: var(--raised); color: var(--text); cursor: pointer;
+      transition: border-color .15s, background .15s, color .15s, transform .12s;
+    }
+    .spark-btn:hover:not(:disabled) { border-color: var(--amber); color: var(--amber-2); background: rgba(255,157,69,0.08); }
+    .spark-btn:active:not(:disabled) { transform: translateY(1px); }
+    .spark-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+    .spark-btn.armed { border-color: var(--green); color: var(--green); background: rgba(52,211,153,0.1); }
+    /* The one button that finishes the round reads as the one that does. */
+    .spark-btn.primary {
+      background: linear-gradient(180deg, var(--amber-2), var(--amber));
+      border-color: transparent; color: #2A1400; font-weight: 800;
+      box-shadow: 0 8px 22px -8px rgba(255,157,69,0.7);
+    }
+    .spark-btn.primary:hover:not(:disabled) {
+      color: #2A1400; background: linear-gradient(180deg, #FFD0A0, #FFA75A);
+      border-color: transparent;
+    }
+    .spark-btn.primary:disabled { box-shadow: none; }
+
+    /* ---- verdict ---- */
+    .spark-verdict {
+      margin-top: 18px; border: 1px solid var(--line-2);
+      border-radius: var(--r-lg); padding: 22px; background: rgba(6,8,12,0.6);
+      text-align: center; box-shadow: var(--shadow-md);
+    }
+    .spark-grade { font-size: 76px; font-weight: 800; line-height: 1; letter-spacing: -0.04em; }
+    .spark-grade-label { font-size: 16px; font-weight: 750; margin-top: 6px; }
+    .spark-axis-line { font-size: 13px; color: var(--dim); margin-top: 12px; }
+    .spark-story {
+      font-size: 13.5px; color: var(--text); margin: 12px auto 0;
+      line-height: 1.6; max-width: 52ch;
+    }
+    .spark-share-row { margin-top: 16px; }
+    .spark-error { color: var(--red); font-size: 13px; margin: 10px 0 0; text-align: center; }
 
     /* ---- Trench Wrapped (B1) ---- */
     .wr-head { margin: 4px 0 10px; }
