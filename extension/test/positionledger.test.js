@@ -143,8 +143,18 @@ test('a live position re-arms everything the empty state switched off', () => {
 
 test('direction is colour-coded before it is read', () => {
   assert.match(content, /\.pt-preset \{ color: var\(--pt-green\); \}/, 'buy chips are green');
-  assert.match(content, /\.pt-buy \{ color: var\(--pt-green\); \}/, 'so is the BUY button');
   assert.match(content, /\.pt-sell \{ color: var\(--pt-red\); \}/, 'the sell ladder is red');
+  // D-67: the BUY button is deliberately NOT in this list. It already
+  // carries its own colour-as-direction cue through its solid green
+  // gradient background — text on top of that has to be the high-contrast
+  // dark colour its own rule sets, not the same green the background is
+  // drawn from. Asserting `.pt-buy { color: var(--pt-green) }` here is
+  // exactly the assertion that pinned the bug: a field report found the
+  // BUY label unreadable (green-on-green) because a later bare `.pt-buy`
+  // rule overrode the base one by cascade order. See
+  // test/d67_buycontrast.test.js for the regression coverage.
+  assert.doesNotMatch(content, /\.pt-buy \{ color: var\(--pt-green\); \}/,
+    'the BUY label must not be set to the same green as its own background');
 });
 
 test('each ledger figure gets its own box', () => {
