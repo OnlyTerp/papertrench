@@ -85,7 +85,7 @@ function mountObserver(opts = {}) {
 
   const sandbox = {
     window: win, self: win, location: win.location,
-    document: { cookie: 'ct0=abc123; auth_token=zzz' },
+    document: { cookie: 'ct0=abc123; auth_token=zzz', location: { pathname: '/degenlabs' } },
     console: { debug: () => {}, warn: () => {}, error: () => {} },
     setTimeout: (fn) => 1, clearTimeout: () => {}, setInterval: () => 1, clearInterval: () => {},
     Promise, JSON, Math, Date, Number, String, Array, Object, Boolean, RegExp, Error, Set, Map,

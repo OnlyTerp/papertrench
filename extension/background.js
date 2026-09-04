@@ -2184,7 +2184,8 @@ function xrayCleanTweet(t) {
 
 function xrayCleanDigest(digest) {
   if (!digest || typeof digest !== 'object') return null;
-  if (typeof digest.op !== 'string' || !XR.OPS.has(digest.op)) return null;
+  if (typeof digest.op !== 'string'
+      || (!XR.OPS.has(digest.op) && digest.op !== 'SSRProfile')) return null;
   const users = (Array.isArray(digest.users) ? digest.users : [])
     .slice(0, XR.LIMITS.maxUsersPerDigest).map(xrayCleanUser).filter(Boolean);
   const tweets = (Array.isArray(digest.tweets) ? digest.tweets : [])

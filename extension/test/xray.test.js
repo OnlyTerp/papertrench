@@ -786,3 +786,156 @@ test('the panel refuses to run on X system pages and off-profile routes', () => 
   assert.match(src, /xrayEnabled/, 'the panel must gate on the feature toggle');
   assert.match(src, /appEnabled !== false/, 'and obey the app-wide master switch');
 });
+
+/* ---------------- SSR (window.$R) extraction ---------------- */
+
+/** A miniature $R graph shaped like what a server-rendered profile page
+ * hydrates from: a route match carrying the profile user (self-contained,
+ * counts included) plus relay records with __ref indirection — a User
+ * relay record and a Tweet record whose author and details are refs. */
+function ssrGraphOf() {
+  const relay = {
+    'client:VXNlcjE=': {
+      __typename: 'User', rest_id: '1450000000000000001',
+      is_blue_verified: true,
+      core: { __ref: 'client:core1' },
+      legacy: { __ref: 'client:legacy1' },
+      relationship_counts: { __ref: 'client:counts1' },
+    },
+    'client:core1': {
+      __typename: 'User', screen_name: 'degenlabs', name: 'Degen Labs',
+      created_at: 'Wed Oct 10 00:00:00 +0000 2018',
+    },
+    'client:legacy1': {
+      screen_name: 'degenlabs', description: 'building ' + CA,
+      created_at: 'Wed Oct 10 00:00:00 +0000 2018',
+      entities: { url: { urls: [{ expanded_url: 'https://papertrench.com' }] } },
+      profile_image_url_https: 'https://pbs.twimg.com/a.jpg',
+    },
+    'client:counts1': { followers_count: 128_400, following_count: 312 },
+    'client:tweet1': {
+      __typename: 'Tweet', rest_id: '1800000000000000001',
+      core: { __ref: 'client:userresults1' },
+      details: { __ref: 'client:details1' },
+    },
+    'client:userresults1': {
+      __typename: 'UserResults', result: { __ref: 'client:userresult1' },
+    },
+    'client:userresult1': {
+      __typename: 'User', rest_id: '1450000000000000001', __ref: 'client:VXNlcjE=',
+    },
+    'client:details1': {
+      __typename: 'TBirdData', full_text: 'gm ' + CA2,
+      created_at_ms: Date.UTC(2026, 4, 2),
+    },
+  };
+  return { relayRecords: relay,
+    routeMatch: {
+      restId: '1450000000000000001', screenName: 'degenlabs',
+      name: 'Degen Labs', description: 'building ' + CA,
+      avatarUrl: 'https://pbs.twimg.com/route.jpg', createdAtMs: Date.UTC(2018, 9, 10),
+      followers: 128_401, following: 312, isVerified: true,
+    },
+  };
+}
+
+test('SSR: the hydration graph yields the profile user from both records', () => {
+  const { users } = XR.ssrExtract(ssrGraphOf());
+  assert.equal(users.length, 1, 'the relay User and the route match are the same restId');
+  const u = users[0];
+  assert.equal(u.restId, '1450000000000000001');
+  assert.equal(u.handle, 'degenlabs');
+  assert.equal(u.followers, 128_400, 'relay counts resolve through the __ref chain');
+  assert.ok(u.bio.includes(CA));
+  assert.deepEqual(plain(u.urls), ['https://papertrench.com']);
+  assert.equal(u.createdAt, Date.UTC(2018, 9, 10));
+});
+
+test('SSR: the new per-aspect server record (no legacy block) still yields the full user', () => {
+  // X's current server render hydrates from a normalized graph: `core` is a
+  // UserCore with created_at_ms, counts live in a relationship_counts
+  // record without the `_count` suffix, bio/avatar/verification are their
+  // own aspect records. A record like this used to extract as a bare
+  // handle with every other field null — the user-visible "X-Ray shows
+  // nothing" bug — so pin each field the card renders.
+  const { users } = XR.ssrExtract({ relayRecords: {
+    u: { __typename: 'User', rest_id: '44196397',
+      core: { __ref: 'c:core' },
+      avatar: { __ref: 'c:avatar' },
+      profile_bio: { __ref: 'c:bio' },
+      relationship_counts: { __ref: 'c:rc' },
+      verification: { __ref: 'c:ver' } },
+    'c:core': { __typename: 'UserCore', name: 'Elon Musk',
+      screen_name: 'elonmusk', created_at_ms: 1_243_973_549_000 },
+    'c:avatar': { __typename: 'UserAvatar', image_url: 'https://pbs.twimg.com/m.jpg' },
+    'c:bio': { __typename: 'UserBio', description: 'https://t.co/ZdBx5WABYx' },
+    'c:rc': { __typename: 'UserRelationshipCounts', followers: 241_558_132, following: 1_403 },
+    'c:ver': { __typename: 'UserVerification', verified: false, is_blue_verified: true },
+  } });
+  assert.equal(users.length, 1);
+  const u = users[0];
+  assert.equal(u.restId, '44196397');
+  assert.equal(u.handle, 'elonmusk');
+  assert.equal(u.name, 'Elon Musk');
+  assert.equal(u.bio, 'https://t.co/ZdBx5WABYx');
+  assert.equal(u.avatar, 'https://pbs.twimg.com/m.jpg');
+  assert.equal(u.createdAt, 1_243_973_549_000, 'created_at_ms is accepted where the legacy string is absent');
+  assert.equal(u.followers, 241_558_132);
+  assert.equal(u.following, 1_403);
+  assert.equal(u.verified, true, 'is_blue_verified resolves through the verification aspect');
+});
+
+test('SSR: tweet relay records resolve author and CA through __ref chains', () => {
+  const { tweets } = XR.ssrExtract(ssrGraphOf());
+  assert.equal(tweets.length, 1);
+  assert.equal(tweets[0].id, '1800000000000000001');
+  assert.equal(tweets[0].authorId, '1450000000000000001', 'core → UserResults → result → User');
+  assert.equal(tweets[0].createdAt, Date.UTC(2026, 4, 2));
+  assert.deepEqual(plain(tweets[0].cas), [CA2]);
+});
+
+test('SSR: hostile or malformed graphs are bounded and yield nothing usable', () => {
+  // A cyclic __ref must not hang or recurse forever.
+  const cyclic = { relayRecords: { a: { __ref: 'b' }, b: { __ref: 'a' } } };
+  assert.doesNotThrow(() => XR.ssrExtract(cyclic));
+  // No __typename → nothing extracted; a hostile deep/mega object is
+  // bounded by the same maxNodes/maxDepth caps as the fetch path.
+  const junk = { a: {} };
+  for (let i = 0; i < 3; i++) junk.a = { a: junk.a };
+  assert.deepEqual(plain(XR.ssrExtract(junk)), { users: [], tweets: [] });
+  // A tweet without an author ref still records id + text CAs; a User
+  // without a handle is dropped rather than guessed.
+  const partial = XR.ssrExtract({
+    relayRecords: {
+      t: { __typename: 'Tweet', rest_id: '1800000000000000009', details: { full_text: CA } },
+      u: { __typename: 'User', rest_id: '1450000000000000002' },
+    },
+  });
+  assert.deepEqual(plain(partial.tweets.map((t) => t.id)), ['1800000000000000009']);
+  assert.deepEqual(plain(partial.tweets[0].cas), [CA], 'text CAs survive even without an author');
+  assert.deepEqual(plain(partial.users), []);
+});
+
+test('SSR: the worker accepts an SSRProfile digest and the ledger answers from it', async () => {
+  const worker = xrayWorker();
+  const { users, tweets } = XR.ssrExtract(ssrGraphOf());
+  const observed = await send(worker.listener, {
+    type: 'pt_xray_observe',
+    digest: { op: 'SSRProfile', users, tweets, cursor: null, subjectRestId: null,
+      followersTarget: null, scan: null, opShape: null },
+    handle: 'degenlabs',
+  });
+  assert.equal(observed.ok, true);
+  assert.equal(observed.intel.handle, 'degenlabs');
+  assert.ok(observed.intel.bioCas.includes(CA));
+  // A UserByScreenName-shaped digest is still refused; SSRProfile is the
+  // only extra op allowed through, and only because X itself serves it.
+  const forged = await send(worker.listener, {
+    type: 'pt_xray_observe',
+    digest: { op: 'HomeTimeline', users, tweets, cursor: null, subjectRestId: null,
+      followersTarget: null, scan: null, opShape: null },
+    handle: 'degenlabs',
+  });
+  assert.equal(forged.ok, false);
+});
+

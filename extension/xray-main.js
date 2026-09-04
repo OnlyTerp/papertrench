@@ -340,4 +340,81 @@
       scanFailed(requestId, op, 'unreadable');
     }
   }
+
+  /* -------------------- SSR observer (window.$R) --------------------
+   * X server-renders profiles: the first paint hydrates from an inline
+   * `window.$R` relay graph and may fire NO allowlisted GraphQL call. The
+   * fetch hook above never sees anything, so the panel would sit on
+   * "Reading this account" forever. This observer polls `window.$R` while
+   * it hydrates, digests it with XR.ssrExtract, and posts an `SSRProfile`
+   * digest — same pipeline as the fetch path from there on.
+   *
+   * Budget: poll every 250 ms, give up after 20 s or once hydration has
+   * settled (two identical consecutive reads) AND a digest was posted.
+   * One SSR digest max per location.pathname — re-visits of the same
+   * route re-post nothing; a route change restarts the watcher. */
+
+  const SSR_POLL_MS = 250;
+  const SSR_GIVE_UP_MS = 20_000;
+
+  let ssrPath = null;
+  let ssrTimer = 0;
+  let ssrStopAt = 0;
+  let ssrLast = '';
+  let ssrSettled = 0;
+  let ssrPosted = false;
+
+  function ssrWatch(path) {
+    ssrPath = path;
+    ssrLast = '';
+    ssrSettled = 0;
+    ssrPosted = false;
+    ssrStopAt = Date.now() + SSR_GIVE_UP_MS;
+    if (!ssrTimer) {
+      try { ssrTimer = setInterval(ssrPoll, SSR_POLL_MS); } catch (_) { ssrTimer = 0; }
+    }
+  }
+
+  function ssrPoll() {
+    if (enabled === false || !ssrPath || document.location.pathname !== ssrPath) {
+      clearInterval(ssrTimer); ssrTimer = 0; return;
+    }
+    if (Date.now() > ssrStopAt) { clearInterval(ssrTimer); ssrTimer = 0; return; }
+    const r = window.$R;
+    if (!r || typeof r !== 'object') return;
+    let found;
+    try { found = XR.ssrExtract(r); } catch (_) { return; }
+    if (!found.users.length && !found.tweets.length) return;
+    // Settle detection: $R is rebuilt in place during streaming, so keep
+    // digesting until two consecutive polls see the same shape — then one
+    // final digest carries the completed graph.
+    const key = found.users.length + ':' + found.tweets.length
+      + ':' + String(found.tweets.length ? found.tweets[found.tweets.length - 1].id : '');
+    const settledNow = key === ssrLast;
+    ssrLast = key;
+    if (settledNow && ssrPosted) {
+      clearInterval(ssrTimer); ssrTimer = 0; return;
+    }
+    post({
+      op: 'SSRProfile',
+      users: found.users,
+      tweets: found.tweets,
+      cursor: null,
+      subjectRestId: null,
+      followersTarget: null,
+      scan: null,
+      opShape: null,
+    });
+    ssrPosted = true;
+    if (settledNow) { clearInterval(ssrTimer); ssrTimer = 0; }
+  }
+
+  // Route watching: poll the path cheaply — X's SPA rewrites history and
+  // $R without a navigation event the isolated world would see.
+  let lastPath = document.location.pathname;
+  ssrWatch(lastPath);
+  setInterval(() => {
+    const p = document.location.pathname;
+    if (p !== lastPath) { lastPath = p; ssrWatch(p); }
+  }, 400);
 })();

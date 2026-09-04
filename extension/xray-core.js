@@ -302,6 +302,165 @@
     return { users, tweets, cursor };
   }
 
+  /* -------------------- SSR (window.$R) extraction --------------------
+   * X increasingly serves profiles server-side: the first paint hydrates
+   * from an inline `window.$R` relay graph and NO allowlisted GraphQL call
+   * ever fires, which made X-Ray blind exactly where it matters most — the
+   * first view of a profile. Everything below reads that SAME graph the
+   * page itself renders from. Same honesty contract as the fetch path:
+   * derived facts only, nothing outside the profile/tweet shapes, bounded
+   * walk so a hostile payload costs bounded CPU.
+   *
+   * The graph has two kinds of indirection:
+   *  - relay records, keyed by `__id` ("client:VXNlcjo0NDE5…"), pointed at
+   *    by `{ __ref: <that id> }` / `{ __refs: [<ids>] }` wrappers;
+   *  - the live `window.$R` object itself, where numeric keys hold the
+   *    hydration payload (route matches, dehydrated data) as real objects.
+   * Users come from two places: the route-match record of a profile route
+   * (`restId`/`screenName`/counts, self-contained) and `__typename:"User"`
+   * relay records (post pages, where the author has no route record).
+   * Tweets are relay records `__typename:"Tweet"`: `rest_id`, a `core`
+   * ref back to the author User, and a `details` (TBirdData) ref with
+   * `full_text` + `created_at_ms`.
+   */
+
+  function relayResolve(relay, obj, depth) {
+    if (!obj || typeof obj !== 'object' || depth > LIMITS.maxDepth) return obj;
+    if (typeof obj.__ref === 'string') {
+      const hit = relay && Object.prototype.hasOwnProperty.call(relay, obj.__ref)
+        ? relay[obj.__ref] : null;
+      return relayResolve(relay, hit, depth + 1);
+    }
+    return obj;
+  }
+
+  function ssrUserFromRoute(route) {
+    if (!route || typeof route !== 'object') return null;
+    if (!isRestId(route.restId) || !isHandle(route.screenName)) return null;
+    return {
+      restId: route.restId,
+      handle: route.screenName,
+      name: str(route.name, LIMITS.nameChars),
+      bio: str(route.description, LIMITS.bioChars),
+      urls: [],
+      avatar: str(route.avatarUrl, 300),
+      createdAt: Number.isFinite(route.createdAtMs) && route.createdAtMs > 0
+        ? route.createdAtMs : null,
+      followers: num(route.followers),
+      following: num(route.following),
+      verified: route.isVerified === true,
+    };
+  }
+
+  function ssrUserFromRelay(relay, node) {
+    if (!node || typeof node !== 'object' || node.__typename !== 'User') return null;
+    if (!isRestId(node.rest_id)) return null;
+   const legacy = relayResolve(relay, node.legacy, 0);
+   const core = relayResolve(relay, node.core, 0);
+   const counts = relayResolve(relay, node.relationship_counts, 0);
+   // Two record generations share this shape: the classic GraphQL user
+   // (everything under `legacy`, counts suffixed `_count`) and the new
+   // per-aspect layout X's server render now hydrates from — `core` is a
+   // UserCore, bio/avatar/verification/counts are separate aspect records
+   // named without the `_count` suffix. Read both, prefer whichever
+   // actually carries the field; a field neither generation carries stays
+   // null (sparse records must never read as "cleared").
+   const bioNode = node.profile_bio
+     ? relayResolve(relay, node.profile_bio, 0)
+     : (legacy && legacy.profile_bio ? relayResolve(relay, legacy.profile_bio, 0) : null);
+   const bio = str(bioNode && bioNode.description, LIMITS.bioChars)
+     ?? str(legacy && legacy.description, LIMITS.bioChars);
+   const handle = str(core && core.screen_name, 20) || str(legacy && legacy.screen_name, 20);
+   if (!isHandle(handle)) return null;
+   const verification = relayResolve(relay, node.verification, 0);
+   return {
+     restId: node.rest_id,
+     handle,
+     name: str(core && core.name, LIMITS.nameChars) || str(legacy && legacy.name, LIMITS.nameChars),
+     bio,
+     urls: [...expandedUrls(legacy && legacy.entities),
+       ...expandedUrls(bioNode && bioNode.entities)],
+     avatar: str(legacy && legacy.profile_image_url_https, 300)
+       || (node.avatar
+         ? str((relayResolve(relay, node.avatar, 0) || {}).image_url, 300)
+         : null),
+     createdAt: parseXDate((core && core.created_at) || (legacy && legacy.created_at))
+       ?? num(core && core.created_at_ms),
+     followers: num(legacy && legacy.followers_count) ?? num(counts && counts.followers_count)
+       ?? num(counts && counts.followers),
+     following: num(legacy && legacy.friends_count) ?? num(counts && counts.following_count)
+       ?? num(counts && counts.following),
+     verified: node.is_blue_verified === true || (verification && verification.is_blue_verified === true)
+       || (legacy && legacy.verified === true) || false,
+   };
+}
+
+  function ssrTweetFromRelay(relay, node) {
+    if (!node || typeof node !== 'object' || node.__typename !== 'Tweet') return null;
+    if (!isRestId(node.rest_id)) return null;
+    const details = relayResolve(relay, node.details, 0);
+    const text = details && typeof details.full_text === 'string' ? details.full_text : null;
+    const createdAt = details && Number.isFinite(details.created_at_ms)
+      && details.created_at_ms > 0 ? details.created_at_ms : null;
+    // authorId comes from the core ref (UserResults → result → User).
+    const results = relayResolve(relay, node.core, 0);
+    const result = relayResolve(relay, results && results.result, 0);
+    const author = result && result.__typename === 'User' && isRestId(result.rest_id)
+      ? result.rest_id
+      : (relayResolve(relay, result && result.core, 0), null);
+    return {
+      id: node.rest_id,
+      authorId: isRestId(author) ? author : null,
+      createdAt,
+      cas: text ? casFromText(text) : [],
+    };
+  }
+
+  /** One pass over the live `window.$R` hydration graph: every user (from
+   * profile route matches and User relay records), every tweet relay
+   * record, bounded like extract(). */
+  function ssrExtract(root) {
+    const users = [];
+    const tweets = [];
+    let nodes = 0;
+    const seenUsers = new Set();
+    const seenTweets = new Set();
+    let relay = null;
+
+    const takeUser = (u) => {
+      if (u && !seenUsers.has(u.restId) && users.length < LIMITS.maxUsersPerDigest) {
+        seenUsers.add(u.restId);
+        users.push(u);
+      }
+    };
+    const takeTweet = (t) => {
+      if (t && !seenTweets.has(t.id) && tweets.length < LIMITS.maxTweetsPerDigest) {
+        seenTweets.add(t.id);
+        tweets.push(t);
+      }
+    };
+
+    (function walk(node, depth) {
+      if (!node || typeof node !== 'object' || ++nodes > LIMITS.maxNodes
+          || depth > LIMITS.maxDepth) return;
+      if (Array.isArray(node)) {
+        for (const v of node) walk(v, depth + 1);
+        return;
+      }
+      if (node.__typename === 'User') takeUser(ssrUserFromRelay(relay, node));
+      else if (node.__typename === 'Tweet') takeTweet(ssrTweetFromRelay(relay, node));
+      else if (isRestId(node.restId) && isHandle(node.screenName)) {
+        takeUser(ssrUserFromRoute(node));
+      }
+      if (node.relayRecords && typeof node.relayRecords === 'object' && !relay) {
+        relay = node.relayRecords;
+      }
+      for (const k in node) walk(node[k], depth + 1);
+    })(root, 0);
+
+    return { users, tweets };
+  }
+
   /* -------------------- ledger reducers -------------------- */
 
   function newRecord(user, now) {
@@ -563,6 +722,7 @@
     userFromNode,
     tweetFromNode,
     extract,
+    ssrExtract,
     newRecord,
     observeUser,
     observeTweets,

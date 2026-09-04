@@ -68,6 +68,7 @@ function makeBrowserSandbox() {
   });
 
   const doc = {
+    location: { pathname: '/', href: 'https://x.com/' },
     readyState: 'complete',
     title: 'BONK / SOL',
     body: Object.assign(el(), { innerText: '', nodeType: 1 }),
