@@ -3,7 +3,12 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## Unreleased
+## v3.20.0 — 2026-09-04
+
+**Turbo III — the socket pass, and X-Ray reads accounts again.** Turbo I
+and II made the page warm before you clicked; Turbo III makes the
+connection warm too, keeps the viewer from going cold behind your back, and
+starts the same-site load during your hover.
 
 - **X-Ray reads accounts again.** A gate in the background was rejecting the
   panel's SSR digests, so X-Ray sat on "Reading this account" forever on
@@ -28,6 +33,11 @@ details live in the commit messages.
   when the click is a real navigation, a dwell-started prefetch now has
   the document in cache before release. One rule slot, Turbo-gated,
   strict same-origin; internally-routed clicks simply never use it.
+
+Tested: 12 new pins (preconnect table locked to the classifier's canonical
+hosts, resident viewer, same-site prefetch scope, X-Ray SSR path), each new
+mechanism proven by a negative control (break → red, byte-identical
+restore → green); full extension suite 2433/2433.
 
 ## v3.19.0 — 2026-09-04
 
