@@ -1,18 +1,14 @@
 {
-  "version": "3.20.0",
+  "version": "3.21.0",
   "date": "2026-09-04",
   "entries": [
     {
-      "title": "Turbo III — the socket pass, and X-Ray reads accounts again.",
-      "text": "Turbo I and II made the page warm before you clicked; Turbo III makes the connection warm too, keeps the viewer from going cold behind your back, and starts the same-site load during your hover."
+      "title": null,
+      "text": "- **Same-terminal chart opens (Turbo).** The one hop every Turbo tier left   alone: a coin in the list → its chart, on the same terminal. Now, on GMGN,   Axiom, Padre, Lute and fomo, hovering a coin loads its chart in a hidden   second tab of that terminal and the click reveals it — but only once it   has finished loading. Before that, the click stays native, so the viewer   can never be slower than the site's own router. The first click creates   the tab (never a hover); from the viewer tab itself, clicks are native.   Receipted as `same:warm_reveal` on the Turbo card. - **One Turbo switch.** The popup's Features tab is now **Modes**: Turbo,   Paper and Gaming, one switch each. Turbo flips warm X links, warm terminal   links, same-terminal opens and X-Ray together (a partial set from the   dashboard shows as \"partly on\" and rounds up). The receipts sit on the   Turbo card. \"Disable overlay\" is a quiet row under Paper; \"Turn   PaperTrench off\" *is* the Paper switch. The dashboard still tunes every   individual key."
     },
     {
       "title": null,
-      "text": "- **X-Ray reads accounts again.** A gate in the background was rejecting the   panel's SSR digests, so X-Ray sat on \"Reading this account\" forever on   profiles whose data arrived with the page HTML. Fixed; the card builds   from the first paint again. - **Turbo III: warm sockets.** With Turbo on, every terminal page now   preconnects the other destination families plus x.com — no tabs, no   requests, just warm sockets — so the first cross-site click of the   session stops paying DNS+TLS. Presses on unclassified cross-origin links   warm their own origin the same way. Toggle everything off and the hints   come back out. - **X viewer media rides along.** The socket pre-warm now covers X's image   and static hosts too, so a revealed viewer shows avatars and timeline   images without a second round of connection setup. - **The hidden X viewer stays resident.** A muted background tab holding a   full X app is the first thing the browser discards under memory pressure,   which silently turned warm clicks cold again. Created viewers are now   pinned against discarding (adopted tabs — yours — are never touched, and   toggle-off still closes an unused viewer). - **Same-site links prefetch on dwell (gmgn, axiom, padre, lute, fomo).**   Cross-site links get a viewer; same-site token links stay native — but   when the click is a real navigation, a dwell-started prefetch now has   the document in cache before release. One rule slot, Turbo-gated,   strict same-origin; internally-routed clicks simply never use it."
-    },
-    {
-      "title": null,
-      "text": "Tested: 12 new pins (preconnect table locked to the classifier's canonical hosts, resident viewer, same-site prefetch scope, X-Ray SSR path), each new mechanism proven by a negative control (break → red, byte-identical restore → green); full extension suite 2433/2433."
+      "text": "Tested: 8 same-terminal background pins (spawn is click-only and hidden, hover navigates only a hidden viewer, readiness pushed on the matching URL only, the viewer never takes a click from itself, fall-through never swallows a click, toggle-off closes only unseen viewers) + 8 Modes-pane pins driving the real popup handlers; negative controls on both core rules; the whole hover → spawn → hover → ready → reveal chain run live on gmgn.ai with the extension loaded; full extension suite 2449/2449."
     }
   ]
 }

@@ -3,6 +3,32 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.21.0 — 2026-09-04
+
+- **Same-terminal chart opens (Turbo).** The one hop every Turbo tier left
+  alone: a coin in the list → its chart, on the same terminal. Now, on GMGN,
+  Axiom, Padre, Lute and fomo, hovering a coin loads its chart in a hidden
+  second tab of that terminal and the click reveals it — but only once it
+  has finished loading. Before that, the click stays native, so the viewer
+  can never be slower than the site's own router. The first click creates
+  the tab (never a hover); from the viewer tab itself, clicks are native.
+  Receipted as `same:warm_reveal` on the Turbo card.
+- **One Turbo switch.** The popup's Features tab is now **Modes**: Turbo,
+  Paper and Gaming, one switch each. Turbo flips warm X links, warm terminal
+  links, same-terminal opens and X-Ray together (a partial set from the
+  dashboard shows as "partly on" and rounds up). The receipts sit on the
+  Turbo card. "Disable overlay" is a quiet row under Paper; "Turn
+  PaperTrench off" *is* the Paper switch. The dashboard still tunes every
+  individual key.
+
+Tested: 8 same-terminal background pins (spawn is click-only and hidden,
+hover navigates only a hidden viewer, readiness pushed on the matching URL
+only, the viewer never takes a click from itself, fall-through never
+swallows a click, toggle-off closes only unseen viewers) + 8 Modes-pane pins
+driving the real popup handlers; negative controls on both core rules; the
+whole hover → spawn → hover → ready → reveal chain run live on gmgn.ai with
+the extension loaded; full extension suite 2449/2449.
+
 ## v3.20.0 — 2026-09-04
 
 **Turbo III — the socket pass, and X-Ray reads accounts again.** Turbo I
