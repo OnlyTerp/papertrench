@@ -85,7 +85,7 @@ function loadPopupPage({
   }
   const els = {};
   for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
+                    'turbo','turbo-sub','gaming','paper-sub','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
                     'sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss',
                     'update-version','update-link','update-backup','update-backup-state']) {
@@ -658,7 +658,7 @@ test('popup update nudge: fetch failure leaves the popup exactly as it was', asy
     };
   }
   for (const id of ['dash','desk','toggle','reset','backup','restore','restoreFile','overlay-window',
-                    'warmx','warmdest','xray','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
+                    'turbo','turbo-sub','gaming','paper-sub','power','qs-apply','qs-balance','qs-presets','qs-sellpcts','qs-fees',
                     'sharelogs','badge','equity','delta','cash',
                     'pnl','open','rounds','flow','recent','status','update-banner','update-txt','update-dismiss',
                     'update-version','update-link','update-backup','update-backup-state']) {
@@ -809,7 +809,7 @@ test('every control still exists — panes hide, they never remove', () => {
   // instead of hiding it would take its controls' listeners with it.
   const ids = ['equity', 'cash', 'pnl', 'open', 'rounds', 'flow', 'recent',
     'power', 'dash', 'toggle', 'backup', 'restore', 'restoreFile', 'overlay-window',
-    'warmx', 'warmdest', 'turbo-receipts', 'xray', 'qs-balance', 'qs-presets',
+    'turbo', 'turbo-sub', 'gaming', 'paper-sub', 'turbo-receipts', 'qs-balance', 'qs-presets',
     'qs-sellpcts', 'qs-fees', 'qs-apply', 'sharelogs', 'reset', 'status',
     'update-backup', 'update-backup-state'];
   for (const id of ids) {

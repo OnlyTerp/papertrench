@@ -7,7 +7,7 @@
 
 'use strict';
 
-const DEFAULTS = { appEnabled: true, balanceStartSol: 10, overlayEnabled: true, overlayHideWhenNoToken: true, warmXLinksEnabled: false, warmEverywhereEnabled: false, xrayEnabled: false, xrayDeepScanEnabled: true, presetsBuy: [0.1, 0.5, 1, 2], sellPcts: [25, 50, 75, 100], feeBps: 100, gasSolPerTx: 0, tipSolPerTx: 0, slippageBps: 0 };
+const DEFAULTS = { appEnabled: true, balanceStartSol: 10, overlayEnabled: true, overlayHideWhenNoToken: true, warmXLinksEnabled: false, warmEverywhereEnabled: false, warmSameSiteEnabled: false, xrayEnabled: false, xrayDeepScanEnabled: true, presetsBuy: [0.1, 0.5, 1, 2], sellPcts: [25, 50, 75, 100], feeBps: 100, gasSolPerTx: 0, tipSolPerTx: 0, slippageBps: 0 };
 
 // Same rough starting points the dashboard's Fees & costs card offers; the
 // full form stays there, this is the one-tap version for mid-session fixes.
@@ -48,9 +48,8 @@ $('backup').addEventListener('click', backupWallet);
 $('restore').addEventListener('click', () => $('restoreFile').click());
 $('restoreFile').addEventListener('change', restoreWallet);
 $('overlay-window').addEventListener('click', openStreamOverlay);
-$('warmx').addEventListener('click', toggleWarmXLinks);
-$('warmdest').addEventListener('click', toggleWarmEverywhere);
-$('xray').addEventListener('click', toggleXRay);
+$('turbo').addEventListener('click', toggleTurbo);
+$('gaming').addEventListener('click', toggleGaming);
 $('power').addEventListener('click', togglePower);
 $('qs-apply').addEventListener('click', applyQuickSettings);
 $('sharelogs').addEventListener('click', shareDebugLogs);
@@ -594,25 +593,69 @@ function computeStats(state, settings) {
  * The number is the background's routing latency (click message → navigation
  * dispatched / viewer revealed) — stated as exactly that, never dressed up as
  * page-ready time. Counts are the headline because they are unambiguous:
- * how many opens took a warm route instead of a cold tab. */
+ * how many opens took a warm route instead of a cold tab. Lives ON the Turbo
+ * card so the switch answers "is this real?" without a second click. */
 function renderTurboReceipts(stats) {
   const el = $('turbo-receipts');
   if (!el) return;
   const s = stats || {};
-  const warmRoutes = ['x:spa', 'x:already_open', 'x:warm_reload', 'dest:warm_nav', 'dest:already_open'];
+  const warmRoutes = ['x:spa', 'x:already_open', 'x:warm_reload', 'dest:warm_nav', 'dest:already_open', 'same:warm_reveal'];
   const coldRoutes = ['x:cold_tab', 'dest:cold_tab'];
   const count = (keys) => keys.reduce((n, k) => n + ((s[k] && s[k].count) || 0), 0);
   const warm = count(warmRoutes);
   const cold = count(coldRoutes);
-  if (!warm && !cold) { el.style.display = 'none'; return; }
+  if (!warm && !cold) { el.hidden = true; return; }
   const ring = warmRoutes.flatMap((k) => (s[k] && s[k].ring) || []).sort((a, b) => a - b);
   const median = ring.length ? ring[Math.floor(ring.length / 2)] : null;
-  el.style.display = 'block';
-  el.textContent = `⚡ Receipts: ${warm} warm open${warm === 1 ? '' : 's'} · ${cold} cold`
-    + (median !== null ? ` · median routing ${median}ms` : '');
+  el.hidden = false;
+  el.textContent = '';
+  const b = document.createElement('b');
+  b.textContent = String(warm);
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(` warm open${warm === 1 ? '' : 's'}`));
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  sep.textContent = '·';
+  el.appendChild(sep);
+  el.appendChild(document.createTextNode(`${cold} cold`));
+  if (median !== null) {
+    const sep2 = document.createElement('span');
+    sep2.className = 'sep';
+    sep2.textContent = '·';
+    el.appendChild(sep2);
+    el.appendChild(document.createTextNode(`median routing ${median}ms`));
+  }
   el.title = 'Measured on this machine, stored locally, never sent anywhere. '
     + '"Routing" is the time from your click reaching PaperTrench to the warm tab being told where to go — '
     + 'the page itself then hydrates on top of an already-warm session.';
+}
+
+/* Turbo = the Speed mode: warm X viewer + warm terminal viewers + X-Ray.
+ * One switch over three stored keys (the keys stay; the background gates on
+ * them and the dashboard still tunes them). "mixed" means the dashboard has
+ * some of it on — the popup shows that honestly rather than rounding. */
+const TURBO_KEYS = ['warmXLinksEnabled', 'warmEverywhereEnabled', 'warmSameSiteEnabled', 'xrayEnabled'];
+function turboState(settings) {
+  const on = TURBO_KEYS.filter((k) => settings[k] === true).length;
+  return on === TURBO_KEYS.length ? 'true' : (on === 0 ? 'false' : 'mixed');
+}
+
+function renderModes(settings) {
+  const turbo = turboState(settings);
+  const turboBtn = $('turbo');
+  if (turboBtn) {
+    turboBtn.setAttribute('aria-pressed', turbo);
+    const sub = $('turbo-sub');
+    if (sub) {
+      sub.textContent = turbo === 'true'
+        ? 'On — warm viewers, same-terminal chart opens, X-Ray on X'
+        : turbo === 'mixed'
+          ? 'Partly on (set on the dashboard) — tap for full Turbo'
+          : 'Warm viewers · same-terminal chart opens · X-Ray on X';
+    }
+  }
+  const gamingBtn = $('gaming');
+  if (gamingBtn) gamingBtn.setAttribute('aria-pressed', settings.gamingModeEnabled === true ? 'true' : 'false');
 }
 
 async function load() {
@@ -645,28 +688,23 @@ async function load() {
     }
 
     $('toggle').textContent = settings.overlayEnabled !== false
-      ? 'Disable overlay'
-      : 'Enable overlay';
+      ? 'Panel on token pages: shown'
+      : 'Panel on token pages: hidden';
 
-    $('warmx').textContent = settings.warmXLinksEnabled
-      ? '⚡ Instant X links: On'
-      : '⚡ Instant X links: Off';
+    renderModes(settings);
 
-    $('warmdest').textContent = settings.warmEverywhereEnabled
-      ? '⚡ Instant terminal links: On'
-      : '⚡ Instant terminal links: Off';
-
-    $('xray').textContent = settings.xrayEnabled
-      ? '⌖ X-Ray on x.com: On'
-      : '⌖ X-Ray on x.com: Off';
-
-    // The master switch outranks everything; the popup must show it loudly.
+    // The master switch is the PAPER mode's switch; the popup must show it loudly.
     const appOn = settings.appEnabled !== false;
     const power = $('power');
-    power.textContent = appOn ? '⏻ Turn PaperTrench off' : '⏻ Turn PaperTrench on';
-    power.className = appOn ? 'btn-backup' : 'btn-pri';
+    power.setAttribute('aria-pressed', appOn ? 'true' : 'false');
+    const paperSub = $('paper-sub');
+    if (paperSub) {
+      paperSub.textContent = appOn
+        ? 'Paper wallet, fills and P&L on the terminals'
+        : 'Off everywhere — wallet, journal and settings kept';
+    }
     const badge = $('badge');
-    badge.textContent = appOn ? 'PAPER' : 'OFF';
+    badge.textContent = appOn ? (turboState(settings) === 'true' ? 'PAPER ⚡' : 'PAPER') : 'OFF';
     badge.classList.toggle('badge-off', !appOn);
 
     $('cash').textContent = fmt(state.cashSol, 2);
@@ -815,50 +853,39 @@ async function togglePower() {
     : 'PaperTrench is off everywhere. Nothing shows up on any site until you turn it back on. Your wallet, journal, and settings are untouched.';
 }
 
-/** Opt-in warm viewer for X links clicked on trading sites. The status line
- * spells out the cost (one muted background x.com tab) — a hidden tab a user
- * discovers by surprise is the kind of thing that erodes trust in an
- * extension, so it is disclosed at the exact moment of opt-in. */
-async function toggleWarmXLinks() {
+/** Turbo — the Speed mode in one switch. Anything short of fully on flips
+ * to fully on (a "mixed" state set on the dashboard rounds UP, never off).
+ * The status line keeps the honest-cost disclosure the three old buttons
+ * carried, at the exact moment of opt-in: what appears (muted background
+ * viewer tabs), what X-Ray reads (the X page's own data, on this device),
+ * and the escape hatch (Ctrl/Cmd/middle-click stays native). */
+async function toggleTurbo() {
   const stored = await chrome.storage.local.get(['pt_settings']);
   const settings = { ...DEFAULTS, ...(stored.pt_settings || {}) };
-  const next = { ...settings, warmXLinksEnabled: !settings.warmXLinksEnabled };
+  const on = turboState(settings) !== 'true';
+  const next = { ...settings };
+  for (const k of TURBO_KEYS) next[k] = on;
   await chrome.storage.local.set({ pt_settings: next });
   chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});
   await load();
-  $('status').textContent = next.warmXLinksEnabled
-    ? 'On — X links on trading sites now open in a kept-warm viewer tab (~0.5s instead of ~3.5s). PaperTrench keeps one muted background x.com tab for this; Ctrl/Cmd/middle-click still opens normal tabs.'
-    : 'Off — the background X tab is released and links open normally.';
+  $('status').textContent = on
+    ? 'Turbo on — X links and terminal links open in kept-warm viewer tabs (muted, in the background; they appear on first use), hover/press pre-navigates them — including the chart of a coin you hover on GMGN, Axiom, Padre, Lute and fomo, revealed on click once it has loaded — and X-Ray reads the X page\'s own data on this device to build the account card. Ctrl/Cmd/middle-click still opens normal tabs.'
+    : 'Turbo off — every viewer tab is released, nothing is pre-navigated, and nothing further is read from X pages. Links open normally.';
 }
 
-/* Same honest-cost disclosure pattern as the X toggle: the price of the
- * feature is stated at the exact moment of opt-in. */
-async function toggleWarmEverywhere() {
+/** Gaming — grades, streaks and game furniture on the charts. The dashboard
+ * Game tab is always there regardless; this is only whether the trading
+ * sites show the loop. */
+async function toggleGaming() {
   const stored = await chrome.storage.local.get(['pt_settings']);
   const settings = { ...DEFAULTS, ...(stored.pt_settings || {}) };
-  const next = { ...settings, warmEverywhereEnabled: !settings.warmEverywhereEnabled };
+  const next = { ...settings, gamingModeEnabled: settings.gamingModeEnabled !== true };
   await chrome.storage.local.set({ pt_settings: next });
   chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});
   await load();
-  $('status').textContent = next.warmEverywhereEnabled
-    ? 'On — Axiom, Padre, GMGN, pump.fun and Solscan links across terminals open in kept-warm viewer tabs, and positions-bar hops to another terminal stop replacing the tab you are on. pump.fun and Solscan pre-warm (up to two muted background tabs); terminal viewers appear on first use. Ctrl/Cmd/middle-click still opens normal tabs.'
-    : 'Off — all viewer tabs are released and links open normally.';
-}
-
-/** Account intel on X itself. The status line states the two things a user
- * deserves to know at the moment of opt-in: where the data comes from (the X
- * page's own responses, on this device) and what it cannot know (any change
- * that happened before X-Ray first saw the account). */
-async function toggleXRay() {
-  const stored = await chrome.storage.local.get(['pt_settings']);
-  const settings = { ...DEFAULTS, ...(stored.pt_settings || {}) };
-  const next = { ...settings, xrayEnabled: !settings.xrayEnabled };
-  await chrome.storage.local.set({ pt_settings: next });
-  chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});
-  await load();
-  $('status').textContent = next.xrayEnabled
-    ? 'On — open any X profile or post and the intel card is already there: account age, bio/name/@handle changes, CAs posted, and Smart Following. It reads the X page\'s own data on this device; change history starts from the first time you view an account, and the card says so.'
-    : 'Off — no card on X, and nothing further is read from X pages.';
+  $('status').textContent = next.gamingModeEnabled
+    ? 'Gaming on — grade toasts, streak chips and the game HUD show on the trading sites.'
+    : 'Gaming off — the charts go quiet. The Game tab on the dashboard is still there.';
 }
 
 /** Chromeless window sized for the card layout — OBS window-captures it. */

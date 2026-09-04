@@ -184,6 +184,76 @@
     .green { color: var(--green); } .red { color: var(--red); } .dim { color: var(--dim); }
     .mono { font-family: var(--mono); }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+    /* Mode cards. One switch each; the card IS the hit target. */
+    .mode {
+      margin: 10px 16px 0; border-radius: 14px;
+      background: var(--raised); border: 1px solid var(--line);
+      overflow: hidden;
+      transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+    }
+    .mode-hit {
+      display: block; width: 100%; padding: 12px 13px 11px;
+      background: transparent; border: 0; border-radius: 0; color: inherit; text-align: left;
+      font: inherit; cursor: pointer;
+    }
+    .mode-hit:hover { background: rgba(255,255,255,0.035); }
+    .mode-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .mode-name {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 17px; font-weight: 850; letter-spacing: -0.3px;
+    }
+    .mode-ico { font-size: 15px; width: 18px; text-align: center; opacity: 0.55; }
+    .mode-sub { display: block; margin-top: 4px; font-size: 11px; line-height: 1.4; color: var(--dim); }
+    .switch {
+      flex: none; position: relative; width: 38px; height: 22px; border-radius: 999px;
+      background: rgba(255,255,255,0.12); border: 1px solid var(--line-2);
+      transition: background 0.18s, border-color 0.18s;
+    }
+    .switch .knob {
+      position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+      background: #C9D2E2; transition: transform 0.2s var(--ease), background 0.18s;
+    }
+    .mode-hit[aria-pressed="true"] .switch .knob { transform: translateX(16px); background: #0A0D13; }
+    .mode-hit[aria-pressed="mixed"] .switch .knob { transform: translateX(8px); }
+    .mode-hit[aria-pressed="false"] .mode-ico { opacity: 0.35; }
+
+    .mode-turbo .mode-hit[aria-pressed="true"] { background: linear-gradient(180deg, rgba(255,157,69,0.13), rgba(255,157,69,0.04)); }
+    .mode-turbo .mode-hit[aria-pressed="true"] .switch { background: var(--amber); border-color: var(--amber); }
+    .mode-turbo .mode-hit[aria-pressed="true"] .mode-ico { opacity: 1; color: var(--amber-2); }
+    .mode-turbo .mode-hit[aria-pressed="mixed"] .switch { background: rgba(255,157,69,0.35); border-color: rgba(255,157,69,0.6); }
+    .mode-turbo:has(.mode-hit[aria-pressed="true"]) { border-color: rgba(255,157,69,0.45); box-shadow: 0 8px 26px -14px rgba(255,157,69,0.7); }
+
+    .mode-paper .mode-hit[aria-pressed="true"] .switch { background: var(--green); border-color: var(--green); }
+    .mode-paper .mode-hit[aria-pressed="true"] .mode-ico { opacity: 1; color: var(--green); }
+    .mode-paper:has(.mode-hit[aria-pressed="true"]) { border-color: rgba(52,211,153,0.35); }
+    .mode-paper:has(.mode-hit[aria-pressed="false"]) { border-color: rgba(255,95,86,0.35); }
+    .mode-paper .mode-hit[aria-pressed="false"] .mode-sub { color: #FFB3AE; }
+
+    .mode-gaming .mode-hit[aria-pressed="true"] .switch { background: #7C8CFF; border-color: #7C8CFF; }
+    .mode-gaming .mode-hit[aria-pressed="true"] .mode-ico { opacity: 1; color: #A8B3FF; }
+    .mode-gaming:has(.mode-hit[aria-pressed="true"]) { border-color: rgba(124,140,255,0.4); }
+
+    .receipts {
+      display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+      padding: 9px 13px 10px; border-top: 1px solid var(--line);
+      font-size: 11px; color: var(--dim);
+    }
+    .receipts b { font-size: 15px; font-weight: 800; color: var(--amber-2); letter-spacing: -0.3px; }
+    .receipts .sep { color: var(--faint); }
+    .mode-row {
+      display: block; width: 100%; padding: 8px 13px;
+      border: 0; border-top: 1px solid var(--line); border-radius: 0;
+      background: transparent; color: var(--dim); text-align: left;
+      font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+    }
+    .mode-row:hover { background: rgba(255,255,255,0.035); color: var(--text); }
+    .tools { display: flex; gap: 7px; padding: 12px 16px 0; }
+    .tools button {
+      background: transparent; border: 1px solid var(--line-2); color: var(--dim);
+      font-size: 11.5px; padding: 8px;
+    }
+    .tools button:hover { color: var(--text); background: rgba(255,255,255,0.06); }
   /* Update nudge — shown only when a newer release exists on GitHub. */
   .update-banner {
     margin: 10px 12px 0;
@@ -276,7 +346,7 @@
        pinned above because it is why the popup gets opened; the rest swaps. -->
   <div class="ptabs" role="tablist">
     <button class="ptab on" data-pane="pane-recent" role="tab" aria-selected="true">Recent</button>
-    <button class="ptab" data-pane="pane-features" role="tab" aria-selected="false">Features</button>
+    <button class="ptab" data-pane="pane-features" role="tab" aria-selected="false">Modes</button>
     <button class="ptab" data-pane="pane-setup" role="tab" aria-selected="false">Setup</button>
   </div>
 
@@ -284,15 +354,52 @@
     <div id="recent"></div>
   </div>
 
+  <!-- Modes, not toggles (docs/UI-OVERHAUL.md north star: "three personas,
+       three products, one binary"). The old pane exposed the Speed mode's
+       three internals as three off-by-default buttons plus two different
+       kinds of "off". Now: one card per mode, one switch per card. Turbo is
+       the Speed mode — warm viewers, pre-navigation, X-Ray — and its receipts
+       (measured here, never sent) sit on the card so the switch answers "is
+       this real?" without a second click. The granular keys survive in
+       storage and on the dashboard settings form; the popup is where a mode
+       gets flipped, not tuned. -->
   <div id="pane-features" class="ppane" hidden>
-    <div class="btns"><button id="toggle">Toggle overlay</button></div>
-    <div class="btns"><button id="warmx" class="btn-backup">⚡ Instant X links: Off</button></div>
-    <div class="btns"><button id="warmdest" class="btn-backup">⚡ Instant terminal links: Off</button></div>
-    <div id="turbo-receipts" style="display:none;padding:4px 2px 0;font-size:11px;color:#8D97A9"></div>
-    <div class="btns"><button id="xray" class="btn-backup">⌖ X-Ray on x.com: Off</button></div>
-    <div class="btns"><button id="desk" class="btn-backup">🗂 Open desk (side panel)</button></div>
-    <div class="btns"><button id="overlay-window" class="btn-backup">🎥 Stream overlay</button></div>
-    <div class="btns" style="padding-top:10px"><button id="power" class="btn-backup">⏻ Turn PaperTrench off</button></div>
+    <section class="mode mode-turbo" id="mode-turbo">
+      <button class="mode-hit" id="turbo" type="button" aria-pressed="false">
+        <span class="mode-head">
+          <span class="mode-name"><span class="mode-ico">⚡</span>Turbo</span>
+          <span class="switch" aria-hidden="true"><span class="knob"></span></span>
+        </span>
+        <span class="mode-sub" id="turbo-sub">Warm viewers · same-terminal chart opens · X-Ray on X</span>
+      </button>
+      <div class="receipts" id="turbo-receipts" hidden></div>
+    </section>
+
+    <section class="mode mode-paper" id="mode-paper">
+      <button class="mode-hit" id="power" type="button" aria-pressed="true">
+        <span class="mode-head">
+          <span class="mode-name"><span class="mode-ico">▣</span>Paper</span>
+          <span class="switch" aria-hidden="true"><span class="knob"></span></span>
+        </span>
+        <span class="mode-sub" id="paper-sub">Paper wallet, fills and P&amp;L on the terminals</span>
+      </button>
+      <button class="mode-row" id="toggle" type="button">Panel on token pages: shown</button>
+    </section>
+
+    <section class="mode mode-gaming" id="mode-gaming">
+      <button class="mode-hit" id="gaming" type="button" aria-pressed="false">
+        <span class="mode-head">
+          <span class="mode-name"><span class="mode-ico">▲</span>Gaming</span>
+          <span class="switch" aria-hidden="true"><span class="knob"></span></span>
+        </span>
+        <span class="mode-sub">Grades, streaks and game furniture on the charts</span>
+      </button>
+    </section>
+
+    <div class="tools">
+      <button id="desk" type="button">🗂 Desk</button>
+      <button id="overlay-window" type="button">🎥 Stream overlay</button>
+    </div>
   </div>
 
   <div id="pane-setup" class="ppane" hidden>
