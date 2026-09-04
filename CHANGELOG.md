@@ -3,6 +3,46 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.19.0 — 2026-09-04
+
+**The multichain release: the sol → Robinhood Chain switch on GMGN, Axiom and
+fomo now works in PaperTrench — trade RH tokens alongside Solana, priced in
+the same SOL book, no reset.**
+
+Robinhood Chain is popping off and every terminal added a chain switcher;
+PaperTrench refused every foreign page since v3.0.0 while the wallet model
+was being settled. The intervening releases hardened the pricing engine
+(foreign price derived from USD with the conversion rate recorded, never
+guessed), so the gate opens today with zero wallet migration — your balance,
+journal and positions are untouched.
+
+- **Robinhood Chain trades on GMGN, Axiom and fomo.** Token pages mount, price
+  live from Dexscreener's RH pools, and fills book into your SOL paper
+  balance exactly like a Solana fill. Positions-bar chips return you to the
+  RH page you opened the position on.
+- **Padre's Ethereum, Base and BNB pages mount too.** Padre never shipped a
+  Robinhood chain (its own copy: SOL/ETH/Base/BNB), so its switcher is wired
+  honestly: those three, no more.
+- **Lute stays Solana-only for now.** Lute supports RH as a venue, but its
+  foreign-chain URL shape cannot be verified without an account — and
+  guessing a URL shape is how the extension ends up pricing the wrong coin.
+  It ships the moment the shape is verifiable.
+- **The safety rules survived the opening.** A hex address that happens to
+  pass Solana's base58 check routes to its OWN chain, never to the Solana
+  resolver (pinned by test); a chain a venue does not serve fails closed;
+  foreign pools are priced from the aggregator, never from Solana RPC.
+- **Faster when the network fights back (perf).** The resolver's fresh-launch
+  fallback path now fires its probes in parallel — the worst-case cold miss
+  measured 4.8× faster on the live network — and the batch price poller no
+  longer waits on the SOL/USD rate before fetching quotes. SOL/USD itself
+  gained a fallback source (Dexscreener's deepest USDC pool) so a Jupiter
+  outage cannot freeze foreign-chain pricing.
+
+Tested: 7 new multichain pins including a negative control that re-closes the
+gate and proves foreign chains refuse again; full repo 2757/2757 (extension
+2423, server 314, bot 20); foreign pricing verified end-to-end against live
+RH-chain data through the real resolver and engine.
+
 ## v3.18.2 — 2026-09-03
 
 **The onboarding fix: your first paper trade now ticks the leaderboard wizard
