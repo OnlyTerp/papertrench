@@ -3,6 +3,23 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.18.2 — 2026-09-03
+
+**The onboarding fix: your first paper trade now ticks the leaderboard wizard
+the moment it fills — no reload, no waiting.**
+
+- **"Make your first paper trade" now ticks itself, for real (D-70).**
+  scipher_ reported being stuck on the wizard's second step through countless
+  trades. The first fill was always committed to the verification chain, but
+  the dashboard re-read the chain and repainted the screen on two different
+  storage events that never coincided — so the step sat unticked until a full
+  page reload. The wizard now repaints the moment the chain gains its first
+  link. Nothing about trading, the chain, or sync changed; this was purely the
+  screen not noticing.
+
+Tested: new defect suite (6 tests, including a negative control that fails on
+the old code) plus the perf-contract pin; full extension suite 2416/2416.
+
 ## v3.18.1 — 2026-09-02
 
 **The field-recovery release: RPC refusal memory ends the 30-second new-pair wait for heavy users, and quick-buy can no longer buy the previous coin on page switch.**

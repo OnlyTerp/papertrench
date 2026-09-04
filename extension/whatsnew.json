@@ -1,22 +1,18 @@
 {
-  "version": "3.18.1",
-  "date": "2026-09-02",
+  "version": "3.18.2",
+  "date": "2026-09-03",
   "entries": [
     {
-      "title": "The field-recovery release: RPC refusal memory ends the 30-second new-pair wait for heavy users, and quick-buy can no longer buy the previous coin on page switch.",
+      "title": "The onboarding fix: your first paper trade now ticks the leaderboard wizard the moment it fills — no reload, no waiting.",
       "text": ""
     },
     {
       "title": null,
-      "text": "Two defects triaged directly from Discord debug logs and user reports:"
+      "text": "- **\"Make your first paper trade\" now ticks itself, for real (D-70).**   scipher_ reported being stuck on the wizard's second step through countless   trades. The first fill was always committed to the verification chain, but   the dashboard re-read the chain and repainted the screen on two different   storage events that never coincided — so the step sat unticked until a full   page reload. The wizard now repaints the moment the chain gains its first   link. Nothing about trading, the chain, or sync changed; this was purely the   screen not noticing."
     },
     {
       "title": null,
-      "text": "- **Heavy users no longer wait 30 seconds for new-pair prices (D-65).** Ark and   Cheng's debug exports showed that even after v3.18.0 added the per-account   fallback, public RPC endpoints with hard rate limits (403s on   `getMultipleAccounts`) forced every batch read through a doomed round trip   before falling back. The RPC pool now remembers method-level policy refusals   with a sliding 10-minute memory, ranking refused endpoints behind healthy ones   and skipping doomed batch calls entirely when universal. Fallback transition   error logging is throttled to once per minute to eliminate error-log storms. - **Quick-buy on a new pair page can never fill the previous token (D-67).**   Haris reported that quick-buying on a brand-new pair could fill against the   token just navigated away from before the page fully resolved. `requestBuy`   now gates instant fills on a `tokenHref` identity anchor stamped by the detect   loop, pausing quick-buy with an honest toast until the new token is identified."
-    },
-    {
-      "title": null,
-      "text": "Tested: new defect suites (14 tests) fail on the old code and pass on the fix; full extension suite 2406/2406, full repo 2726/2726."
+      "text": "Tested: new defect suite (6 tests, including a negative control that fails on the old code) plus the perf-contract pin; full extension suite 2416/2416."
     }
   ]
 }
