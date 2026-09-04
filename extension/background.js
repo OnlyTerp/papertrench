@@ -109,6 +109,7 @@ const DEFAULTS = {
   warmHoverRowEnabled: false,
   warmHoverBuyEnabled: false,
   warmEverywhereEnabled: false,
+  warmSameSiteEnabled: false,
   xrayEnabled: false,
   xrayDeepScanEnabled: true,
   settingsRevision: 6,
@@ -1905,6 +1906,137 @@ async function warmDestHint(rawUrl, settings) {
   });
 }
 
+/* ------------- same-terminal chart opens (Turbo III) ----------------------
+ *
+ * The gap every other Turbo tier left alone: on the terminal itself, a token
+ * row -> its chart is the site's own SPA route, and its data fetches start
+ * at the click. Nothing outside the site can warm ITS cache — but the
+ * family viewer can: on hover the hidden viewer of the SAME terminal loads
+ * that token's page; when it reports complete, the click reveals it. The
+ * viewer takes a click ONLY when it is already done loading (the content
+ * side hears `pt_warmsame_ready` first) — otherwise the site's own router
+ * runs, which is faster than watching a viewer finish. Strictly better-or-
+ * equal, by construction.
+ *
+ * Doctrine holds: the viewer is created by a real click (`spawn`: the
+ * click itself stays native, and a hidden tab parks on what the user just
+ * opened), hints navigate only a hidden viewer, and the viewer never takes
+ * a click from itself — from the viewer tab, clicks are native. Scoped to
+ * five terminals; same family registry and cleanup as every other viewer.
+ */
+const WARM_SAME_FAMILIES = new Set(['gmgn', 'axiom', 'padre', 'lute', 'fomo']);
+// viewerTabId -> { url, senderTabId }: a readiness notice owed to a tab.
+const warmSamePending = new Map();
+
+function warmSameFeatureOn(settings) {
+  return settings.warmSameSiteEnabled === true;
+}
+
+/** The same-family token target a sender may ask for, or null. Both the
+ * URL and the sender's own host are re-derived here — the terminal-side
+ * world only suggests. */
+function warmSameTarget(rawUrl, sender) {
+  const target = WD && WD.classify(String(rawUrl || ''));
+  if (!target || !WARM_SAME_FAMILIES.has(target.family)) return null;
+  let host = '';
+  try { host = new URL((sender && sender.tab && sender.tab.url) || '').hostname; } catch (_) { host = ''; }
+  if (WD.familyOfHost(host) !== target.family) return null;
+  return target;
+}
+
+function warmSameNotifyReady(senderTabId, url) {
+  if (!Number.isFinite(senderTabId)) return;
+  try { chrome.tabs.sendMessage(senderTabId, { type: 'pt_warmsame_ready', url }).catch(() => {}); } catch (_) {}
+}
+
+/** Hover: navigate the hidden same-family viewer to the target. Answers
+ * `ready` only when the viewer is ALREADY parked there and loaded; every
+ * other case answers later via pt_warmsame_ready, or never. */
+async function warmSameHint(rawUrl, sender, settings) {
+  if (!warmSameFeatureOn(settings)) return { ok: false, reason: 'off' };
+  const target = warmSameTarget(rawUrl, sender);
+  if (!target) return { ok: false, reason: 'unclassified' };
+  const senderTabId = sender && sender.tab ? sender.tab.id : null;
+  return warmSerial(async () => {
+    const valid = await validWarmDestTab(target.family);
+    if (!valid) return { ok: true, viewer: false, ready: false };
+    const { tab } = valid;
+    if (tab.active || tab.id === senderTabId) return { ok: true, viewer: false, ready: false };
+    if (sameDestUrl((tab.pendingUrl || tab.url || ''), target.url)) {
+      if (tab.status === 'complete') return { ok: true, viewer: true, ready: true };
+      warmSamePending.set(tab.id, { url: target.url, senderTabId });
+      return { ok: true, viewer: true, ready: false };
+    }
+    warmSamePending.set(tab.id, { url: target.url, senderTabId });
+    try { await chrome.tabs.update(tab.id, { url: target.url }); } catch (_) { warmSamePending.delete(tab.id); }
+    return { ok: true, viewer: true, ready: false };
+  });
+}
+
+/** Click, viewer ready: reveal it. If reality moved (viewer closed, or the
+ * user is now looking at it), fall through to the ordinary destination
+ * route rather than swallow the click. */
+async function warmSameOpen(rawUrl, sender, settings) {
+  if (!warmSameFeatureOn(settings)) return { ok: false, reason: 'off' };
+  const target = warmSameTarget(rawUrl, sender);
+  if (!target) return { ok: false, reason: 'unclassified' };
+  const senderTabId = sender && sender.tab ? sender.tab.id : null;
+  const revealed = await warmSerial(async () => {
+    const startedAt = Date.now();
+    const valid = await validWarmDestTab(target.family);
+    if (!valid) return null;
+    const { tab, state } = valid;
+    if (tab.active || tab.id === senderTabId) return null;
+    if (!sameDestUrl((tab.pendingUrl || tab.url || ''), target.url)) return null;
+    warmSamePending.delete(tab.id);
+    await warmReveal(tab);
+    await writeWarmDestTab(target.family, { ...state, used: true });
+    turboNote('same:warm_reveal', Date.now() - startedAt);
+    return { ok: true, route: 'warm_reveal' };
+  });
+  if (revealed) return revealed;
+  return warmDestOpen(target.url, sender, settings);
+}
+
+/** Click, no viewer: the click stays native (the site's own router is the
+ * fastest first hop there is); a hidden viewer parks on the same page so the
+ * NEXT hover has something to warm. Created by a click, never by a hover —
+ * the one thing every field report about "tabs appearing" asked for. */
+async function warmSameSpawn(rawUrl, sender, settings) {
+  if (!warmSameFeatureOn(settings)) return { ok: false, reason: 'off' };
+  const target = warmSameTarget(rawUrl, sender);
+  if (!target) return { ok: false, reason: 'unclassified' };
+  return warmSerial(async () => {
+    const valid = await validWarmDestTab(target.family);
+    if (valid) return { ok: true, route: 'viewer_exists' };
+    await writeWarmDestClosed(target.family, false);
+    const props = { url: target.url, active: false, autoDiscardable: false };
+    if (sender && sender.tab) {
+      props.windowId = sender.tab.windowId;
+      props.index = sender.tab.index + 1;
+      props.openerTabId = sender.tab.id;
+    }
+    let tab = null;
+    try { tab = await chrome.tabs.create(props); }
+    catch (_) { try { tab = await chrome.tabs.create({ url: target.url, active: false }); } catch (_) { tab = null; } }
+    if (!tab || !Number.isFinite(tab.id)) return { ok: false, reason: 'create_failed' };
+    try { await chrome.tabs.update(tab.id, { muted: true }); } catch (_) {}
+    await writeWarmDestTab(target.family, { tabId: tab.id, used: false, createdAt: Date.now() });
+    turboNote('same:spawn');
+    return { ok: true, route: 'spawned' };
+  });
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return;
+  const pending = warmSamePending.get(tabId);
+  if (!pending) return;
+  const url = (tab && (tab.pendingUrl || tab.url)) || '';
+  if (!sameDestUrl(url, pending.url)) return; // a later hint superseded this one
+  warmSamePending.delete(tabId);
+  warmSameNotifyReady(pending.senderTabId, pending.url);
+});
+
 /* The user closing a viewer is an instruction, not an accident. Community
  * report (Eyes343, 2026-08-05): pump.fun + Solscan "open every time you
  * open/refresh the DEX" — the per-page settings edge in warm-links.js fires
@@ -1935,7 +2067,7 @@ function writeWarmDestClosed(family, closed) {
 // create a destination tab outside warmDestOpen.
 
 async function warmDestSettingsChanged(settings) {
-  if (warmDestFeatureOn(settings)) {
+  if (warmDestFeatureOn(settings) || warmSameFeatureOn(settings)) {
     return;
   }
   for (const family of Object.keys(WARM_DEST_FAMILIES)) {
@@ -1951,6 +2083,7 @@ async function warmDestSettingsChanged(settings) {
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  warmSamePending.delete(tabId);
   warmSerial(async () => {
     for (const family of Object.keys(WARM_DEST_FAMILIES)) {
       const state = await readWarmDestTab(family);
@@ -2820,6 +2953,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'pt_warmdest_hint':
         warmDestHint(message.url, settings).catch(() => {});
         sendResponse({ ok: true });
+        break;
+
+      case 'pt_warmsame_hint':
+        sendResponse(await warmSameHint(message.url, sender, settings));
+        break;
+
+      case 'pt_warmsame_open':
+        sendResponse(await warmSameOpen(message.url, sender, settings));
+        break;
+
+      case 'pt_warmsame_spawn':
+        sendResponse(await warmSameSpawn(message.url, sender, settings));
         break;
 
       // pt_warmdest_prewarm existed here until the click-only doctrine

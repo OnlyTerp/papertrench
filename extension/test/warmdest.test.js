@@ -134,7 +134,7 @@ function destWorker(opts = {}) {
   const session = {};
   const tabsById = new Map();
   let nextTabId = 900;
-  const calls = { created: [], updated: [], removed: [], windows: [] };
+  const calls = { created: [], updated: [], removed: [], windows: [], sent: [] };
   const listeners = {};
   let messageListener = null;
 
@@ -204,7 +204,7 @@ function destWorker(opts = {}) {
           if (urls.some((u) => u.includes('x.com'))) { callback([]); return; }
           callback(opts.platformTabs || []);
         },
-        sendMessage: async () => ({ forwarded: true }),
+        sendMessage: async (id, message) => { calls.sent.push({ id, message }); return { forwarded: true }; },
         captureVisibleTab: async () => 'data:image/jpeg;base64,',
         onRemoved: { addListener: (fn) => { (listeners.onRemovedAll ||= []).push(fn); listeners.onRemoved = (...a) => listeners.onRemovedAll.forEach((f) => f(...a)); } },
         onUpdated: { addListener: (fn) => { (listeners.onUpdatedAll ||= []).push(fn); listeners.onUpdated = (...a) => listeners.onUpdatedAll.forEach((f) => f(...a)); } },
@@ -735,4 +735,125 @@ test('same-site prefetch names only own-family token URLs in scope (Turbo III ro
   // Garbage never throws, just refuses.
   assert.equal(WD.sameSitePrefetchable('not a url', 'https://axiom.trade/', 'axiom.trade', FIVE), null);
   assert.equal(WD.sameSitePrefetchable(null, 'https://axiom.trade/', 'axiom.trade', FIVE), null);
+});
+
+/* ---------------- same-terminal chart opens (Turbo III) ---------------- */
+
+const GMGN_A = `https://gmgn.ai/sol/token/${MINT}`;
+const GMGN_B = 'https://gmgn.ai/sol/token/7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+const ON_GMGN = { tab: { id: 1, windowId: 1, index: 0, url: 'https://gmgn.ai/?chain=sol' } };
+const sameWorker = (opts = {}) => destWorker({ enabled: false, platformTabs: opts.platformTabs, settings: { warmSameSiteEnabled: true, ...(opts.settings || {}) } });
+
+test('same-terminal: the first click stays native and spawns a HIDDEN viewer parked on that page', async () => {
+  const worker = sameWorker();
+  const hint = await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_A }, ON_GMGN);
+  assert.deepEqual({ viewer: hint.viewer, ready: hint.ready }, { viewer: false, ready: false }, 'a hover never creates a tab');
+  assert.equal(worker.calls.created.length, 0);
+
+  const spawn = await send(worker.listener, { type: 'pt_warmsame_spawn', url: GMGN_A }, ON_GMGN);
+  assert.equal(spawn.route, 'spawned');
+  assert.equal(worker.calls.created.length, 1, 'the click created exactly one tab');
+  const created = worker.calls.created[0];
+  assert.equal(created.active, false, 'the spawned viewer stays hidden — the click itself went native');
+  assert.equal(created.autoDiscardable, false, 'and stays resident');
+  assert.equal(created.url, GMGN_A);
+  assert.ok(worker.calls.updated.some((u) => u.id === created.id && u.props.muted === true), 'muted');
+  assert.equal(worker.session.pt_warm_tab_gmgn.tabId, created.id, 'registered as the gmgn family viewer');
+  assert.equal(worker.session.pt_warm_tab_gmgn.used, false, 'never shown, so toggle-off may close it');
+
+  const again = await send(worker.listener, { type: 'pt_warmsame_spawn', url: GMGN_B }, ON_GMGN);
+  assert.equal(again.route, 'viewer_exists', 'a second click never spawns a second viewer');
+  assert.equal(worker.calls.created.length, 1);
+});
+
+test('same-terminal: hover navigates the hidden viewer; readiness is pushed to the asking tab on load complete', async () => {
+  const worker = sameWorker();
+  const viewer = worker.seedDestViewer('gmgn', { url: GMGN_A });
+  viewer.status = 'loading';
+  const hint = await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_B }, ON_GMGN);
+  assert.deepEqual({ viewer: hint.viewer, ready: hint.ready }, { viewer: true, ready: false });
+  assert.ok(worker.calls.updated.some((u) => u.id === viewer.id && u.props.url === GMGN_B), 'the viewer was sent to the hovered token');
+  assert.equal(worker.calls.sent.length, 0, 'nothing is ready yet');
+
+  // A loading event for some OTHER page (a superseded hint) says nothing.
+  worker.listeners.onUpdated(viewer.id, { status: 'complete' }, { ...viewer, url: GMGN_A });
+  assert.equal(worker.calls.sent.length, 0, 'a complete for a different URL is not readiness');
+
+  worker.listeners.onUpdated(viewer.id, { status: 'complete' }, { ...viewer, url: GMGN_B });
+  assert.equal(worker.calls.sent.length, 1, 'readiness is pushed exactly once');
+  assert.deepEqual(JSON.parse(JSON.stringify(worker.calls.sent[0])), { id: 1, message: { type: 'pt_warmsame_ready', url: GMGN_B } });
+});
+
+test('same-terminal: a viewer already parked and loaded answers ready immediately; the click reveals it', async () => {
+  const worker = sameWorker();
+  const viewer = worker.seedDestViewer('gmgn', { url: GMGN_B });
+  const hint = await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_B }, ON_GMGN);
+  assert.equal(hint.ready, true);
+  const open = await send(worker.listener, { type: 'pt_warmsame_open', url: GMGN_B }, ON_GMGN);
+  assert.equal(open.route, 'warm_reveal');
+  assert.ok(worker.calls.updated.some((u) => u.id === viewer.id && u.props.active === true), 'revealed');
+  assert.equal(worker.calls.created.length, 0, 'no new tab');
+  assert.equal(worker.session.pt_warm_tab_gmgn.used, true, 'a revealed viewer belongs to the user');
+  assert.ok(worker.values.pt_turbo_stats['same:warm_reveal'].count >= 1, 'receipted as a warm route');
+});
+
+test('same-terminal: the viewer never takes a click from ITSELF, nor from a tab the user is looking at', async () => {
+  const worker = sameWorker();
+  const viewer = worker.seedDestViewer('gmgn', { url: GMGN_A });
+  const fromViewer = { tab: { id: viewer.id, windowId: 1, index: 0, url: GMGN_A } };
+  const hint = await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_B }, fromViewer);
+  assert.equal(hint.viewer, false, 'from the viewer tab, there is no viewer to warm');
+  assert.equal(worker.calls.updated.length, 0, 'the tab the user is on is never navigated by a hover');
+  const spawn = await send(worker.listener, { type: 'pt_warmsame_spawn', url: GMGN_B }, fromViewer);
+  assert.equal(spawn.route, 'viewer_exists', 'and no second viewer is spawned for it');
+
+  viewer.active = true;
+  const hint2 = await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_B }, ON_GMGN);
+  assert.equal(hint2.viewer, false, 'an active viewer is the user\'s reading, not a hint target');
+  assert.equal(worker.calls.updated.length, 0);
+});
+
+test('same-terminal: cross-family and off-terminal asks refuse; the flag off refuses everything', async () => {
+  const worker = sameWorker();
+  worker.seedDestViewer('gmgn', { url: GMGN_A });
+  const fromAxiom = { tab: { id: 1, windowId: 1, index: 0, url: 'https://axiom.trade/pulse' } };
+  assert.equal((await send(worker.listener, { type: 'pt_warmsame_hint', url: GMGN_B }, fromAxiom)).ok, false, 'a gmgn link on axiom is a cross-site job');
+  const pump = { tab: { id: 1, windowId: 1, index: 0, url: 'https://pump.fun/board' } };
+  assert.equal((await send(worker.listener, { type: 'pt_warmsame_spawn', url: `https://pump.fun/coin/${MINT}` }, pump)).ok, false, 'pump.fun is not in scope');
+  assert.equal(worker.calls.created.length, 0);
+
+  const off = destWorker({ enabled: false });
+  assert.equal((await send(off.listener, { type: 'pt_warmsame_spawn', url: GMGN_A }, ON_GMGN)).ok, false);
+  assert.equal(off.calls.created.length, 0, 'flag off: no tab, ever');
+});
+
+test('same-terminal: a click whose viewer moved falls through to the ordinary destination route, never a swallowed click', async () => {
+  const worker = sameWorker({ settings: { warmEverywhereEnabled: true } });
+  worker.seedDestViewer('gmgn', { url: GMGN_A });
+  // Content believed B was ready; the viewer is actually on A.
+  const open = await send(worker.listener, { type: 'pt_warmsame_open', url: GMGN_B }, ON_GMGN);
+  assert.equal(open.ok, true);
+  assert.equal(open.route, 'warm_nav', 'the destination route navigates the viewer and reveals it');
+});
+
+test('same-terminal: turning the flag off closes an unused hidden viewer, keeps one the user has seen', async () => {
+  const worker = sameWorker();
+  const hidden = worker.seedDestViewer('gmgn', { url: GMGN_A });
+  const seen = worker.seedDestViewer('axiom', { url: `https://axiom.trade/meme/${MINT}`, used: true });
+  worker.values.pt_settings.warmSameSiteEnabled = false;
+  await send(worker.listener, { type: 'pt_settings_changed' });
+  await worker.settle();
+  assert.ok(worker.calls.removed.includes(hidden.id), 'the never-shown viewer goes');
+  assert.ok(!worker.calls.removed.includes(seen.id), 'the user\'s tab stays');
+});
+
+test('same-terminal: the content side only claims a click the background already called ready (source contract)', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'warm-links.js'), 'utf8');
+  const click = src.slice(src.indexOf("addEventListener('click'"), src.indexOf('/* Hover prefetch.'));
+  assert.match(click, /sameReady && sameReady\.url === same/, 'reveal only for the exact URL reported ready');
+  assert.match(click, /pt_warmsame_spawn/, 'otherwise the click stays native and asks for a viewer');
+  const spawnAt = click.indexOf('pt_warmsame_spawn');
+  assert.doesNotMatch(click.slice(spawnAt, spawnAt + 400), /preventDefault/, 'the spawn path never eats the click');
+  assert.match(src, /message\.url === sameHintUrl\) sameReady/, 'a stale readiness notice for a page the cursor left is ignored');
+  assert.match(src, /if \(sameHintUrl !== url\) sameReady = null/, 'moving the viewer invalidates readiness');
 });

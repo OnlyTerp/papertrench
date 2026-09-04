@@ -39,6 +39,9 @@
   const STATE_TAG = 'papertrench-warmstate';
 
   let enabled = false;
+  let sameSiteEnabled = false;   // same-terminal chart opens via the family viewer (Turbo)
+  let sameReady = null;          // { url } the same-terminal viewer is parked on and done loading
+  let sameHintUrl = '';          // the last same-terminal URL this tab asked the viewer to load
   let cardsEnabled = false;    // tweet preview card on X-link hover (opt-in)
   let rowHoverEnabled = false; // trigger the preview from anywhere on a row (opt-in)
   let buyHoverEnabled = false; // trigger it from the SITE's own quick-buy pill (opt-in)
@@ -78,6 +81,8 @@
     buyHoverEnabled = !!(settings && settings.warmHoverBuyEnabled);
     const everywhereOn = !!(settings && settings.warmEverywhereEnabled);
     everywhereEnabled = everywhereOn;
+    sameSiteEnabled = !!(settings && settings.warmSameSiteEnabled);
+    if (!sameSiteEnabled) sameReady = null;
     // No prewarm ping here anymore: destination viewers are click-created
     // only (TRNC/Eyes343 — tabs appearing without a click read as a bug,
     // however warm they made the first open).
@@ -296,7 +301,7 @@
   // terminals stop propagation aggressively) can eat the click before this
   // sees it.
   window.addEventListener('click', (event) => {
-    if ((!enabled && !everywhereEnabled) || event.defaultPrevented) return;
+    if ((!enabled && !everywhereEnabled && !sameSiteEnabled) || event.defaultPrevented) return;
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const anchor = anchorFromEvent(event);
     if (!anchor) return;
@@ -316,6 +321,24 @@
       if (!requestWarmDestOpen(dest.url)) return;
       event.preventDefault();
       event.stopPropagation();
+      return;
+    }
+    const same = sameSiteTargetFor(href);
+    if (same) {
+      if (sameReady && sameReady.url === same && contextAlive()) {
+        // The viewer already finished loading this exact page: reveal it.
+        try { chrome.runtime.sendMessage({ type: 'pt_warmsame_open', url: same }).catch(() => {}); }
+        catch (_) { return; }
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      // Not ready: the site's own router takes this click (fastest first hop
+      // there is). Ask for a hidden viewer parked on the same page so the
+      // NEXT hover has something to warm. Click-created, never hover-created.
+      if (contextAlive()) {
+        try { chrome.runtime.sendMessage({ type: 'pt_warmsame_spawn', url: same }).catch(() => {}); } catch (_) {}
+      }
       return;
     }
     if (enabled) {
@@ -367,6 +390,57 @@
       try { chrome.runtime.sendMessage({ type: 'pt_warmdest_hint', url: dest.url }).catch(() => {}); } catch (_) {}
     }
   }
+
+  /* ---- same-terminal chart opens (Turbo III) -----------------------------
+   * Row -> chart on the terminal itself is the site's own SPA route; nothing
+   * outside the site can warm its cache. The family viewer can: hover loads
+   * the token page in the HIDDEN viewer of this same terminal; the
+   * background says `pt_warmsame_ready` when that load completes; only then
+   * does a click reveal it (see the click path). A click that lands before
+   * readiness stays native — the viewer is never allowed to be slower than
+   * the site. From the viewer tab itself, clicks are always native. */
+  const SAME_SITE_FAMILIES = ['gmgn', 'axiom', 'padre', 'lute', 'fomo'];
+
+  function sameSiteTargetFor(href) {
+    if (!sameSiteEnabled) return null;
+    const WDs = window.PTWarmDest;
+    if (!WDs) return null;
+    let target = null;
+    try { target = WDs.classify(href, window.location.href); } catch (_) { return null; }
+    if (!target || target.kind !== 'token') return null;
+    if (SAME_SITE_FAMILIES.indexOf(target.family) === -1) return null;
+    if (WDs.familyOfHost(window.location.hostname) !== target.family) return null;
+    // The page we are already on is not a hop.
+    try {
+      const here = new URL(window.location.href);
+      const there = new URL(target.url);
+      if (here.pathname.replace(/\/+$/, '') === there.pathname.replace(/\/+$/, '') && here.search === there.search) return null;
+    } catch (_) { return null; }
+    return target.url;
+  }
+
+  function sendSameHint(url) {
+    const now = Date.now();
+    if (lastHint.url === url && now - lastHint.t < HINT_REPEAT_MS) return;
+    lastHint = { url, t: now };
+    if (sameHintUrl !== url) sameReady = null; // the viewer is moving elsewhere
+    sameHintUrl = url;
+    if (!contextAlive()) return;
+    try {
+      chrome.runtime.sendMessage({ type: 'pt_warmsame_hint', url }).then((res) => {
+        if (res && res.ready === true && sameHintUrl === url) sameReady = { url };
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  try {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (!message || message.type !== 'pt_warmsame_ready' || typeof message.url !== 'string') return;
+      // Only the hint we most recently asked for counts — a stale notice for
+      // a page the cursor left would let a click reveal the wrong chart.
+      if (message.url === sameHintUrl) sameReady = { url: message.url };
+    });
+  } catch (_) {}
 
   /* ---- preview card (opt-in) --------------------------------------------
    * The terminals' own tweet previews are small and demand pixel-precise
@@ -661,7 +735,7 @@
   const DEST_HINT_DWELL_MS = 180;
 
   window.addEventListener('mouseover', (event) => {
-    if (!enabled && !everywhereEnabled) return;
+    if (!enabled && !everywhereEnabled && !sameSiteEnabled) return;
     // Inside the card: it stays.
     if (cardHost && typeof event.composedPath === 'function' && event.composedPath().includes(cardHost)) {
       clearTimeout(hideTimer);
@@ -690,10 +764,18 @@
       return;
     }
 
-    // Same-site token link (stays native by design): dwell-prefetch its
-    // document underneath. Falls through on purpose — row previews and the
-    // buy pill keep working above it; a prefetch is invisible either way.
-    const sameSite = anchor ? sameSitePrefetchTarget(anchor.getAttribute('href')) : null;
+    // Same-terminal token link: warm the family viewer on dwell (it reveals on
+    // click only once loaded), and dwell-prefetch the document underneath for
+    // sites that navigate for real. Falls through on purpose — row previews
+    // and the buy pill keep working above it; both hints are invisible.
+    const sameHref = anchor ? anchor.getAttribute('href') : null;
+    const sameViewer = sameHref ? sameSiteTargetFor(sameHref) : null;
+    if (sameViewer && sameViewer !== hintUrl) {
+      clearTimeout(hintTimer);
+      hintUrl = sameViewer;
+      hintTimer = setTimeout(() => sendSameHint(sameViewer), DEST_HINT_DWELL_MS);
+    }
+    const sameSite = sameHref ? sameSitePrefetchTarget(sameHref) : null;
     if (sameSite && sameSite !== prefetchUrl) {
       clearTimeout(prefetchTimer);
       prefetchTimer = setTimeout(() => prefetchSameSite(sameSite), DEST_HINT_DWELL_MS);
@@ -747,7 +829,7 @@
    * equally warm place to wait). The click path is untouched — a press never
    * claims the click, which is why no preventDefault lives here. */
   window.addEventListener('pointerdown', (event) => {
-    if ((!enabled && !everywhereEnabled) || event.defaultPrevented) return;
+    if ((!enabled && !everywhereEnabled && !sameSiteEnabled) || event.defaultPrevented) return;
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const anchor = anchorFromEvent(event);
     if (!anchor) return;
@@ -757,6 +839,8 @@
     if (target) { sendXHint(target); return; }
     const dest = destTargetFor(href);
     if (dest) { sendDestHint(dest); return; }
+    const same = sameSiteTargetFor(href);
+    if (same) { sendSameHint(same); return; }
     // Unclassified cross-origin press: no viewer will take this click, but the
     // new tab shares the socket pool — a preconnect now still skips its DNS+TLS.
     pressPreconnect(href);
@@ -776,7 +860,7 @@
   let trajTracker = null;
   let trajLastCheck = 0;
   window.addEventListener('mousemove', (event) => {
-    if (!enabled && !everywhereEnabled) return;
+    if (!enabled && !everywhereEnabled && !sameSiteEnabled) return;
     const T = window.PTTrajectory;
     if (!T) return;
     if (!trajTracker) trajTracker = T.createTracker();
@@ -796,7 +880,9 @@
     const target = enabled && X ? X.classify(href, window.location.href) : null;
     if (target) { sendXHint(target); return; }
     const dest = destTargetFor(href);
-    if (dest) sendDestHint(dest);
+    if (dest) { sendDestHint(dest); return; }
+    const same = sameSiteTargetFor(href);
+    if (same) sendSameHint(same);
   }, { capture: true, passive: true });
 
   // A scrolling list slides the row out from under the card; a stale card

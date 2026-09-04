@@ -130,7 +130,7 @@ test('every warm message type sent has a handler on the other side', () => {
   const warmLinks = fs.readFileSync(path.join(ROOT, 'warm-links.js'), 'utf8');
   const relay = fs.readFileSync(path.join(ROOT, 'xwarm-relay.js'), 'utf8');
 
-  for (const type of ['pt_warm_open', 'pt_warm_hint', 'pt_warm_oembed', 'pt_warm_prewarm']) {
+  for (const type of ['pt_warm_open', 'pt_warm_hint', 'pt_warm_oembed', 'pt_warm_prewarm', 'pt_warmsame_hint', 'pt_warmsame_open', 'pt_warmsame_spawn']) {
     assert.match(warmLinks, new RegExp(`type: '${type}'`), `warm-links.js must send ${type}`);
     assert.match(background, new RegExp(`case '${type}'`), `background.js must handle ${type}`);
   }
@@ -138,6 +138,8 @@ test('every warm message type sent has a handler on the other side', () => {
   assert.match(relay, /msg\.type !== 'pt_warm_spa'/, 'the relay must accept the SPA request');
   assert.match(relay, /type: 'pt_warm_spa_result'/, 'the relay must report the result');
   assert.match(background, /case 'pt_warm_spa_result'/, 'background must consume the result');
+  assert.match(background, /type: 'pt_warmsame_ready'/, 'background must push same-terminal readiness');
+  assert.match(warmLinks, /message\.type !== 'pt_warmsame_ready'/, 'warm-links must listen for it');
 });
 
 /* ---------------- background warm flows ---------------- */
@@ -886,10 +888,10 @@ test('the icon-hover card still lands below its anchor — the pill rule is addi
 
 test('the dashboard exposes and persists all four Instant X links settings', () => {
   const dash = fs.readFileSync(path.join(ROOT, 'dashboard.js'), 'utf8');
-  for (const id of ['set-warm-x', 'set-warm-cards', 'set-warm-row', 'set-warm-buy']) {
+  for (const id of ['set-warm-x', 'set-warm-cards', 'set-warm-row', 'set-warm-buy', 'set-warm-sameterminal']) {
     assert.match(dash, new RegExp(`id="${id}"`), `${id} must be in the settings form`);
   }
-  for (const key of ['warmXLinksEnabled', 'warmHoverCardsEnabled', 'warmHoverRowEnabled', 'warmHoverBuyEnabled']) {
+  for (const key of ['warmXLinksEnabled', 'warmHoverCardsEnabled', 'warmHoverRowEnabled', 'warmHoverBuyEnabled', 'warmSameSiteEnabled']) {
     assert.match(dash, new RegExp(`${key}: document\\.getElementById`), `${key} must be persisted on save`);
   }
 });
