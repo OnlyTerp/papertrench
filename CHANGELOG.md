@@ -3,6 +3,32 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+- **X-Ray reads accounts again.** A gate in the background was rejecting the
+  panel's SSR digests, so X-Ray sat on "Reading this account" forever on
+  profiles whose data arrived with the page HTML. Fixed; the card builds
+  from the first paint again.
+- **Turbo III: warm sockets.** With Turbo on, every terminal page now
+  preconnects the other destination families plus x.com — no tabs, no
+  requests, just warm sockets — so the first cross-site click of the
+  session stops paying DNS+TLS. Presses on unclassified cross-origin links
+  warm their own origin the same way. Toggle everything off and the hints
+  come back out.
+- **X viewer media rides along.** The socket pre-warm now covers X's image
+  and static hosts too, so a revealed viewer shows avatars and timeline
+  images without a second round of connection setup.
+- **The hidden X viewer stays resident.** A muted background tab holding a
+  full X app is the first thing the browser discards under memory pressure,
+  which silently turned warm clicks cold again. Created viewers are now
+  pinned against discarding (adopted tabs — yours — are never touched, and
+  toggle-off still closes an unused viewer).
+- **Same-site links prefetch on dwell (gmgn, axiom, padre, lute, fomo).**
+  Cross-site links get a viewer; same-site token links stay native — but
+  when the click is a real navigation, a dwell-started prefetch now has
+  the document in cache before release. One rule slot, Turbo-gated,
+  strict same-origin; internally-routed clicks simply never use it.
+
 ## v3.19.0 — 2026-09-04
 
 **The multichain release: the sol → Robinhood Chain switch on GMGN, Axiom and

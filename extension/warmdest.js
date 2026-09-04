@@ -236,7 +236,70 @@
     return null;
   }
 
-  const api = { classify, isWarmDestHost, familyOfHost };
+  /* -------------------- socket pre-warm (Turbo III) -------------------- */
+
+  // Canonical navigation origin per family — the host a viewer tab or a new
+  // tab pays DNS+TCP+TLS for on its first load. The terminal page preconnects
+  // these (no tabs, no requests, just warm sockets in the shared pool) so the
+  // first cross-site click of the session stops paying the cold price. One
+  // entry per family, kept next to the canonical hosts in classify() above —
+  // if a canonical host moves, this table moves with it.
+  const PRECONNECT_ORIGINS = [
+    ['pumpfun', 'https://pump.fun'],
+    ['solscan', 'https://solscan.io'],
+    ['axiom', 'https://axiom.trade'],
+    ['padre', 'https://trade.padre.gg'],
+    ['gmgn', 'https://gmgn.ai'],
+    ['fomo', 'https://fomo.family'],
+    ['bullx', 'https://neo.bullx.io'],
+    ['photon', 'https://photon-sol.tinyastro.io'],
+    ['dexscreener', 'https://dexscreener.com'],
+    ['birdeye', 'https://birdeye.so'],
+    ['jupiter', 'https://jup.ag'],
+    ['lute', 'https://lute.gg'],
+  ];
+
+  // x.com is the warm X viewer's destination and the most-clicked link on
+  // every terminal. It is not a warmdest family (warmdest never runs on x.com
+  // itself), so it is always included, never filtered. pbs/abs carry every
+  // avatar, banner, and timeline image the viewer shows — a viewer tab that
+  // connects to x.com but not its image hosts still stalls on media.
+  const X_PRECONNECT_ORIGINS = ['https://x.com', 'https://pbs.twimg.com', 'https://abs.twimg.com'];
+
+  /** Origins worth preconnecting from `currentHostname`: every family except
+  * the page's own (same-origin sockets are already warm), plus the X origins.
+  * Pure — runs under `node --test` with no browser. */
+  function preconnectTargets(currentHostname) {
+    const here = typeof currentHostname === 'string' ? familyOfHost(currentHostname) : null;
+    const out = [];
+    for (const pair of PRECONNECT_ORIGINS) {
+      if (pair[0] === here) continue;
+      out.push(pair[1]);
+    }
+    for (const o of X_PRECONNECT_ORIGINS) out.push(o);
+    return out;
+  }
+
+  /* ------------ same-site dwell prefetch (Turbo III, round 2) ------------ */
+
+  // A same-family token link stays native by design (the site's own SPA
+  // router beats a tab swap) — but when the click IS a real navigation, a
+  // speculation-rules prefetch started during the hover dwell makes it
+  // instant. This selector answers only which URL may be prefetched; the
+  // caller (warm-links.js) owns the dwell timer, the single-slot rule
+  // element, and the strict same-origin check. `families` is caller-passed
+  // so rollout stays scoped; cross-family and unclassified hrefs refuse.
+  // Pure — runs under `node --test` with no browser.
+  function sameSitePrefetchable(href, baseHref, currentHostname, families) {
+    let target = null;
+    try { target = classify(href, baseHref); } catch (_) { return null; }
+    if (!target) return null;
+    if (familyOfHost(currentHostname) !== target.family) return null;
+    if (!Array.isArray(families) || families.indexOf(target.family) === -1) return null;
+    return target.url;
+  }
+
+  const api = { classify, isWarmDestHost, familyOfHost, preconnectTargets, X_PRECONNECT_ORIGINS, sameSitePrefetchable };
   if (typeof window !== 'undefined') window.PTWarmDest = api;
   if (typeof self !== 'undefined') self.PTWarmDest = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

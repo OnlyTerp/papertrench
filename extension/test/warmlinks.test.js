@@ -477,6 +477,8 @@ test('prewarm is idempotent: many trading tabs, one hidden muted viewer', async 
   assert.equal(worker.calls.created.length, 1, 'exactly one viewer regardless of how many tabs ask');
   const created = worker.calls.created[0];
   assert.equal(created.active, false, 'the pre-warmed viewer must stay hidden');
+  assert.equal(created.autoDiscardable, false,
+    'the hidden viewer must stay resident — a discarded viewer silently goes cold');
   assert.ok(worker.calls.updated.some((u) => u.id === created.id && u.props.muted === true),
     'the hidden viewer must be muted — a background feed must never make a sound');
 });
@@ -1414,4 +1416,56 @@ test('adoption prefers a tab parked on /home over one parked on a thread', async
   await worker.settle();
   assert.equal(worker.session.pt_warm_tab.tabId, 77,
     'a /home tab has nothing to lose to a navigation; a parked thread might be someone\'s reading');
+});
+
+test('the Turbo III socket pre-warm injects hints, never claims, and cleans up', () => {
+  const warmLinks = fs.readFileSync(path.join(ROOT, 'warm-links.js'), 'utf8');
+  assert.match(warmLinks, /preconnectTargets/,
+    'the spread reuses the shared family table, never a private host list');
+  assert.match(warmLinks, /setAttribute\('rel', 'preconnect'\)/,
+    'destinations are warmed with preconnect hints');
+  assert.match(warmLinks, /setAttribute\('rel', 'dns-prefetch'\)/,
+    '...plus a dns-prefetch fallback where preconnect is ignored');
+  assert.match(warmLinks, /syncPreconnects\(\)/,
+    'the hints follow the toggles');
+  assert.match(warmLinks, /pressPreconnect\(href\)/,
+    'an unclassified cross-origin press warms its own origin');
+  assert.match(warmLinks, /PRESS_PRECONNECT_MAX/,
+    'the press catch-all is bounded');
+  // Toggle-off means nothing injected: the marked tags come back out.
+  assert.match(warmLinks, /querySelectorAll\('link\[' \+ PRECONNECT_MARK/,
+    'disabling both toggles removes the injected hints');
+  assert.match(warmLinks, /pressPreconnected\.clear\(\)/,
+    '...and resets the press budget with them');
+});
+
+test('warmdest loads before the interceptor that preconnects from its table', () => {
+  const isolatedEntry = manifest.content_scripts.find((cs) => cs.js.includes('content.js'));
+  assert.ok(isolatedEntry.js.indexOf('warmdest.js') < isolatedEntry.js.indexOf('warm-links.js'),
+    'preconnectTargets must be loaded before the interceptor uses it');
+});
+
+test('same-site dwell prefetch is a hint: scoped, single-slot, and cleanable', () => {
+  const warmLinks = fs.readFileSync(path.join(ROOT, 'warm-links.js'), 'utf8');
+  assert.match(warmLinks, /sameSitePrefetchable/,
+    'selection reuses the shared classifier, never a private URL list');
+  assert.match(warmLinks, /SAME_SITE_PREFETCH_FAMILIES/,
+    'rollout stays scoped to the goal terminals');
+  assert.match(warmLinks, /speculationrules/,
+    'delivery is a speculation-rules prefetch, not a hidden tab');
+  assert.match(warmLinks, /eagerness: 'immediate'/,
+    'the rule fires on insert — the dwell already did the waiting');
+  assert.match(warmLinks, /el\.textContent = JSON\.stringify/,
+    'page-controlled hrefs go in as text, never HTML');
+  assert.match(warmLinks, /prefetchRuleEl\.remove\(\)/,
+    'one rule slot, latest wins');
+  assert.match(warmLinks, /dropPrefetchRule\(\)/,
+    'toggle-off drops the rule with the hints');
+  // A press gives ~100ms — never enough for a document to complete — so the
+  // press path must not prefetch; dwell only.
+  const pressAt = warmLinks.indexOf("addEventListener('pointerdown'");
+  const scrollAt = warmLinks.indexOf("addEventListener('scroll'");
+  const block = warmLinks.slice(pressAt, scrollAt);
+  assert.doesNotMatch(block, /prefetchSameSite/,
+    'press-time prefetch would be pure waste');
 });

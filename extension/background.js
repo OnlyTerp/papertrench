@@ -1304,7 +1304,12 @@ async function warmEnsureViewerLocked() {
     console.debug('PaperTrench warm links: adopted an existing X tab as the viewer');
     return;
   }
-  const tab = await chrome.tabs.create({ url: WARM_IDLE_URL, active: false });
+  // autoDiscardable:false pins the hidden viewer resident: a discarded viewer
+  // silently goes cold again (the next hint pays a full reload), and a muted
+  // background tab holding a full X app is exactly what the browser discards
+  // first under memory pressure. Adopted tabs are the user's — never touched.
+  // Toggle-off closes an unused created viewer, so nothing stays pinned past off.
+  const tab = await chrome.tabs.create({ url: WARM_IDLE_URL, active: false, autoDiscardable: false });
   try { await chrome.tabs.update(tab.id, { muted: true }); } catch (_) {}
   await writeWarmTab({ tabId: tab.id, used: false, createdAt: Date.now() });
 }

@@ -1,6 +1,6 @@
 /* PaperTrench — warm X links, trading-site side (ISOLATED world).
  *
- * Five jobs:
+ * Six jobs:
  *  1. Keep the MAIN-world hook told whether the user's opt-in is on (the hook
  *     itself cannot read extension storage).
  *  2. Intercept plain-anchor clicks on X post/profile links at the capture
@@ -20,6 +20,10 @@
  *     Telegram / every site (each behind its own toggle). The classifiers
  *     make the extra surface inert except on the exact links this file
  *     exists for — an unclassified click is a native click, everywhere.
+ *  6. Warm the socket pool (Turbo III): with a toggle on, preconnect every
+ *     other destination family plus x.com — no tabs, no requests, just warm
+ *     sockets — so the first cross-site click skips DNS+TLS. A press on an
+ *     unclassified cross-origin link preconnects its origin the same way.
  *
  * Modified clicks (ctrl / cmd / shift / alt / non-primary button) are passed
  * through untouched — "open in a real background tab and keep reading" is a
@@ -78,6 +82,9 @@
     // only (TRNC/Eyes343 — tabs appearing without a click read as a bug,
     // however warm they made the first open).
     setEnabled(on);
+    // Socket pre-warm follows the toggles: hints go in with Turbo/X on, come
+    // back out with both off.
+    syncPreconnects();
   }
 
   chrome.storage.local.get(['pt_settings'], (value) => {
@@ -122,6 +129,149 @@
     if (WDs.familyOfHost(window.location.hostname) === target.family) return null;
     return target;
   }
+  /* ---- socket pre-warm (Turbo III) --------------------------------------
+   * Hover/press hints warm the VIEWER's page; nothing warms the first
+   * click's DNS+TCP+TLS — until now. With a toggle on, preconnect every
+   * other destination family plus x.com: no tabs, no requests, no cookies,
+   * just warm sockets in the browser's shared pool, so the first cross-site
+   * click and every viewer navigation skip connection setup. Same-family is
+   * excluded (same-origin sockets are already warm). The tags come back out
+   * the moment both toggles go off — "off" means nothing injected. */
+  const PRECONNECT_MARK = 'data-pt-preconnect';
+  const PRESS_PRECONNECT_MAX = 24;
+  const pressPreconnected = new Set();
+
+  function preconnectOrigin(origin) {
+    try {
+      if (typeof origin !== 'string' || origin.indexOf('https://') !== 0) return false;
+      if (!document.head) return false;
+      if (document.head.querySelector('link[' + PRECONNECT_MARK + '="' + origin + '"]')) return true;
+      const pc = document.createElement('link');
+      pc.setAttribute('rel', 'preconnect');
+      pc.setAttribute('href', origin);
+      pc.setAttribute(PRECONNECT_MARK, origin);
+      const dns = document.createElement('link');
+      dns.setAttribute('rel', 'dns-prefetch');
+      dns.setAttribute('href', origin);
+      dns.setAttribute(PRECONNECT_MARK, origin);
+      document.head.append(pc, dns);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  /** Origins worth warming for the current toggle state: the X origins when X
+   * links are on, every other destination family when Turbo is on. The X list
+   * lives in one place (warmdest.js) so the toggle filter can never drift
+   * from the injected set. */
+  function wantedPreconnects() {
+    const WDs = window.PTWarmDest;
+    const xOrigins = (WDs && Array.isArray(WDs.X_PRECONNECT_ORIGINS) && WDs.X_PRECONNECT_ORIGINS.length)
+      ? WDs.X_PRECONNECT_ORIGINS
+      : ['https://x.com'];
+    const out = [];
+    if (enabled) {
+      for (const o of xOrigins) if (!out.includes(o)) out.push(o);
+    }
+    if (everywhereEnabled) {
+      if (WDs && typeof WDs.preconnectTargets === 'function') {
+        try {
+          for (const o of WDs.preconnectTargets(window.location.hostname)) {
+            if (!enabled && xOrigins.includes(o)) continue;
+            if (!out.includes(o)) out.push(o);
+          }
+        } catch (_) {}
+      }
+    }
+    return out;
+  }
+
+  function syncPreconnects() {
+    try {
+      if (!document.head) {
+        // document_start race on dynamically registered pages: retry once the
+        // tree exists rather than silently staying cold.
+        document.addEventListener('DOMContentLoaded', () => syncPreconnects(), { once: true });
+        return;
+      }
+      const want = wantedPreconnects();
+      if (!everywhereEnabled) dropPrefetchRule();
+      if (!want.length) {
+        const stale = document.head.querySelectorAll('link[' + PRECONNECT_MARK + '],script[' + PRECONNECT_MARK + ']');
+        for (const el of stale) el.remove();
+        pressPreconnected.clear();
+        return;
+      }
+      for (const o of want) preconnectOrigin(o);
+    } catch (_) {}
+  }
+
+  /** Press-time catch-all for links no viewer will take: the click still
+   * opens a tab that shares the socket pool, so warming its origin now
+   * skips that tab's DNS+TLS. Bounded and deduped; never touches the
+   * click, the hint budget, or same-origin links. */
+  function pressPreconnect(href) {
+    if (pressPreconnected.size >= PRESS_PRECONNECT_MAX) return;
+    let url = null;
+    try { url = new URL(href, window.location.href); } catch (_) { return; }
+    if (!url || url.protocol !== 'https:' || url.origin === window.location.origin) return;
+    if (pressPreconnected.has(url.origin)) return;
+    if (preconnectOrigin(url.origin)) pressPreconnected.add(url.origin);
+  }
+  /* ---- same-site dwell prefetch (Turbo III, round 2) ----------------------
+   * Cross-site links get a viewer; same-site token links stay native by
+   * design — but when the click IS a real navigation, a prefetch started
+   * during the hover dwell puts the document in HTTP cache before the
+   * button comes back up. Dwell-gated only (a press gives ~100ms, never
+   * enough for a document to complete — that would be pure waste), one
+   * rule slot latest-wins, Turbo-gated, scoped to five terminals, strict
+   * same-origin. Where the site routes internally (pushState), the
+   * prefetched document is simply never used. The href is page-controlled:
+   * textContent (never innerHTML) keeps it inert, and the classifier plus
+   * the same-origin gate bound what can be named. */
+  const SAME_SITE_PREFETCH_FAMILIES = ['gmgn', 'axiom', 'padre', 'lute', 'fomo'];
+  let prefetchTimer = 0;
+  let prefetchRuleEl = null;
+  let prefetchUrl = '';
+
+  function sameSitePrefetchTarget(href) {
+    if (!everywhereEnabled) return null;
+    const WDs = window.PTWarmDest;
+    if (!WDs || typeof WDs.sameSitePrefetchable !== 'function') return null;
+    let url = null;
+    try {
+      url = WDs.sameSitePrefetchable(href, window.location.href, window.location.hostname, SAME_SITE_PREFETCH_FAMILIES);
+    } catch (_) { return null; }
+    if (!url) return null;
+    try {
+      if (new URL(url, window.location.href).origin !== window.location.origin) return null;
+    } catch (_) { return null; }
+    return url;
+  }
+
+  function dropPrefetchRule() {
+    try {
+      prefetchUrl = '';
+      if (prefetchRuleEl) { prefetchRuleEl.remove(); prefetchRuleEl = null; }
+    } catch (_) { prefetchRuleEl = null; }
+  }
+
+  function prefetchSameSite(url) {
+    if (!url || url === prefetchUrl) return;
+    try {
+      if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports
+          && !HTMLScriptElement.supports('speculationrules')) return;
+      dropPrefetchRule();
+      const el = document.createElement('script');
+      el.setAttribute('type', 'speculationrules');
+      el.setAttribute(PRECONNECT_MARK, url);
+      el.textContent = JSON.stringify({ prefetch: [{ source: 'list', urls: [url], eagerness: 'immediate' }] });
+      (document.head || document.documentElement).appendChild(el);
+      prefetchRuleEl = el;
+      prefetchUrl = url;
+    } catch (_) {}
+  }
+
+
 
   /** The anchor a pointer event is really aimed at. composedPath() beats
    * target.closest() twice over: shadow DOM retargets `target` to the shadow
@@ -540,6 +690,15 @@
       return;
     }
 
+    // Same-site token link (stays native by design): dwell-prefetch its
+    // document underneath. Falls through on purpose — row previews and the
+    // buy pill keep working above it; a prefetch is invisible either way.
+    const sameSite = anchor ? sameSitePrefetchTarget(anchor.getAttribute('href')) : null;
+    if (sameSite && sameSite !== prefetchUrl) {
+      clearTimeout(prefetchTimer);
+      prefetchTimer = setTimeout(() => prefetchSameSite(sameSite), DEST_HINT_DWELL_MS);
+    }
+
     // The site's own quick-buy pill, ranked ABOVE row mode: it is the most
     // specific thing the cursor can be on, and its dwell is deliberately the
     // shortest of the three. This trigger stands in for a HELD KEY, so it has
@@ -597,7 +756,10 @@
     const target = enabled && X ? X.classify(href, window.location.href) : null;
     if (target) { sendXHint(target); return; }
     const dest = destTargetFor(href);
-    if (dest) sendDestHint(dest);
+    if (dest) { sendDestHint(dest); return; }
+    // Unclassified cross-origin press: no viewer will take this click, but the
+    // new tab shares the socket pool — a preconnect now still skips its DNS+TLS.
+    pressPreconnect(href);
   }, true);
 
   /* Trajectory prefetch (Turbo II). A cursor moving decisively AT a link

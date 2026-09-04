@@ -651,3 +651,88 @@ test('the positions-bar chip hop routes cross-terminal through the warm viewer (
   assert.match(fn, /window\.location\.href = url/,
     'the native hop must remain as the fallback');
 });
+
+test('preconnect targets cover every family exactly once, plus x.com (Turbo III)', () => {
+  const WD = loadWarmDest();
+  // One known-good token URL per family, mirroring the classify gates above.
+  // If a canonical host moves in classify() but not in the preconnect table,
+  // this is the test that goes red.
+  const samples = [
+    ['pumpfun', `https://pump.fun/coin/${MINT}`],
+    ['solscan', `https://solscan.io/token/${MINT}`],
+    ['axiom', `https://axiom.trade/meme/${MINT}`],
+    ['padre', `https://trade.padre.gg/trade/solana/${MINT}`],
+    ['gmgn', `https://gmgn.ai/sol/token/${MINT}`],
+    ['fomo', `https://fomo.family/tokens/solana/${MINT}`],
+    ['bullx', `https://neo.bullx.io/terminal?address=${MINT}`],
+    ['photon', `https://photon-sol.tinyastro.io/en/lp/${MINT}`],
+    ['dexscreener', `https://dexscreener.com/solana/${MINT}`],
+    ['birdeye', `https://birdeye.so/token/${MINT}?chain=solana`],
+    ['jupiter', `https://jup.ag/tokens/${MINT}`],
+    ['lute', `https://lute.gg/trade/${MINT}`],
+  ];
+  const origins = new Map();
+  for (const [family, href] of samples) {
+    const target = WD.classify(href);
+    assert.ok(target, `${href} must classify`);
+    assert.equal(target.family, family);
+    const origin = target.url.slice(0, target.url.indexOf('/', 8));
+    assert.match(origin, /^https:\/\/[^/]+$/, 'canonical origins carry no path');
+    origins.set(family, origin);
+  }
+  assert.equal(origins.size, 12, 'twelve families, twelve distinct origins');
+
+  // From a neutral page every origin plus the X origins is wanted.
+  const neutral = WD.preconnectTargets('example.com');
+  assert.equal(neutral.length, 15);
+  assert.ok(neutral.includes('https://x.com'), 'x.com is always included');
+  assert.ok(neutral.includes('https://pbs.twimg.com'), 'viewer images ride along');
+  assert.ok(neutral.includes('https://abs.twimg.com'), 'viewer static assets ride along');
+  for (const origin of origins.values()) {
+    assert.ok(neutral.includes(origin), `${origin} must be preconnected`);
+  }
+
+  // From inside a family its own origin drops out — same-origin sockets are
+  // already warm — while every other family stays.
+  for (const [family, href] of samples) {
+    const host = new URL(href).hostname;
+    const targets = WD.preconnectTargets(host);
+    assert.equal(targets.length, 14, `exactly one exclusion on ${host}`);
+    assert.ok(!targets.includes(origins.get(family)), `own origin excluded on ${host}`);
+    assert.ok(targets.includes('https://x.com'), 'x.com survives the filter');
+  }
+});
+
+test('same-site prefetch names only own-family token URLs in scope (Turbo III round 2)', () => {
+  const WD = loadWarmDest();
+  const FIVE = ['gmgn', 'axiom', 'padre', 'lute', 'fomo'];
+  const own = [
+    [`https://gmgn.ai/sol/token/${MINT}`, 'gmgn.ai'],
+    [`https://axiom.trade/meme/${MINT}`, 'axiom.trade'],
+    [`https://trade.padre.gg/trade/solana/${MINT}`, 'trade.padre.gg'],
+    [`https://fomo.family/tokens/solana/${MINT}`, 'fomo.family'],
+    [`https://lute.gg/trade/${MINT}`, 'lute.gg'],
+  ];
+  for (const [href, host] of own) {
+    assert.equal(WD.sameSitePrefetchable(href, href, host, FIVE), href);
+  }
+  // Cross-family refuses: a gmgn link seen from axiom is a viewer job.
+  assert.equal(
+    WD.sameSitePrefetchable(`https://gmgn.ai/sol/token/${MINT}`, 'https://axiom.trade/', 'axiom.trade', FIVE),
+    null);
+  // A token shape on an out-of-scope family refuses (pump.fun not listed).
+  assert.equal(
+    WD.sameSitePrefetchable(`https://pump.fun/coin/${MINT}`, 'https://pump.fun/board', 'pump.fun', FIVE),
+    null);
+  // Non-token routes refuse even in scope.
+  assert.equal(
+    WD.sameSitePrefetchable('https://trade.padre.gg/portfolio', 'https://trade.padre.gg/', 'trade.padre.gg', FIVE),
+    null);
+  // Relative hrefs resolve against the page.
+  assert.equal(
+    WD.sameSitePrefetchable(`/meme/${MINT}`, 'https://axiom.trade/', 'axiom.trade', FIVE),
+    `https://axiom.trade/meme/${MINT}`);
+  // Garbage never throws, just refuses.
+  assert.equal(WD.sameSitePrefetchable('not a url', 'https://axiom.trade/', 'axiom.trade', FIVE), null);
+  assert.equal(WD.sameSitePrefetchable(null, 'https://axiom.trade/', 'axiom.trade', FIVE), null);
+});
