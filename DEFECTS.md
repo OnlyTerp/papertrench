@@ -2143,6 +2143,13 @@ The existing rubric test asserted the pass's axis emoji and story but never its 
 
 **fixed** (a pass expresses on its single axis what a trade expresses on three, so it scales by three: `AXIS_SCORE[tone] * 3` → green 9 = S, yellow 6 = C, red 3 = D. Verdict shape, axis count and the no-PnL doctrine are untouched. Locked by `server/test/spark-passgrade.test.js` — 6 tests, including one pinning that the three tones produce three DIFFERENT letters and one pinning that a correct pass is never out-scored by trading the same trap; negative control: restored bug = 2/6, fix = 6/6.)
 
+**D-70 · S3 · The onboarding wizard's "Make your first paper trade" step never ticked — the dashboard re-read the chain and repainted on different events, which never coincided**
+`extension/dashboard.js` (dataFingerprint, loadAll wantChain gate)
+
+Field report scipher_ (#general, 2026-09-03): *"cant get past this ive made countless trades still nun"* — screenshot shows Step 1 (Link your X account) ✓ green, Step 2 stuck. A fill commits as TWO storage writes from the trading tab: `pt_state` (wallet/journal) then `pt_attest_meta` (+ segment) — and the dashboard reacted to each echo separately: the `pt_state` echo moved the data fingerprint but did not re-read the chain (D-28 scope law), while the `pt_attest_meta` echo re-read the chain but could not move the fingerprint, which carried no chain term. The wizard's step 2 is `attestChain.length > 0`, so the first fill ticked every step EXCEPT the one the user was staring at. Only a full dashboard reload healed it.
+
+**fixed** (dataFingerprint now carries `attestChain.length`, and the wantChain gate also fires on `pt_attest_seg_*` echoes — a first-ever append creates seg_0. The D-28 cost law is intact: a wallet-only write still skips the chain read. Locked by `test/d69_onboard_wizard.test.js` — 6 tests: the first fill moves the fingerprint, the gate fires on segment-only echoes, the two-echo sequence flips step 2 with no reload, and a negative control proving the fingerprint is blind to chain 0→1 without the term; `test/perfpass.test.js` D-28 pin updated to the extended gate; full suite 2416/2416. Contract: `extension/test/d69_contract.md`.)
+
 ---
 
 ## V — Visual polish

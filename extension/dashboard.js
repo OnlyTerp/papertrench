@@ -379,6 +379,12 @@ function dataFingerprint() {
     replays.length,
     replays.reduce((sum, r) => sum + (r.checkpoints ? r.checkpoints.length : 0), 0),
     Object.keys(recordings).length,
+    // D-69: the leaderboard wizard's step 2 ("Make your first paper trade")
+    // is `attestChain.length > 0`. Without this term, the pt_attest_meta echo
+    // re-read the chain but the fingerprint stayed identical and the wizard
+    // never repainted — a first fill ticked every step EXCEPT the one the
+    // user was staring at (scipher_, 2026-09-03: "countless trades still nun").
+    attestChain.length,
     JSON.stringify(settings),
     // The Trench Rank card renders day-keyed values (today's drill, today's
     // reps) that change at local midnight with NO state change — the C-10
@@ -573,8 +579,14 @@ async function loadAll(changedKeys) {
   // chain is present (the worker has not migrated it yet, so state IS the
   // chain), or when nothing has been loaded yet. A wallet heartbeat that did
   // not touch the chain cannot have changed it.
+  // D-69: the wizard's step 2 reads the chain, so the chain's own keys must
+  // trigger a re-read even when the wallet did not change. A fill writes
+  // pt_state and pt_attest_meta as two separate events; neither alone used
+  // to both re-read the chain AND move the fingerprint (see dataFingerprint).
   const legacyInState = Array.isArray(state.attestChain) && state.attestChain.length > 0;
-  const wantChain = !changedKeys || changedKeys.has(AT.CHAIN_META_KEY) || legacyInState || !attestChainLoaded;
+  const chainEcho = changedKeys && (changedKeys.has(AT.CHAIN_META_KEY)
+    || [...changedKeys].some((k) => String(k).startsWith(AT.CHAIN_SEG_PREFIX)));
+  const wantChain = !changedKeys || chainEcho || legacyInState || !attestChainLoaded;
   if (wantChain) {
     try {
       const { meta, chain } = await AT.readChainStore(async (keys) => {

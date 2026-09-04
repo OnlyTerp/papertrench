@@ -63,8 +63,12 @@ test('a storage echo only re-reads the keys that actually changed', () => {
     'the frame ring must no longer ride the unconditional key list');
 
   // Same for the attestation chain, with the two cases that MUST still read it.
-  assert.match(load, /const wantChain = !changedKeys \|\| changedKeys\.has\(AT\.CHAIN_META_KEY\)/,
+  // D-69: the gate also fires on pt_attest_seg_* echoes — a first-ever append
+  // creates a segment key, and the onboarding wizard renders from the chain.
+  assert.match(load, /const chainEcho = changedKeys && \(changedKeys\.has\(AT\.CHAIN_META_KEY\)/,
     'the chain is re-read when its own meta key changed');
+  assert.match(load, /\|\| \[\.\.\.changedKeys\]\.some\(\(k\) => String\(k\)\.startsWith\(AT\.CHAIN_SEG_PREFIX\)\)/,
+    'and when a chain segment changed (D-69: the first append creates seg_0)');
   assert.match(load, /\|\| legacyInState \|\| !attestChainLoaded/,
     'a legacy in-state chain, and the very first load, must always read');
   assert.match(load, /attestChainLoaded = true/,

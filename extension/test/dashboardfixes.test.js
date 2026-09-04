@@ -994,6 +994,10 @@ function fingerprintOf(stateObj) {
   const src = fnBlock(dashJs, 'function dataFingerprint()');
   const sandbox = {
     state: stateObj, frames: [], replays: [], recordings: {}, settings: {},
+    // D-69: the fingerprint now also carries the attestation chain length
+    // (the leaderboard wizard's step 2 renders from it). A dashboard with no
+    // chain activity must still fingerprint cleanly — empty chain here.
+    attestChain: [],
     // The fingerprint also covers the PERPS book, which is a separate
     // module variable and a separate storage key. Absent here on purpose:
     // a dashboard with no perps activity must still fingerprint cleanly.
