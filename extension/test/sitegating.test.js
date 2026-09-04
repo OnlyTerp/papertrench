@@ -55,11 +55,13 @@ const MATRIX = [
   ['https://axiom.trade/', 'axiom', null, null, 'home is not a token page'],
   ['https://axiom.trade/pulse', 'axiom', null, null, 'screener is not a token page'],
   ['https://axiom.trade/tracker/' + WALLET, 'axiom', null, null, 'wallet tracker must not mount (O-10)'],
-  // Foreign chains are GATED OFF for v3.0.0 — recognised via ?chain= and
-  // declined, never misparsed (O-11). The slugs are Axiom's own vocabulary.
-  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=bnb', 'axiom', null, null, 'bnb (BSC) recognised and declined while gated (O-11)'],
-  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=eth', 'axiom', null, null, 'eth declined; the base58-passing hex is refused by CHAIN, not a failed parse (O-11)'],
-  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=robinhood', 'axiom', null, null, 'robinhood (tokenized equities) recognised and declined while gated'],
+  // Foreign chains: GATE OPEN (2026-09-04, Terp order — Robinhood demand).
+  // The same URLs now MOUNT with their true chain; the shape-strict and
+  // O-10 rows below are unchanged. The full per-chain matrix, including the
+  // closed-gate inversion proof, lives in test/chainrouting.test.js.
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=bnb', 'axiom', 'pair', EVM_B58ISH, 'bnb (BSC) mounts with its chain (gate open)'],
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=eth', 'axiom', 'pair', EVM_B58ISH, 'eth mounts; the base58-passing hex routes to ethereum, never Solana (O-11)'],
+  ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=robinhood', 'axiom', 'pair', EVM_B58ISH, 'robinhood (tokenized equities) mounts — the chain this opening exists for'],
   ['https://axiom.trade/meme/' + MINT + '?chain=eth', 'axiom', null, null, 'a base58 mint under an EVM slug is refused (O-11, shape-strict)'],
   ['https://axiom.trade/meme/' + EVM_B58ISH + '?chain=sol', 'axiom', null, null, 'an EVM address under the sol slug is refused (O-11, shape-strict)'],
   ['https://axiom.trade/meme/' + PAIR + '?chain=notachain', 'axiom', null, null, 'an unknown chain slug fails closed'],
@@ -76,13 +78,11 @@ const MATRIX = [
   // GMGN
   ['https://gmgn.ai/sol/token/' + MINT, 'gmgn', 'mint', MINT, 'token route'],
   ['https://gmgn.ai/sol/address/' + WALLET, 'gmgn', null, null, 'wallet analysis must not mount (O-10)'],
-  // Foreign chains are GATED OFF for v3.0.0 (per-chain native balances land
-  // first — see MULTICHAIN_ENABLED in sites.js). This address is the one
-  // whose hex passes base58, and it is refused because we recognise the
-  // chain and decline it, not because a parse failed. The full per-chain
-  // matrix, including proof that flipping the gate resolves these to their
-  // real chains, lives in test/chainrouting.test.js.
-  ['https://gmgn.ai/eth/token/' + EVM_B58ISH, 'gmgn', null, null, 'EVM chains are gated off; refused by CHAIN, never mistaken for a Solana mint (O-11)'],
+  // Foreign chains: GATE OPEN (2026-09-04). This address is the one whose
+  // hex passes base58 — it must resolve to ETHEREUM, never to the Solana
+  // resolver. The full per-chain matrix, including proof that flipping the
+  // gate BACK TO FALSE refuses these rows again, lives in chainrouting.test.js.
+  ['https://gmgn.ai/eth/token/' + EVM_B58ISH, 'gmgn', 'mint', EVM_B58ISH, 'EVM mounts with its true chain; never mistaken for a Solana mint (O-11)'],
   // BullX
   ['https://neo.bullx.io/terminal?chainId=1399811149&address=' + PAIR, 'bullx', 'pair', PAIR, 'solana terminal'],
   ['https://neo.bullx.io/terminal?address=' + PAIR, 'bullx', 'pair', PAIR, 'no chainId defaults to accepting solana'],
@@ -91,7 +91,7 @@ const MATRIX = [
   ['https://neo.bullx.io/portfolio/' + WALLET, 'bullx', null, null, 'portfolio must not mount (O-10)'],
   // Dexscreener
   ['https://dexscreener.com/solana/' + PAIR, 'dexscreener', 'pair', PAIR, 'solana pair page'],
-  ['https://dexscreener.com/ethereum/' + EVM_B58ISH, 'dexscreener', null, null, 'EVM chains gated off; refused by chain, never reaching the Solana resolver (O-11)'],
+  ['https://dexscreener.com/ethereum/' + EVM_B58ISH, 'dexscreener', 'pair', EVM_B58ISH, 'EVM mounts with its chain; never reaching the Solana resolver (O-11)'],
   ['https://dexscreener.com/watchlist', 'dexscreener', null, null, 'watchlist is not a token page'],
   // Birdeye
   ['https://birdeye.so/token/' + MINT + '?chain=solana', 'birdeye', 'mint', MINT, 'token route'],
@@ -111,14 +111,14 @@ const MATRIX = [
   ['https://fomo.family/tokens/solana/' + MINT + '?ref=abc', 'fomo', 'mint', MINT, 'query strings do not change the route'],
   // MULTICHAIN (maintainer order, docs/MULTICHAIN.md): every corpus slug
   // mounts — with O-11 surviving as strict per-chain shape validation.
-  // GATED for v3.0.0: these live-corpus EVM pages parse correctly and are
-  // declined by chain until per-chain native balances ship. The addresses
-  // stay here on purpose — they are the real corpus, and the rows invert
-  // back when the gate opens (see sites.js MULTICHAIN_ENABLED).
-  ['https://fomo.family/tokens/robinhood/0xdc29db7d4396ed738710a5373a30afc197e7268a', 'fomo', null, null, 'live-captured robinhood token is recognised and declined (gated)'],
-  ['https://fomo.family/tokens/bnb/0xfe189e97832da1573e4e4ff034f4ffc3a15c7777', 'fomo', null, null, 'live-corpus bnb token declined (gated)'],
-  ['https://fomo.family/tokens/ethereum/0x32708538a107253b51a735a724330a23106ca4ca', 'fomo', null, null, 'live-corpus ethereum token declined (gated)'],
-  ['https://fomo.family/tokens/base/' + EVM_B58ISH, 'fomo', null, null, 'a base58-passing EVM address is declined by CHAIN, never read as a mint (O-11)'],
+  // GATE OPEN (2026-09-04): the live-corpus rows MOUNT now. The addresses
+  // stay here on purpose — they are the real corpus, and the shape-strict
+  // rows below are unchanged. The closed-gate inversion proof lives in
+  // chainrouting.test.js (flip MULTICHAIN_ENABLED=false → these refuse again).
+  ['https://fomo.family/tokens/robinhood/0xdc29db7d4396ed738710a5373a30afc197e7268a', 'fomo', 'mint', '0xdc29db7d4396ed738710a5373a30afc197e7268a', 'live-captured robinhood token MOUNTS (gate open 2026-09-04)'],
+  ['https://fomo.family/tokens/bnb/0xfe189e97832da1573e4e4ff034f4ffc3a15c7777', 'fomo', 'mint', '0xfe189e97832da1573e4e4ff034f4ffc3a15c7777', 'live-corpus bnb token mounts (gate open)'],
+  ['https://fomo.family/tokens/ethereum/0x32708538a107253b51a735a724330a23106ca4ca', 'fomo', 'mint', '0x32708538a107253b51a735a724330a23106ca4ca', 'live-corpus ethereum token mounts (gate open)'],
+  ['https://fomo.family/tokens/base/' + EVM_B58ISH, 'fomo', 'mint', EVM_B58ISH, 'a base58-passing EVM address routes to BASE, never read as a mint (O-11)'],
   ['https://fomo.family/tokens/base/0x' + 'gg'.repeat(20), 'fomo', null, null, 'non-hex under an EVM slug is refused (O-11, shape-strict)'],
   ['https://fomo.family/tokens/base/0x' + 'ab'.repeat(19), 'fomo', null, null, 'a short 0x run is refused (O-11, shape-strict)'],
   ['https://fomo.family/tokens/ethereum/' + MINT, 'fomo', null, null, 'a base58 mint under an EVM slug is still refused (O-11, shape-strict)'],

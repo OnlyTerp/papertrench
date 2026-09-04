@@ -30,34 +30,29 @@
 
   /* ---------------- the multichain gate ----------------
    *
-   * MAINTAINER DECISION, 2026-08-06: v3.0.0 ships with foreign-chain
-   * DETECTION OFF. This is not an oversight and not a bug — read this before
-   * flipping it.
+   * SUPERSEDED 2026-09-04 (Terp order, .contracts/validation-contract-multichain.md):
+   * the gate is OPEN. Robinhood Chain is popping off (mainnet 7/1/2026, GMGN
+   * full support, Axiom 7/11, Lute live; Padre has NO robinhood — it gets
+   * ethereum/base/bnb instead) and the demand is heavy. The original 8/6
+   * closure waited for per-chain native balances (design B); the intervening
+   * sessions hardened design A instead (multichain.test.js: foreign price =
+   * priceUsd/solUsd with the rate RECORDED, never the gas-token priceNative;
+   * refusal memory; D-62 fallback lane), so the wallet books foreign fills
+   * honestly in derived SOL today. Design B remains a future MIGRATION of the
+   * book model — it does not gate this feature anymore.
    *
-   * Multichain is fully built and live-probed (docs/MULTICHAIN.md), but it
-   * has never shipped: it is in main and absent from the v2.11.0 zip, so no
-   * user has ever created a foreign-chain fill. It was built on design A — a
-   * single SOL-denominated book that converts non-Solana fills from USD at a
-   * recorded rate — and Terp has since chosen design B: PER-CHAIN NATIVE
-   * BALANCES (SOL on Solana, ETH on Base/Ethereum, BNB on BSC). Shipping A
-   * now would write user records under a model we have already decided to
-   * replace, so the feature waits one release and lands once, correctly.
-   *
-   * What stays ON while the gate is closed, deliberately:
-   *   - Every route SHAPE is still parsed. A foreign page is refused because
-   *     we recognise its chain and decline it, never because an address
-   *     accidentally failed base58. That is strictly safer than the pre-
-   *     multichain behaviour and it keeps O-11 explicit.
+   * What stays true from the original decision:
+   *   - Every route SHAPE is still validated per chain (O-11 survives as
+   *     shape-strictness: base58 under an EVM slug is refused, hex under the
+   *     solana slug is refused, an unknown slug fails closed).
    *   - The whole pricing path (quote.js chain handling, resolver chain
-   *     filtering, multichain.test.js) is untouched and still tested. Design
-   *     B reuses it verbatim; only the wallet model changes.
-   *
-   * To re-enable: land per-chain native balances first, then flip this and
-   * invert the refusal tests in test/chainrouting.test.js and
-   * test/sitegating.test.js. The route corpus in docs/MULTICHAIN.md remains
-   * valid live-probed research — design B needs it as-is.
+   *     filtering, multichain.test.js) is untouched.
+   *   - Foreign chains price from Dexscreener ONLY: Jupiter is SOLANA-ONLY
+   *     (resolver.js skips it for foreign tokens), and the Solana RPC pool
+   *     never watches a foreign pool — onchainLive stays false and the panel
+   *     says so rather than faking it.
    */
-  const MULTICHAIN_ENABLED = false;
+  const MULTICHAIN_ENABLED = true;
 
   /** A chain we are not currently trading is refused at DETECTION, so the
    *  panel never mounts somewhere it cannot honestly keep a book. */
@@ -65,9 +60,11 @@
     return chain === 'solana' || MULTICHAIN_ENABLED;
   }
 
-  // GMGN (live-verified 2026-08-06: all four token pages rendered).
-  const GMGN_CHAIN_BY_SLUG = { sol: 'solana', eth: 'ethereum', bsc: 'bsc', base: 'base' };
-  const GMGN_SLUG_BY_CHAIN = { solana: 'sol', ethereum: 'eth', bsc: 'bsc', base: 'base' };
+  // GMGN (live-verified 2026-08-06: all four token pages rendered; robinhood
+  // slug live 2026-09-04 — gmgn.ai blog "Robinhood Chain is live on GMGN" and
+  // indexed token page gmgn.ai/robinhood/token/0xcd1c…).
+  const GMGN_CHAIN_BY_SLUG = { sol: 'solana', eth: 'ethereum', bsc: 'bsc', base: 'base', robinhood: 'robinhood' };
+  const GMGN_SLUG_BY_CHAIN = { solana: 'sol', ethereum: 'eth', bsc: 'bsc', base: 'base', robinhood: 'robinhood' };
 
   // fomo (docs/MULTICHAIN.md corpus). Its detect() keeps its own slug as the
   // chain string for continuity with the landed contract, so the reverse map
@@ -76,6 +73,12 @@
     solana: 'solana', bsc: 'bnb', bnb: 'bnb', ethereum: 'ethereum',
     robinhood: 'robinhood', base: 'base', monad: 'monad', hyperliquid: 'hyperliquid',
   };
+
+  // Padre (Terminal) — its own slug IS the canonical name (identity map,
+  // live-verified 2026-09-04 from padre.gg's chain copy: Solana, Ethereum,
+  // Base, BNB — no robinhood).
+  const PADRE_CHAIN_BY_SLUG = { solana: 'solana', ethereum: 'ethereum', base: 'base', bnb: 'bsc', bsc: 'bsc' };
+  const PADRE_SLUG_BY_CHAIN = { solana: 'solana', ethereum: 'ethereum', base: 'base', bsc: 'bnb' };
 
   // Birdeye (live-verified 2026-08-06): the site MOVED to /<chain>/token/<addr>
   // and 308-redirects the old ?chain= form onto it. Its slugs are already the
@@ -101,12 +104,11 @@
   // token page is axiom.trade/meme/<address>?chain=<slug> — the chain lives in
   // the QUERY, not the path, so an adapter that ignored ?chain= read every page
   // as Solana. The slugs come straight off the captured URL's chain/pulseChains/
-  // trackerChains params: sol, bnb, eth, robinhood. Mapped to Dexscreener's
-  // canonical chainIds; an unlisted slug fails closed. robinhood is Axiom's
-  // tokenized-equities integration — it is in the Dexscreener vocabulary (so it
-  // is NAMED here rather than silently dropped), but whether it is honestly
-  // priceable is a design-B question that only matters once the gate opens.
+  // trackerChains params: sol, bnb, eth, robinhood (robinhood CONFIRMED
+  // shipped 2026-07-11 — chain selector SOL/HOOD/BNB/ETH). Mapped to
+  // Dexscreener's canonical chainIds; an unlisted slug fails closed.
   const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bsc', eth: 'ethereum', robinhood: 'robinhood' };
+  const AXIOM_SLUG_BY_CHAIN = { solana: 'sol', bsc: 'bnb', ethereum: 'eth', robinhood: 'robinhood' };
 
   /**
    * Validate an address against the shape its OWN chain uses, and return the
@@ -159,9 +161,14 @@
       id: 'axiom',
       name: 'Axiom',
       // Axiom routes by pair address; fall back to its token search by mint.
-      tokenUrl: (mint, pairAddress) => (pairAddress
-        ? 'https://axiom.trade/meme/' + pairAddress
-        : 'https://axiom.trade/t/' + mint),
+      // MULTICHAIN: the chain rides the query — axiom's own slug vocabulary
+      // (AXIOM_SLUG_BY_CHAIN), no ?chain= meaning Solana, matching detect().
+      tokenUrl: (mint, pairAddress, chain) => {
+        const slug = AXIOM_SLUG_BY_CHAIN[chain || 'solana'] || 'sol';
+        return pairAddress
+          ? 'https://axiom.trade/meme/' + pairAddress + '?chain=' + slug
+          : 'https://axiom.trade/t/' + mint + '?chain=' + slug;
+      },
       match: (h) => /(^|\.)axiom\.trade$/.test(h),
       // axiom.trade/meme/<address>?chain=<slug> (a pair page) and
       // axiom.trade/t/<address>?chain=<slug> (a mint). The chain lives in the
@@ -204,15 +211,32 @@
     {
       id: 'padre',
       name: 'Padre / Terminal',
-      tokenUrl: (mint) => 'https://trade.padre.gg/trade/solana/' + mint,
+      // MULTICHAIN (2026-09-04): Padre (Terminal) trades Solana, Ethereum,
+      // Base and BNB (its own copy + docs) — NO robinhood. A position's chain
+      // picks the slug; solana keeps the historical route shape.
+      tokenUrl: (mint, pairAddress, chain) => 'https://trade.padre.gg/trade/'
+        + (PADRE_SLUG_BY_CHAIN[chain || 'solana'] || 'solana') + '/' + (pairAddress || mint),
       match: (h) => /(^|\.)padre\.gg$/.test(h),
-      // trade.padre.gg/trade/solana/<mint> (and legacy terminal routes).
-      // Only /trade/ and /terminal/ routes are token pages — Padre's wallet,
-      // portfolio and leaderboard routes also end in base58 addresses and
-      // must never mount the panel (DEFECTS O-10/O-11).
+      // trade.padre.gg/trade/<chain>/<address> (and legacy /trade/solana/<mint>
+      // plus legacy terminal routes). Only /trade/ and /terminal/ routes are
+      // token pages — Padre's wallet, portfolio and leaderboard routes also
+      // end in base58 addresses and must never mount the panel (O-10/O-11).
+      // Multichain: the chain slug is part of the address grammar now —
+      // a slug we cannot name fails closed (tokenForSlug), and each slug
+      // takes ONLY its own chain's address shape.
       detect: () => {
-        const m = location.pathname.match(/^\/(?:trade|terminal)\/(?:[a-z0-9-]+\/)*([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[/?#])/);
-        return m ? { kind: 'mint', address: m[1] } : null;
+        // /trade/<chain>/<addr> — the multichain grammar. Each slug takes ONLY
+        // its own chain's address shape; an unknown slug fails closed.
+        const m = location.pathname.match(/^\/(?:trade|terminal)\/([a-z0-9-]+)\/([A-Za-z0-9]+)(?:$|[/?#])/);
+        if (m) return tokenForSlug(PADRE_CHAIN_BY_SLUG, m[1], m[2]);
+        // /trade/<base58> with NO chain segment — the SHIPPED shape (Padre's
+        // own Trenches links and every position chip built before this change
+        // use it; the old adapter only ever knew this form). Solana.
+        const t = location.pathname.match(/^\/trade\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[\/?#])/);
+        if (t) return { kind: 'mint', address: t[1], chain: 'solana' };
+        // Legacy /terminal/<mint> without a chain segment: Solana.
+        const u = location.pathname.match(/^\/terminal\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[\/?#])/);
+        return u ? { kind: 'mint', address: u[1], chain: 'solana' } : null;
       },
       // Trenches cards link (absolute) to the token's trade page and also
       // carry pump.fun icon links.
@@ -434,6 +458,14 @@
       // under /trade/ (compass, momentum, portfolio, discover) and non-trade
       // routes (/, /login, /signup) are never token pages (O-10). The
       // {32,44} length constraint naturally rejects short named routes.
+      //
+      // Lute supports Robinhood Chain + ETH as a VENUE (its own X, 2026),
+      // but its public token-URL shape for foreign chains is NOT verifiable
+      // without an account: every /trade/<addr> 307s to /login anonymously
+      // (probed 2026-09-04, both a Solana mint and an 0x address — same
+      // redirect). Guessing the shape would be the O-11 failure class, so
+      // detection stays Solana-only; foreign-chain positions still LINK to
+      // Lute through the generic rule only if a future session verifies it.
       detect: () => {
         const m = location.pathname.match(/^\/trade\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[\/?#])/);
         return m ? { kind: 'mint', address: m[1], chain: 'solana' } : null;

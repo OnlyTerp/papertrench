@@ -85,7 +85,10 @@ test('engine: a healed pairAddress flows into a chip link via tokenUrlFor (Axiom
     pairAddress: pos.pairAddress,
     fallbackSite: null,
   });
-  assert.equal(url, 'https://axiom.trade/meme/' + PAIR,
+  // 2026-09-04 multichain: tokenUrl() now carries the explicit ?chain= slug
+  // (no ?chain= still means Solana, but emitting it makes the chain visible
+  // in the URL — matching detect()'s own grammar).
+  assert.equal(url, 'https://axiom.trade/meme/' + PAIR + '?chain=sol',
     'a healed pair must route to the pool page (/meme/), not the unindexed mint route (/t/)');
 });
 
@@ -95,8 +98,8 @@ test('engine: the null-pair fallback still degrades to the mint route (no regres
   const pos = s.positions[MINT];
   const S = loadSites();
   const url = S.tokenUrlFor(MINT, { siteId: pos.site, pairAddress: pos.pairAddress || null });
-  assert.equal(url, 'https://axiom.trade/t/' + MINT,
-    'with no pool ever seen the mint route remains the fallback');
+  assert.equal(url, 'https://axiom.trade/t/' + MINT + '?chain=sol',
+    'with no pool ever seen the mint route remains the fallback (explicit sol slug, 2026-09-04)');
 });
 
 test('engine: a stale pairAddress is corrected, not just filled (pool migration)', () => {

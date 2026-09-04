@@ -77,25 +77,30 @@ const MATRIX = [
   [`https://birdeye.so/token/${SOL_MINT}?chain=solana`, 'birdeye', 'mint', SOL_MINT, 'solana', 'legacy query form still resolves (old links, bookmarks)'],
   [`https://dexscreener.com/solana/${SOL_MINT}`, 'dexscreener', 'pair', SOL_MINT, 'solana', 'solana pair page, unchanged'],
 
-  // ---- Foreign chains: GATED OFF for v3.0.0 ----
-  // These pages parse perfectly and are refused ON PURPOSE. When per-chain
-  // native balances land, flip MULTICHAIN_ENABLED and invert these rows.
-  [`https://gmgn.ai/eth/token/${USDT_ETH}`, 'gmgn', null, null, null, 'GATED: ethereum is understood and declined, not misparsed'],
-  [`https://gmgn.ai/bsc/token/${USDT_BSC}`, 'gmgn', null, null, null, 'GATED: bsc'],
-  [`https://gmgn.ai/base/token/${USDC_BASE}`, 'gmgn', null, null, null, 'GATED: base'],
-  [`https://birdeye.so/ethereum/token/${USDT_ETH}`, 'birdeye', null, null, null, 'GATED: ethereum'],
-  [`https://birdeye.so/base/token/${USDC_BASE}`, 'birdeye', null, null, null, 'GATED: base'],
-  [`https://dexscreener.com/ethereum/${WETH_PAIR}`, 'dexscreener', null, null, null, 'GATED: ethereum'],
-  [`https://dexscreener.com/bsc/${USDT_BSC}`, 'dexscreener', null, null, null, 'GATED: bsc'],
-  [`https://fomo.family/tokens/bnb/${USDT_BSC}`, 'fomo', null, null, null, 'GATED: fomo is the chain-densest terminal, so this branch matters most'],
+  // ---- Foreign chains: GATE OPEN (Terp order 2026-09-04, Robinhood demand).
+  // The 8/6 refusal rows were inverted — same URLs, same chains, now MOUNT.
+  // Shape strictness and O-10 rows below are unchanged.
+  [`https://gmgn.ai/eth/token/${USDT_ETH}`, 'gmgn', 'mint', USDT_ETH, 'ethereum', 'GATE OPEN: ethereum mounts with its true chain'],
+  [`https://gmgn.ai/bsc/token/${USDT_BSC}`, 'gmgn', 'mint', USDT_BSC, 'bsc', 'GATE OPEN: bsc'],
+  [`https://gmgn.ai/base/token/${USDC_BASE}`, 'gmgn', 'mint', USDC_BASE, 'base', 'GATE OPEN: base'],
+  [`https://birdeye.so/ethereum/token/${USDT_ETH}`, 'birdeye', 'mint', USDT_ETH, 'ethereum', 'GATE OPEN: ethereum'],
+  [`https://birdeye.so/base/token/${USDC_BASE}`, 'birdeye', 'mint', USDC_BASE, 'base', 'GATE OPEN: base'],
+  [`https://dexscreener.com/ethereum/${WETH_PAIR}`, 'dexscreener', 'pair', WETH_PAIR, 'ethereum', 'GATE OPEN: ethereum'],
+  [`https://dexscreener.com/bsc/${USDT_BSC}`, 'dexscreener', 'pair', USDT_BSC, 'bsc', 'GATE OPEN: bsc'],
+  [`https://fomo.family/tokens/bnb/${USDT_BSC}`, 'fomo', 'mint', USDT_BSC, 'bnb', 'GATE OPEN: fomo is the chain-densest terminal, so this branch matters most'],
 
-  // ---- The O-11 hazard, refused for the RIGHT reason ----
-  // This address is the dangerous one: its hex passes base58. Before
-  // multichain it could reach the SOLANA resolver on a bad day. It must now
-  // be refused because we recognise the chain, not because a parse failed.
-  [`https://gmgn.ai/eth/token/${EVM_B58ISH}`, 'gmgn', null, null, null, 'a base58-passing EVM address is refused by CHAIN, never mistaken for a mint'],
-  [`https://birdeye.so/ethereum/token/${EVM_B58ISH}`, 'birdeye', null, null, null, 'the defect case: Birdeye moved schemes, so the old ?chain= gate could not see this'],
-  [`https://dexscreener.com/ethereum/${EVM_B58ISH}`, 'dexscreener', null, null, null, 'same hazard, same refusal'],
+  // ---- Robinhood Chain: the NEW chain this gate opening exists for ----
+  [`https://gmgn.ai/robinhood/token/${USDC_BASE}`, 'gmgn', 'mint', USDC_BASE, 'robinhood', 'RH: gmgn serves /robinhood/token/<0x> (live-verified 2026-09-04)'],
+  [`https://axiom.trade/meme/${USDC_BASE}?chain=robinhood`, 'axiom', 'pair', USDC_BASE, 'robinhood', 'RH: axiom chain selector HOOD = robinhood slug'],
+  [`https://fomo.family/tokens/robinhood/${USDC_BASE}`, 'fomo', 'mint', USDC_BASE, 'robinhood', 'RH: the live corpus from docs/MULTICHAIN.md mounts'],
+
+  // ---- The O-11 hazard: now routes to its OWN chain instead of being refused.
+  // The address is the dangerous one: its hex passes base58. Under the closed
+  // gate it was refused by chain; now the chain it names CLAIMS it and the
+  // shape rule is what keeps it off Solana — it must resolve to ethereum.
+  [`https://gmgn.ai/eth/token/${EVM_B58ISH}`, 'gmgn', 'mint', EVM_B58ISH, 'ethereum', 'the O-11 hazard resolves to its OWN chain, never to Solana'],
+  [`https://birdeye.so/ethereum/token/${EVM_B58ISH}`, 'birdeye', 'mint', EVM_B58ISH, 'ethereum', 'the defect case, now claimed by ethereum'],
+  [`https://dexscreener.com/ethereum/${EVM_B58ISH}`, 'dexscreener', 'pair', EVM_B58ISH, 'ethereum', 'same hazard, same own-chain resolution'],
 
   // ---- Shape strictness per slug, independent of the gate ----
   [`https://gmgn.ai/sol/token/${USDT_ETH}`, 'gmgn', null, null, null, 'an EVM address under the solana slug is never a mint'],
@@ -117,15 +122,15 @@ const MATRIX = [
   // /t/=mint) — the capture confirmed the routes, not a new pair/mint split.
   [`https://axiom.trade/t/${SOL_MINT}?chain=sol`, 'axiom', 'mint', SOL_MINT, 'solana', 'the /t/ mint route is untouched, explicit sol slug'],
   [`https://axiom.trade/meme/${SOL_MINT}`, 'axiom', 'pair', SOL_MINT, 'solana', 'no ?chain= stays Solana — old links and tokenUrl() output resolve unchanged'],
-  [`https://axiom.trade/meme/${USDT_ETH}?chain=eth`, 'axiom', null, null, null, 'GATED: eth recognised via ?chain= and declined'],
-  [`https://axiom.trade/meme/${USDT_BSC}?chain=bnb`, 'axiom', null, null, null, "GATED: bnb (Axiom's slug for BSC)"],
-  [`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`, 'axiom', null, null, null, 'the O-11 hazard: base58-passing hex refused by CHAIN, never mistaken for a mint'],
+  [`https://axiom.trade/meme/${USDT_ETH}?chain=eth`, 'axiom', 'pair', USDT_ETH, 'ethereum', 'GATE OPEN: eth recognised via ?chain= and mounted'],
+  [`https://axiom.trade/meme/${USDT_BSC}?chain=bnb`, 'axiom', 'pair', USDT_BSC, 'bsc', "GATE OPEN: bnb (Axiom's slug for BSC)"],
+  [`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`, 'axiom', 'pair', EVM_B58ISH, 'ethereum', 'the O-11 hazard resolves to its OWN chain, never to Solana'],
   [`https://axiom.trade/meme/${SOL_MINT}?chain=eth`, 'axiom', null, null, null, 'a base58 mint under an EVM slug is a contradiction'],
   [`https://axiom.trade/meme/${USDT_ETH}?chain=sol`, 'axiom', null, null, null, 'an EVM address under the sol slug is never a mint'],
   [`https://axiom.trade/meme/${USDT_ETH}?chain=notachain`, 'axiom', null, null, null, 'an unknown chain slug fails closed'],
 ];
 
-test('chain matrix: Solana mounts, every foreign chain is refused while the gate is shut', () => {
+test('chain matrix: Solana mounts, foreign chains mount with their TRUE chain (gate open)', () => {
   for (const [href, id, kind, address, chain, why] of MATRIX) {
     const got = detectAt(href);
     assert.equal(got.id, id, `${href} must route to the ${id} adapter`);
@@ -141,12 +146,14 @@ test('chain matrix: Solana mounts, every foreign chain is refused while the gate
 });
 
 test('the gate is one explicit, reversible switch — not scattered special cases', () => {
-  // "Temporarily disabled" is exactly the state that rots. A future reader
-  // must find one named constant, a stated reason, and the way back.
-  assert.match(SITES, /const MULTICHAIN_ENABLED = false;/,
+  // The 8/6 gate law survives the 9/4 opening as a SHAPE law: one named
+  // constant, a stated reason, one predicate. OPEN now, but flipping it back
+  // to false must still refuse every foreign chain with no other edit —
+  // that reversibility is what makes the gate a gate (see the matrix test).
+  assert.match(SITES, /const MULTICHAIN_ENABLED = (?:true|false);/,
     'the gate must be a single named constant');
-  assert.match(SITES, /PER-CHAIN NATIVE/,
-    'the code must say WHY it is shut, not just that it is');
+  assert.match(SITES, /the gate is OPEN|MULTICHAIN_ENABLED = false;/,
+    'the code must say WHY the gate sits where it sits');
   assert.match(SITES, /function chainTradable/,
     'one predicate decides tradability, so flipping the switch cannot miss an adapter');
 

@@ -63,14 +63,23 @@
   var GMGN_QUOTE_URL = 'https://gmgn.ai/defi/quotation/v1/token/sol/';
   var PUMP_COIN_URL = 'https://pump.fun/api/0/coins/';
 
-  /** Race the two venue quotation APIs for a mint neither aggregator knows. */
+  /** Race the two venue quotation APIs for a mint neither aggregator knows.
+   *
+   * PERF (2026-09-04): the SOL/USD rate and the two venue probes now fly in
+   * ONE parallel wave. The rate was awaited FIRST and only then did the probes
+   * start — a cold-cache miss paid rate-latency + probe-latency serially for
+   * data the probes cannot even use until both have landed (tokenFromGmgn/
+   * tokenFromPumpfun divide a USD price by the rate at parse time, after the
+   * fetches). Cold-miss path measured ~496ms → the probes' own latency. */
   async function resolveViaVenues(address) {
-    var rate = await solUsd().catch(function () { return 0; });
-    if (!(rate > 0)) return null;
+    var ratePromise = solUsd().catch(function () { return 0; });
     var payloads = await Promise.all([
       getJson(GMGN_QUOTE_URL + address, 4000).catch(function () { return null; }),
       getJson(PUMP_COIN_URL + address, 4000).catch(function () { return null; }),
+      ratePromise,
     ]);
+    var rate = Number(payloads[2]) || 0;
+    if (!(rate > 0)) return null;
     return Q.tokenFromGmgn(payloads[0], address, rate)
       || Q.tokenFromPumpfun(payloads[1], address, rate);
   }
@@ -90,6 +99,52 @@
 
   function jupiterUrl(query) {
     return JUP + '?query=' + encodeURIComponent(query);
+  }
+
+  // VAL-5 fallback: SOL/USD from Dexscreener's deepest USDC-quoted SOL pool.
+  // Jupiter is the primary (single request, bundled with token queries); when
+  // it is down or refuses, a Jupiter outage would otherwise take down EVERY
+  // foreign-chain price (multichain law: no rate → no record) AND every
+  // non-WSOL-quoted Solana token. Dexscreener is already the pricing backbone
+  // (BASE), so this adds no new dependency — probed live 2026-09-04:
+  // orca USDC pool, $25.9M liquidity, agreeing with Jupiter to <0.01%.
+  var solUsdInFlight = null;
+  async function solUsdFromDexscreener() {
+    var payload = await getJson(BASE + '/tokens/' + Q.WSOL_MINT, 4000);
+    var pairs = payload && Array.isArray(payload.pairs) ? payload.pairs : [];
+    var best = null;
+    var bestLiq = 0;
+    for (var i = 0; i < pairs.length; i++) {
+      var p = pairs[i];
+      if (!p || p.chainId !== 'solana') continue;
+      var quote = p.quoteToken || {};
+      if (quote.address !== Q.USDC_MINT && quote.address !== Q.USDT_MINT) continue;
+      var usd = Number(p.priceUsd);
+      var liq = Number(p.liquidity && p.liquidity.usd) || 0;
+      if (usd > 0 && liq > bestLiq) { best = usd; bestLiq = liq; }
+    }
+    return best > 0 ? best : 0;
+  }
+
+  async function solUsd() {
+    var now = Date.now();
+    var cachedRate = cachedSolUsd();
+    if (cachedRate > 0) return cachedRate;
+    // One fallback attempt at a time: a flapped source must not stack
+    // concurrent probes (the RPC pool's hedge lesson, applied here).
+    if (!solUsdInFlight) {
+      solUsdInFlight = (async function () {
+        var rate = 0;
+        try {
+          var payload = await getJson(jupiterUrl(Q.WSOL_MINT), 4000);
+          rate = payload ? (Q.solUsdFromJupiter(payload) || 0) : 0;
+        } catch (_) { rate = 0; }
+        if (!(rate > 0)) rate = await solUsdFromDexscreener().catch(function () { return 0; });
+        if (rate > 0) solUsdCache = { at: Date.now(), value: rate };
+        return rate;
+      })().finally(function () { solUsdInFlight = null; });
+    }
+    return solUsdInFlight;
   }
 
   /**
@@ -261,7 +316,12 @@
       var chain = (chainByMint && chainByMint[unique[g]]) || 'solana';
       (groups[chain] = groups[chain] || []).push(unique[g]);
     }
-    var rate = await solUsd().catch(function () { return 0; });
+
+    // PERF (2026-09-04): the rate fetch used to be awaited BEFORE the batch
+    // chunks fired — a cold-rate poll paid rate-latency + batch-latency
+    // serially every BAR_POLL tick (6s visible cadence). The parse needs the
+    // rate only after the payloads land, so the rate flies WITH the chunks.
+    var ratePromise = solUsd().catch(function () { return 0; });
 
     var out = {};
     var chainNames = Object.keys(groups);
@@ -275,6 +335,7 @@
       var payloads = await Promise.all(chunks.map(function (chunk) {
         return getJson(BASE + '/tokens/' + chunk.join(','), 6000);
       }));
+      var rate = Number(await ratePromise) || 0;
       var parseOpts = { solUsd: rate };
       if (chainName !== 'solana') parseOpts.chain = chainName;
       for (var k = 0; k < payloads.length; k++) {
