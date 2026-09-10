@@ -83,13 +83,8 @@ test('the offscreen document loads the recording store before the recorder', () 
   assert.ok(storeAt < recorderAt, 'the store must be available when the recorder runs');
 });
 
-test('the background records playable recording metadata on the round', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
-  assert.match(src, /round\.recording = /,
-    'the round must carry the metadata the dashboard looks up');
-  assert.match(src, /result\.stored/,
-    'metadata is only attached when the video was genuinely persisted');
-});
+// Playable metadata (and its stored:false case) is exercised through the
+// real worker in background.test.js, including concurrent fills and resets.
 
 /* ---------------- the dashboard prefers video over stills ---------------- */
 

@@ -4,6 +4,8 @@
   const MINT = 'GfyVVfTSm1YTiuBH6EDAstGY3u9eoBF2HDQoRJaspump';
   const API = 'https://api.dexscreener.com/latest/dex/tokens/' + MINT;
   const SHUT = "Can't read a live rate. Ticket stays shut.";
+  const QUOTE_TTL_MS = 30000;
+  const REQUEST_TIMEOUT_MS = 8000;
   const DEMO_SEEDS = [
     'DEMO CHAIN 1',
     'DEMO CHAIN 2',
@@ -17,6 +19,7 @@
   const priceEl = root ? root.querySelector('.try-hud-price') : null;
   const buyEl = root ? root.querySelector('.try-buy') : null;
   const cheatEl = root ? root.querySelector('.try-cheat') : null;
+  const refreshEl = root ? root.querySelector('.try-refresh') : null;
   const reasonEl = root ? root.querySelector('.try-reason') : null;
   const noteEl = root ? root.querySelector('.try-note') : null;
   const chainEl = root ? root.querySelector('.try-chain') : null;
@@ -28,6 +31,8 @@
   let quoted = null;
   let cheated = false;
   let sizeSol = '0.5';
+  let quoteExpiry = null;
+  let loading = false;
   const markedSize = sizeEls.find((el) => el.classList.contains('is-on'));
   if (markedSize && markedSize.getAttribute('data-sol')) {
     sizeSol = markedSize.getAttribute('data-sol');
@@ -62,21 +67,25 @@
     }
   }
 
-  function shutTicket() {
+  function shutTicket(reason = SHUT) {
     quoted = null;
+    window.clearTimeout(quoteExpiry);
     if (buyEl) buyEl.disabled = true;
     setSizesOpen(false);
     if (reasonEl) {
       reasonEl.hidden = false;
-      reasonEl.textContent = SHUT;
+      reasonEl.textContent = reason;
     }
     if (priceEl) priceEl.textContent = '-';
-    if (quoteEl) quoteEl.textContent = 'Dexscreener · waiting';
+    if (quoteEl) quoteEl.textContent = 'Dexscreener · no current quote';
     paintHud();
   }
 
   function openTicket(priceText) {
-    quoted = { text: priceText };
+    quoted = { text: priceText, at: Date.now() };
+    quoteExpiry = window.setTimeout(() => {
+      shutTicket('Quote expired. Refresh to open the paper ticket.');
+    }, QUOTE_TTL_MS);
     if (buyEl) buyEl.disabled = false;
     setSizesOpen(true);
     if (reasonEl) {
@@ -84,16 +93,25 @@
       reasonEl.textContent = '';
     }
     if (priceEl) priceEl.textContent = '$' + priceText;
-    if (quoteEl) quoteEl.textContent = 'Dexscreener · $PT · ' + shortMint(MINT);
+    if (quoteEl) quoteEl.textContent = 'Dexscreener snapshot · valid for 30s · ' + shortMint(MINT);
     paintHud();
   }
 
   function livePrice(data) {
-    const pair = data && Array.isArray(data.pairs) ? data.pairs[0] : null;
-    if (!pair || pair.priceUsd == null || pair.priceUsd === '') return null;
-    const usd = Number(pair.priceUsd);
-    if (!Number.isFinite(usd) || usd <= 0) return null;
-    return typeof pair.priceUsd === 'string' ? pair.priceUsd : String(pair.priceUsd);
+    let selected = null;
+    let depth = -1;
+    for (const pair of data && Array.isArray(data.pairs) ? data.pairs : []) {
+      if (!pair || pair.chainId !== 'solana' || pair.baseToken?.address !== MINT) continue;
+      const usd = Number(pair.priceUsd);
+      if (!Number.isFinite(usd) || usd <= 0) continue;
+      const liquidity = Number(pair.liquidity?.usd);
+      const rank = Number.isFinite(liquidity) && liquidity >= 0 ? liquidity : 0;
+      if (rank > depth) {
+        selected = String(usd);
+        depth = rank;
+      }
+    }
+    return selected;
   }
 
   async function sha256Hex(text) {
@@ -115,25 +133,46 @@
   }
 
   async function loadQuote() {
-    if (!root) return;
-    shutTicket();
-    let data;
-    try {
-      const res = await fetch(API, { cache: 'no-store' });
-      if (!res.ok) return;
-      data = await res.json();
-    } catch {
-      return;
+    if (!root || loading) return;
+    loading = true;
+    shutTicket('Fetching a fresh quote…');
+    if (refreshEl) {
+      refreshEl.disabled = true;
+      refreshEl.textContent = 'Refreshing…';
     }
-    const priceText = livePrice(data);
-    if (!priceText) return;
-    openTicket(priceText);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(API, { cache: 'no-store', signal: controller.signal });
+      if (!res.ok) throw new Error('Quote unavailable');
+      const priceText = livePrice(await res.json());
+      if (!priceText) throw new Error('No matching quote');
+      openTicket(priceText);
+    } catch {
+      shutTicket(SHUT + ' Try Refresh quote.');
+    } finally {
+      window.clearTimeout(timeout);
+      loading = false;
+      if (refreshEl) {
+        refreshEl.disabled = false;
+        refreshEl.textContent = 'Refresh quote';
+      }
+    }
   }
+
+  if (refreshEl) refreshEl.addEventListener('click', loadQuote);
 
   if (buyEl) {
     buyEl.addEventListener('click', () => {
       if (!quoted || buyEl.disabled) return;
+      // Background tabs can throttle timers. Freshness is a fill-time gate,
+      // not just a visual timeout on the button.
+      if (Date.now() - quoted.at >= QUOTE_TTL_MS || Date.now() < quoted.at) {
+        shutTicket('Quote expired. Refresh to open the paper ticket.');
+        return;
+      }
       buyEl.disabled = true;
+      setSizesOpen(false);
       const sol = sizeSol || '0.5';
       if (noteEl) {
         noteEl.hidden = false;

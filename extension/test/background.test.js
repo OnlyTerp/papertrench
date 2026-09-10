@@ -21,6 +21,20 @@ function serviceWorker(opts = {}) {
   let externalListener = null;
   const fetchCalls = [];
   const captureCalls = [];
+  const writes = [];
+  let writeGate = null;
+  function holdNextWrite(predicate = update => Object.hasOwn(update, 'pt_state')) {
+    let entered, release;
+    const gate = {
+      predicate,
+      entered: new Promise(resolve => { entered = resolve; }),
+      released: new Promise(resolve => { release = resolve; }),
+      notify: update => entered(update),
+      release: () => release(),
+    };
+    writeGate = gate;
+    return gate;
+  }
   // Real Chrome exposes a storage failure by setting chrome.runtime.lastError
   // for the duration of the callback only; reading it outside a callback is
   // meaningless. The fail flags reproduce that exact shape.
@@ -31,20 +45,31 @@ function serviceWorker(opts = {}) {
   };
   const get = (keys, callback) => {
     if (opts.failReads) { failingCallback(callback, {}); return undefined; }
-    const names = Array.isArray(keys) ? keys : Object.keys(keys || {});
+    const names = keys == null ? Object.keys(values) : typeof keys === 'string' ? [keys] : Array.isArray(keys) ? keys : Object.keys(keys);
     const result = {};
-    for (const key of names) if (Object.hasOwn(values, key)) result[key] = values[key];
+    for (const key of names) if (Object.hasOwn(values, key)) result[key] = structuredClone(values[key]);
     if (callback) { callback(result); return undefined; }
     return Promise.resolve(result);
   };
   const set = (update, callback) => {
-    if (opts.failWrites) { failingCallback(callback); return Promise.resolve(); }
-    Object.assign(values, update);
-    if (callback) callback();
+    const captured = structuredClone(update);
+    const apply = () => {
+      if (opts.failWrites && values.failWrites !== false) { failingCallback(callback); return; }
+      Object.assign(values, captured);
+      writes.push(structuredClone(captured));
+      if (callback) callback();
+    };
+    const gate = writeGate;
+    if (gate && gate.predicate(captured)) {
+      writeGate = null;
+      gate.notify(captured);
+      return gate.released.then(apply);
+    }
+    apply();
     return Promise.resolve();
   };
-  const remove = (key, callback) => {
-    delete values[key];
+  const remove = (keys, callback) => {
+    for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key];
     if (callback) callback();
     return Promise.resolve();
   };
@@ -76,6 +101,7 @@ function serviceWorker(opts = {}) {
     clearInterval: () => {},
     fetch: async (url) => {
       fetchCalls.push(String(url));
+      if (opts.fetch) return opts.fetch(url);
       if (String(url).includes('/topics/history?')) {
         return {
           ok: true,
@@ -121,7 +147,7 @@ function serviceWorker(opts = {}) {
         onMessageExternal: { addListener: (listener) => { externalListener = listener; } },
         onStartup: { addListener: () => {} },
         onInstalled: { addListener: () => {} },
-        sendMessage: async () => ({}),
+        sendMessage: async (message) => opts.sendMessage ? opts.sendMessage(message) : {},
       },
       tabs: {
         query: (query, callback) => callback([]),
@@ -165,12 +191,13 @@ function serviceWorker(opts = {}) {
   };
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8'), context, { filename: 'background.js' });
   return {
-    values, fetchCalls, captureCalls,
+    values, fetchCalls, captureCalls, writes, holdNextWrite,
     get listener() { return messageListener; },
     get external() { return externalListener; },
     get isAllowedEndpoint() { return context.isAllowedEndpoint; },
     get maybeNoteSlowPool() { return context.maybeNoteSlowPool; },
     get rpcPool() { return context.PTRpcPool; },
+    get ctx() { return context; },
     armed: {
       read: context.readArmedRowIntent,
       write: context.writeArmedRowIntent,
@@ -178,9 +205,17 @@ function serviceWorker(opts = {}) {
     },
     get storage() {
       return {
+        getStateStrict: context.getStateStrict,
         getSettings: context.getSettings,
+        mutateState: context.mutateState,
+        sweepPendingBuys: context.sweepPendingBuys,
+        stopRecording: context.stopRecording,
+        autoReview: context.autoReview,
+        attestMigrate: context.attestMigrate,
+        attest: context.PTAttest,
+        attestChain: async () => (await context.PTAttest.readChainStore(context.attestGet)).chain,
+        attestGenesis: () => context.PTAttest.GENESIS,
         getState: context.getState,
-        setState: context.setState,
         getReplays: context.getReplays,
         setReplays: context.setReplays,
       };
@@ -191,7 +226,7 @@ function serviceWorker(opts = {}) {
 function send(listener, message) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('background response timed out')), 2000);
-    const asyncResponse = listener(message, { tab: { id: 1 } }, (response) => {
+    const asyncResponse = listener(message, { id: 'papertrench-test', tab: { id: 1 } }, (response) => {
       clearTimeout(timeout);
       resolve(response);
     });
@@ -374,25 +409,32 @@ test('background state writes advance the seq counter so tabs adopt them', async
   // recording filenames vanished from the dashboard within a second.
   const worker = serviceWorker();
 
-  await worker.storage.setState({ seq: 5, cashSol: 3 });
-  assert.equal(worker.values.pt_state.seq, 6,
-    'a background write must land strictly ahead of the seq it read');
-
-  await worker.storage.setState({ cashSol: 3 });
+  // The stateful setState() helper is gone; background writers now run
+  // mutateState() inside the commit queue, which reads the LATEST stored
+  // wallet, applies the mutation, and stamps seq/updatedAt only on change.
+  await worker.storage.mutateState((state) => { state.cashSol = 3; });
   assert.equal(worker.values.pt_state.seq, 1,
     'a state missing seq starts the counter rather than staying invisible');
+
+  await worker.storage.mutateState((state) => { state.cashSol = 3; });
+  assert.equal(worker.values.pt_state.seq, 2,
+    'a background write must land strictly ahead of the seq it read');
 });
 
-test('a failed storage write resolves instead of hanging the caller', async () => {
+test('a failed state write rejects instead of fabricating success, and the queue recovers', async () => {
   const worker = serviceWorker({ failWrites: true });
-
-  // Both writes must settle — an unresolved promise here would wedge every
-  // awaiting message handler in the worker.
-  await worker.storage.setState({ cashSol: 5 });
+  // Both writes must settle REJECTED — an unresolved promise here would
+  // wedge every awaiting message handler in the worker.
+  await assert.rejects(() => worker.storage.mutateState((state) => { state.cashSol = 5; }),
+    /quota exceeded/, 'a failed state write must reject, not fabricate success');
   await worker.storage.setReplays([]);
 
-  assert.equal(worker.values.pt_state.positions instanceof Object, true,
-    'the failed write must not corrupt what storage already held');
+  // Queue recovery: the rejected mutation must not poison the commit queue
+  // for the writers behind it — the next mutation runs and lands.
+  worker.values.failWrites = false;
+  await worker.storage.mutateState((state) => { state.cashSol = 7; });
+  assert.equal(worker.values.pt_state.cashSol, 7,
+    'a rejected mutation must not poison the queue for later writers');
 });
 
 test('ai proxy blocks disallowed endpoints and fetches allowed ones', async () => {
@@ -825,4 +867,289 @@ test('relayed bridge requests honor the origin gate and the Site-sync toggle', a
   const empty = await sendFrom(worker.listener, { type: 'pt_bridge_get_record' }, RELAY_SENDER);
   assert.equal(empty.ok, false);
   assert.equal(empty.reason, 'chain-empty', 'toggle on: the relay reaches the same record path');
+});
+
+function replacement(worker, state = { seq: 0, cashSol: 25, positions: {}, journal: [], rounds: [] }) {
+  return {
+    type: 'pt_wallet_replace',
+    write: {
+      pt_state: state, pt_frames: [], pt_replays: [],
+      ...worker.storage.attest.chainSegments([]),
+    },
+  };
+}
+
+test('wallet queue: expiry sweep preserves a concurrent fill and does not rewrite a no-op', async () => {
+  const worker = serviceWorker();
+  worker.values.pt_state = {
+    seq: 5, positions: {}, journal: [], rounds: [],
+    pendingBuys: { [MINT]: [{ ts: Date.now() - 25 * 60 * 60 * 1000 }] },
+  };
+  const gate = worker.holdNextWrite();
+  const fill = send(worker.listener, {
+    type: 'pt_state_commit', expectedSeq: 5,
+    state: { ...structuredClone(worker.values.pt_state), seq: 6, journal: [bridgeTrade()] },
+  });
+  await gate.entered;
+  const sweep = worker.storage.sweepPendingBuys();
+  gate.release();
+  assert.equal((await fill).ok, true);
+  await sweep;
+  assert.equal(worker.values.pt_state.journal[0]?.id, 'bt1', 'the concurrent fill survives the sweep');
+  assert.equal(worker.values.pt_state.pendingBuys[MINT], undefined);
+  assert.equal(worker.values.pt_state.seq, 7);
+  const written = worker.writes.length;
+  await worker.storage.sweepPendingBuys();
+  assert.equal(worker.writes.length, written, 'an unchanged wallet produces no write');
+});
+
+for (const kind of ['review', 'recording']) {
+  for (const reset of [false, true]) {
+    test(`wallet queue: ${kind} completion ${reset ? 'after reset cannot resurrect a round' : 'preserves a concurrent fill'}`, async () => {
+      let begin, finish;
+      const started = new Promise(resolve => { begin = resolve; });
+      const response = new Promise(resolve => { finish = resolve; });
+      const worker = serviceWorker({
+        fetch: async () => { begin(); await response; return { ok: true, json: async () => ({ choices: [{ message: { content: 'Respect the stop.' } }] }) }; },
+        sendMessage: async message => {
+          if (message.type !== 'recorder.stop') return {};
+          begin(); await response;
+          return { file: 'round.webm', stored: true, size: 123, startedAt: 1, endedAt: 2 };
+        },
+      });
+      worker.values.pt_settings.aiEndpoint = 'https://coach.example/v1';
+      worker.values.pt_state = {
+        seq: 5, positions: {}, journal: [],
+        rounds: [{
+          id: 'round-1', mint: MINT, symbol: 'BONK', tradeIds: [],
+          openedAt: 1, closedAt: 2, heldMs: 1, investedSol: 1, returnedSol: 2,
+          pnlSol: 1, pnlPct: 100, peakPnlSol: 1, troughPnlSol: 0,
+        }],
+      };
+      const completion = kind === 'review' ? worker.storage.autoReview('round-1') : worker.storage.stopRecording('round-1');
+      await started;
+      const changed = await send(worker.listener, reset ? replacement(worker) : {
+        type: 'pt_state_commit', expectedSeq: 5,
+        state: { ...structuredClone(worker.values.pt_state), seq: 6, journal: [bridgeTrade()] },
+      });
+      assert.equal(changed.ok, true, changed.error);
+      const writesBeforeCompletion = worker.writes.length;
+      finish();
+      await completion;
+      if (reset) {
+        assert.deepEqual(worker.values.pt_state.rounds, []);
+        assert.deepEqual(worker.values.pt_state.journal, []);
+        assert.equal(worker.writes.length, writesBeforeCompletion, 'deleted rounds are not rewritten');
+      } else {
+        assert.equal(worker.values.pt_state.journal[0]?.id, 'bt1', 'the concurrent fill survives completion');
+        assert.equal(worker.values.pt_state.seq, 7);
+        const round = worker.values.pt_state.rounds[0];
+        if (kind === 'review') assert.equal(round.aiReview.text, 'Respect the stop.');
+        else {
+          assert.equal(round.recordingFile, 'round.webm');
+          assert.deepEqual(round.recording, { id: 'round-1', file: 'round.webm', size: 123, startedAt: 1, endedAt: 2 });
+        }
+      }
+    });
+  }
+}
+
+test('wallet queue: legacy migration preserves a fill committed during the chain move', async () => {
+  const worker = serviceWorker();
+  const AT = worker.storage.attest;
+  const link = await AT.appendFill(AT.GENESIS, bridgeTrade());
+  worker.values.pt_state = { seq: 5, positions: {}, rounds: [], journal: [], attestChain: [link] };
+  const gate = worker.holdNextWrite(update => Object.hasOwn(update, AT.CHAIN_META_KEY));
+  const migration = worker.storage.attestMigrate();
+  await gate.entered;
+  const fill = await send(worker.listener, {
+    type: 'pt_state_commit', expectedSeq: 5,
+    state: { ...structuredClone(worker.values.pt_state), seq: 6, journal: [bridgeTrade({ id: 'new-fill' })] },
+  });
+  assert.equal(fill.ok, true);
+  gate.release();
+  assert.equal((await migration).ok, true);
+  assert.equal(worker.values.pt_state.journal[0].id, 'new-fill');
+  assert.equal(worker.values.pt_state.attestChain, undefined);
+  assert.equal(worker.values.pt_state.seq, 7);
+  assert.equal((await worker.storage.attestChain())[0].hash, link.hash);
+});
+
+test('wallet replacement: reset waits for wallet writers and atomically clears evidence', async () => {
+  const worker = serviceWorker();
+  const AT = worker.storage.attest;
+  const link = await AT.appendFill(AT.GENESIS, bridgeTrade());
+  Object.assign(worker.values, AT.chainSegments([link]));
+  worker.values.pt_state = { seq: 5, positions: {}, journal: [], rounds: [] };
+  worker.values.pt_frames = [{ id: 'old-frame' }];
+  worker.values.pt_replays = [{ id: 'old-replay' }];
+  const gate = worker.holdNextWrite();
+  const mutation = worker.storage.mutateState(latest => { latest.journal.push(bridgeTrade()); });
+  await gate.entered;
+  const reset = send(worker.listener, replacement(worker));
+  gate.release();
+  await mutation;
+  const result = await reset;
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.state.seq, 7, 'replacement derives its sequence inside the live wallet queue');
+  assert.deepEqual(worker.values.pt_state.journal, []);
+  assert.deepEqual(worker.values.pt_frames, []);
+  assert.deepEqual(worker.values.pt_replays, []);
+  assert.equal(worker.values[AT.CHAIN_META_KEY].length, 0);
+  assert.equal(worker.values[AT.chainSegKey(0)], undefined, 'orphaned chain bodies are swept');
+  const landed = worker.writes.find(write => write.pt_state && write.pt_state.cashSol === 25);
+  assert.ok(landed && Object.hasOwn(landed, AT.CHAIN_META_KEY), 'wallet and chain meta share the same write');
+  assert.deepEqual(structuredClone(result.state), worker.values.pt_state);
+});
+
+test('wallet replacement: reset and legacy migration follow one non-deadlocking lock order', { timeout: 2500 }, async () => {
+  const worker = serviceWorker();
+  const AT = worker.storage.attest;
+  const link = await AT.appendFill(AT.GENESIS, bridgeTrade());
+  worker.values.pt_state = { seq: 5, positions: {}, rounds: [], journal: [], attestChain: [link] };
+  const gate = worker.holdNextWrite(update => Object.hasOwn(update, AT.CHAIN_META_KEY));
+  const migration = worker.storage.attestMigrate();
+  await gate.entered;
+  const reset = send(worker.listener, replacement(worker));
+  gate.release();
+  assert.equal((await migration).ok, true);
+  assert.equal((await reset).ok, true);
+  assert.deepEqual(worker.values.pt_state.journal, []);
+  assert.equal(worker.values.pt_state.attestChain, undefined);
+  assert.equal((await worker.storage.attestChain()).length, 0);
+});
+
+test('wallet replacement: restore retains its new segments and subsequent appends extend them', async () => {
+  const worker = serviceWorker();
+  const AT = worker.storage.attest;
+  const first = await AT.appendFill(AT.GENESIS, bridgeTrade());
+  const request = replacement(worker);
+  Object.assign(request.write, AT.chainSegments([first]), { pt_settings: { balanceStartSol: 25 } });
+  const result = await send(worker.listener, request);
+  assert.equal(result.ok, true, result.error);
+  assert.equal(worker.values.pt_settings.balanceStartSol, 25);
+  const appended = await send(worker.listener, { type: 'pt_attest_append', trade: bridgeTrade({ id: 'bt2', ts: 1_000_100 }) });
+  assert.equal(appended.ok, true, appended.error);
+  const chain = await worker.storage.attestChain();
+  assert.equal(chain.length, 2);
+  assert.equal(chain[0].hash, first.hash);
+  assert.equal(chain[1].prev, first.hash);
+});
+
+for (const failure of ['failReads', 'failWrites']) {
+  test(`wallet replacement: ${failure} refuses both replacement and ordinary commit without changing the wallet`, async () => {
+    const worker = serviceWorker({ [failure]: true });
+    const before = structuredClone(worker.values);
+    const reset = await send(worker.listener, replacement(worker));
+    assert.equal(reset.ok, false);
+    assert.deepEqual(worker.values, before);
+    const commit = await send(worker.listener, { type: 'pt_state_commit', state: { seq: 1 }, expectedSeq: 0 });
+    assert.notEqual(commit.ok, true);
+    assert.match(commit.error, /quota exceeded/i);
+    assert.deepEqual(worker.values, before);
+  });
+}
+
+test('wallet replacement: unauthorized senders and extra storage keys cannot write', async () => {
+  const worker = serviceWorker();
+  const before = structuredClone(worker.values);
+  const unauthorized = await sendFrom(worker.listener, replacement(worker), { id: 'other-extension' });
+  assert.equal(unauthorized.ok, false);
+  const request = replacement(worker);
+  request.write.pt_leaderboard_auth = 'overwrite attempt';
+  const invalid = await send(worker.listener, request);
+  assert.equal(invalid.ok, false);
+  assert.deepEqual(worker.values, before);
+});
+
+for (const kind of ['recording', 'migration']) {
+  test(`wallet queue: ${kind} queued behind an unfinished fill cannot overwrite it`, async () => {
+    const worker = serviceWorker({ sendMessage: async () => ({ file: 'round.webm', stored: false }) });
+    const AT = worker.storage.attest;
+    const link = await AT.appendFill(AT.GENESIS, bridgeTrade());
+    worker.values.pt_state = { seq: 5, positions: {}, rounds: [{ id: 'round-1' }], journal: [], attestChain: [link] };
+    const gate = worker.holdNextWrite();
+    const fill = send(worker.listener, {
+      type: 'pt_state_commit', expectedSeq: 5,
+      state: { ...structuredClone(worker.values.pt_state), seq: 6, journal: [bridgeTrade({ id: 'new-fill' })] },
+    });
+    await gate.entered;
+    const mutation = kind === 'recording' ? worker.storage.stopRecording('round-1') : worker.storage.attestMigrate();
+    // Drain the fake I/O's promise continuations. No wall-clock delay: the
+    // only unfinished I/O at this boundary is the deliberately held write.
+    await new Promise(setImmediate);
+    gate.release();
+    assert.equal((await fill).ok, true);
+    await mutation;
+    assert.equal(worker.values.pt_state.journal[0]?.id, 'new-fill');
+    assert.equal(worker.values.pt_state.seq, 7);
+    if (kind === 'recording') {
+      assert.equal(worker.values.pt_state.rounds[0].recordingFile, 'round.webm');
+      assert.equal(worker.values.pt_state.rounds[0].recording, null, 'an unstored video has no playable metadata');
+    } else {
+      assert.equal(worker.values.pt_state.attestChain, undefined);
+      assert.equal((await worker.storage.attestChain())[0].hash, link.hash);
+    }
+  });
+}
+
+/* ---------------- chain-feed watch ownership ----------------
+ * The subscription is shared across every tab charting a mint; releasing it
+ * must wait for the LAST watcher to leave. The field report: a user with a
+ * coin open in two tabs saw the live price die in both when one navigated
+ * away — the first tab's unwatch dropped the socket the second still needed. */
+
+const WATCH_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const WATCH_POOL = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+const tabSender = (id) => ({ id: 'papertrench-test', tab: { id } });
+test('a shared chain-feed watch survives one watching tab unwatching', async () => {
+  const worker = serviceWorker();
+  const feed = worker.ctx.PTOnchainFeed;
+  const unwatched = [];
+  const realUnwatch = feed.unwatch;
+  feed.unwatch = (mint) => { unwatched.push(mint); return realUnwatch(mint); };
+  feed.watch = async () => true; // no socket in the sandbox
+
+  const watch = { type: 'pt_onchain_watch', mint: WATCH_MINT, pool: WATCH_POOL };
+  const unwatch = { type: 'pt_onchain_unwatch', mint: WATCH_MINT };
+
+  await sendFrom(worker.listener, watch, tabSender(1));
+  await sendFrom(worker.listener, watch, tabSender(2));
+  // Tab 1 navigates away: the second tab still charts the mint, so the shared
+  // subscription must NOT be released.
+  await sendFrom(worker.listener, unwatch, tabSender(1));
+  assert.deepEqual(unwatched, [], 'a surviving watcher keeps the subscription');
+  // Tab 2 leaves: the last watcher is gone and the feed is released.
+  await sendFrom(worker.listener, unwatch, tabSender(2));
+  assert.deepEqual(unwatched, [WATCH_MINT], 'the last watcher releases the subscription');
+});
+
+test('a closed tab forfeits its watch without an explicit unwatch', async () => {
+  const worker = serviceWorker();
+  const feed = worker.ctx.PTOnchainFeed;
+  const unwatched = [];
+  const realUnwatch = feed.unwatch;
+  feed.unwatch = (mint) => { unwatched.push(mint); return realUnwatch(mint); };
+  feed.watch = async () => true;
+
+  const watch = { type: 'pt_onchain_watch', mint: WATCH_MINT, pool: WATCH_POOL };
+  await sendFrom(worker.listener, watch, tabSender(7));
+  // The tab closed without sending unwatch (a crash, a swipe-close). The
+  // onRemoved path must drop the tab's watches so they do not leak.
+  worker.ctx.chainWatchDropTab(7);
+  assert.deepEqual(unwatched, [WATCH_MINT], 'a closed tab releases its watch');
+});
+
+test('a watch from a sender with no tab still releases unconditionally', async () => {
+  const worker = serviceWorker();
+  const feed = worker.ctx.PTOnchainFeed;
+  const unwatched = [];
+  const realUnwatch = feed.unwatch;
+  feed.unwatch = (mint) => { unwatched.push(mint); return realUnwatch(mint); };
+  feed.watch = async () => true;
+
+  // An extension page (no sender.tab) is not a tracked content tab; its
+  // unwatch keeps the pre-ownership unconditional release.
+  await sendFrom(worker.listener, { type: 'pt_onchain_unwatch', mint: WATCH_MINT }, { id: 'papertrench-test' });
+  assert.deepEqual(unwatched, [WATCH_MINT], 'a no-tab sender releases unconditionally');
 });

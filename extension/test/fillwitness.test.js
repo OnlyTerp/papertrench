@@ -75,8 +75,21 @@ test('F-47: the fill path actually routes through the witness', () => {
   // a live feed does.
   assert.match(content, /Q\.needsFillWitness\(chosen\.priceNative, evidence && evidence\.priceNative,\s*\n?\s*evidenceAge, chosen\.source\)/,
     'the divergence judgment is the pure, tested one, and it knows the source');
-  assert.match(content, /if \(Q\.isAggregatorSource\(chosen\.source\)\) \{\s*\n\s*const obs = await R\.onchainQuote\(/,
-    'an aggregator candidate must be witnessed by the chain, never by the aggregator again');
-  assert.match(content, /if \(Q\.witnessAgrees\(chosen\.priceNative, witnessNative\)\) return chosen;/,
-    'only an agreeing witness lets a divergent candidate fill');
+  assert.match(content, /const chain = \(token && token\.chain\) \|\| 'solana';\s*\n\s*const aggregator = Q\.isAggregatorSource\(chosen\.source\);/,
+    'the witness judgment carries the candidate\'s own chain, never a default');
+  // E3 (RH/BNB): an aggregator candidate is witnessed by the chain ON SOLANA
+  // only — a foreign token skips the Solana RPC pool entirely (never a fake
+  // onchainLive for another chain) and goes straight to the independent
+  // worker quote with its chain attached.
+  assert.match(content, /if \(aggregator\) \{\s*\n\s*const mint = token && token\.mint;\s*\n\s*const obs = chain === 'solana' \? await R\.onchainQuote\(mint\)\.catch\(\(\) => null\) : null;/,
+    'an aggregator candidate must be witnessed by the chain on solana, never by the aggregator again — and EVM must not touch the RPC pool');
+  // D-71 (RPC exit): when the public pool has no positive chain observation,
+  // the witness falls back to the independent worker quote (Indeix via
+  // papertrench.com) — still never the aggregator that served the candidate.
+  // E3: that quote is chain-qualified, so an EVM witness can never be served
+  // from Solana data.
+  assert.match(content, /const worker = await R\.workerQuote\(mint, chain\);/,
+    'a dead chain lane falls back to the chain-qualified worker quote, not to silence');
+  assert.match(content, /if \(Q\.witnessAgrees\(useUsdWitness \? chosen\.priceUsd : chosen\.priceNative,\s*\n\s*useUsdWitness \? witnessUsd : witnessNative\)\) return chosen;/,
+    'only an agreeing witness lets a divergent candidate fill - and foreign candidates are compared in their own USD units');
 });

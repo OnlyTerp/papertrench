@@ -227,6 +227,7 @@ function destWorker(opts = {}) {
   return {
     values, session, tabsById, calls, listeners,
     get listener() { return messageListener; },
+    get ctx() { return context; },
     seedDestViewer(family, props = {}) {
       const urls = { pumpfun: 'https://pump.fun/board', solscan: 'https://solscan.io/' };
       const tab = {
@@ -856,4 +857,54 @@ test('same-terminal: the content side only claims a click the background already
   assert.doesNotMatch(click.slice(spawnAt, spawnAt + 400), /preventDefault/, 'the spawn path never eats the click');
   assert.match(src, /message\.url === sameHintUrl\) sameReady/, 'a stale readiness notice for a page the cursor left is ignored');
   assert.match(src, /if \(sameHintUrl !== url\) sameReady = null/, 'moving the viewer invalidates readiness');
+});
+
+/* ---------------- viewer message-gating ----------------
+ * A live warm viewer is a hidden tab we spawned to pre-warm a destination.
+ * Its content script must not run the price machinery — its probes compete
+ * with the VISIBLE tab for the shared keyless RPC pool, and on a slow machine
+ * its throttled timers become probe timeouts that bench endpoints the visible
+ * tab needs. The gate returns the same "no data" shape a real miss returns. */
+
+test('a live warm viewer is denied the price machinery', async () => {
+  const worker = destWorker();
+  // Register tab 5 as a live hidden viewer through the real write path.
+  await worker.ctx.writeWarmDestTab('pumpfun', { tabId: 5, used: false, createdAt: 1 });
+
+  // Spy on the resolver: the gate must prevent the call from ever reaching it.
+  const R = worker.ctx.PaperTrenchResolver;
+  let resolveCalls = 0;
+  const realResolve = R.resolve;
+  R.resolve = (...a) => { resolveCalls += 1; return realResolve(...a); };
+
+  const gated = await send(worker.listener, { type: 'pt_resolve', address: MINT }, { tab: { id: 5 } });
+  assert.equal(gated, null, 'a viewer gets the no-data shape, not a resolve');
+  assert.equal(resolveCalls, 0, 'the resolver is never consulted for a viewer');
+
+  // A visible tab on the same message resolves through the real path.
+  await send(worker.listener, { type: 'pt_resolve', address: MINT }, { tab: { id: 9 } });
+  assert.equal(resolveCalls, 1, 'a visible tab resolves normally');
+});
+
+test('a revealed viewer (used:true) is no longer gated', async () => {
+  const worker = destWorker();
+  await worker.ctx.writeWarmDestTab('pumpfun', { tabId: 5, used: false, createdAt: 1 });
+  const R = worker.ctx.PaperTrenchResolver;
+  let resolveCalls = 0;
+  const realResolve = R.resolve;
+  R.resolve = (...a) => { resolveCalls += 1; return realResolve(...a); };
+
+  // Reveal: the same tab is marked used, which drops it from the viewer set.
+  await worker.ctx.writeWarmDestTab('pumpfun', { tabId: 5, used: true, createdAt: 1 });
+  await send(worker.listener, { type: 'pt_resolve', address: MINT }, { tab: { id: 5 } });
+  assert.equal(resolveCalls, 1, 'a revealed tab resolves normally');
+});
+
+test('a non-gated message from a live viewer still runs', async () => {
+  const worker = destWorker();
+  await worker.ctx.writeWarmDestTab('pumpfun', { tabId: 5, used: false, createdAt: 1 });
+  // pt_rec_query is not in the quiet set — a viewer may still ask whether
+  // recording is active without spending RPC work.
+  const reply = await send(worker.listener, { type: 'pt_rec_query' }, { tab: { id: 5 } });
+  assert.equal(reply && reply.active, false, 'a non-gated message answers normally');
 });

@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PaperTrench</title>
   <style>
     /* ==========================================================
@@ -81,6 +82,7 @@
       -webkit-backdrop-filter: blur(20px) saturate(150%);
       border-bottom: 1px solid var(--line);
     }
+    header .overlay-launch { margin-left: auto; }
     .brand { display: flex; align-items: center; gap: 11px; }
     /* The mark is the plane on near-black, exactly as brand/logo.png is drawn.
        The old amber-filled tile cannot carry it: the plane is itself amber, so
@@ -102,19 +104,35 @@
       font-size: 9px; font-weight: 800; letter-spacing: 1.2px;
     }
 
-    nav { display: flex; gap: 3px; margin-left: auto; padding: 4px; border-radius: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--line); }
+    /* --- primary nav: a grouped vertical rail, not a tab strip. The desk
+       metaphor puts wayfinding on the left like every cockpit: Trade /
+       Review / Practice / Account groups, amber active marker, sticky. --- */
+    nav {
+      position: sticky; top: 62px; z-index: 40;
+      flex: none; width: 208px;
+      align-self: stretch;
+      padding: 18px 12px 28px;
+      max-height: calc(100vh - 62px); overflow-y: auto;
+      border-right: 1px solid var(--line);
+    }
+    .nav-heading {
+      display: block; margin: 16px 8px 5px;
+      font-size: 9px; font-weight: 800; letter-spacing: 1.6px;
+      text-transform: uppercase; color: var(--faint);
+    }
+    .nav-heading:first-child { margin-top: 0; }
     nav button {
       position: relative;
-      padding: 7px 15px; border: none; border-radius: var(--r-sm);
-      background: transparent; color: var(--dim);
+      display: block; width: 100%;
+      padding: 7px 11px; margin: 1px 0; border: none; border-radius: var(--r-sm);
+      background: transparent; color: var(--dim); text-align: left;
       font-family: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer;
       transition: color 0.16s, background 0.16s;
     }
     nav button:hover { color: var(--text); background: var(--raised); }
-    nav button.active { color: var(--text); background: rgba(255,255,255,0.09); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
-    nav button.active::after {
-      content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
-      width: 16px; height: 2px; border-radius: 2px; background: var(--amber);
+    nav button.active {
+      color: var(--text); background: rgba(255, 255, 255, 0.07);
+      box-shadow: inset 2px 0 0 var(--amber), inset 0 1px 0 rgba(255,255,255,0.05);
     }
     .overlay-launch {
       padding: 8px 14px; border-radius: 10px; cursor: pointer;
@@ -124,9 +142,22 @@
     }
     .overlay-launch:hover { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.22); }
 
+    /* --- keyboard wayfinding: skip link + deliberate focus --- */
+    .skip-link {
+      position: absolute; left: -9999px; top: 0; z-index: 300;
+      padding: 10px 16px; border-radius: 0 0 10px 0;
+      background: var(--amber); color: #14100A;
+      font-size: 12.5px; font-weight: 800;
+    }
+    .skip-link:focus { left: 0; }
+    main:focus { outline: none; }
+    main:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid var(--amber); outline-offset: 2px;
+    }
     /* ---------------- layout ---------------- */
 
-    .wrap { display: flex; align-items: flex-start; min-height: calc(100vh - 62px); }
+    .wrap { display: flex; align-items: stretch; min-height: calc(100vh - 62px); }
     aside {
       position: sticky; top: 62px;
       width: 246px; flex: none; padding: 20px 16px;
@@ -134,6 +165,26 @@
       border-right: 1px solid var(--line);
     }
     main { flex: 1; min-width: 0; padding: 22px 26px 60px; }
+
+    /* --- small screens: the rail becomes a wrapping chip row under the
+       header — every group still reachable, no horizontal page scroll. --- */
+    @media (max-width: 980px) {
+      .wrap { display: block; }
+      nav {
+        position: static; width: auto; max-height: none; overflow: visible;
+        padding: 10px 14px 14px; border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+      nav button { display: inline-block; width: auto; padding: 6px 12px; margin: 2px 2px; }
+      .nav-heading { display: inline; margin: 0 2px 0 10px; }
+      .nav-heading:first-child { margin-left: 2px; }
+      aside { display: none; }
+    }
+    @media (max-width: 640px) {
+      header { position: static; height: auto; min-height: 62px; padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
+      header .overlay-launch { margin-left: 0; }
+      main { padding: 18px 16px 40px; }
+    }
 
     /* ---------------- KPI cards ---------------- */
 
@@ -201,7 +252,53 @@
     .wn-foot a { color: var(--amber); font-size: 12.5px; font-weight: 650; text-decoration: none; }
     .wn-foot a:hover { text-decoration: underline; }
     .wn-foot .btn { margin-left: auto; }
-    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(370px, 1fr)); gap: 16px; align-items: start; }
+    /* min(370px, 100%): at narrow viewports (320px) the track clamps to the
+     * container instead of forcing a 370px card and horizontal page scroll. */
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(370px, 100%), 1fr)); gap: 16px; align-items: start; }
+
+   /* ---------- training desk overview ----------
+      Action-first: one dominant derived next action, then the honest
+      PAPER equity strip, then supporting detail. Established amber, dark
+      neutrals, deliberate type scale. */
+   .desk-hero {
+     padding: 26px 26px 24px; margin-bottom: 16px;
+     background: linear-gradient(155deg, rgba(255,157,50,0.10), rgba(255,255,255,0.015));
+     border: 1px solid rgba(255,157,50,0.28); border-radius: var(--r-xl);
+     box-shadow: var(--shadow-md);
+   }
+   .desk-kicker {
+     margin: 0 0 6px; font-size: 10px; font-weight: 800;
+     letter-spacing: 1.8px; text-transform: uppercase; color: var(--amber);
+   }
+   .desk-title {
+     margin: 0; font-size: 27px; font-weight: 800;
+     letter-spacing: -0.7px; line-height: 1.15;
+   }
+   .desk-body {
+     margin: 8px 0 0; max-width: 560px;
+     font-size: 13px; line-height: 1.6; color: var(--dim);
+   }
+   .desk-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 16px; padding: 10px 18px; font-size: 13.5px; text-decoration: none; }
+   .desk-strip {
+     display: flex; flex-wrap: wrap; gap: 1px;
+     background: var(--line); border: 1px solid var(--line);
+     border-radius: var(--r-lg); overflow: hidden; margin-bottom: 16px;
+   }
+   .desk-cell {
+     flex: 1 1 130px; min-width: 0; padding: 13px 15px;
+     display: flex; flex-direction: column; gap: 5px;
+     background: var(--bg);
+   }
+   .desk-cell .lab {
+     font-size: 9px; font-weight: 700; letter-spacing: 1.1px;
+     text-transform: uppercase; color: var(--faint);
+   }
+   .desk-strong { font-size: 15.5px; font-weight: 750; letter-spacing: -0.2px; }
+   .desk-start { margin-top: 16px; }
+   @media (max-width: 560px) {
+     .desk-hero { padding: 20px 16px 18px; }
+     .desk-title { font-size: 22px; }
+   }
 
     /* ---------- preset rows ----------
        One box per button, instead of a text field holding "0.1, 0.5, 1, 2".
@@ -314,9 +411,8 @@
       border: 1px solid var(--line);
     }
 
-    /* ---------------- tables ---------------- */
+    .log { max-height: 430px; overflow-y: auto; overflow-x: auto; border-radius: var(--r-md); }
 
-    .log { max-height: 430px; overflow-y: auto; border-radius: var(--r-md); }
     .log table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .log th {
       position: sticky; top: 0; z-index: 2;
@@ -330,6 +426,9 @@
     .log td { padding: 10px 11px; border-bottom: 1px solid rgba(255,255,255,0.045); }
     .log tbody tr { transition: background 0.14s; }
     .log tbody tr:hover { background: rgba(255,255,255,0.035); }
+
+    /* Wide tables scroll within their card — never the page. */
+    .table-wrap { overflow-x: auto; border-radius: var(--r-md); }
     .log td.num, .log th.num { font-family: var(--mono); }
 
     .side-buy, .side-sell {
@@ -866,6 +965,7 @@
 
     /* ---------------- P&L calendar ---------------- */
 
+    #calendar h3 { flex-wrap: wrap; gap: 10px; }
     .cal-nav { display: inline-flex; align-items: center; gap: 9px; margin-left: auto; }
     .cal-month {
       min-width: 128px; text-align: center;
@@ -881,15 +981,19 @@
     }
     .cal-nav-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-2); }
     .cal-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    @media (max-width: 640px) {
+      .cal-nav-btn { width: 44px; height: 44px; }
+      .cal-month { min-width: 100px; }
+    }
 
 
     /* ---- Trench Grid (A1) ---- */
     .tg-year { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 6px; }
     .tg-month { min-width: 150px; }
     .tg-month-name { font-size: 11px; color: var(--muted, #8b93a7); margin-bottom: 4px; }
-    .tg-days { display: grid; grid-template-columns: repeat(7, 15px); grid-auto-flow: column;
+    .tg-days { display: grid; grid-template-columns: repeat(7, 15px); grid-auto-flow: row;
       grid-template-rows: repeat(6, 15px); gap: 2px; }
-    .tg-days .tg-cell { grid-row: calc(var(--tg-off) + 1) / span 1; }
+    .tg-days .tg-cell:first-child { grid-column: calc(var(--tg-off) + 1); }
     .tg-cell { width: 15px; height: 15px; border-radius: 3px; display: inline-block;
       border: 1px solid rgba(255,255,255,0.06); }
     .tg-empty { background: transparent; border-color: rgba(255,255,255,0.08); }
@@ -1081,7 +1185,7 @@
     }
     .cal-summary strong { color: var(--text); font-weight: 750; }
 
-    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr) 64px; gap: 5px; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(32px, 1fr)) 64px; gap: 5px; overflow-x: auto; }
     .cal-head {
       padding-bottom: 5px; text-align: center;
       font-size: 9.5px; font-weight: 750; letter-spacing: 0.9px;
@@ -1140,32 +1244,37 @@
   </style>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header>
     <div class="brand">
       <div class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="ptmA" x1="23" y1="3.19" x2="4" y2="13.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFC94A"/><stop offset=".55" stop-color="#FF9D32"/><stop offset="1" stop-color="#F5751F"/></linearGradient><linearGradient id="ptmB" x1="23" y1="3.19" x2="11" y2="20.8" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FBA23A"/><stop offset=".6" stop-color="#F87A24"/><stop offset="1" stop-color="#EE5F1C"/></linearGradient></defs><path d="M23 3.19 L1 10.56 L8.74 15.68 Z" fill="url(#ptmA)"/><path d="M23 3.19 L8.74 15.68 L9.2 18.24 L13.07 20.8 Z" fill="url(#ptmB)"/></svg></div>
       <h1>PaperTrench</h1>
       <span class="badge">PAPER ONLY</span>
     </div>
-    <nav>
-      <button class="active" data-section="overview">Overview</button>
-      <button data-section="game">Game</button>
-      <button data-section="calendar">Calendar</button>
-      <button data-section="grid">Trench Grid</button>
-      <button data-section="spark">Daily Spark</button>
-      <button data-section="wrapped">Wrapped</button>
-      <button data-section="journal">Journal</button>
-      <button data-section="rounds">Rounds</button>
-      <button data-section="perps">Perps</button>
-      <button data-section="replay">Replay</button>
-      <button data-section="leaderboard">Leaderboard</button>
-      <button data-section="coach">AI Coach</button>
-      <button data-section="settings">Settings</button>
-    </nav>
     <button id="stream-overlay-btn" class="overlay-launch" title="Open the capture-ready stream overlay window for OBS">🎥 Stream overlay</button>
   </header>
   <div class="wrap">
+    <nav aria-label="Primary">
+      <span class="nav-heading" aria-hidden="true">Trade</span>
+      <button class="active" data-section="overview">Overview</button>
+      <button data-section="game">Game</button>
+      <button data-section="perps">Perps</button>
+      <button data-section="grid">Trench Grid</button>
+      <span class="nav-heading" aria-hidden="true">Review</span>
+      <button data-section="rounds">Rounds</button>
+      <button data-section="journal">Journal</button>
+      <button data-section="calendar">Calendar</button>
+      <button data-section="coach">AI Coach</button>
+      <button data-section="replay">Replay</button>
+      <span class="nav-heading" aria-hidden="true">Practice</span>
+      <button data-section="spark">Daily Spark</button>
+      <button data-section="wrapped">Wrapped</button>
+      <span class="nav-heading" aria-hidden="true">Account</span>
+      <button data-section="leaderboard">Leaderboard</button>
+      <button data-section="settings">Settings</button>
+    </nav>
     <aside id="sidebar"></aside>
-    <main>
+    <main id="main" tabindex="-1">
       <section id="overview" class="section"></section>
       <section id="game" class="section hidden"></section>
       <section id="calendar" class="section hidden"></section>

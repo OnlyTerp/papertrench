@@ -17,13 +17,22 @@
 
   var BASE = 'https://api.dexscreener.com/latest/dex';
   var TTL_MS = 60000;
-  var cache = new Map(); // address -> { at, data }
+  var cache = new Map(); // "chainId:canonicalAddress" -> { at, data }
 
-  function cacheGet(address, maxAgeMs) {
-    var hit = cache.get(address);
+  // Cache identity is (chain, address), never address alone: the same 0x
+  // string exists on several EVM chains, and a BNB record must never be
+  // served for an Ethereum request. EVM checksum casing is normalized
+  // (Dexscreener returns mixed casing); base58 is case-sensitive and is
+  // never lowercased. Q.canonicalAddress / Q.chainIdFor come from quote.js.
+  function cacheKey(chainId, address) {
+    return chainId + ':' + address;
+  }
+
+  function cacheGet(chainId, address, maxAgeMs) {
+    var hit = cache.get(cacheKey(chainId, address));
     if (!hit) return null;
     var age = Date.now() - hit.at;
-    if (age >= TTL_MS) { cache.delete(address); return null; }
+    if (age >= TTL_MS) { cache.delete(cacheKey(chainId, address)); return null; }
     // A caller about to FILL a trade at this price can demand tighter
     // freshness than the display TTL. The entry stays cached for display use.
     if (typeof maxAgeMs === 'number' && maxAgeMs >= 0 && age > maxAgeMs) return null;
@@ -32,9 +41,15 @@
 
   function cachePut(data) {
     if (!data) return;
+    // Unknown chain never enters the cache: chainIdFor returns null and
+    // there is no coherent key family to store it under.
+    var chainId = Q.chainIdFor(data.chain);
+    if (chainId === null) return;
     var at = Date.now();
-    if (data.mint) cache.set(data.mint, { at: at, data: data });
-    if (data.pairAddress) cache.set(data.pairAddress, { at: at, data: data });
+    var mint = data.mint ? Q.canonicalAddress(data.mint) : null;
+    var pair = data.pairAddress ? Q.canonicalAddress(data.pairAddress) : null;
+    if (mint) cache.set(cacheKey(chainId, mint), { at: at, data: data });
+    if (pair && pair !== mint) cache.set(cacheKey(chainId, pair), { at: at, data: data });
   }
 
   async function getJson(url, timeoutMs) {
@@ -55,33 +70,36 @@
 
   // D-38: the venue first-price layer. A launch's first minutes live on the
   // terminal's OWN servers before any aggregator indexes them, and the chart
-  // on screen is drawn from exactly those. GMGN's quotation API (their public
-  // docs endpoint) and pump.fun's coin API are the same sources the rendered
-  // pages read; both are fetched only AFTER the aggregators stay silent, so
-  // the common path pays nothing. They are mint-keyed Solana quotes — a pair
-  // address simply gets null back, which is the honest non-answer.
-  var GMGN_QUOTE_URL = 'https://gmgn.ai/defi/quotation/v1/token/sol/';
+  // on screen is drawn from exactly those. pump.fun's coin API is the same
+  // source the rendered page reads; it is fetched only AFTER the aggregators
+  // stay silent, so the common path pays nothing. It is a mint-keyed Solana
+  // quote — a pair address simply gets null back, the honest non-answer.
+  //
+  // GMGN's quotation endpoint was the second venue source until it began
+  // answering every request with 404 (their token price moved to
+  // websocket-only; no keyless REST path remains). A guaranteed-dead request
+  // on the fresh-pair path is pure cost — it delayed the venue answer by up
+  // to its 4s timeout on every pending token — so the leg is removed, not
+  // left to fail.
   var PUMP_COIN_URL = 'https://pump.fun/api/0/coins/';
 
-  /** Race the two venue quotation APIs for a mint neither aggregator knows.
+  /** Ask the venue quotation API for a mint neither aggregator knows.
    *
-   * PERF (2026-09-04): the SOL/USD rate and the two venue probes now fly in
-   * ONE parallel wave. The rate was awaited FIRST and only then did the probes
+   * PERF (2026-09-04): the SOL/USD rate and the venue probe fly in ONE
+   * parallel wave. The rate was awaited FIRST and only then did the probe
    * start — a cold-cache miss paid rate-latency + probe-latency serially for
-   * data the probes cannot even use until both have landed (tokenFromGmgn/
-   * tokenFromPumpfun divide a USD price by the rate at parse time, after the
-   * fetches). Cold-miss path measured ~496ms → the probes' own latency. */
+   * data the probe cannot even use until both have landed (tokenFromPumpfun
+   * divides a USD price by the rate at parse time, after the fetch).
+   * Cold-miss path measured ~496ms → the probe's own latency. */
   async function resolveViaVenues(address) {
     var ratePromise = solUsd().catch(function () { return 0; });
     var payloads = await Promise.all([
-      getJson(GMGN_QUOTE_URL + address, 4000).catch(function () { return null; }),
       getJson(PUMP_COIN_URL + address, 4000).catch(function () { return null; }),
       ratePromise,
     ]);
-    var rate = Number(payloads[2]) || 0;
+    var rate = Number(payloads[1]) || 0;
     if (!(rate > 0)) return null;
-    return Q.tokenFromGmgn(payloads[0], address, rate)
-      || Q.tokenFromPumpfun(payloads[1], address, rate);
+    return Q.tokenFromPumpfun(payloads[0], address, rate);
   }
 
   // SOL/USD is needed to convert Jupiter's USD-only quotes into the SOL prices
@@ -117,14 +135,24 @@
     for (var i = 0; i < pairs.length; i++) {
       var p = pairs[i];
       if (!p || p.chainId !== 'solana') continue;
+      // /tokens/<WSOL> returns pools where WSOL sits on EITHER side, and an
+      // A/B pool merely QUOTED in a stablecoin prices token A, not SOL.
+      // Requiring the WSOL base keeps the rate an actual SOL rate.
+      var base = p.baseToken || {};
+      if (base.address !== Q.WSOL_MINT) continue;
       var quote = p.quoteToken || {};
       if (quote.address !== Q.USDC_MINT && quote.address !== Q.USDT_MINT) continue;
       var usd = Number(p.priceUsd);
-      var liq = Number(p.liquidity && p.liquidity.usd) || 0;
-      if (usd > 0 && liq > bestLiq) { best = usd; bestLiq = liq; }
+      var liq = Number(p.liquidity && p.liquidity.usd);
+      // Infinity liquidity would always win the deepest-pool race; only a
+      // finite positive liquidity and a finite positive price are usable.
+      if (!Number.isFinite(liq) || liq <= 0) continue;
+      if (!Number.isFinite(usd) || usd <= 0) continue;
+      if (liq > bestLiq) { best = usd; bestLiq = liq; }
     }
     return best > 0 ? best : 0;
   }
+
 
   async function solUsd() {
     var now = Date.now();
@@ -161,7 +189,10 @@
     if (!payload) return { record: null, solUsd: cachedRate };
 
     var solUsd = fresh ? cachedRate : Q.solUsdFromJupiter(payload);
-    if (solUsd > 0) solUsdCache = { at: Date.now(), value: solUsd };
+    // Re-stamp the cache ONLY on a newly fetched rate. Reusing a fresh
+    // cached rate must not advance `at`, or every resolve would push the
+    // timestamp forward and immortalize one stale rate past its TTL.
+    if (!fresh && solUsd > 0) solUsdCache = { at: Date.now(), value: solUsd };
     if (!(solUsd > 0)) return { record: null, solUsd: 0 };
 
     return { record: Q.tokenFromJupiter(payload, address, solUsd), solUsd: solUsd };
@@ -178,10 +209,16 @@
   async function resolve(address, opts) {
     if (!address) return null;
 
-    var cached = cacheGet(address, opts && opts.maxAgeMs);
+    // Fail closed: an unknown chain slug can only be answered with "no
+    // record". Guessing solana here would both fetch the wrong chain's
+    // market AND serve it under a key other chains could hit.
+    var chain = (opts && opts.chain) || 'solana';
+    var chainId = Q.chainIdFor(chain);
+    if (chainId === null) return null;
+
+    var cached = cacheGet(chainId, Q.canonicalAddress(address), opts && opts.maxAgeMs);
     if (cached) return cached;
 
-    var chain = (opts && opts.chain) || 'solana';
     if (chain !== 'solana') {
       // Multichain (docs/MULTICHAIN.md): Dexscreener's /tokens/ endpoint is
       // chain-agnostic and covers every fomo chain (live-verified, incl.
@@ -339,34 +376,31 @@
       var parseOpts = { solUsd: rate };
       if (chainName !== 'solana') parseOpts.chain = chainName;
       for (var k = 0; k < payloads.length; k++) {
+        // Scope the parse to what THIS chunk asked for. Dexscreener returns
+        // every matching pair in the payload - including X/Y pools that
+        // merely quote a requested token - so without a per-chunk filter an
+        // unrequested base mint lands in `out`, and a later chain group can
+        // then overwrite a requested key with a record from the WRONG chain.
+        var requested = Object.create(null);
+        for (var w = 0; w < chunks[k].length; w++) {
+          var canon = Q.canonicalAddress(chunks[k][w]);
+          if (canon) requested[canon] = chunks[k][w];
+        }
         var parsed = Q.pricesFromBatch(payloads[k], parseOpts);
         for (var mint in parsed) {
-          if (Object.prototype.hasOwnProperty.call(parsed, mint)) {
-            out[mint] = parsed[mint];
-            cachePut(parsed[mint]);
-          }
+          if (!Object.prototype.hasOwnProperty.call(parsed, mint)) continue;
+          // Key the caller's output under the ORIGINAL casing they passed
+          // (the API contract is out[requestedMint]); skip extraneous base
+          // mints entirely - they are neither returned nor cached.
+          var canonMint = Q.canonicalAddress(mint);
+          var callerKey = canonMint ? requested[canonMint] : null;
+          if (!callerKey) continue;
+          out[callerKey] = parsed[mint];
+          cachePut(parsed[mint]);
         }
       }
     }
     return out;
-  }
-
-  /**
-   * Expose the cached SOL/USD rate so the UI can convert on-screen USD prices
-   * into SOL-denominated fills while a brand-new coin is still unindexed. The
-   * rate is fetched alongside every Jupiter resolve and refreshed on demand.
-   */
-  async function solUsd() {
-    var now = Date.now();
-    var cachedRate = cachedSolUsd();
-    if (cachedRate > 0) return cachedRate;
-
-    var payload = await getJson(jupiterUrl(Q.WSOL_MINT), 4000);
-    if (!payload) return 0;
-
-    var rate = Q.solUsdFromJupiter(payload);
-    if (rate > 0) solUsdCache = { at: now, value: rate };
-    return rate || 0;
   }
 
   function clearCache() { cache.clear(); }

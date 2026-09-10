@@ -1,10 +1,10 @@
-/* PaperTrench server — historical candle source (GeckoTerminal adapter).
+/* PaperTrench server — historical candle sources (GeckoTerminal + Indeix).
  *
- * pricing.js asks one question: "what USD range did this token — and SOL —
- * trade in during this minute?" This adapter answers it from GeckoTerminal's
- * free OHLCV API with a D1 cache in front, because historical minutes never
- * change: one popular mint's minute, fetched once, serves every verifier
- * forever.
+ * pricing.js asks what USD range a token and SOL traded in during a minute.
+ * Solana candles come from GeckoTerminal; EVM token candles come from Indeix.
+ * The wallet commits SOL-book prices on every chain, so the independent
+ * historical SOL/USD band remains the accounting conversion, not a claim
+ * that an EVM token has a SOL market. D1 caches each real mint-minute.
  *
  * Budget honesty: the free tier allows ~30 calls/min. The cron drains pricing
  * work under a per-run lookup budget, so a burst of submissions queues
@@ -12,6 +12,8 @@
  * null → pricing marks those fills 'no-data' (never a pass, never a fail).
  */
 'use strict';
+
+const indeix = require('./indeix.js');
 
 /**
  * Two hosts serve the same on-chain candle data, and only one of them can be
@@ -125,6 +127,29 @@ async function ohlcvWindow(env, pool, minuteTs) {
   return out;
 }
 
+/** EVM token candles remain USD per whole token: never a raw-unit/SOL fold. */
+async function indeixWindow(env, chainId, mint, minuteTs, budget) {
+  const amount = 720;
+  const data = await indeix.indeixJson(env, 'GET', '/2/token/ohlcv-history', {
+    chainId, address: mint, period: '1m',
+    from: minuteTs, to: Math.min(Date.now(), minuteTs + amount * 60000),
+    amount, usd: 'true', fill: 'false',
+  }, budget);
+  if (!data) return null;
+  const rows = Array.isArray(data) ? data : (data.data || data.items);
+  if (data.error || !Array.isArray(rows)) throw new Error('indeix-candle-shape');
+  const out = new Map();
+  for (const row of rows) {
+    if (!row || row.error) continue;
+    const time = Number(row.t ?? row.ts ?? row.time);
+    const ts = time < 1e12 ? time * 1000 : time;
+    const high = Number(row.h ?? row.high), low = Number(row.l ?? row.low);
+    if (Number.isFinite(ts) && Number.isFinite(high) && Number.isFinite(low) &&
+        low > 0 && high >= low) out.set(ts, { low, high });
+  }
+  return out;
+}
+
 /** One cache row. */
 function upsertCandle(env, key, minuteTs, value, now) {
   return env.DB.prepare(`
@@ -178,14 +203,10 @@ async function cachedCandle(env, key, minuteTs, fetchWindow) {
  */
 function makeGetCandles(env, budget) {
   return async function getCandles(mint, minuteTs, chain) {
-    // Fail CLOSED on any chain this adapter cannot price (DEFECT L-09). Both
-    // lookups below are Solana-only — the pool resolver queries the Solana
-    // network and the conversion series is SOL/USD — so answering for another
-    // chain would judge the fill against a market it never traded in. Null
-    // means 'no-data': the fill never counts as verified, and it spends none
-    // of the budget. Absent chain is a v1 link, which predates multichain
-    // and can only be Solana.
-    if (chain && chain !== 'solana') return null;
+    // Unknown chains never borrow Solana's token market. Legacy links omit
+    // the chain; pricing resolves those to Solana through the shared contract.
+    const slug = chain || 'solana';
+    if (!Object.hasOwn(indeix.CHAIN_IDS, slug)) return null;
     const spend = async (fn) => {
       if (budget.used >= budget.max) throw new Error('candle-budget-exhausted');
       const result = await fn();
@@ -196,12 +217,20 @@ function makeGetCandles(env, budget) {
       spend(() => ohlcvWindow(env, SOL_USD_POOL, minuteTs)));
     if (!sol.fromCache) budget.used++;
 
-    const token = await cachedCandle(env, mint, minuteTs, async () => {
-      const pool = await spend(() => poolFor(env, mint));
-      if (!pool) return null;
-      return spend(() => ohlcvWindow(env, pool, minuteTs));
-    });
-    if (!token.fromCache) budget.used++;
+    let token;
+    if (slug === 'solana') {
+      token = await cachedCandle(env, mint, minuteTs, async () => {
+        const pool = await spend(() => poolFor(env, mint));
+        if (!pool) return null;
+        return spend(() => ohlcvWindow(env, pool, minuteTs));
+      });
+      if (!token.fromCache) budget.used++;
+    } else {
+      // Same address on different EVM chains is a different market. Indeix's
+      // transport reserves every actual call/retry in the shared budget.
+      token = await cachedCandle(env, slug + ':' + mint.toLowerCase(), minuteTs, () =>
+        indeixWindow(env, indeix.CHAIN_IDS[slug], mint, minuteTs, budget));
+    }
 
     if (!token.value || !sol.value) return null;
     return { tokenUsd: token.value, solUsd: sol.value };

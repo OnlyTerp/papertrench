@@ -89,6 +89,44 @@ function fnBlock(source, marker) {
   return source.slice(start, end + 2);
 }
 
+test('Training desk: next action follows empty, open, unreviewed and reviewed wallet state', () => {
+  const wallet = E.defaultState(E.defaultSettings());
+  const ctx = { state: wallet, window: { PTGamify: { rank: () => ({}), drills: () => ({ label: 'Flat size', detail: 'Keep the same size.' }) } } };
+  vm.createContext(ctx);
+  vm.runInContext(fnBlock(dashJs, 'function overviewNextAction('), ctx);
+  assert.equal(ctx.overviewNextAction().href, 'https://axiom.trade/@usepaper');
+  wallet.positions.TEST = { qty: 1 };
+  assert.equal(ctx.overviewNextAction().anchor, 'open-pos');
+  delete wallet.positions.TEST;
+  wallet.rounds.push({ symbol: 'TEST', note: null });
+  assert.equal(ctx.overviewNextAction().jump, 'rounds');
+  wallet.rounds[0].note = { text: 'Reviewed the exit.' };
+  assert.equal(ctx.overviewNextAction().title, "Today's drill: Flat size");
+  assert.equal(ctx.overviewNextAction().body, 'Keep the same size.');
+});
+
+test('Training desk: empty or break-even-only wallets do not claim a zero-percent win rate', () => {
+  const wallet = E.defaultState(E.defaultSettings());
+  const sidebar = { innerHTML: '' };
+  const ctx = {
+    state: wallet, settings: E.defaultSettings(), E, window: {}, document: { getElementById: () => sidebar },
+    fmt: E.fmt, equitySparkline: () => '', winRateBar: () => '',
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fnBlock(dashJs, 'function renderSidebar('), ctx);
+  const renderedRate = () => {
+    ctx.renderSidebar();
+    return sidebar.innerHTML.match(/<div class="lab">Win rate<\/div>\s*<div class="num">([^<]*)/)[1];
+  };
+  assert.equal(renderedRate(), '—');
+  wallet.rounds.push({ pnlSol: 0 });
+  assert.equal(renderedRate(), '—');
+  wallet.rounds.push({ pnlSol: -1 });
+  assert.equal(renderedRate(), '0%');
+  wallet.rounds.push({ pnlSol: 1 });
+  assert.equal(renderedRate(), '50%');
+});
+
 /* ---------------- D-52: break-even rounds (engine, behavioural) ------------ */
 
 test('D-52: a break-even round is neither a win nor a loss', () => {
@@ -491,29 +529,121 @@ test('D-33: the calendar best/worst chip asks the locale for the short month', (
 
 function resetBlock() {
   const bind = fnBlock(dashJs, 'function bindSettings()');
-  const start = bind.indexOf("getElementById('reset-all')");
-  const end = bind.indexOf("getElementById('test-ai')");
-  assert.ok(start !== -1 && end !== -1 && end > start, 'reset handler must exist before the test handler');
-  return bind.slice(start, end);
+  const start = bind.lastIndexOf('document.', bind.indexOf("getElementById('reset-all')"));
+  const rawEnd = bind.indexOf("getElementById('test-ai')");
+  const end = bind.lastIndexOf('});', rawEnd);
+  assert.ok(start !== -1 && rawEnd !== -1 && end > start, 'reset handler must exist before the test handler');
+  return bind.slice(start, end + 3);
 }
 
-test('D-38: reset honours a valid starting balance typed into the form', () => {
-  const block = resetBlock();
-  assert.match(block, /getElementById\('set-balance'\)/,
-    'reset must read the form balance, not only the stale saved settings');
-  assert.match(block, /formBalance >= 0\.1/,
-    'only a valid (≥ 0.1 SOL) form balance is adopted');
-  assert.match(block, /write\.pt_settings = settings/,
-    'the adopted balance must be persisted so the reset wallet and saved settings agree');
+test('D-38: reset honours a valid starting balance typed into the form', async () => {
+  const settings = wave2Settings(); // saved balanceStartSol = 10
+  const state = E.defaultState(settings);
+  state.seq = 41;
+  // The worker owns the sequence: it lands its own state (here at seq 77,
+  // deliberately NOT the candidate's seq 42) and the dashboard must adopt it.
+  const workerState = Object.assign(E.resetState(settings, 41), { seq: 77 });
+  let sent;
+  const ctx = await runReset({
+    balance: '0.5', settings, state,
+    respond: (msg) => { sent = msg; return { ok: true, state: workerState }; },
+  });
+  assert.equal(sent.type, 'pt_wallet_replace', 'reset must go through the worker bundle, never a direct write');
+  for (const key of ['pt_state', 'pt_frames', 'pt_replays', 'pt_attest_meta', 'pt_settings']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(sent.write, key),
+      `the replacement bundle must carry ${key}`);
+  }
+  assert.equal(sent.write.pt_settings.balanceStartSol, 0.5,
+    'the unsaved form balance must be persisted with the reset');
+  assert.equal(sent.write.pt_state.startSol, 0.5,
+    'the reset wallet and the persisted settings must agree on the new starting balance');
+  assert.equal(ctx.state.seq, 77,
+    'success must adopt the state the worker actually landed, not the local candidate seq');
+  assert.equal(ctx.settings.balanceStartSol, 0.5,
+    'the live settings adopt the same persisted balance only after the worker confirms');
+  assert.equal(ctx.replays.length, 0, 'replays are wiped only after confirmation');
+  assert.equal(ctx.rcCleared, 1, 'recordings go with the wallet (D-36)');
 });
 
-test('D-51: dashboard reset does not double-bump seq — the engine owns the bump', () => {
-  const block = resetBlock();
-  assert.match(block, /E\.resetState\(settings, state\.seq\)/,
-    'the reset must inherit the live seq through resetState');
-  assert.doesNotMatch(block, /state\.seq = \(Number\(state\.seq\) \|\| 0\) \+ 1/,
-    'resetState already advanced seq past the inherited base; a second bump lies about write count');
+test('D-38: an invalid or unchanged form balance sends no pt_settings override', async () => {
+  const settings = wave2Settings();
+  const state = E.defaultState(settings);
+  state.seq = 41;
+  const workerState = Object.assign(E.resetState(settings, 41), { seq: 77 });
+  for (const balance of ['0.05', '10', 'abc']) { // below threshold / unchanged / garbage
+    let sent;
+    await runReset({
+      balance, settings, state,
+      respond: (msg) => { sent = msg; return { ok: true, state: workerState }; },
+    });
+    assert.ok(!Object.prototype.hasOwnProperty.call(sent.write, 'pt_settings'),
+      `balance ${JSON.stringify(balance)} must not persist a settings override`);
+  }
 });
+
+test('D-51: a failed or unreachable worker keeps the local state AND settings unchanged', async () => {
+  const settings = wave2Settings();
+  const state = E.defaultState(settings);
+  state.seq = 41;
+  E.buy(state, settings, { ts: 1_700_000_000_000, mint: 'MintA', symbol: 'X', priceNative: 0.001, solAmount: 1 });
+  for (const respond of [() => null, () => ({ ok: false, error: 'refused' })]) {
+    const ctx = await runReset({ balance: '0.5', settings, state, respond });
+    assert.equal(ctx.state, state, 'nothing was committed — the live wallet view survives as-is');
+    assert.equal(ctx.state.journal.length, 1, 'the wallet must NOT fall back to the local candidate');
+    assert.equal(ctx.settings, settings, 'live settings stay untouched on refusal');
+    assert.equal(ctx.replays.length, 1, 'local replays survive a refused reset');
+    assert.match(ctx.status.textContent, /^Reset failed: /, 'the failure is surfaced, never silent');
+  }
+});
+
+test('D-51: declining the confirm dialog sends nothing at all', async () => {
+  const settings = wave2Settings();
+  const state = E.defaultState(settings);
+  let sent;
+  const ctx = await runReset({
+    balance: '0.5', settings, state, confirmOk: false,
+    respond: (msg) => { sent = msg; return { ok: true, state: E.resetState(settings, 41) }; },
+  });
+  assert.equal(sent, undefined, 'no worker message without confirmation');
+  assert.equal(ctx.state, state);
+});
+
+/** Execute the SHIPPED reset click handler in a VM sandbox.
+ *  Returns the sandbox: ctx.state / ctx.settings are reassigned by the real
+ *  handler; ctx.status is the save-status element; ctx.rcCleared counts
+ *  recording-store wipes. The `respond` callback plays the worker. */
+async function runReset({ balance, settings, state, confirmOk = true, respond }) {
+  const sandbox = {
+    E, AT,
+    RP: { STORAGE_KEY: 'pt_replays' },
+    RC: { clear: async () => { sandbox.rcCleared = (sandbox.rcCleared || 0) + 1; } },
+    confirm: () => confirmOk,
+    state, settings,
+    replays: [{ sessionId: 'live' }],
+    frames: [{ at: 1 }],
+    stopReplayPlayback: () => { sandbox.playbackStopped = true; },
+    invalidateReplayView: () => { sandbox.viewInvalidated = true; },
+    renderSidebar: () => { sandbox.sidebarRendered = true; },
+    renderSection: () => { sandbox.sectionRendered = true; },
+    status: { textContent: '' },
+    document: {
+      getElementById: (id) => {
+        if (id === 'reset-all') {
+          return { addEventListener: (_ev, fn) => { sandbox.click = fn; } };
+        }
+        if (id === 'set-balance') return { value: balance };
+        if (id === 'save-status') return sandbox.status;
+        return null;
+      },
+    },
+  chrome: { runtime: { sendMessage: async (msg) => (msg.type === 'pt_wallet_replace' ? respond(msg) : {}) } },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(resetBlock(), sandbox);
+  assert.equal(typeof sandbox.click, 'function', 'the shipped bind must register the reset click');
+  await sandbox.click();
+  return sandbox;
+}
 
 test('D-51 companion: engine resetState advances seq past the inherited base', () => {
   const fresh = E.resetState(E.defaultSettings(), 41);
@@ -1204,6 +1334,49 @@ test('CSV: csvEscape is RFC-4180-safe and never turns a missing value into 0', (
   assert.equal(csvEscape('cr\rhere'), '"cr\rhere"', 'CR forces quoting');
   assert.equal(csvEscape(null), '', 'null exports as an EMPTY field');
   assert.equal(csvEscape(undefined), '', 'undefined exports as an EMPTY field');
+});
+
+test('CSV security: formula strings become text without changing genuine numeric values', () => {
+  const { csvEscape } = csvApi();
+  for (const text of ['=1+1', '+1', '-2', '@SUM(A1)', ' \t=1', '\r=1', '\n+1', '\u0000=1', '＝1+1']) {
+    const encoded = csvEscape(text);
+    const unquoted = encoded.startsWith('"') ? encoded.slice(1, -1).replace(/""/g, '"') : encoded;
+    assert.equal(unquoted, "'" + text, JSON.stringify(text));
+  }
+  assert.equal(csvEscape(-2), '-2');
+  assert.equal(csvEscape(1.25), '1.25');
+  assert.equal(csvEscape(null), '');
+  assert.equal(csvEscape('ordinary text'), 'ordinary text');
+});
+
+test('CSV security: journal symbols and round thesis use the protected export path', () => {
+  const api = csvApi();
+  const settings = wave2Settings();
+  const wallet = E.defaultState(settings);
+  E.buy(wallet, settings, { ts: 1000, mint: 'MintA', symbol: '=1+1', site: 'padre', priceNative: 0.001, solAmount: 1 });
+  const { round } = E.sell(wallet, settings, { ts: 61000, mint: 'MintA', site: 'padre', qtyFraction: 1, priceNative: 0.002 });
+  round.thesis = { text: '+1+1' };
+  assert.ok(api.journalCsv(wallet.journal).includes(",'=1+1,"));
+  assert.ok(api.roundsCsv(wallet.rounds, wallet).includes(",'+1+1,"));
+});
+
+test('Journal security: imported side markup and non-string sides cannot create elements or crash', () => {
+  const sandbox = {
+    state: { journal: ['buy', 'sell', '</span><a href="https://example.invalid/">RESTORE</a>', null, 42]
+      .map((side) => ({ side, symbol: 'FIXTURE', site: 'fixture', ts: 1000, qty: 1, solGross: 1 })) },
+    mcapLevel: () => '—', formatDateTime: () => '', timeAgo: () => '',
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    fnBlock(dashJs, 'function esc('),
+    fnBlock(dashJs, 'function fmt('),
+    fnBlock(dashJs, 'function renderJournal('),
+    'this.el = { innerHTML: "" }; renderJournal(el);',
+  ].join('\n'), sandbox);
+  assert.doesNotMatch(sandbox.el.innerHTML, /<a\b/i);
+  assert.match(sandbox.el.innerHTML, />BUY<\/span>/);
+  assert.match(sandbox.el.innerHTML, />SELL<\/span>/);
+  assert.equal((sandbox.el.innerHTML.match(/>UNKNOWN<\/span>/g) || []).length, 3);
 });
 
 test('CSV: buildCsv emits the header first with CRLF line endings', () => {

@@ -30,6 +30,7 @@ const ROOT = path.join(__dirname, '..');
 global.window = global.window || {};
 require('../engine.js');
 const E = global.window.PaperEngine;
+const AT = require('../attest.js');
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 
@@ -263,7 +264,10 @@ function runOverlay(priceSeries, opts) {
         if (t.every) t.at = now + t.every; else t.dead = true;
         try { t.fn(); } catch (e) { /* surfaced via assertions */ }
       }
-      for (let k = 0; k < 6; k++) await Promise.resolve();
+      // Finish the current fake-I/O turn before advancing the clock again.
+      // A fixed number of Promise ticks charged extra simulated latency for
+      // each await in the resolver, making valid fills miss the test window.
+      await new Promise(setImmediate);
     }
   }
 
@@ -722,6 +726,48 @@ test('detectLoop cannot swallow a navigation or adopt a stale resolve', () => {
     'a resolve result must be dropped when the page navigated while it was in flight');
 });
 
+/* ---------------- pending-token resolve backoff ----------------
+ * A brand-new coin is not indexed yet; re-asking the aggregators on every
+ * 800ms tick spends ~5 requests/attempt on endpoints that will answer when
+ * they catch up. The resolve retries back off exponentially (capped), while
+ * the chain prewatch keeps re-probing on its own cadence so the live-market
+ * gap stays covered. resolveRetryMs is driven for real; the wiring is pinned
+ * in source because the harness cannot drive detectLoop's async timing. */
+
+test('resolveRetryMs backs off exponentially and stays capped', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  const start = content.indexOf('function resolveRetryMs');
+  assert.ok(start !== -1, 'resolveRetryMs must exist');
+  const block = content.slice(start, content.indexOf('\n  }', start) + 4);
+  const resolveRetryMs = new Function(`"use strict"; ${block}; return resolveRetryMs;`)();
+
+  assert.equal(resolveRetryMs(0), 0, 'a fresh pending token resolves immediately');
+  assert.equal(resolveRetryMs(3), 0, 'the first retries stay on the fast tick — most coins index within seconds');
+  assert.equal(resolveRetryMs(4), 1600);
+  assert.equal(resolveRetryMs(5), 3200);
+  assert.equal(resolveRetryMs(6), 6400);
+  assert.equal(resolveRetryMs(7), 8000, 'the backoff is capped');
+  assert.equal(resolveRetryMs(30), 8000, 'and stays capped no matter how long the coin takes');
+});
+
+test('a still-pending token backs off aggregator re-asks but keeps the chain prewatch', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
+  const fnStart = content.indexOf('async function detectLoop()');
+  assert.ok(fnStart !== -1, 'detectLoop must exist');
+  const block = content.slice(fnStart, content.indexOf('\n  }', fnStart) + 4);
+
+  // While backed off, the tick re-probes the chain and returns early rather
+  // than paying another aggregator re-ask.
+  assert.match(block, /Date\.now\(\) < nextResolveAt[\s\S]*?maybeReprobePending\(candidate\);\s*\n\s*return;/,
+    'a backed-off pending token re-probes the chain and skips the aggregator re-ask');
+  // A failed resolve arms the backoff.
+  assert.match(block, /nextResolveAt = Date\.now\(\) \+ resolveRetryMs\(pendingAttempts\)/,
+    'a failed resolve arms the backoff for the next tick');
+  // A new pending token and a successful resolve both clear the backoff.
+  assert.match(block, /pendingAttempts = 0;\s*\n\s*nextResolveAt = 0;/,
+    'a new pending token resolves immediately, and a success clears the backoff');
+});
+
 /* ---------------- DEFECT F-15: double-tap sell fills twice ----------------
  *
  * doBuy is guarded by buyInFlight, but doSell had no guard at all. Two fast
@@ -744,22 +790,90 @@ test('doSell carries a re-entrancy guard symmetric with buyInFlight', () => {
 
 /* ---------------- DEFECT D-14: restore resurrection race ------------------
  *
- * resetWallet lands its write strictly ahead of every open tab
- * (fresh.seq = baseSeq + 1), but restoreWallet wrote the backup's seq
- * verbatim. A backup taken at seq 40 restored over a live wallet at seq 900
- * was silently overwritten by the trading tab's next heartbeat — the user's
- * restore vanished within a second.
+ * The worker now owns the live-sequence read and atomic multi-key write.
+ * background.test.js checks its serialization; these tests run the actual
+ * popup handler to ensure every backup field reaches that boundary and a
+ * refusal never falls back to a raw write or announces a successful restore.
  */
-test('restoreWallet lands the restored wallet ahead of every live writer', () => {
+async function runRestore(backup, { reply = { ok: true }, confirmed = true } = {}) {
   const popup = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   const fnStart = popup.indexOf('async function restoreWallet');
   assert.ok(fnStart !== -1, 'restoreWallet must exist');
   const block = popup.slice(fnStart, popup.indexOf('\n}', fnStart) + 2);
+  const status = { textContent: '' }, messages = [], rawWrites = [];
+  let loads = 0;
+  const ctx = vm.createContext({
+    AT, $: () => status, confirm: () => confirmed, load: () => { loads++; },
+    chrome: {
+      runtime: { sendMessage: async message => {
+        messages.push(structuredClone(message));
+        if (reply instanceof Error) throw reply;
+        return reply;
+      } },
+      storage: { local: {
+        set: async value => { rawWrites.push(value); },
+        remove: async keys => { rawWrites.push(keys); },
+      } },
+    },
+  });
+  const keys = popup.match(/^const BACKUP_KEYS = .*;$/m);
+  assert.ok(keys, 'the backup allowlist must exist');
+  vm.runInContext(keys[0] + '\n' + block, ctx);
+  const input = { files: [{ text: async () => JSON.stringify(backup) }], value: 'backup.json' };
+  await ctx.restoreWallet({ target: input });
+  return { messages, rawWrites, status: status.textContent, loads, input };
+}
 
-  assert.match(block, /chrome\.storage\.local\.get\(\['pt_state'\]\)/,
-    'restore must read the live wallet seq before writing');
-  assert.match(block, /Math\.max\(liveSeq, backupSeq\) \+ 1/,
-    'the restored seq must land strictly greater than both the live and backup counters');
+for (const legacy of [false, true]) {
+  test(`restoreWallet: ${legacy ? 'legacy' : 'segmented'} backup uses one replacement with its original chain`, async () => {
+    const settings = E.defaultSettings(), state = E.defaultState(settings);
+    const { trade } = E.buy(state, settings, {
+      mint: BONK, symbol: 'BONK', solAmount: 1, priceNative: 0.001, priceUsd: 0.2, ts: 1000,
+    });
+    const link = await AT.appendFill(AT.GENESIS, trade);
+    state.seq = 40;
+    const data = { pt_state: state, pt_settings: settings, pt_frames: [], pt_replays: [],
+      pt_leaderboard_auth: 'must not be restored' };
+    if (legacy) state.attestChain = [link]; else data.pt_attest_chain = [link];
+    const result = await runRestore({ app: 'papertrench-backup', data });
+    assert.equal(result.messages[0].type, 'pt_wallet_replace');
+    const write = result.messages[0].write;
+    assert.equal(write.pt_state.seq, 40, 'the caller leaves sequence arbitration to the worker');
+    assert.equal(write.pt_state.journal[0].id, trade.id);
+    assert.equal(write.pt_state.attestChain, undefined, 'legacy chain is not duplicated inside the wallet');
+    assert.equal(write[AT.CHAIN_META_KEY].length, 1);
+    assert.equal(write[AT.chainSegKey(0)][0].hash, link.hash, 'restore never re-hashes committed evidence');
+    assert.deepEqual(write.pt_settings, settings);
+    assert.deepEqual(write.pt_frames, []);
+    assert.deepEqual(write.pt_replays, []);
+    assert.equal(write.pt_leaderboard_auth, undefined);
+    assert.deepEqual(result.messages.map(message => message.type), ['pt_wallet_replace', 'pt_settings_changed']);
+    assert.deepEqual(result.rawWrites, [], 'the caller never clears or writes storage outside the worker');
+    assert.equal(result.status, 'Backup restored.');
+    assert.equal(result.loads, 1);
+    assert.equal(result.input.value, '', 'the same backup can be selected again');
+  });
+}
+
+for (const [failure, reply] of [
+  ['refused', { ok: false, error: 'replacement refused' }],
+  ['missing response', null],
+  ['unreachable', new Error('worker unavailable')],
+]) {
+  test(`restoreWallet: ${failure} replacement reports failure without a raw fallback`, async () => {
+    const result = await runRestore({ pt_state: E.defaultState(E.defaultSettings()) }, { reply });
+    assert.deepEqual(result.messages.map(message => message.type), ['pt_wallet_replace']);
+    assert.deepEqual(result.rawWrites, []);
+    assert.match(result.status, /^Restore failed:/);
+    assert.equal(result.loads, 0, 'failure does not reload the popup as if a restore succeeded');
+  });
+}
+
+test('restoreWallet: declining confirmation leaves the wallet untouched', async () => {
+  const result = await runRestore({ pt_state: E.defaultState(E.defaultSettings()) }, { confirmed: false });
+  assert.deepEqual(result.messages, []);
+  assert.deepEqual(result.rawWrites, []);
+  assert.equal(result.loads, 0);
 });
 
 /* ---------------- DEFECT D-41: the backup says what it does NOT carry ------

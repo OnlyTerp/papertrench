@@ -74,8 +74,8 @@ test('a fill is judged against the chain it COMMITTED to, and only that (L-09)',
     return chain === 'solana' ? CANDLES : null; // the adapter fails closed
   };
   const links = [
-    Object.assign(link('M1', 60000, 0.01), { chain: 'solana' }),
-    Object.assign(link('M1', 60000, 0.01), { chain: 'ethereum' }),
+    Object.assign(link('M1', 60000, 0.01), { version: 2, chain: 'solana' }),
+    Object.assign(link('M1', 60000, 0.01), { version: 2, chain: 'ethereum' }),
     link('M2', 60000, 0.01), // absent chain = v1 link = Solana by definition
   ];
   const run = await priceChain(links, getCandles, {});

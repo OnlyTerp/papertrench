@@ -1,0 +1,42 @@
+/* Small usability additions around the original film-led homepage. */
+.home-film-toggle {
+  margin-top: 12px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(234, 239, 247, 0.28);
+  border-radius: 999px;
+  background: rgba(7, 9, 14, 0.65);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.home-film-toggle:hover { border-color: var(--orange); }
+.home-film-toggle:focus-visible { outline: 2px solid var(--orange); outline-offset: 4px; }
+.update-note {
+  margin-top: 1.8rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid rgba(232, 184, 74, 0.35);
+  border-left: 3px solid var(--amber);
+  border-radius: 10px;
+  background: rgba(232, 184, 74, 0.06);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.update-note b { color: var(--amber); }
+.update-note em { color: var(--text); font-style: normal; font-weight: 600; }
+.update-note strong { color: var(--text); }
+.chain-ticker { min-height: 1.5em; margin-top: 0.8rem; font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.chain-ticker .h { color: var(--orange2); }
+.chain-ticker .arrow { color: var(--dim); }
+@media (max-width: 767px) {
+  .home-stage { height: auto; min-height: 100dvh; max-height: none; }
+  .home-copy .lede { display: block; margin-top: 12px; font-size: 15px; line-height: 1.4; }
+  .home-copy .home-ctas { display: flex; margin-top: 12px; gap: 8px; }
+  .home-copy .home-ctas .btn { min-height: 44px; height: auto; padding: 10px 14px; font-size: 13px; }
+  .home-doors { flex: 1 0 auto; height: 48dvh; min-height: 320px; max-height: none; }
+}
+@media (max-width: 380px) {
+  .home-copy .home-ctas .btn { flex: 1 1 auto; justify-content: center; }
+}

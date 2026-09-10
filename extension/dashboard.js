@@ -55,7 +55,10 @@ if (!PC) throw new Error('PTPnlCard module missing');
  */
 function csvEscape(value) {
   if (value === null || value === undefined) return '';
-  const s = String(value);
+  // CSV quoting is not a formula boundary. Keep untrusted text as text,
+  // including spreadsheet-trimmed prefixes, without changing numeric P&L.
+  const s = typeof value === 'string' && /^[\s\u0000-\u001f]*[=+\-@＝＋－＠]/u.test(value)
+    ? "'" + value : String(value);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -841,6 +844,11 @@ function bindNav() {
       });
     });
   }
+  // Seed aria-current from the initial .active so deep links land already
+  // marked, then keep it in lockstep with the class on every switch.
+  document.querySelectorAll('nav button').forEach((x) => {
+    if (x.classList.contains('active')) x.setAttribute('aria-current', 'page');
+  });
   document.querySelectorAll('nav button').forEach((b) => {
     b.addEventListener('click', () => {
       currentSection = b.dataset.section;
@@ -852,7 +860,12 @@ function bindNav() {
           .then(() => { if (currentSection === 'replay') renderSection('replay'); })
           .catch(() => {});
       }
-      document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x === b));
+      document.querySelectorAll('nav button').forEach((x) => {
+        const on = x === b;
+        x.classList.toggle('active', on);
+        if (on) x.setAttribute('aria-current', 'page');
+        else x.removeAttribute('aria-current');
+      });
       SECTIONS.forEach((id) => document.getElementById(id).classList.toggle('hidden', id !== currentSection));
       // D-31: the equity canvas must be drawn while VISIBLE. The post-reset
       // renderSection('overview') fires from the Settings tab, into a hidden
@@ -923,6 +936,8 @@ function renderSection(id) {
 function rebindSection(id, el) {
   if (id === 'overview') {
     bindOnboarding(el);
+    // Hero CTA / desk jump chips route through the existing nav path.
+    bindOverviewJumps(el);
     // The canvas needs real layout before it can be sized and drawn.
     drawEquityCurve();
     return;
@@ -1055,7 +1070,7 @@ function renderSidebar() {
   // D-06: % judged against the wallet's birth balance, not the live setting.
   const anchor = E.anchorStartSol(state, settings);
   const pct = anchor > 0 ? (stats.equityVsStart / anchor) * 100 : 0;
-  const winRate = stats.winRate === null ? null : stats.winRate;
+  const winRate = stats.wins + stats.losses > 0 ? stats.winRate : null;
 
   const markup = `
     <div class="kpi hero">
@@ -1268,6 +1283,82 @@ function bindOnboarding(el) {
 
 /* ---------- overview ---------- */
 
+/* The one dominant action the desk leads with. Derived ONLY from real
+ * state — never synthesized (contract VAL-DASH-02): an empty journal gets a
+ * begin-here action, open positions get management, the newest unreviewed
+ * round gets its review, the rank ladder gets its next gate. Every jump
+ * reuses the existing nav path (bindNav's own buttons), no second system. */
+function overviewNextAction() {
+  const positions = Object.keys(state.positions || {});
+  const rounds = state.rounds || [];
+  if (!rounds.length && !positions.length) {
+    return {
+      kicker: 'Begin',
+      title: 'Start your first paper round',
+      body: 'Open a supported terminal and use its PAPER panel. Trades use simulated funds; no wallet connection is needed.',
+      cta: 'Open Axiom', href: 'https://axiom.trade/@usepaper',
+    };
+  }
+  if (positions.length) {
+    return {
+      kicker: 'In flight',
+      title: `Manage ${positions.length} open position${positions.length === 1 ? '' : 's'}`,
+      body: 'Review live marks below. Use the PAPER panel on your terminal to manage your thesis and exits.',
+      cta: 'View open positions', jump: 'overview', anchor: 'open-pos',
+    };
+  }
+  const latest = rounds[0]; // rounds are chronological-newest-first everywhere
+  const unreviewed = latest && !(latest.note && typeof latest.note.text === 'string' && latest.note.text.trim()) && !latest.aiReview;
+  if (unreviewed) {
+    return {
+      kicker: 'Close the loop',
+      title: `Review your latest ${latest.symbol || 'traded'} round`,
+      body: 'The lesson is the point: grade the exit and the thesis while it is fresh.',
+      cta: 'Open Rounds', jump: 'rounds',
+    };
+  }
+  const G = window.PTGamify;
+  if (G && G.rank(state)) {
+    const drill = G.drills(state, Date.now());
+    return {
+      kicker: 'Keep going',
+      title: `Today's drill: ${drill.label}`,
+      body: drill.detail,
+      cta: 'See practice goals', jump: 'game',
+    };
+  }
+  return {
+    kicker: 'Keep going',
+    title: 'Run your next honest round',
+    body: 'Flat-size day rules apply: size down after losses, journal every exit.',
+    cta: 'See practice goals', jump: 'game',
+  };
+}
+
+/** Wire the hero CTA + any desk jump chip to the existing nav buttons.
+ * One navigation mechanism only: the synthetic nav click reuses bindNav's own
+ * handler, so aria-current, the active pane and the section render all come
+ * from the same path a real nav button uses. Binding happens in
+ * rebindSection() once the markup is live; the render pass never binds. */
+function bindOverviewJumps(el) {
+  el.querySelectorAll('[data-desk-jump]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nav = document.querySelector(`nav button[data-section="${btn.dataset.deskJump}"]`);
+      if (!nav) return;
+      nav.click();
+      // Keyboard/AT jump lands the reader on the new pane's content, not
+      // wherever the trigger button was — main holds tabindex="-1".
+      const main = document.getElementById('main');
+      if (main && document.activeElement !== main) {
+        main.focus({ preventScroll: true });
+      }
+      if (btn.dataset.deskAnchor) {
+        document.getElementById(btn.dataset.deskAnchor)?.scrollIntoView({ block: 'center' });
+      }
+    });
+  });
+}
+
 function renderOverview(el) {
   const stats = E.sessionStats(state, settings);
   const best = [...(state.rounds || [])].sort((a, b) => b.pnlSol - a.pnlSol)[0];
@@ -1276,12 +1367,50 @@ function renderOverview(el) {
   // D-07: the Best/Worst tiles are coloured by the ACTUAL sign of the value
   // (a session of only losses has a negative "best" round, and vice versa),
   // and every value carries an explicit sign — the old Worst tile dropped it.
+  const act = overviewNextAction();
+  const G = window.PTGamify;
+  const st = G ? G.streaks(state) : null;
+  const nothingYet = !stats.rounds && !stats.openPositions && !stats.trades;
   el.innerHTML = `
+    <div class="desk-hero">
+      <p class="desk-kicker">${esc(act.kicker)}</p>
+      <h2 class="desk-title">${esc(act.title)}</h2>
+      <p class="desk-body">${esc(act.body)}</p>
+      ${act.href
+        ? `<a class="btn desk-cta" href="${esc(act.href)}" target="_blank" rel="noopener">${esc(act.cta)} →</a>`
+        : `<button type="button" class="btn desk-cta" data-desk-jump="${esc(act.jump)}"${act.anchor ? ` data-desk-anchor="${esc(act.anchor)}"` : ''}>${esc(act.cta)} →</button>`}
+    </div>
+    <div class="desk-strip" role="group" aria-label="Paper equity and balance">
+      <div class="desk-cell"><span class="lab">Paper equity</span><span class="mono desk-strong">${fmt(stats.equitySol)} SOL</span></div>
+      <div class="desk-cell"><span class="lab">Vs start</span><span class="mono desk-strong ${stats.equityVsStart >= 0 ? 'green' : 'red'}">${stats.equityVsStart >= 0 ? '+' : ''}${fmt(stats.equityVsStart)} SOL</span></div>
+      <div class="desk-cell"><span class="lab">Realized</span><span class="mono desk-strong ${stats.realizedPnlSol >= 0 ? 'green' : 'red'}">${stats.realizedPnlSol >= 0 ? '+' : ''}${fmt(stats.realizedPnlSol)} SOL</span></div>
+      <div class="desk-cell"><span class="lab">Unrealized</span><span class="mono desk-strong ${stats.unrealizedSol >= 0 ? 'green' : 'red'}">${stats.unrealizedSol >= 0 ? '+' : ''}${fmt(stats.unrealizedSol)} SOL</span></div>
+      <div class="desk-cell"><span class="lab">Open</span><span class="mono desk-strong">${stats.openPositions}</span></div>
+    </div>
     ${renderOnboarding()}
-    <div class="grid2" style="margin-bottom:16px">
+    ${nothingYet ? `
+    <div class="card desk-start">
+      <h3>How to begin</h3>
+      <p class="dim" style="margin:0 0 10px;font-size:12.5px;line-height:1.6">
+        Your journal stays on this device unless you choose to export or sync it.
+        Open a supported terminal, use the PAPER panel, and write a thesis before
+        your exit. Return here to review the round and your practice goals.
+      </p>
+      <button type="button" class="btn-sec" data-desk-jump="game">See practice goals →</button>
+      <button type="button" class="btn-sec" data-desk-jump="settings" style="margin-left:8px">Sizes & settings</button>
+    </div>` : `
+    <div class="grid2" style="margin-top:16px">
       ${statTile('Best round', best ? `${best.pnlSol >= 0 ? '+' : ''}${fmt(best.pnlSol, 3)} SOL` : '—', best && best.pnlSol < 0 ? 'red' : 'green', best ? `${best.symbol} · ${best.pnlPct >= 0 ? '+' : ''}${best.pnlPct.toFixed(1)}%` : 'No closed rounds yet')}
       ${statTile('Worst round', worst ? `${worst.pnlSol >= 0 ? '+' : ''}${fmt(worst.pnlSol, 3)} SOL` : '—', worst && worst.pnlSol >= 0 ? 'green' : 'red', worst ? `${worst.symbol} · ${worst.pnlPct >= 0 ? '+' : ''}${worst.pnlPct.toFixed(1)}%` : 'No closed rounds yet')}
-    </div>
+      <div class="card" style="padding:15px 16px">
+        <div class="lab" style="font-size:9.5px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:var(--faint)">Discipline</div>
+        ${st ? `
+        <div class="stat" style="border-bottom:none;padding:6px 0"><span class="dim">Journal streak</span><span class="mono">${st.journal && st.journal.current > 0 ? st.journal.current : '—'}</span></div>
+        <div class="stat" style="border-bottom:none;padding:6px 0"><span class="dim">Clean exits</span><span class="mono">${st.cleanExit && st.cleanExit.current > 0 ? st.cleanExit.current : '—'}</span></div>
+        <div class="stat" style="border-bottom:none;padding:6px 0"><span class="dim">No revenge</span><span class="mono">${st.noRevenge && st.noRevenge.current > 0 ? st.noRevenge.current : '—'}</span></div>` : `
+        <div class="dim" style="margin-top:5px;font-size:11.5px">Fees paid this session: ${fmt(stats.feesPaidSol)} SOL · ${stats.wins + stats.losses > 0 ? `${stats.winRate.toFixed(0)}% decided rounds won` : 'no decided rounds yet'}</div>`}
+      </div>
+    </div>`}
     ${renderTrenchRank()}
     <div class="grid2">
       <div class="card"><h3>Equity curve</h3><canvas class="chart" id="eq-canvas"></canvas></div>
@@ -1875,7 +2004,7 @@ function bindCalendar(el) {
 function renderJournal(el) {
   const rows = (state.journal || []).map((t) => `
     <tr>
-      <td><span class="${t.side === 'buy' ? 'side-buy' : 'side-sell'}">${t.side.toUpperCase()}</span></td>
+      <td><span class="${t.side === 'buy' ? 'side-buy' : t.side === 'sell' ? 'side-sell' : 'dim'}">${t.side === 'buy' ? 'BUY' : t.side === 'sell' ? 'SELL' : 'UNKNOWN'}</span></td>
       <td><strong>${esc(t.symbol)}</strong></td>
       <td class="dim">${esc(t.site)}</td>
       <td class="num">${fmt(t.qty, 4)}</td>
@@ -4980,52 +5109,44 @@ function bindSettings() {
     const formBalance = balanceInput ? Number(balanceInput.value) : NaN;
     const balanceChanged = Number.isFinite(formBalance) && formBalance >= 0.1
       && formBalance !== Number(settings.balanceStartSol);
-    if (balanceChanged) settings = { ...settings, balanceStartSol: formBalance };
-    // Inherit the current seq so a still-open trading tab (holding the
-    // pre-reset wallet at a higher seq) adopts the reset instead of
-    // resurrecting the old state with its next heartbeat write.
-    state = E.resetState(settings, state.seq);
+    const nextSettings = balanceChanged ? { ...settings, balanceStartSol: formBalance } : settings;
+    // Local view changes are held back until the worker confirms the
+    // replacement: an early resetState() here would repaint the dashboard
+    // from a wallet the store never accepted if the worker refuses or is
+    // unreachable. The candidate is only sent; the returned state is adopted.
+    const candidate = E.resetState(nextSettings, state.seq);
+    // F-14: the empty attestation meta rides the SAME replacement message as
+    // the wallet wipe, so the chain can never survive a reset the wallet did
+    // not. The worker performs the orphan segment sweep inside the attest
+    // lock after a successful write; the caller only sends the bundle.
+    const write = {
+      pt_state: candidate,
+      pt_frames: [],
+      [RP.STORAGE_KEY]: [],
+      [AT.CHAIN_META_KEY]: AT.normalizeChainMeta(null),
+    };
+    if (balanceChanged) write.pt_settings = nextSettings;
+    const replaced = await chrome.runtime.sendMessage({ type: 'pt_wallet_replace', write })
+      .catch(() => null);
+    if (!replaced || !replaced.ok) {
+      const status = document.getElementById('save-status');
+      if (status) status.textContent = 'Reset failed: '
+        + ((replaced && replaced.error) ? replaced.error : 'wallet worker unreachable');
+      // Nothing was committed — keep the current local view exactly as it was.
+      return;
+    }
+    // Success only now: adopt the state the worker actually stored so the
+    // F-41 stamp matches the persisted write and no echo re-adopts a ghost.
+    state = replaced.state;
+    if (balanceChanged) settings = write.pt_settings;
     replays = [];
     frames = [];
     stopReplayPlayback();
     invalidateReplayView(); // D-40: the wiped data invalidates any cached view
-    // D-51: no extra seq bump here — engine resetState already advanced seq
-    // past the inherited base; the engine owns that bump, and doubling it
-    // here made the write counter lie about how many writes happened.
-    state.updatedAt = Date.now();
-    // F-14: an empty meta lands in the SAME write as the wallet wipe, so the
-    // chain can never survive a reset the wallet did not. Orphaned segment
-    // keys are unreachable once the meta says zero; they are swept after.
-    let staleSegKeys = [];
-    try {
-      const meta = await AT.readChainMeta(async (keys) => {
-        const value = await store.get(keys);
-        if (value === null) throw new Error('attest store unreadable');
-        return value;
-      });
-      staleSegKeys = AT.chainStorageKeys(meta).filter((key) => key !== AT.CHAIN_META_KEY);
-    } catch (_) { /* segments unknown: the meta overwrite below still orphans them */ }
-    const write = {
-      pt_state: state, pt_frames: [], [RP.STORAGE_KEY]: [],
-      [AT.CHAIN_META_KEY]: AT.normalizeChainMeta(null),
-    };
-    if (balanceChanged) write.pt_settings = settings;
     // The confirm text promises recordings go too — and orphaned videos used
     // to survive every reset, tens of MB forever (DEFECT D-36).
     try { await RC.clear(); } catch (_) {}
     recordings = {};
-    try {
-      await store.set(write);
-    } catch (err) {
-      const status = document.getElementById('save-status');
-      if (status) status.textContent = 'Reset failed: ' + ((err && err.message) ? err.message : String(err));
-      return;
-    }
-    // Sweep the orphaned segment bodies; harmless if this fails — the empty
-    // meta already committed with the wallet wipe.
-    if (staleSegKeys.length) {
-      try { await new Promise((resolve) => chrome.storage.local.remove(staleSegKeys, () => resolve())); } catch (_) {}
-    }
     attestChain = [];
     lbVerifyCache = null;
     chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});

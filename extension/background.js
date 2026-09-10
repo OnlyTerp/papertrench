@@ -59,6 +59,48 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
 const RUG_CACHE_MS = 60_000;
 const rugCache = new Map(); // mint -> { at, verdict }
 
+// D-71: independent quotes travel through our worker, never a public RPC.
+const LB_API = 'https://papertrench-api.onerobby.workers.dev';
+const WORKER_QUOTE_CACHE_MS = 10_000;
+const workerQuoteCache = new Map(); // chain + normalized mint set -> { at, promise }
+
+/* -------------------- chain-feed watch ownership --------------------
+ * The on-chain feed subscription for a mint is SHARED across every tab that
+ * watches it, but `FEED.unwatch(mint)` releases it unconditionally. Before
+ * this registry, any single tab's teardown — including a hidden warm viewer
+ * navigating to the next pair — could unwatch the feed out from under the
+ * visible chart that still needed it. Track which tabs hold an interest and
+ * release the subscription only when the LAST one leaves. */
+const chainWatchers = new Map(); // mint -> Set<tabId>
+
+function chainWatchAdd(mint, tabId) {
+  if (!Number.isFinite(tabId)) return;
+  let set = chainWatchers.get(mint);
+  if (!set) { set = new Set(); chainWatchers.set(mint, set); }
+  set.add(tabId);
+}
+
+// Drop one tab's interest. Returns true when no watcher remains and the
+// shared subscription should actually be released. A mint with no recorded
+// watchers still releases — a stray unwatch must not leak the subscription.
+function chainWatchDrop(mint, tabId) {
+  const set = chainWatchers.get(mint);
+  if (!set) return true;
+  set.delete(tabId);
+  if (set.size === 0) { chainWatchers.delete(mint); return true; }
+  return false;
+}
+
+// A closed tab forfeits every watch it held; release the subscriptions that
+// have no remaining watcher.
+function chainWatchDropTab(tabId) {
+  if (!FEED || !Number.isFinite(tabId)) return;
+  for (const [mint, set] of [...chainWatchers]) {
+    set.delete(tabId);
+    if (set.size === 0) { chainWatchers.delete(mint); FEED.unwatch(mint); }
+  }
+}
+
 async function rugScan(mint) {
   const POOLRPC = self.PTRpcPool;
   const O = self.PTOnchain;
@@ -172,32 +214,102 @@ function getSettings() {
   );
 }
 
-function getState() {
-  return new Promise((resolve) => chrome.storage.local.get(['pt_state'], (value) => {
+// A state read that reports chrome.runtime.lastError must never resolve a
+// fake wallet: callers that mutate on top of {} would zero the user's
+// positions (the D-15 failure class). getStateStrict rejects instead, so a
+// mutation refuses rather than "succeeding" against nothing. getState stays
+// for the degradation-tolerant readers (bridges, dashboards, anchor backfill)
+// whose null path is an established, tested behavior.
+function getStateStrict() {
+  return new Promise((resolve, reject) => chrome.storage.local.get(['pt_state'], (value) => {
     if (chrome.runtime && chrome.runtime.lastError) {
-      console.warn('PaperTrench: state read failed', chrome.runtime.lastError.message);
-      resolve(null);
+      reject(new Error('pt_state read failed: ' + chrome.runtime.lastError.message));
       return;
     }
-    resolve(value.pt_state || null);
+    resolve(value && value.pt_state ? value.pt_state : null);
   }));
 }
 
-function setState(state) {
-  // Every writer must advance the wallet's write counter. Content tabs adopt a
-  // stored state only when its seq is STRICTLY greater than their own, so a
-  // write that leaves seq unchanged is invisible to open tabs and gets
-  // overwritten by their next heartbeat — which is how AI reviews and
-  // recording references used to vanish within a second.
-  if (state && typeof state === 'object') state.seq = (Number(state.seq) || 0) + 1;
-  return new Promise((resolve) => chrome.storage.local.set({ pt_state: state }, () => {
-    if (chrome.runtime && chrome.runtime.lastError) {
-      console.warn('PaperTrench: state write failed', chrome.runtime.lastError.message);
-    }
-    resolve();
-  }));
+function getState() {
+  return getStateStrict().catch(() => null);
 }
 
+/* ------------------------- wallet mutation queue -------------------------
+ * Every read-modify-write of pt_state goes through here: the read happens
+ * INSIDE the same serialized queue the commit path uses, so a stale
+ * snapshot can never be the base of a write (the race that lost fills
+ * against 800ms heartbeats). mut receives the latest stored state and
+ * returns the mutation applied; seq/updatedAt advance only when mut
+ * actually returned something changed, per the write-visibility rule that
+ * made tabs adopt background writes (D-13). A failed read or failed write
+ * rejects — never a fabricated success.
+ */
+function mutateState(mut) {
+  const job = async () => {
+    const stored = await getStateStrict();
+    if (stored === null) throw new Error('pt_state missing or unreadable; mutation refused');
+    const result = await mut(stored);
+    if (result === false) return null; // narrow mutation found nothing to do
+    stored.seq = (Number(stored.seq) || 0) + 1;
+    stored.updatedAt = Date.now();
+    await new Promise((resolve, reject) => chrome.storage.local.set({ pt_state: stored }, () => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        reject(new Error('pt_state write failed: ' + chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    }));
+    return stored;
+  };
+  // A rejected mutation must not poison the queue for the writers behind it.
+  const run = stateCommitQueue.then(job);
+  stateCommitQueue = run.catch(() => {});
+  return run;
+}
+
+const WALLET_REPLACE_KEYS = new Set(['pt_state', 'pt_settings', 'pt_frames', 'pt_replays', AT.CHAIN_META_KEY]);
+
+function replaceWallet(write, sender) {
+  if (!sender || sender.id !== chrome.runtime.id) {
+    return Promise.resolve({ ok: false, error: 'wallet replacement requires an internal sender' });
+  }
+  if (!write || typeof write !== 'object' || Array.isArray(write)
+      || !write.pt_state || typeof write.pt_state !== 'object' || Array.isArray(write.pt_state)
+      || !write[AT.CHAIN_META_KEY] || typeof write[AT.CHAIN_META_KEY] !== 'object'
+      || Object.keys(write).some(key => !WALLET_REPLACE_KEYS.has(key) && !/^pt_attest_seg_(?:0|[1-9]\d*)$/.test(key))) {
+    return Promise.resolve({ ok: false, error: 'invalid wallet replacement bundle' });
+  }
+  // Migration already nests attestation -> wallet. Never take these locks in
+  // the opposite order: a reset would deadlock against an inline-chain move.
+  return attestSerial(() => {
+    const job = async () => {
+      const stored = await getStateStrict();
+      const previous = await attestGet([AT.CHAIN_META_KEY]);
+      const state = {
+        ...write.pt_state,
+        seq: Math.max(Number(stored && stored.seq) || 0, Number(write.pt_state.seq) || 0) + 1,
+        updatedAt: Date.now(),
+      };
+      const bundle = { pt_frames: [], pt_replays: [], ...write, pt_state: state };
+      await attestSet(bundle);
+      // The new meta makes old bodies unreachable. Sweep only while holding
+      // the attestation lock, so a new fill cannot reuse a key mid-deletion.
+      const staleKeys = AT.chainStorageKeys(previous[AT.CHAIN_META_KEY])
+        .filter(key => key !== AT.CHAIN_META_KEY && !Object.hasOwn(bundle, key));
+      if (staleKeys.length) {
+        await new Promise(resolve => chrome.storage.local.remove(staleKeys, () => {
+          if (chrome.runtime.lastError) console.warn('PaperTrench: orphaned chain cleanup failed', chrome.runtime.lastError.message);
+          resolve();
+        }));
+      }
+      attestMigrated = false;
+      return { ok: true, state };
+    };
+    const run = stateCommitQueue.then(job);
+    stateCommitQueue = run.catch(() => {});
+    return run;
+  }).catch(error => ({ ok: false, error: error.message || String(error) }));
+}
 function getReplays() {
   return new Promise((resolve) => chrome.storage.local.get([RP.STORAGE_KEY], (value) => {
     if (chrome.runtime && chrome.runtime.lastError) {
@@ -376,23 +488,25 @@ async function stopRecording(roundId) {
 
   const file = result && result.file ? result.file : null;
   if (file && roundId) {
-    const state = await getState();
-    if (state && Array.isArray(state.rounds)) {
-      const round = state.rounds.find((item) => item.id === roundId);
-      if (round) {
-        round.recordingFile = file;
-        // Recorded to IndexedDB, so the dashboard can play the video back
-        // instead of falling back to still frames.
-        round.recording = result.stored ? {
-          id: roundId,
-          file,
-          startedAt: Number(result.startedAt) || 0,
-          endedAt: Number(result.endedAt) || 0,
-          size: Number(result.size) || 0,
-        } : null;
-        await setState(state);
-      }
-    }
+    // Recording metadata lands on the round that STILL exists in the
+    // current wallet; a reset or new round opened while the recorder was
+    // stopping must not inherit a video of someone else's trade.
+    const stamp = result.stored ? {
+      id: roundId,
+      file,
+      startedAt: Number(result.startedAt) || 0,
+      endedAt: Number(result.endedAt) || 0,
+      size: Number(result.size) || 0,
+    } : null;
+    await mutateState((latest) => {
+      const live = (latest.rounds || []).find((item) => item.id === roundId);
+      if (!live) return false;
+      live.recordingFile = file;
+      // Recorded to IndexedDB, so the dashboard can play the video back
+      // instead of falling back to still frames.
+      live.recording = stamp;
+      return true;
+    });
   }
   return file;
 }
@@ -921,12 +1035,17 @@ async function autoReview(roundId) {
   const trades = (state.journal || []).filter((trade) => round.tradeIds.includes(trade.id));
   const prompt = buildRoundReviewPrompt(round, trades);
   const { reply, error } = await aiChat({ messages: prompt, maxTokens: 1800 });
-  round.aiReview = {
-    t: Date.now(),
-    text: reply || ('AI review failed: ' + error),
-    ok: !error,
-  };
-  await setState(state);
+  // The AI call waits OUTSIDE the queue (network latency must not block
+  // commits), then the write re-reads the LATEST wallet inside it. A reset
+  // that happened while the review was in flight deleted this round; the
+  // review must not resurrect it.
+  const review = { t: Date.now(), text: reply || ('AI review failed: ' + error), ok: !error };
+  await mutateState((latest) => {
+    const live = (latest.rounds || []).find((item) => item.id === roundId);
+    if (!live) return false;
+    live.aiReview = review;
+    return true;
+  });
 }
 
 /**
@@ -1804,11 +1923,69 @@ function readWarmDestTab(family) {
 }
 function writeWarmDestTab(family, state) {
   const spec = WARM_DEST_FAMILIES[family];
+  trackWarmViewer(family, state);
   return new Promise((resolve) => chrome.storage.session.set({ [spec.storageKey]: state }, () => resolve()));
 }
 function clearWarmDestTab(family) {
   const spec = WARM_DEST_FAMILIES[family];
+  trackWarmViewer(family, null);
   return new Promise((resolve) => chrome.storage.session.remove(spec.storageKey, () => resolve()));
+}
+
+/* Live, still-hidden warm viewers — tabs we spawned inactive to pre-warm a
+ * destination. A viewer's content script must not run the price machinery:
+ * its prewatch probes and watch/unwatch calls compete with the VISIBLE tab
+ * for the shared keyless RPC pool, and on a slow machine its throttled
+ * timers turn into probe timeouts that bench endpoints the visible tab
+ * needs. The set is in-memory; it is rebuilt from session storage below so
+ * a service-worker restart does not lose track of a live viewer. */
+const warmViewerTabs = new Set();      // tabId -> live hidden viewer
+const warmViewerFamily = new Map();    // family -> tabId (for clear-by-family)
+
+function trackWarmViewer(family, state) {
+  const prev = warmViewerFamily.get(family);
+  if (Number.isFinite(prev)) warmViewerTabs.delete(prev);
+  if (state && Number.isFinite(state.tabId) && !state.used) {
+    warmViewerFamily.set(family, state.tabId);
+    warmViewerTabs.add(state.tabId);
+  } else {
+    warmViewerFamily.delete(family);
+  }
+}
+
+// Rebuild after a service-worker restart: the storage records survive, the
+// in-memory set does not. A viewer whose record is stale is dropped by the
+// next validWarmDestTab/steer-away pass; until then it is correctly gated.
+(async () => {
+  try {
+    for (const family of Object.keys(WARM_DEST_FAMILIES)) {
+      const state = await readWarmDestTab(family);
+      if (state) trackWarmViewer(family, state);
+    }
+  } catch (_) { /* a rebuild that fails leaves the set empty — fail open */ }
+})();
+
+/* Messages that spend RPC / HTTP / websocket work. A live warm viewer is a
+ * hidden tab we spawned to pre-warm a destination; its content script must
+ * not run the price machinery — its probes compete with the visible tab for
+ * the shared keyless pool, and on a slow machine its throttled timers turn
+ * into probe timeouts that bench endpoints the visible tab needs. Each gated
+ * type gets the same "no data" shape the real handler returns on a miss, so
+ * the viewer's content script simply sees an unanswered read and stays
+ * pending — it never learns it is a viewer, and the moment the tab is
+ * revealed (used:true drops it from the set) the same calls work. */
+const VIEWER_QUIET_MESSAGES = new Set([
+  'pt_resolve', 'pt_sol_usd', 'pt_refresh', 'pt_batch_prices',
+  'pt_onchain_watch', 'pt_onchain_unwatch', 'pt_onchain_prewatch',
+  'pt_onchain_identify', 'pt_onchain_quote', 'pt_worker_quote', 'pt_rug_check',
+]);
+
+function viewerQuietResponse(type) {
+  if (type === 'pt_onchain_watch') return { live: false };
+  if (type === 'pt_onchain_unwatch') return { ok: true };
+  if (type === 'pt_batch_prices') return {};
+  if (type === 'pt_sol_usd') return 0;
+  return null;
 }
 
 /** The family's registered viewer, revalidated against reality (the X rule:
@@ -2084,6 +2261,12 @@ async function warmDestSettingsChanged(settings) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   warmSamePending.delete(tabId);
+  // A closed tab forfeits every chain-feed watch it held; subscriptions with
+  // no remaining watcher are released so they do not leak.
+  chainWatchDropTab(tabId);
+  // It is also no longer a live warm viewer (the family-map pass below clears
+  // it too; this is the immediate, mapping-independent drop).
+  warmViewerTabs.delete(tabId);
   warmSerial(async () => {
     for (const family of Object.keys(WARM_DEST_FAMILIES)) {
       const state = await readWarmDestTab(family);
@@ -2552,9 +2735,9 @@ function attestSet(obj) {
 
 /**
  * One-time move of state.attestChain into the segmented store. Protocol-safe:
- * the state write goes through setState, which advances the seq write counter
- * so open tabs adopt the slimmer state instead of clobbering it on their next
- * heartbeat.
+ * the state write goes through mutateState, which advances the seq write
+ * counter so open tabs adopt the slimmer state instead of clobbering it on
+ * their next heartbeat.
  *
  * Idempotent and fork-safe, because a not-yet-reloaded tab from the previous
  * extension version can still write a state that carries attestChain:
@@ -2606,17 +2789,18 @@ async function migrateAttestChainLocked() {
     }
 
     // Strip the legacy copy — but only if it still matches what was folded;
-    // otherwise loop and fold the newcomers first.
-    const fresh = await getState();
-    if (!fresh || !Object.hasOwn(fresh, 'attestChain')) return;
-    const freshLegacy = Array.isArray(fresh.attestChain) ? fresh.attestChain : [];
-    const sameTail = freshLegacy.length === legacy.length
-      && (freshLegacy.length === 0 || freshLegacy[freshLegacy.length - 1].hash === legacy[legacy.length - 1].hash);
-    if (sameTail) {
-      delete fresh.attestChain;
-      await setState(fresh);
-      return;
-    }
+    await mutateState((latest) => {
+      // Strip only the legacy inline chain from the LATEST wallet; a fill
+      // written between the fold and this write keeps its place.
+      if (!latest || !Object.hasOwn(latest, 'attestChain')) return false;
+      const freshLegacy = Array.isArray(latest.attestChain) ? latest.attestChain : [];
+      const sameTail = freshLegacy.length === legacy.length
+        && (freshLegacy.length === 0 || freshLegacy[freshLegacy.length - 1].hash === legacy[legacy.length - 1].hash);
+      if (!sameTail) return false;
+      delete latest.attestChain;
+      return true;
+    });
+    return;
   }
   // Convergence is handed to the storage watcher below rather than looping
   // forever against a hyperactive pre-update tab.
@@ -2726,6 +2910,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   (async () => {
     const settings = await getSettings();
+    // A live warm viewer is a hidden tab we spawned; its content script must
+    // not spend RPC/HTTP/websocket work. It gets the same "no data" shape a
+    // real miss returns, so it simply stays pending until the tab is
+    // revealed (used:true drops it from the set and the same calls work).
+    const senderTabId = sender && sender.tab && sender.tab.id;
+    if (Number.isFinite(senderTabId)
+        && warmViewerTabs.has(senderTabId)
+        && VIEWER_QUIET_MESSAGES.has(message.type)) {
+      sendResponse(viewerQuietResponse(message.type));
+      return;
+    }
     switch (message.type) {
       case 'pt_open_dashboard':
         openDashboard();
@@ -2868,11 +3063,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // writer now gets {stale, current} back and must adopt-and-reapply
       // instead of clobbering; `force` is for the user-singular writers that
       // ARE the new truth (wallet reset, backup restore).
+      case 'pt_wallet_replace':
+        sendResponse(await replaceWallet(message.write, sender));
+        break;
+
       case 'pt_state_commit': {
         const job = async () => {
           const incoming = message.state;
           if (!incoming || typeof incoming !== 'object') return { ok: false, reason: 'bad-state' };
-          const stored = await getState();
+          // A failed read must refuse the commit, not treat null as an empty
+          // wallet that any expectedSeq would CAS against.
+          const stored = await getStateStrict();
           if (!message.force) {
             const baseSeq = Number(message.expectedSeq) || 0;
             const storedSeq = stored ? (Number(stored.seq) || 0) : 0;
@@ -2880,15 +3081,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               return { ok: false, reason: 'stale', current: stored };
             }
           }
-          // NOT setState(): that helper bumps seq itself, and the committing
-          // tab has already stamped seq/updatedAt — its own-write suppression
-          // (F-41 stamp) depends on what lands being byte-identical.
-          await new Promise((resolve) =>
-            chrome.storage.local.set({ pt_state: incoming }, () => resolve()));
+          // NOT setState()/mutateState(): the committing tab has already
+          // stamped seq/updatedAt, and its own-write suppression (F-41
+          // stamp) depends on what lands being byte-identical.
+          await new Promise((resolve, reject) =>
+            chrome.storage.local.set({ pt_state: incoming }, () => {
+              if (chrome.runtime && chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+              }
+              resolve();
+            }));
           return { ok: true, seq: Number(incoming.seq) || 0 };
         };
-        // Strict serialization: a commit never reads while another writes.
-        const run = stateCommitQueue.then(job, job);
+        // Same queue as mutateState: one write finishes (read + compare +
+        // set) before the next begins, whatever context it came from.
+        const run = stateCommitQueue.then(job);
         stateCommitQueue = run.catch(() => {});
         sendResponse(await run);
         break;
@@ -3122,6 +3330,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // An empty rpcUrl is the normal case: the keyless public pool.
           const settings = await getSettings();
           FEED.configure({ rpcUrl: settings.rpcUrl || null });
+          // Record the watching tab BEFORE subscribing so a same-tick unwatch
+          // from another tab cannot release a subscription this tab needs.
+          const watchTabId = sender && sender.tab && sender.tab.id;
+          if (Number.isFinite(watchTabId)) chainWatchAdd(message.mint, watchTabId);
           sendResponse({ live: await FEED.watch(message.mint, message.pool) });
           // The moment slowness hurts is the moment worth checking for it.
           maybeNoteSlowPool(settings).catch(() => {});
@@ -3129,10 +3341,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
-      case 'pt_onchain_unwatch':
-        if (FEED && isSolanaAddress(message.mint)) FEED.unwatch(message.mint);
+      case 'pt_onchain_unwatch': {
+        if (!FEED || !isSolanaAddress(message.mint)) { sendResponse({ ok: true }); break; }
+        const unwatchTabId = sender && sender.tab && sender.tab.id;
+        // A no-tab sender (extension page) releases unconditionally, matching
+        // the pre-ownership behaviour. A content tab's unwatch only releases
+        // the shared subscription when it was the last one watching.
+        if (!Number.isFinite(unwatchTabId) || chainWatchDrop(message.mint, unwatchTabId)) {
+          FEED.unwatch(message.mint);
+        }
         sendResponse({ ok: true });
         break;
+      }
 
       // Rug guard: holder concentration read from chain state, cached a
       // minute per mint so arming, buying and re-buying do not multiply RPC
@@ -3189,6 +3409,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (!FEED || !isSolanaAddress(message.mint)) { sendResponse(null); break; }
         sendResponse(FEED.currentQuote(message.mint));
         break;
+
+      // D-71/D-72: the worker's Indeix quote witnesses aggregator fills and
+      // host supply. EVM has USD prices only; never synthesize a SOL witness.
+      case 'pt_worker_quote': {
+        const chain = message.chain === undefined ? 'solana' : message.chain;
+        if ((chain !== 'solana' && chain !== 'bnb' && chain !== 'robinhood')
+            || !Array.isArray(message.mints) || !message.mints.length
+            || message.mints.length > 16 || !message.mints.every((mint) => isAddressForChain(mint, chain))) {
+          sendResponse(null);
+          break;
+        }
+        const mints = [...new Set(message.mints)].sort();
+        const mintList = mints.join(',');
+        const key = chain + ':' + mintList;
+        const cached = workerQuoteCache.get(key);
+        if (cached && Date.now() - cached.at < WORKER_QUOTE_CACHE_MS) {
+          sendResponse(await cached.promise);
+          break;
+        }
+        const promise = (async () => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3500);
+          try {
+            const response = await fetch(LB_API + '/api/quote?mints=' + encodeURIComponent(mintList) + '&chain=' + chain, {
+              credentials: 'omit', cache: 'no-store', signal: controller.signal,
+            });
+            if (!response.ok) return null;
+            const body = await response.json();
+            if (!body || body.error || !body.quotes || typeof body.quotes !== 'object') return null;
+            const quotes = {};
+            for (const mint of mints) {
+              const q = body.quotes[mint];
+              if (!q || !Number.isFinite(q.priceUsd) || !(q.priceUsd > 0)) continue;
+              quotes[mint] = {
+                priceNative: chain === 'solana' && Number.isFinite(q.priceSol) && q.priceSol > 0 ? q.priceSol : null,
+                priceUsd: q.priceUsd,
+                mcapUsd: Number.isFinite(q.mcapUsd) && q.mcapUsd > 0 ? q.mcapUsd : null,
+                fdvUsd: Number.isFinite(q.fdvUsd) && q.fdvUsd > 0 ? q.fdvUsd : null,
+                at: q.asOf,
+              };
+            }
+            return quotes;
+          } catch (_) { return null; }
+          finally { clearTimeout(timer); }
+        })();
+        // Share in-flight reads too; cache failures for the same short TTL.
+        workerQuoteCache.set(key, { at: Date.now(), promise });
+        if (workerQuoteCache.size > 200) workerQuoteCache.delete(workerQuoteCache.keys().next().value);
+        sendResponse(await promise);
+        break;
+      }
 
       // F-14: the single writer for the attestation chain. Content tabs send
       // the fill here instead of rewriting the whole chain inside pt_state;
@@ -3509,31 +3780,27 @@ if (chrome.alarms && typeof chrome.alarms.onAlarm === 'object' && chrome.alarms.
 
 async function sweepPendingBuys() {
   try {
-    const got = await new Promise((resolve) => {
-      if (chrome.runtime.lastError) { resolve(null); return; }
-      chrome.storage.local.get(['pt_state'], (v) => resolve(v || {}));
+    // The sweep mutates the LATEST wallet inside the commit queue: a fill
+    // written between the read and the write survives, expired orders go
+    // with seq advancement, and a wallet with nothing expired costs no write.
+    await mutateState((latest) => {
+      if (!latest || typeof latest !== 'object' || !latest.pendingBuys) return false;
+      // engine.js is not loaded in the SW (it is a classic script with a
+      // window global); the TTL sweep is inlined here on purpose. The 24h
+      // TTL mirrors engine.js PENDING_BUY_TTL_MS.
+      const TTL_MS = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      let expired = 0;
+      for (const mint of Object.keys(latest.pendingBuys)) {
+        const list = latest.pendingBuys[mint];
+        if (!Array.isArray(list)) continue;
+        const keep = list.filter((o) => now - o.ts <= TTL_MS);
+        expired += list.length - keep.length;
+        if (keep.length) latest.pendingBuys[mint] = keep;
+        else delete latest.pendingBuys[mint];
+      }
+      return expired > 0;
     });
-    const state = got && got.pt_state;
-    if (!state || typeof state !== 'object' || !state.pendingBuys) return;
-    // engine.js is not loaded in the SW (it is a classic script with a
-    // window global); the TTL sweep is 10 lines and inlined here on
-    // purpose. The 24h TTL mirrors engine.js PENDING_BUY_TTL_MS.
-    const TTL_MS = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    let expired = 0;
-    for (const mint of Object.keys(state.pendingBuys)) {
-      const list = state.pendingBuys[mint];
-      if (!Array.isArray(list)) continue;
-      const keep = list.filter((o) => now - o.ts <= TTL_MS);
-      expired += list.length - keep.length;
-      if (keep.length) state.pendingBuys[mint] = keep;
-      else delete state.pendingBuys[mint];
-    }
-    if (expired > 0) {
-      await new Promise((resolve) => {
-        chrome.storage.local.set({ pt_state: state }, () => resolve());
-      });
-    }
   } catch (_) { /* a failed sweep must never wake the SW with an error */ }
 }
 

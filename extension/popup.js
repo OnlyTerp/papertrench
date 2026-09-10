@@ -901,34 +901,28 @@ function openStreamOverlay() {
 
 async function resetWallet() {
   if (!confirm('Reset the paper wallet and erase positions, trade history, frames, and session replays?')) return;
-  const stored = await chrome.storage.local.get(['pt_settings', 'pt_state']);
+  const stored = await chrome.storage.local.get(['pt_settings']);
   const settings = { ...DEFAULTS, ...(stored.pt_settings || {}) };
-  // Inherit the current seq: a reset written at seq 0 looks OLDER than the
-  // state a still-open trading tab holds, and its next heartbeat write
-  // resurrects the pre-reset wallet.
-  const baseSeq = (stored.pt_state && Number(stored.pt_state.seq)) || 0;
-  const fresh = freshState(settings);
-  fresh.seq = baseSeq + 1;
-  // F-14: the attestation chain lives in its own segmented keys. The empty
-  // meta rides the SAME write as the wallet wipe, so the chain can never
-  // survive a reset the wallet did not; orphaned segment bodies (unreachable
-  // once the meta says zero) are swept best-effort after.
+  // The worker owns the monotonic seq — deriving it from a locally read
+  // baseSeq raced with any concurrent writer, and the worker's serialized
+  // max(current, incoming) + 1 makes a caller-side read redundant.
   const wipe = {
-    pt_state: fresh,
+    pt_state: freshState(settings),
     pt_frames: [],
     pt_replays: [],
   };
-  let staleSegKeys = [];
-  if (AT) {
-    wipe[AT.CHAIN_META_KEY] = AT.normalizeChainMeta(null);
-    try {
-      const meta = await AT.readChainMeta(chainGet);
-      staleSegKeys = AT.chainStorageKeys(meta).filter((key) => key !== AT.CHAIN_META_KEY);
-    } catch (_) { /* segments unknown: the meta overwrite still orphans them */ }
-  }
-  await chrome.storage.local.set(wipe);
-  if (staleSegKeys.length) {
-    try { await chrome.storage.local.remove(staleSegKeys); } catch (_) {}
+  // F-14: the attestation chain lives in its own segmented keys. The empty
+  // meta rides the SAME replacement message as the wallet wipe, so the chain
+  // can never survive a reset the wallet did not; the worker sweeps the
+  // orphaned segment bodies inside its attest lock after a successful write.
+  if (AT) wipe[AT.CHAIN_META_KEY] = AT.normalizeChainMeta(null);
+  const replaced = await chrome.runtime.sendMessage({ type: 'pt_wallet_replace', write: wipe })
+    .catch(() => null);
+  if (!replaced || !replaced.ok) {
+    $('status').textContent = 'Reset failed: '
+      + ((replaced && replaced.error) ? replaced.error : 'wallet worker unreachable');
+    // Nothing was committed — leave storage and the shown wallet untouched.
+    return;
   }
   // The confirm text promises recordings are erased too; the background owns
   // the IndexedDB store (DEFECT D-36).
@@ -1072,33 +1066,27 @@ async function restoreWallet(ev) {
     const chainLinks = Array.isArray(data.pt_attest_chain) ? data.pt_attest_chain
       : (Array.isArray(data.pt_state.attestChain) ? data.pt_state.attestChain : []);
     if (write.pt_state && write.pt_state.attestChain !== undefined) delete write.pt_state.attestChain;
-    // A restore REPLACES the record: sweep the current segments first so a
-    // shorter restored chain cannot leave stale tail segments behind.
-    try {
-      const meta = await AT.readChainMeta(chainGet);
-      const staleKeys = AT.chainStorageKeys(meta).filter((key) => key !== AT.CHAIN_META_KEY);
-      if (staleKeys.length) await chrome.storage.local.remove(staleKeys);
-    } catch (_) { /* the meta written below orphans whatever remains */ }
+    // A restore REPLACES the record wholesale — no pre-write segment sweep
+    // here: the old segments go in the same atomic message, and the worker
+    // removes anything the shorter restored chain orphans inside its attest
+    // lock after the write. Clearing out-of-queue first could delete a chain
+    // segment a concurrent writer appends between read and commit.
     Object.assign(write, AT.chainSegments(chainLinks));
   }
-  // The backup's own seq is meaningless in this browser: any open trading tab
-  // holding a higher write counter would treat the restored wallet as stale
-  // and overwrite it on its next heartbeat — resurrecting the wallet the user
-  // just replaced. Land the restore strictly ahead of everything alive, the
-  // same way resetWallet does.
-  const current = await chrome.storage.local.get(['pt_state']);
-  const liveSeq = Number(current.pt_state && current.pt_state.seq) || 0;
-  const backupSeq = Number(write.pt_state.seq) || 0;
-  write.pt_state.seq = Math.max(liveSeq, backupSeq) + 1;
-  // The wallet goes through the worker's serialized commit queue (forced —
-  // a restore is the new truth by user intent) so it cannot interleave with
-  // a tab's heartbeat commit; the other keys have no concurrent writers.
-  const restored = await chrome.runtime.sendMessage({
-    type: 'pt_state_commit', state: write.pt_state, force: true,
-  }).catch(() => null);
-  const rest = { ...write };
-  if (restored && restored.ok) delete rest.pt_state;
-  await chrome.storage.local.set(rest);
+  // The backup's own seq is meaningless in this browser: the worker derives
+  // the replacement seq as max(current, incoming) + 1 under its serialized
+  // lock, so the restored wallet always lands strictly ahead of everything
+  // alive without a stale caller-side read racing a concurrent writer.
+  // Everything travels as ONE atomic replacement — the wallet goes through
+  // the worker's queue so it cannot interleave with a tab's heartbeat commit.
+  const restored = await chrome.runtime.sendMessage({ type: 'pt_wallet_replace', write })
+    .catch(() => null);
+  if (!restored || !restored.ok) {
+    $('status').textContent = 'Restore failed: '
+      + ((restored && restored.error) ? restored.error : 'wallet worker unreachable');
+    // Nothing was committed — the current wallet stays exactly as it was.
+    return;
+  }
   chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});
   $('status').textContent = 'Backup restored.';
   load();

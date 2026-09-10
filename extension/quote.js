@@ -16,6 +16,8 @@
   'use strict';
 
   var WSOL_MINT = 'So11111111111111111111111111111111111111112';
+  var USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  var USDT_MINT = 'Es9vMFras5nRCLKFubqtKQfSc71gUZ2KSKVVvwH7mFJU';
   var BASE58_RE = /^[A-HJ-NP-Za-km-z1-9]{32,44}$/;
   var EVM_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -78,6 +80,18 @@
     return EVM_RE.test(a) && EVM_RE.test(b) && a.toLowerCase() === b.toLowerCase();
   }
 
+  /**
+   * Canonical cache-key form of an address. EVM addresses are checksummed
+   * case-insensitively, so their casing is normalized (lowercased); base58 is
+   * case-SENSITIVE and must pass through untouched. Unknown shapes are kept
+   * verbatim - the resolver only ever caches what it resolved.
+   */
+  function canonicalAddress(address) {
+    if (typeof address !== 'string') return address;
+    if (EVM_RE.test(address)) return address.toLowerCase();
+    return address;
+  }
+
   /* ------------------------------------------------------------------ *
    * 1. Identity + anchor quote from a Dexscreener payload
    * ------------------------------------------------------------------ */
@@ -98,6 +112,11 @@
    */
   function rankPairs(pairs, requestedAddress, chainId) {
     if (!Array.isArray(pairs)) return [];
+    // Fail closed on an EXPLICITLY unmappable chain: callers pass the
+    // chainIdFor() result, so null means "requested chain is unknown" and
+    // falling through to the solana default would price a foreign token on
+    // Solana. `undefined` stays legacy = solana.
+    if (chainId === null) return [];
     // Multichain: filter to the REQUESTED chain (default solana). On EVM
     // chains Dexscreener's priceNative is denominated in that chain's gas
     // token, not SOL — priceUsd is the number that is true everywhere, so
@@ -152,6 +171,14 @@
   function normalizePair(pair, fallbackAddress, opts) {
     if (!pair) return null;
     const chain = (opts && opts.chain) || 'solana';
+    // Chain identity: a pair that announces a DIFFERENT chainId than the one
+    // requested is never ours, even in the singular { pair: ... } shape that
+    // bypasses rankPairs. Unknown requested slug (chainIdFor -> null) also
+    // fails closed here. Pairs without a chainId keep legacy tolerance -
+    // old fixtures and hand-built pairs never carried one.
+    const reqChainId = chainIdFor(opts && opts.chain);
+    if (reqChainId === null) return null;
+    if (pair.chainId != null && pair.chainId !== reqChainId) return null;
     const foreign = chain !== 'solana';
     const rawPrice = Number(pair.priceNative);
     if (!foreign && !(rawPrice > 0)) return null;
@@ -186,7 +213,7 @@
     let solUsdAtResolve = null;
     if (foreign) {
       const rate = Number(opts && opts.solUsd);
-      if (!usdOk || !(rate > 0)) return null;
+      if (!usdOk || !(Number.isFinite(rate) && rate > 0)) return null;
       priceNative = priceUsd / rate;
       solUsdAtResolve = rate;
     } else {
@@ -201,11 +228,12 @@
         }
       } else {
         const rate = Number(opts && opts.solUsd);
-        if (!usdOk || !(rate > 0)) return null;
+        if (!usdOk || !(Number.isFinite(rate) && rate > 0)) return null;
         priceNative = priceUsd / rate;
         solUsdAtResolve = rate;
       }
     }
+    if (!(Number.isFinite(priceNative) && priceNative > 0)) return null;
     const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
 
     const liquidityUsd = pairLiquidityUsd(pair);
@@ -239,6 +267,11 @@
   function tokenFromPayload(payload, fallbackAddress, opts) {
     if (!payload || typeof payload !== 'object') return null;
     const chainId = chainIdFor(opts && opts.chain);
+    // Fail closed: a chain slug we cannot map must never fall back to
+    // Solana - the caller asked about a chain we do not speak, and the only
+    // honest answer is "no record", not a foreign chain's price. A KNOWN
+    // slug keeps its existing tolerant semantics (absent -> solana).
+    if (chainId === null) return null;
     const pair = payload.pair;
     const candidates = pair
       ? [pair]
@@ -251,17 +284,27 @@
     // F-61: surface EVERY pool the source lists for this base mint. A Pulse
     // row buy can commit under a bonding-era PAIR stand-in (the row-feed
     // fallback echoes the click address as the key); after graduation the
-    // coin resolves under its REAL mint and the bag strands. The pool list
-    // is the deterministic identity proof — graduated bonding pairs stay
-    // listed under the same base mint (verified on-chain 2026-08-20, P0-3) —
-    // so the chart page can rekey any position whose key is one of these
-    // pools. Additive: consumers that ignore it are unaffected.
-    if (token && Array.isArray(payload.pairs)) {
+    // coin resolves under its REAL mint and the bag strands.
+    //
+    // The pool list is only safe for pools that actually contain the token
+    // on the REQUESTED chain. A batch/mixed payload can carry pools from
+    // another chain or for unrelated tokens; listing those would let a
+    // position keyed under someone else's pool "rekey" itself onto this
+    // mint.
+    if (token && token.mint && Array.isArray(payload.pairs)) {
       const seen = {};
       const pools = [];
       for (var i = 0; i < payload.pairs.length; i++) {
-        var p = payload.pairs[i] && payload.pairs[i].pairAddress;
-        if (p && !seen[p]) { seen[p] = 1; pools.push(p); }
+        var p = payload.pairs[i];
+        if (!p || p.chainId !== chainId) continue;
+        var poolAddress = p.pairAddress;
+        if (!poolAddress || seen[poolAddress]) continue;
+        var base = (p.baseToken && p.baseToken.address) || null;
+        var quote = (p.quoteToken && p.quoteToken.address) || null;
+        if (sameAddress(base, token.mint) || sameAddress(quote, token.mint)) {
+          seen[poolAddress] = 1;
+          pools.push(poolAddress);
+        }
       }
       if (pools.length) token.poolAddresses = pools;
     }
@@ -303,7 +346,7 @@
 
     var usd = Number(entry.usdPrice);
     var rate = Number(solUsd);
-    if (!(usd > 0) || !(rate > 0)) return null;
+    if (!(usd > 0) || !(Number.isFinite(rate) && rate > 0)) return null;
 
     var priceNative = usd / rate;
     if (!(priceNative > 0) || !isFinite(priceNative)) return null;
@@ -335,7 +378,7 @@
   function solUsdFromJupiter(payload) {
     var entry = jupiterEntry(payload, WSOL_MINT);
     var usd = entry ? Number(entry.usdPrice) : NaN;
-    return usd > 0 ? usd : null;
+    return Number.isFinite(usd) && usd > 0 ? usd : null;
   }
 
   /**
@@ -408,7 +451,7 @@
     var v = venueRoot(payload);
     if (!v) return null;
     var rate = Number(solUsd);
-    if (!(rate > 0)) return null;
+    if (!(Number.isFinite(rate) && rate > 0)) return null;
     if (!(v.usd > 0)) return null;
     if (v.usd < VENUE_PRICE_MIN || v.usd > VENUE_PRICE_MAX) return null;
 
@@ -441,10 +484,7 @@
     };
   }
 
-  /** The GMGN quotation family ({ code, data: { price, marketCap, ... } }). */
-  function tokenFromGmgn(payload, address, solUsd) {
-    return tokenFromVenueQuote(payload, address, solUsd, 'gmgn');
-  }
+
 
   /** The pump.fun coin API family ({ price, marketCap, totalSupply }). */
   function tokenFromPumpfun(payload, address, solUsd) {
@@ -1416,6 +1456,11 @@
     // groups by chain); default remains solana with SOL-native usability.
     const chain = (opts && opts.chain) || 'solana';
     const chainId = chainIdFor(chain);
+    // Fail closed on an unknown slug, mirroring tokenFromPayload: a batch
+    // call for a chain we cannot map must not silently become a Solana
+    // batch. (chainIdFor(undefined) is still 'solana' - only an explicit
+    // slug that is NOT in CHAIN_MAP lands here.)
+    if (chainId === null) return out;
     const foreign = chain !== 'solana';
 
     const byMint = new Map();
@@ -1718,11 +1763,14 @@
     jupiterEntry,
     preferResolved,
     tokenFromVenueQuote,
-    tokenFromGmgn,
     tokenFromPumpfun,
+  USDC_MINT,
+  USDT_MINT,
     WSOL_MINT,
     CHAIN_MAP,
     sameAddress,
+    chainIdFor,
+    canonicalAddress,
     pricesFromBatch,
     positionRows,
     positionLedger,

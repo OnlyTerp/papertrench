@@ -412,9 +412,17 @@ function runFreshLaunch(opts) {
         if (t.every) t.at = now + t.every; else t.dead = true;
         try { t.fn(); } catch (err) { /* asserted below */ }
       }
-      for (let k = 0; k < 8; k++) await Promise.resolve();
+      // Finish the CURRENT fake-I/O turn before the clock moves again: a
+      // fixed 8-tick drain charged an arbitrary amount of simulated latency
+      // per await, so a chain of pending probes (now multi-hop: identify ->
+      // prewatch -> resolve) could stay in flight across many advance()
+      // rounds and its failure re-stamp landed one full beat late. Draining
+      // the real macrotask queue makes causal readiness explicit.
+      await new Promise(setImmediate);
     }
   }
+
+
 
   // D-38: requestBuy's click-time acquisition beat is async — and now carries
     // the chain-probe leg — so a click on an unpriced token arms several

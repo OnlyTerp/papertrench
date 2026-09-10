@@ -6,11 +6,11 @@
  *
  * Pure module: it never fetches. Callers hand it a candle lookup function and
  * it returns per-fill verdicts plus a record-level verdict. Fills are priced
- * in SOL (priceNative = SOL per token); public candle data is USD, so a fill
- * checks out when the SOL price, converted through the SOL/USD range for that
- * same minute, overlaps the token's USD candle range. Interval-vs-interval —
- * a fill is rejected only when NO point in the SOL/USD minute range can
- * reconcile it with the token's traded range.
+ * in SOL-book units (priceNative = SOL per token), including EVM fills; public
+ * candles are USD. A fill checks out when its committed price, converted
+ * through the SOL/USD range for that same minute, overlaps its own chain's
+ * token USD candle range. Interval-vs-interval — a fill is rejected only when
+ * no point in those independent historical ranges reconciles its price.
  *
  * Verdicts are three-state on purpose. "no-data" is not a pass and not a
  * fail: pretending unpriceable fills verified would fake certainty, and
@@ -18,6 +18,8 @@
  * reported honestly and the record tier reflects it.
  */
 'use strict';
+
+const { chainOf } = require('./chain.js');
 
 /** Multiplicative slack on the token candle range. Covers pool-vs-aggregate
  * quote skew and rounding through the USD conversion — NOT wick room; the
@@ -59,15 +61,11 @@ function judgeFill(fill, candles, tolerance) {
  * a runtime can verify incrementally; fills beyond the budget stay 'unpriced'
  * and the caller re-enters with the returned cursor.
  *
- * The chain rides along because v2 links commit one (DEFECT L-09): the
- * lookup used to be hardcoded to Solana's candle network, so a fill honestly
- * committed to any other chain would have been judged against a network its
- * token never traded on. No such fill exists yet — the extension's
- * multichain gate has been closed since v3.0.0 — but the chain field is
- * attacker-writable the day the gate opens, so the verifier resolves candles
- * for the chain the fill actually commits to, and a chain it cannot price is
- * answered 'no-data', never a pass. Absent chain means a v1 link, which
- * could only ever be Solana.
+ * The chain rides along because v2 links commit one (DEFECT L-09). Resolve it
+ * through the shared attestation contract: a v1 link's chain label is not
+ * hashed and can only mean Solana. Unsupported committed chains get 'no-data',
+ * never another chain's market. No uncommitted priceUsd or resolve rate is
+ * consulted: historical candles check the priceNative that the fill hashes.
  */
 async function priceChain(links, getCandles, opts) {
   const options = opts || {};
@@ -84,7 +82,7 @@ async function priceChain(links, getCandles, opts) {
 
   for (let i = startAt; i < list.length; i++) {
     const link = list[i];
-    const chain = typeof link.chain === 'string' && link.chain ? link.chain : 'solana';
+    const chain = chainOf(link);
     const key = chain + '|' + String(link.mint) + '|' + minuteOf(Number(link.ts) || 0);
     if (!cache.has(key)) {
       if (lookups >= maxLookups) { cursor = i; paused = true; break; }

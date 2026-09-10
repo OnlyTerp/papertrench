@@ -822,9 +822,9 @@ const PUMP_PAYLOAD = {
 
 const ADDR_D38 = '5oyPYDcR48bfFD3v8XTkorpTksSQWkUva4ELS4CxkqVLH';
 
-test('tokenFromGmgn turns a venue quotation into a SOL-priced record', () => {
-  const rec = Q.tokenFromGmgn(GMGN_PAYLOAD, ADDR_D38, 200);
-  assert.ok(rec, 'a sane GMGN quotation must normalize');
+test('tokenFromVenueQuote turns a venue quotation into a SOL-priced record', () => {
+  const rec = Q.tokenFromVenueQuote(GMGN_PAYLOAD, ADDR_D38, 200, 'gmgn');
+  assert.ok(rec, 'a sane venue quotation must normalize');
   assert.equal(rec.priceSource, 'gmgn');
   assert.equal(rec.symbol, 'TEST');
   assert.ok(Math.abs(rec.priceNative - 0.00001234 / 200) < 1e-15, 'priceNative = USD / SOL rate');
@@ -833,11 +833,11 @@ test('tokenFromGmgn turns a venue quotation into a SOL-priced record', () => {
   assert.equal(rec.mint, ADDR_D38);
 });
 
-test('tokenFromGmgn prefers the { code, data } family but tolerates the flat one', () => {
-  const flat = Q.tokenFromGmgn({ ...GMGN_PAYLOAD.data, market_cap: '1234000' }, ADDR_D38, 200);
+test('tokenFromVenueQuote prefers the { code, data } family but tolerates the flat one', () => {
+  const flat = Q.tokenFromVenueQuote({ ...GMGN_PAYLOAD.data, market_cap: '1234000' }, ADDR_D38, 200, 'gmgn');
   assert.ok(flat, 'flat (no wrapper) quotation normalizes too');
   assert.equal(flat.priceUsd, 0.00001234);
-  const viaCap = Q.tokenFromGmgn({ data: { ...GMGN_PAYLOAD.data, marketCap: undefined, market_cap: '1234000' } }, ADDR_D38, 200);
+  const viaCap = Q.tokenFromVenueQuote({ data: { ...GMGN_PAYLOAD.data, marketCap: undefined, market_cap: '1234000' } }, ADDR_D38, 200, 'gmgn');
   assert.equal(viaCap.mcap, 1234000, 'market_cap spelling accepted');
 });
 
@@ -853,11 +853,11 @@ test('tokenFromPumpfun accepts the flat family with raw or whole supply', () => 
 });
 
 test('venue quotes refuse what a venue cannot honestly claim', () => {
-  assert.equal(Q.tokenFromGmgn(GMGN_PAYLOAD, ADDR_D38, 0), null, 'no SOL/USD rate refutes the fill');
-  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '0' } }, ADDR_D38, 200), null, 'a zero price is not a price');
-  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '1e9' } }, ADDR_D38, 200), null, 'an absurd price refutes');
+  assert.equal(Q.tokenFromVenueQuote(GMGN_PAYLOAD, ADDR_D38, 0, 'gmgn'), null, 'no SOL/USD rate refutes the fill');
+  assert.equal(Q.tokenFromVenueQuote({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '0' } }, ADDR_D38, 200, 'gmgn'), null, 'a zero price is not a price');
+  assert.equal(Q.tokenFromVenueQuote({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '1e9' } }, ADDR_D38, 200, 'gmgn'), null, 'an absurd price refutes');
   // Market cap that cannot match ANY sane supply: unit mixture, refused.
-  assert.equal(Q.tokenFromGmgn({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '250', marketCap: '0.5' } }, ADDR_D38, 200), null,
+  assert.equal(Q.tokenFromVenueQuote({ ...GMGN_PAYLOAD, data: { ...GMGN_PAYLOAD.data, price: '250', marketCap: '0.5' } }, ADDR_D38, 200, 'gmgn'), null,
     'a $0.50 cap at $250/coin implies 0.002 supply — a unit mixture, not a quote');
   assert.equal(Q.tokenFromVenueQuote(null, ADDR_D38, 200, 'gmgn'), null, 'null payload refused');
   const noMcap = Q.tokenFromPumpfun({ ...PUMP_PAYLOAD, marketCap: 'bad' }, ADDR_D38, 200);

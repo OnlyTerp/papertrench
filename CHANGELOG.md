@@ -3,6 +3,68 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.22.0 — 2026-09-10
+
+- **Robinhood Chain and BNB paper trading works.** v3.19 could see and price
+  those tokens, but every buy or sell was refused — both price witnesses
+  only spoke Solana, so foreign fills died on "no second source" forever.
+  Now a Robinhood or BNB fill gets an independent second opinion in its own
+  units (chain-scoped quotes from papertrench.com's own service, compared
+  dollar-to-dollar) and still refuses on disagreement. The leaderboard
+  verifier checks foreign fills in USD candles too. Solana fills are
+  untouched.
+- **A rate-limited public RPC can no longer stop a trade.** When the free
+  Solana pool starts answering 403/429, the second witness falls back to
+  the independent papertrench.com quote instead of refusing every fill
+  with "price sources disagree". Supply corroboration asks one worker read
+  per mint instead of hammering the dying pool, and hidden preview tabs
+  back off so the on-chain read that prices your coin gets through.
+- **A training-first dashboard.** Grouped navigation keeps trading, review,
+  practice and account tools within reach. Overview leads with the next
+  useful action from your actual record: open positions, a round to review,
+  or a practice drill. Empty wallets get a clear starting point, not a
+  misleading zero-percent win rate. Narrow layouts retain every section.
+- **The original video-led homepage, with a clearer way in.** The playful
+  films, platform doors and “Paper the trench” personality return, with
+  mobile navigation, installation steps and wallet backup advice around
+  them. The interactive demo rejects unrelated token quotes, checks quote
+  age when you click, and offers refresh after an outage instead of leaving
+  a dead ticket.
+- **Quotes stay on their own chain.** The same address on BNB and Ethereum
+  no longer shares a cached quote. Pool aliases and batch results stay scoped
+  to their token and chain. SOL conversion can use its existing fallback
+  when Jupiter is unavailable; using a cached rate no longer extends its age.
+- **New pairs fetch their live price more reliably.** A dead price endpoint
+  no longer stalls a fresh launch's first quote. A coin open in two tabs
+  keeps streaming when one of them closes, instead of going silent in both.
+  Hidden preview tabs no longer compete for the connection that prices the
+  coin you are actually watching, and a coin still waiting on the aggregators
+  backs off rather than hammering them — so the on-chain read that prices a
+  brand-new pair gets through, even on a slower machine.
+- **Background updates preserve newer trades.** Pending-order expiry,
+  recording metadata, review completion and legacy chain migration share
+  the wallet commit queue. They update the latest record rather than
+  overwriting a fill or resurrecting a wallet that was reset.
+- **Reset and restore stay together.** Dashboard, popup and overlay resets
+  replace the wallet and its verification record atomically. Restoring a
+  backup preserves its chain; a failed replacement leaves the old wallet
+  intact instead of attempting an unsafe fallback.
+- **Safer records and submissions.** Imported journal sides cannot insert
+  markup; formula-like CSV strings export as text. Concurrent leaderboard
+  submissions cannot overwrite newer records or leave stale tournament
+  entries behind.
+
+Tested: 21 server tests pin the chain-aware quote route (per-chain address
+validation, chain-isolated caches, EVM quotes never SOL-derived) and the
+EVM fill verification (an honest USD fill verifies, a divergent one
+refuses, missing evidence stays a partial instead of a pass). 32 extension
+tests pin the chain-correct witness (dollar-to-dollar agreement for
+foreign fills, zero Solana RPC on EVM, the Solana path byte-identical to
+v3.21). Every new rule was proven by a production negative control with
+byte-identical restore. Robinhood and BNB prices probed live against
+Indeix: the top Robinhood-chain token matched Dexscreener to the fourth
+decimal. Full suite: 2933/2933.
+
 ## v3.21.0 — 2026-09-04
 
 - **Same-terminal chart opens (Turbo).** The one hop every Turbo tier left

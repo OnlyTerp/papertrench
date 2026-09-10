@@ -26,7 +26,7 @@ import * as streamer from '../core/streamer.js';
 import chainCore from '../core/chain.js';
 import { sessionUser, startLogin, finishLogin, logout } from './auth.js';
 import { makeGetCandles, chartBars } from './candles.js';
-import * as indeix from './indeix.js';
+import indeix from './indeix.js';
 import * as sparkWorker from './spark.js';
 import * as solana from './solana.js';
 import * as replay from '../core/replay.js';
@@ -165,7 +165,7 @@ async function edgeCached(request, ctx, ttlSec, compute) {
   const response = await compute();
   if (response.status === 200) {
     const cacheable = new Response(response.clone().body, response);
-    cacheable.headers.set('Cache-Control', `public, max-age=30, s-maxage=${ttlSec}`);
+    cacheable.headers.set('Cache-Control', `public, max-age=${Math.min(30, ttlSec)}, s-maxage=${ttlSec}`);
     ctx.waitUntil(cache.put(request, cacheable.clone()));
     return cacheable;
   }
@@ -174,17 +174,40 @@ async function edgeCached(request, ctx, ttlSec, compute) {
 
 /* ---------------- chain storage ---------------- */
 
+/** Guard every write against the head/length/bankroll validated before the
+ * transaction. Records must be written last so our own update cannot invalidate
+ * the guard. Filter INSERT candidates too, not just ON CONFLICT updates. */
+function submitPremise(previousRow) {
+  if (previousRow) {
+    return {
+      sql: `(SELECT count(*) FROM records
+              WHERE user_id = ? AND head IS ? AND chain_len IS ? AND starting_sol IS ?) = 1`,
+      args: (userId) => [userId, previousRow.head, previousRow.chain_len,
+        previousRow.starting_sol],
+    };
+  }
+  return {
+    sql: '(SELECT count(*) FROM records WHERE user_id = ?) = 0',
+    args: (userId) => [userId],
+  };
+}
+
 /** The statements that replace a user's stored chain. Returned rather than
  * run so handleSubmit can put them in the same transaction as everything
- * else the submission changes (DEFECT L-07). */
-function chainStatements(env, userId, chain) {
+ * else the submission changes (DEFECT L-07). With a premise, the replace is
+ * itself commit-time conditional: a stale submission deletes and inserts
+ * nothing, so the chain store never regresses (PT-SEC-SUBMIT-RACE). */
+function chainStatements(env, userId, chain, premise) {
   const statements = [
-    env.DB.prepare('DELETE FROM chain_segments WHERE user_id = ?').bind(userId),
+    env.DB.prepare(`DELETE FROM chain_segments WHERE user_id = ?${premise ? ` AND ${premise.sql}` : ''}`)
+      .bind(userId, ...(premise ? premise.args(userId) : [])),
   ];
   for (let i = 0; i < chain.length; i += SEG_SIZE) {
     statements.push(env.DB.prepare(
-      'INSERT INTO chain_segments (user_id, seg_no, links_json) VALUES (?, ?, ?)')
-      .bind(userId, Math.floor(i / SEG_SIZE), JSON.stringify(chain.slice(i, i + SEG_SIZE))));
+      `INSERT INTO chain_segments (user_id, seg_no, links_json)
+       SELECT ?, ?, ?${premise ? ` WHERE ${premise.sql}` : ''}`)
+      .bind(userId, Math.floor(i / SEG_SIZE), JSON.stringify(chain.slice(i, i + SEG_SIZE)),
+        ...(premise ? premise.args(userId) : [])));
   }
   return statements;
 }
@@ -197,8 +220,6 @@ async function loadChain(env, userId) {
   for (const row of rows.results) chain.push(...JSON.parse(row.links_json));
   return chain;
 }
-
-/* ---------------- routes ---------------- */
 
 async function handleSubmit(request, env) {
   const user = await sessionUser(request, env);
@@ -243,12 +264,19 @@ async function handleSubmit(request, env) {
     previousRow.head === payload.head &&
     previousRow.chain_len === payload.chain.length);
 
-  await env.DB.prepare(
-    'INSERT INTO submissions (user_id, head, chain_len, outcome, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(user.id, String(payload && payload.head || ''),
-      payload && Array.isArray(payload.chain) ? payload.chain.length : 0,
-      result.accepted ? (duplicate ? 'duplicate' : 'accepted') : result.reason, now)
-    .run();
+  // The attempt is logged BEFORE the writes (so even a crashed isolate
+  // leaves a trail), but for an ACCEPTED submission the row is not written
+  // here: 'accepted' must mean the batch committed, and this statement
+  // cannot know that yet. The accepted row rides inside the batch instead,
+  // under the same commit-time premise as the data (PT-SEC-SUBMIT-RACE).
+  if (!result.accepted || duplicate) {
+    await env.DB.prepare(
+      'INSERT INTO submissions (user_id, head, chain_len, outcome, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(user.id, String(payload && payload.head || ''),
+        payload && Array.isArray(payload.chain) ? payload.chain.length : 0,
+        result.accepted ? 'duplicate' : result.reason, now)
+      .run();
+  }
   if (!result.accepted) {
     return json({ ok: false, reason: result.reason, problems: result.problems || [] }, 422);
   }
@@ -280,33 +308,32 @@ async function handleSubmit(request, env) {
   // was computed from the PREVIOUS chain. D1's batch is transactional; if
   // any statement fails, none of them happened, and the client gets a clean
   // 500 to retry rather than a half-written identity.
-  const statements = chainStatements(env, user.id, payload.chain);
-  statements.push(env.DB.prepare(`
-    INSERT INTO records (user_id, head, chain_len, starting_sol, status, claim_mismatch,
-                         stats_json, badges_json, pricing_json, pricing_progress_json,
-                         submitted_at, verified_at)
-    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, ?, NULL)
-    ON CONFLICT(user_id) DO UPDATE SET
-      head = excluded.head, chain_len = excluded.chain_len,
-      starting_sol = excluded.starting_sol, status = 'pending',
-      claim_mismatch = excluded.claim_mismatch, stats_json = excluded.stats_json,
-      badges_json = excluded.badges_json,
-      pricing_json = NULL, pricing_progress_json = NULL,
-      submitted_at = excluded.submitted_at, verified_at = NULL`)
-    .bind(user.id, payload.head, payload.chain.length, start,
-      result.claimMismatch ? 1 : 0, JSON.stringify(result.stats),
-      JSON.stringify(badges), now));
+  //
+  // Commit-time premise (PT-SEC-SUBMIT-RACE): every statement below was
+  // computed from `previousRow`, read at the top of this request. Between
+  // that read and this batch, another Worker can commit its own submission
+  // for the same user - in-process locks cannot see across isolates. So each
+  // write carries the premise that the stored record row is STILL the one we
+  // validated against (or, for a first submission, that none appeared), and
+  // SQLite re-checks that premise inside the commit transaction. The
+  // records statement runs LAST, so its write is the staleness signal: if a
+  // racing submission changed head, length or bankroll, every guarded write
+  // no-ops (nothing regresses, nothing is partial), and we report the
+  // conflict instead of pretending to accept.
+  const premise = submitPremise(previousRow);
+  const statements = chainStatements(env, user.id, payload.chain, premise);
 
   // Sprint entry for the current window, derived from the same chain.
   const window = windowOf(now);
   const entry = sprintEntry(payload.chain, start, window);
   statements.push(env.DB.prepare(`
     INSERT INTO sprint_entries (week_id, user_id, entry_json, score, rounds, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    SELECT ?, ?, ?, ?, ?, ? WHERE ${premise.sql}
     ON CONFLICT(week_id, user_id) DO UPDATE SET
       entry_json = excluded.entry_json, score = excluded.score,
       rounds = excluded.rounds, updated_at = excluded.updated_at`)
-    .bind(window.weekId, user.id, JSON.stringify(entry), entry.score, entry.rounds, now));
+    .bind(window.weekId, user.id, JSON.stringify(entry), entry.score, entry.rounds, now,
+      ...premise.args(user.id)));
 
   // Refresh this player's slice of every duel they are in whose window has not
   // been settled. Computing it here — once per submission — is what keeps a
@@ -321,18 +348,60 @@ async function handleSubmit(request, env) {
       { startTs: duel.start_ts, endTs: duel.end_ts });
     statements.push(env.DB.prepare(`
       INSERT INTO duel_entries (duel_id, user_id, entry_json, submitted_at)
-      VALUES (?, ?, ?, ?)
+      SELECT ?, ?, ?, ? WHERE ${premise.sql}
       ON CONFLICT(duel_id, user_id) DO UPDATE SET
         entry_json = excluded.entry_json, submitted_at = excluded.submitted_at`)
-      .bind(duel.id, user.id, JSON.stringify(duelEntry), now));
+      .bind(duel.id, user.id, JSON.stringify(duelEntry), now,
+        ...premise.args(user.id)));
   }
 
-  // And this player's clan slices, if they are in one. Same reason as the duel
-  // refresh above: computed once per submission so a clan board is a read.
-  statements.push(...await clanEntryStatements(env, user.id, payload.chain, start, now));
+  statements.push(...await clanEntryStatements(env, user.id, payload.chain, start, now, premise));
 
-  await env.DB.batch(statements);
+  // An accepted audit means the guarded transaction committed, not merely that
+  // validation passed. Keep it before the final record write, under the premise.
+  statements.push(env.DB.prepare(`
+    INSERT INTO submissions (user_id, head, chain_len, outcome, created_at)
+    SELECT ?, ?, ?, 'accepted', ?
+    WHERE ${premise.sql}`)
+    .bind(user.id, String(payload && payload.head || ''), payload.chain.length, now,
+      ...premise.args(user.id)));
 
+  // The record row is written LAST: it is the staleness tripwire. If the
+  // premise does not hold (another submission committed in between), this
+  // upsert is skipped, its changes() count comes back 0, and we report a
+  // conflict instead of regressing the winner's stored chain.
+  statements.push(env.DB.prepare(`
+    INSERT INTO records (user_id, head, chain_len, starting_sol, status, claim_mismatch,
+                         stats_json, badges_json, pricing_json, pricing_progress_json,
+                         submitted_at, verified_at)
+    SELECT ?, ?, ?, ?, 'pending', ?, ?, ?, NULL, NULL, ?, NULL WHERE ${premise.sql}
+    ON CONFLICT(user_id) DO UPDATE SET
+      head = excluded.head, chain_len = excluded.chain_len,
+      starting_sol = excluded.starting_sol, status = 'pending',
+      claim_mismatch = excluded.claim_mismatch, stats_json = excluded.stats_json,
+      badges_json = excluded.badges_json,
+      pricing_json = NULL, pricing_progress_json = NULL,
+      submitted_at = excluded.submitted_at, verified_at = NULL`)
+    .bind(user.id, payload.head, payload.chain.length, start,
+      result.claimMismatch ? 1 : 0, JSON.stringify(result.stats),
+      JSON.stringify(badges), now, ...premise.args(user.id)));
+
+  const results = await env.DB.batch(statements);
+
+  // The records statement was the last in the batch. A zero change count
+  // there means the commit-time premise failed: between our read of
+  // `previousRow` and this batch, another submission for this user committed.
+  // Nothing was written (every guarded statement no-opped), so the correct
+  // answer is a clear conflict the client can re-read and retry against -
+  // never a silent regression of the winner's chain, sprint, duels or clan.
+  const recordResult = results[results.length - 1];
+  if (!recordResult.meta || recordResult.meta.changes === 0) {
+    return json({
+      ok: false,
+      reason: 'conflict:stale-submission',
+      note: 'another submission for this account committed first; reload your state and resubmit',
+    }, 409);
+  }
   return json({
     ok: true,
     status: 'pending',
@@ -344,7 +413,7 @@ async function handleSubmit(request, env) {
 }
 
 /**
- * Which attestation versions this DEPLOYMENT can verify — proven, not declared.
+ * Which attestation versions this DEPLOYMENT can verify - proven, not declared.
  *
  * Exists because of a real ordering hazard: `core/chain.js` re-exports
  * `attest.js`, so a worker running older logic rebuilds a newer link's
@@ -1013,7 +1082,7 @@ async function clanRoster(env, clanId) {
  * Storing it is the same trade the Sprint and duels already make: a clan board
  * is then a read, not a walk over fifty lifetime chains.
  */
-async function clanEntryStatements(env, userId, chain, startingSol, now) {
+async function clanEntryStatements(env, userId, chain, startingSol, now, premise) {
   const membership = await membershipOf(env, userId);
   if (!membership) return [];
   const week = windowOf(now);
@@ -1029,12 +1098,12 @@ async function clanEntryStatements(env, userId, chain, startingSol, now) {
     if (!entry) continue;
     statements.push(env.DB.prepare(`
       INSERT INTO clan_entries (clan_id, user_id, window_id, entry_json, score, rounds, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      SELECT ?, ?, ?, ?, ?, ?, ? WHERE ${premise ? premise.sql : '1'}
       ON CONFLICT(clan_id, user_id, window_id) DO UPDATE SET
         entry_json = excluded.entry_json, score = excluded.score,
         rounds = excluded.rounds, updated_at = excluded.updated_at`)
       .bind(membership.clan_id, userId, slice.id, JSON.stringify(entry),
-        entry.score, entry.rounds, now));
+        entry.score, entry.rounds, now, ...(premise ? premise.args(userId) : [])));
   }
   return statements;
 }
@@ -2195,6 +2264,30 @@ function replayChain(url) {
   return chain === 'solana' ? 'solana' : null;
 }
 
+/** GET /api/quote?mints=...&chain=solana — independent whole-token witnesses. */
+async function handleQuote(request, env, ctx) {
+  const url = new URL(request.url);
+  const chains = url.searchParams.getAll('chain');
+  const chain = chains.length ? chains[0] : 'solana';
+  if (chains.length > 1 || !Object.hasOwn(indeix.CHAIN_IDS, chain)) {
+    return json({ error: 'bad-chain' }, 400);
+  }
+  const addressPattern = chain === 'solana' ? /^[1-9A-HJ-NP-Za-km-z]{32,44}$/ : /^0x[0-9a-f]{40}$/i;
+  const mints = (url.searchParams.get('mints') || '').split(',').map((mint) => mint.trim());
+  if (mints.length > 16 || mints.some((mint) => !addressPattern.test(mint))) {
+    return json({ error: 'bad-mints' }, 400);
+  }
+  const normalized = [...new Set(mints)].sort();
+  return edgeCached(cacheKey(url, { chain, mints: normalized.join(',') }), ctx, 10, async () => {
+    const budget = { used: 0, max: 4 };
+    try {
+      return json(await indeix.prices(env, normalized, budget, chain));
+    } catch {
+      return json({ error: 'upstream' }, 503);
+    }
+  });
+}
+
 /** GET /api/replay/history?mint=...&chain=solana — candles + wallet leaderboard. */
 
 /**
@@ -2513,6 +2606,9 @@ export default {
       }
       else if (path === '/api/streamer/roster') {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
+      }
+      else if (path === '/api/quote' && request.method === 'GET') {
+        response = await handleQuote(request, env, ctx);
       }
       // Real-trade replay (Indeix). Cached at the edge — a token's candle +
       // trade history is effectively immutable for a closed window.

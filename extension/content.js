@@ -33,6 +33,8 @@
     rugCheck: (mint) => sendMessage({ type: 'pt_rug_check', mint }).then(okOrNull),
     onchainUnwatch: (mint) => sendMessage({ type: 'pt_onchain_unwatch', mint }).catch(() => null),
     onchainQuote: (mint) => sendMessage({ type: 'pt_onchain_quote', mint }).then(okOrNull),
+    workerQuote: (mint, chain) => sendMessage({ type: 'pt_worker_quote', mints: [mint], chain })
+      .then(okOrNull).then((quotes) => okOrNull(quotes && quotes[mint])).catch(() => null),
     batchPrices: (mints, chains) => sendMessage({ type: 'pt_batch_prices', mints, chains }).then((r) => (r && typeof r === 'object' && !r.error) ? r : {}),
     clearCache: () => { if (resolver && typeof resolver.clearCache === 'function') resolver.clearCache(); },
   };
@@ -109,6 +111,12 @@
   // Fresh-launch tracking: how long the current address has been unresolved.
   let pendingSince = 0;
   let pendingAttempts = 0;
+  // Aggregator re-asks for a pending token back off: a brand-new coin is not
+  // indexed yet, and re-resolving every 800ms tick spends ~5 requests per
+  // attempt on sources that cannot answer yet — enough to rate-limit the
+  // very endpoints that will eventually resolve it. The chain prewatch
+  // re-probe covers the live-market gap while the aggregators catch up.
+  let nextResolveAt = 0;
   let pendingSolUsd = 0;      // warmed SOL/USD rate for bootstrapping USD ticks
   let fastDetectTimer = null;
   let detectLoopTimer = null;
@@ -550,6 +558,7 @@
 
   const hostSupplyRefusals = new Set();
   const hostSupplyRefusalCounts = new Map();
+  const hostSupplyWorkerAttempts = new Set();
 
   function recordHostFactsDiagnostic(message, kind, details) {
     const EL = window.PTErrors;
@@ -626,6 +635,19 @@
     }
     if (decision.reason === 'no-united-price') {
       noteUncorroboratedHostSupply(token.mint, facts);
+      // D-71: preserve the immediate diagnostic, then try one independent
+      // united USD quote per mint. A miss is an attempt too, not a tick loop.
+      const mint = token.mint;
+      if (!hostSupplyWorkerAttempts.has(mint)) {
+        hostSupplyWorkerAttempts.add(mint);
+        const pendingToken = token;
+        R.workerQuote(mint, token.chain).then((q) => {
+          if (token !== pendingToken || token.mint !== mint || !token.pending || !q
+              || !(q.priceUsd > 0) || !(q.mcapUsd > 0)) return;
+          // Reuse the ordinary decision/adoption path, including its 1% rule.
+          handleHostFacts({ ...facts, priceUsd: q.priceUsd, mcap: q.mcapUsd, source: 'worker-quote' });
+        }).catch(() => {});
+      }
       return;
     }
     if (!(decision.supplyUi > 0)) return;
@@ -1135,6 +1157,37 @@
     });
   }
 
+  /* Resolve retries for a pending token back off. The first few stay on the
+   * 800ms tick cadence — most coins index within seconds — but a coin still
+   * pending after that is spending ~5 requests per attempt on aggregators
+   * that cannot answer yet. Left unchecked that is ~375 requests a minute on
+   * one pending token, enough to rate-limit the very endpoints that will
+   * eventually resolve it (and every OTHER token sharing the limit). The
+   * chain prewatch re-probe below covers the live-market gap while the
+   * aggregators catch up, so the backoff costs a slow-indexing coin seconds,
+   * not the fill. */
+  function resolveRetryMs(attempts) {
+    if (attempts <= 3) return 0; // the fast path: index latency is normally seconds
+    return Math.min(8000, 800 * Math.pow(2, attempts - 3));
+  }
+
+  /* Re-fire the chain prewatch for a still-pending token when it is worth
+   * another RPC read: the last probe failed (the latch released), or the
+   * every-5th-attempt net, or a live market where mcap ticks prove the coin
+   * trades and the chain read is the only thing that turns them into a
+   * fillable price. Extracted so the resolve-backoff path re-probes without
+   * paying an aggregator re-ask. */
+  function maybeReprobePending(candidate) {
+    const probeFailed = prewatchedAddress === null;
+    const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
+    if (token && token.pending
+      && (probeFailed || pendingAttempts % 5 === 0 || liveMarket)
+      && (!candidate.chain || candidate.chain === 'solana')) {
+      prewatchedAddress = null;
+      prewatchPending(candidate);
+    }
+  }
+
   async function detectLoop() {
     // A pending token still needs resolving, so do not treat "same URL" as
     // done until the address actually resolved. Without this a brand-new coin
@@ -1186,6 +1239,7 @@
       });
       pendingSince = Date.now();
       pendingAttempts = 0;
+      nextResolveAt = 0; // a NEW pending token resolves immediately
       // Anchor the bridge to this token before the resolver finishes, so bars
       // and chart exports from a preloaded other-token chart do not leak in.
       sendPadreMarker('paper-axis', {
@@ -1212,6 +1266,15 @@
         && token.srcAddress === candidate.address && token.mint !== candidate.address
         ? token.mint
         : candidate.address;
+      // Aggregator re-asks back off while a token stays pending — see
+      // resolveRetryMs. The chain prewatch still re-probes on its own
+      // cadence, so the live-market gap is covered while the aggregators
+      // catch up. Skipping the resolve is not idling: the prewatch is the
+      // path that actually prices a coin too fresh to be indexed.
+      if (token && token.pending && Date.now() < nextResolveAt) {
+        maybeReprobePending(candidate);
+        return;
+      }
       const data = await R.resolve(resolveAddress, { chain: candidate.chain });
       // The page may have navigated while the resolve was in flight. Adopting
       // the result now would resurrect the old token on the new page — and
@@ -1223,6 +1286,10 @@
         // each failed attempt cleared markers and stopped the price loop,
         // then the next tick rebuilt everything from scratch.
         pendingAttempts += 1;
+        // Back off the next aggregator re-ask — see resolveRetryMs. The
+        // chain prewatch below still re-probes on its own cadence, so the
+        // live-market gap stays covered while the aggregators catch up.
+        nextResolveAt = Date.now() + resolveRetryMs(pendingAttempts);
         // A coin can be newer than its own accounts' visibility: the first
         // probe may land before the RPC node can see the mint or curve, and
         // a single-shot probe then leaves the whole pre-index window to the
@@ -1236,19 +1303,10 @@
         // already answered do we fall back to the slow every-5th-attempt
         // net. Waiting ~4s to re-ask after a throttled RPC is what left
         // fresh coins on "Fetching live price" for 20-30 seconds.
-        const probeFailed = prewatchedAddress === null;
         // LIVE-MARKET (Discord 2026-08-28): while fresh mcap ticks prove the
         // coin trades, a probe is always worth re-asking — the chain read is
-        // the only thing that turns those ticks into a fillable price. The
-        // every-5th net is for a coin whose feed is quiet; a live market is
-        // the opposite case.
-        const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
-        if (token && token.pending
-          && (probeFailed || pendingAttempts % 5 === 0 || liveMarket)
-          && (!candidate.chain || candidate.chain === 'solana')) {
-          prewatchedAddress = null;
-          prewatchPending(candidate);
-        }
+        // the only thing that turns those ticks into a fillable price.
+        maybeReprobePending(candidate);
         renderHeader();
         // Re-evaluate the false-positive give-up (DEFECT O-10) as the
         // failure count grows; cheap, and reversible the moment it resolves.
@@ -1365,6 +1423,7 @@
       }
       pendingSince = 0;
       pendingAttempts = 0;
+      nextResolveAt = 0;
       // After the token is resolved and state is current, restore any
       // existing trade markers from the journal (page reload scenario).
       await reloadState();
@@ -2246,16 +2305,36 @@
     // every other candidate to R.refresh() — which is the aggregator. So an
     // adopted 'resolver' or 'jupiter' price was witnessed by asking the same
     // service that served it, and a lagging read cheerfully confirmed
-    // itself. Any aggregator-sourced candidate is now witnessed by the chain.
+    // itself. Solana candidates use the chain, then the independent worker
+    // when the chain has no positive observation (D-71). EVM skips Solana RPC.
+    const chain = (token && token.chain) || 'solana';
+    const aggregator = Q.isAggregatorSource(chosen.source);
+    const useUsdWitness = chain !== 'solana' && aggregator;
     let witnessNative = null;
-    if (Q.isAggregatorSource(chosen.source)) {
-      const obs = await R.onchainQuote(token && token.mint).catch(() => null);
+    let witnessUsd = null;
+    if (aggregator) {
+      const mint = token && token.mint;
+      const obs = chain === 'solana' ? await R.onchainQuote(mint).catch(() => null) : null;
       if (obs && obs.priceNative > 0) witnessNative = obs.priceNative;
+      if (!(witnessNative > 0)) {
+        try {
+          const worker = await R.workerQuote(mint, chain);
+          if (useUsdWitness) {
+            if (worker && worker.priceUsd > 0) {
+              witnessUsd = worker.priceUsd;
+              // Foreign priceNative is still SOL book units (normalizePair).
+              // Compare USD directly; convert only for the existing refusal.
+              if (chosen.priceUsd > 0) witnessNative = witnessUsd * (chosen.priceNative / chosen.priceUsd);
+            }
+          } else if (worker && worker.priceNative > 0) witnessNative = worker.priceNative;
+        } catch (_) { /* no worker observation leaves the refusal intact */ }
+      }
     } else {
       const fresh = await R.refresh(token).catch(() => null);
       if (fresh && Number(fresh.priceNative) > 0) witnessNative = Number(fresh.priceNative);
     }
-    if (Q.witnessAgrees(chosen.priceNative, witnessNative)) return chosen;
+    if (Q.witnessAgrees(useUsdWitness ? chosen.priceUsd : chosen.priceNative,
+      useUsdWitness ? witnessUsd : witnessNative)) return chosen;
     lastQuoteRefusal = 'Price sources disagree ('
       + E.fmt(chosen.priceNative) + ' vs recent ' + E.fmt(evidence.priceNative)
       + (witnessNative ? ', witness ' + E.fmt(witnessNative) : ', no second source')
@@ -2327,7 +2406,7 @@
     // tab accepted as money (the F-47 stream); on contradiction the chain
     // read is DEMOTED, not trusted, and the ladder below re-prices from
     // sources that can vouch for themselves.
-    const observation = await R.onchainQuote(startMint);
+    const observation = !token.chain || token.chain === 'solana' ? await R.onchainQuote(startMint) : null;
     if (!token || token.mint !== startMint) return null;
     const onchain = quoteFromOnchain(observation);
     if (onchain) {
@@ -6526,27 +6605,36 @@
   }
 
   async function quickResetWallet() {
-    // Same semantics as the dashboard reset: the engine owns the seq bump so
-    // an open tab elsewhere adopts the fresh wallet instead of resurrecting
-    // the old one.
+    // Same semantics as the dashboard reset, but nothing local is replaced
+    // until the worker confirms the atomic replacement: adopting the fresh
+    // state up front painted a wallet the store never accepted whenever the
+    // worker refused or was unreachable.
     const fresh = E.resetState(settings, state.seq);
-    fresh.updatedAt = Date.now();
-    state = fresh;
-    livePositionPrices = {};
-    posEls = null;
-    // Forced commit: the reset IS the new truth by user intent, but it still
-    // goes through the worker's write queue so it can never interleave with
-    // a heartbeat commit and be half-resurrected. Stamp it as our own write
-    // so the storage echo is not re-adopted (F-41).
+    // The worker owns the committed sequence and timestamp.
+    // F-14: the attestation chain lives in segmented keys — the empty meta
+    // rides the SAME replacement message, so the chain can never survive a
+    // reset the wallet did not. (This path used to forget the meta entirely.)
+    const AT = window.PTAttest;
+    const write = {
+      pt_state: fresh,
+      pt_frames: [],
+      pt_replays: [],
+    };
+    if (AT) write[AT.CHAIN_META_KEY] = AT.normalizeChainMeta(null);
+    const committed = await sendMessage({ type: 'pt_wallet_replace', write })
+      .catch(() => null);
+    if (!committed || !committed.ok) {
+      toast('Reset failed — wallet unchanged'
+        + (committed && committed.error ? `: ${committed.error}` : ' (worker unreachable)'));
+      return;
+    }
+    // Success only now: adopt the state the worker actually stored so the
+    // F-41 stamp matches the persisted write and no echo re-adopts a ghost.
+    state = committed.state;
     lastWrittenState = state;
     lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
-    const committed = await sendMessage({ type: 'pt_state_commit', state: fresh, force: true })
-      .catch(() => null);
-    if (!committed || !committed.ok) await store.set({ [E.STORAGE_KEYS.state]: fresh });
-    await store.set({
-      [E.STORAGE_KEYS.frames]: [],
-      [E.STORAGE_KEYS.replays]: [],
-    });
+    livePositionPrices = {};
+    posEls = null;
     sendMessage({ type: 'pt_clear_recordings' });
     sendMessage({ type: 'pt_settings_changed' });
     // Chart drawings belong to the old wallet.

@@ -1,22 +1,31 @@
 /* PaperTrench server — Indeix adapter (Worker side).
  *
- * The real-trade replay feature needs two things Indeix already serves (the
- * same TrenchBrain integration uses): the token's OHLCV candles and its trades
- * (each carrying the sender wallet, side, USD + SOL amounts). The key is a
+ * Live fill witnesses use whole-token quotes; real-trade replays use OHLCV
+ * candles and trades (each carrying sender wallet, side, USD + SOL amounts).
+ * All come from the same provider as TrenchBrain. The key is a
  * Worker secret (env.INDEIX_API_KEY), exactly as TrenchBrain keeps it in a
  * root-owned file — never in the browser, never in source.
  *
- * This is transport + budget only. What the numbers MEAN (the wallet's PnL,
- * the replay curve) lives in core/replay.js, which runs identically under
- * `node --test`. Anything deciding whether a figure is honest is in core/.
+ * Replay accounting (wallet PnL and the replay curve) lives in core/replay.js.
+ * Price batches stay in USD/SOL per WHOLE token; TrenchBrain's raw-unit fold
+ * is not the extension's quote contract.
  *
- * Budget honesty: the Worker is behind a per-IP rate limit (see worker/index.js)
- * and each replay is a handful of calls (1 candles + 1-2 trades windows). A
+ * Every price batch and replay has a per-request upstream budget.
+ * Replay history usually takes a handful of calls (candles + trades windows).
  * `budget` object ({used,max}) bounds a single request's upstream spend.
  */
 'use strict';
 
 const BASE_URL = 'https://api.indeix.com';
+const WSOL = 'So11111111111111111111111111111111111111112';
+const PRICE_CACHE_TTL_SEC = 10;
+
+// Public slugs resolve here only; quote and candle callers share this vocabulary.
+const CHAIN_IDS = Object.freeze({
+  solana: 'solana',
+  bnb: 'evm:56',
+  robinhood: 'evm:4663',
+});
 
 /**
  * Fetch a path from Indeix with one retry on the transient 5xx family that
@@ -32,26 +41,33 @@ async function indeixJson(env, method, path, params, budget, retries = 3) {
     err.code = 'indeix-not-configured';
     throw err;
   }
-  if (budget && budget.used >= budget.max) {
-    const err = new Error('indeix-budget-exhausted');
-    err.code = 'indeix-budget-exhausted';
-    throw err;
-  }
   const url = new URL(BASE_URL + path);
-  for (const [k, v] of Object.entries(params || {})) {
-    if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+  const postBody = method === 'POST' ? JSON.stringify(params || {}) : undefined;
+  if (method === 'GET') {
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+    }
   }
   let lastStatus = 0;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    if (budget && budget.used >= budget.max) {
+      const err = new Error('indeix-budget-exhausted');
+      err.code = 'indeix-budget-exhausted';
+      throw err;
+    }
+    // Reserve before awaiting: retries, failed fetches and concurrent calls
+    // sharing this budget each spend one slot, never more than max.
+    if (budget) budget.used++;
     const res = await fetch(url.toString(), {
       method,
       headers: {
         Authorization: `Bearer ${key}`,
         Accept: 'application/json',
         'User-Agent': 'PaperTrench/Replay-1.0',
+        ...(postBody === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
+      ...(postBody === undefined ? {} : { body: postBody }),
     });
-    if (budget) budget.used++;
     lastStatus = res.status;
     if (res.status === 401 || res.status === 403) {
       const err = new Error('indeix-auth-failed');
@@ -76,7 +92,7 @@ async function indeixJson(env, method, path, params, budget, retries = 3) {
       // Last resort: serve the edge-cached copy of this exact upstream call
       // if one exists. Stale real data beats no data — the response carries
       // no fabrication, it is simply the last truth we saw.
-      const cached = await cacheGet(url.toString());
+      const cached = method === 'GET' && await cacheGet(url.toString());
       if (cached) return cached;
       const err = new Error('indeix-degraded');
       err.code = 'indeix-degraded';
@@ -85,9 +101,11 @@ async function indeixJson(env, method, path, params, budget, retries = 3) {
     }
     if (!res.ok) return null;
     const body = await res.json();
-    // Cache the good answer at the edge (TTL below) so a provider outage can
-    // replay it. Fire-and-forget: a cache write must never fail the request.
-    try { await cachePut(url.toString(), body); } catch { /* best effort */ }
+    // GET history keeps its outage cache. POST quotes cache their normalized
+    // answer in prices(), keyed on the batch and with a short, honest age.
+    if (method === 'GET') {
+      try { await cachePut(url.toString(), body); } catch { /* best effort */ }
+    }
     return body;
   }
   // Unreachable: the loop either returns or throws on its final attempt.
@@ -97,10 +115,9 @@ async function indeixJson(env, method, path, params, budget, retries = 3) {
   throw err;
 }
 
-/* Edge cache for upstream answers, keyed on the exact upstream URL. The key is
- * a synthetic GET (the Cache API ignores non-GET); 6h TTL — candle history and
- * a trades window for a replay do not need to be fresher than the outage they
- * are covering. Both helpers are no-ops where `caches` is absent (node tests). */
+/* Edge cache for upstream answers, keyed on a synthetic GET (the Cache API
+ * ignores non-GET). History defaults to 6h; live price batches use 10s.
+ * Both helpers are no-ops where `caches` is absent (node tests). */
 const CACHE_TTL_SEC = 6 * 3600;
 /* Volatile params (to=Date.now()) would make every call a unique key and the
  * fallback would never hit — caught by the outage-replay test. Strip them. */
@@ -112,10 +129,10 @@ function cacheKey(upstreamUrl) {
   return new Request('https://indeix-cache.papertrench.internal/' +
     encodeURIComponent(u.toString()));
 }
-async function cachePut(upstreamUrl, body) {
+async function cachePut(upstreamUrl, body, ttlSec = CACHE_TTL_SEC) {
   if (typeof caches === 'undefined' || !caches.default) return;
   await caches.default.put(cacheKey(upstreamUrl), new Response(JSON.stringify(body), {
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${CACHE_TTL_SEC}` },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': `max-age=${ttlSec}` },
   }));
 }
 async function cacheGet(upstreamUrl) {
@@ -123,6 +140,58 @@ async function cacheGet(upstreamUrl) {
   const hit = await caches.default.match(cacheKey(upstreamUrl));
   if (!hit) return null;
   try { return await hit.json(); } catch { return null; }
+}
+
+/** A missing, errored or non-finite provider figure is never a zero quote. */
+function positiveNumber(value) {
+  const n = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Batched whole-token prices: USD for every chain, SOL only for Solana. */
+async function prices(env, mints, budget, chain = 'solana') {
+  if (!Object.hasOwn(CHAIN_IDS, chain)) throw new Error('indeix-unknown-chain');
+  const chainId = CHAIN_IDS[chain];
+  const isSolana = chain === 'solana';
+  const normalized = [...new Set(mints)].sort();
+  const upstreamUrl = new URL(BASE_URL + '/2/token/price');
+  upstreamUrl.searchParams.set('mints', normalized.join(','));
+  upstreamUrl.searchParams.set('chain', chain);
+  const cached = await cacheGet(upstreamUrl.toString());
+  if (cached) return cached;
+
+  // Keep the anchor last even when WSOL is itself requested; never request it
+  // twice or shift the positional mapping by filtering errored payload items.
+  const addresses = isSolana ? normalized.filter((mint) => mint !== WSOL) : normalized;
+  const solIndex = addresses.length;
+  if (isSolana) addresses.push(WSOL);
+  const data = await indeixJson(env, 'POST', '/2/token/price', {
+    items: addresses.map((address) => ({ chainId, address })),
+  }, budget);
+  if (!data || data.error || !Array.isArray(data.payload)) {
+    throw new Error('indeix-price-shape');
+  }
+  const solItem = isSolana ? data.payload[solIndex] : null;
+  const solUsd = solItem && !solItem.error ? positiveNumber(solItem.priceUSD) : null;
+  const asOf = Date.now();
+  const quotes = {};
+  const end = normalized.includes(WSOL) ? addresses.length : solIndex;
+  for (let i = 0; i < end; i++) {
+    const item = data.payload[i];
+    if (!item || item.error) continue;
+    const priceUsd = positiveNumber(item.priceUSD);
+    if (priceUsd === null) continue;
+    const priceSol = !isSolana || solUsd === null ? null : positiveNumber(priceUsd / solUsd);
+    quotes[addresses[i]] = {
+      priceUsd, priceSol,
+      mcapUsd: positiveNumber(item.marketCapUSD),
+      fdvUsd: positiveNumber(item.marketCapDilutedUSD),
+      source: 'indeix', asOf,
+    };
+  }
+  const answer = { asOf, quotes };
+  try { await cachePut(upstreamUrl.toString(), answer, PRICE_CACHE_TTL_SEC); } catch { /* best effort */ }
+  return answer;
 }
 
 /**
@@ -173,5 +242,5 @@ function candlesByMinute(candles) {
   return m;
 }
 
-const api = { indeixJson, ohlcv, trades, candlesByMinute, BASE_URL };
+const api = { indeixJson, prices, ohlcv, trades, candlesByMinute, BASE_URL, CHAIN_IDS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
