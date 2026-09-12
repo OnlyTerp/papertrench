@@ -8,14 +8,13 @@
  * URL contracts and route patterns here were captured by pt-recon on
  * 2026-08-07 (dossier evidence — nothing guessed):
  *  [KALSHI-URL]  kalshi.com/markets/<series>/<event>/<market> — 3-level path
- *                captured live. Detect on kalshi.com/markets/* with at least
- *                2 path segments after /markets/.
+ *                captured live. Detect on kalshi.com/markets/* with EXACTLY
+ *                3 path segments after /markets/ (B3): a 2-segment series
+ *                page can never resolve (orderbook 404, event lookup 404)
+ *                and mounted a panel that quoted nothing.
  *  [PM-URL]      polymarket.com/event/<slug> — event page with binary markets.
  *                Detect on polymarket.com/event/*.
- *  [HL-OUT-URL]  app.hyperliquid.xyz/outcomes — HIP-4 outcome contracts.
- *                The tab title carries the market: "64,869 | BTC | Hyperliquid".
- *                (Verified on the perps side at app.hyperliquid.xyz/trade;
- *                outcomes shares the title-price pattern.)
+ *  [HL-OUT-URL]  REMOVED (A3, 2026-09-12) — was app.hyperliquid.xyz/outcomes.
  *  [LL-URL]      limitless.exchange/markets/<slug> — binary CLOB on Base.
  *                api.limitless.exchange is the API host.
  *
@@ -38,13 +37,11 @@
    */
   function detectKalshi(host, pathname) {
     if (!/(^|\.)kalshi\.com$/.test(host)) return null;
-    // Minimum: /markets/<series>/<market> (3 segments after /markets/)
-    const m = pathname.match(/^\/markets\/([A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)+)\/?$/);
+    // EXACTLY 3 segments: /markets/<series>/<event>/<market>. A 2-segment
+    // series page can never resolve (B3 — orderbook 404, event 404, null).
+    const m = pathname.match(/^\/markets\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/([A-Za-z0-9_-]+)\/?$/);
     if (!m) return null;
-    const segments = m[1].split('/');
-    const marketTicker = segments[segments.length - 1];
-    if (!marketTicker) return null;
-    return { venue: 'kalshi', marketId: marketTicker, verified: true };
+    return { venue: 'kalshi', marketId: m[1], verified: true };
   }
 
   /* ---------------------------- Polymarket ----------------------------- */
@@ -65,36 +62,11 @@
     return { venue: 'polymarket', eventSlug: m[1], verified: false };
   }
 
-  /* ----------------------- Hyperliquid Outcomes ------------------------ */
-
-  /* Hyperliquid outcomes URL: /outcomes or /outcomes/<market>
-   * Dossier 2026-08-08: §0 THIN — "not landable yet": 0 market pages with a
-   * live-ticking price captured. The title pattern below is a HYPOTHESIS from
-   * the perps title format, not captured evidence. Stays a verified:false
-   * stub until a capture shows a real outcomes book ticking.
+  /* ------------------- Hyperliquid Outcomes: REMOVED (A3) --------------
+   * Deleted with its adapter — the venue was never quotable (no documented
+   * endpoint maps a market to its `#` outcome ids). app.hyperliquid.xyz
+   * mounts nothing until the discovery work lands.
    */
-  function detectHyperliquidOutcomes(host, pathname, title) {
-    if (!/(^|\.)app\.hyperliquid\.xyz$/.test(host)) return null;
-    if (!/^\/outcomes(?:\/|$)/.test(pathname)) return null;
-    // Title-carried market: "64,869 | BTC | Hyperliquid" or "1,913.3 | ETH | Hyperliquid"
-    let market = null;
-    if (typeof title === 'string') {
-      const m = title.match(/^[\d,]+\.?\d*\s*\|\s*([A-Za-z0-9:_-]{1,32})\s*\|\s*Hyperliquid$/);
-      if (m) market = m[1];
-    }
-    // Path segment fallback: /outcomes/<market> (uppercase ticker, e.g. BTC, ETH, SOL)
-    if (!market) {
-      const seg = pathname.match(/^\/outcomes\/([A-Z]{2,10})\/?$/);
-      if (seg) market = seg[1];
-    }
-    // No market identified — /outcomes itself is the index, and a title that
-    // does not parse tells us nothing. Refuse by returning null rather than an
-    // object with a null market: a caller reads any object as "mounted on a
-    // market" and then has nothing to price. Caught by pt-recon check
-    // (RETURNED_NO_ID) against the captured /outcomes index page.
-    if (!market) return null;
-    return { venue: 'hyperliquid-outcomes', market, verified: false };
-  }
 
   /* ----------------------------- Limitless ----------------------------- */
 
@@ -117,7 +89,6 @@
   function detect(host, pathname, title) {
     return detectKalshi(host, pathname)
       || detectPolymarket(host, pathname)
-      || detectHyperliquidOutcomes(host, pathname, title)
       || detectLimitless(host, pathname)
       || null;
   }
@@ -132,7 +103,6 @@
     detect,
     detectKalshi,
     detectPolymarket,
-    detectHyperliquidOutcomes,
     detectLimitless,
   };
 

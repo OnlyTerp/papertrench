@@ -148,19 +148,20 @@ fresh profile preferred. Have one coin with an open paper position before starti
 
 **Status: OPEN -- live pass not yet run.** All cells empty until a headed
 browser session confirms each venue. Kalshi has PARTIAL recon; the other
-three have THIN recon and ship as `verified:false` stubs (panel will NOT
+two have THIN recon and ship as `verified:false` stubs (panel will NOT
 mount until a headed capture confirms the live price pipeline).
+(Hyperliquid outcomes removed with its adapter, A3 2026-09-12.)
 
-| Check | Kalshi | Polymarket | Hyperliquid | Limitless |
-|---|---|---|---|---|
-| SIMULATED badge visible on page | | | | |
-| Panel mounts on a market page | | | | |
-| Panel does NOT mount on homepage/portfolio | | | | |
-| Quote walks a real book (latency replay) | | | | |
-| price_moved rejection observable on fast market | | | | |
-| Resolution lockout on 97c+ markets | | | | |
-| Settlement sweep resolves past-close markets | | | | |
-| Nothing renders on non-prediction sites | | | | |
+| Check | Kalshi | Polymarket | Limitless |
+|---|---|---|---|
+| SIMULATED badge visible on page | | | |
+| Panel mounts on a market page | | | |
+| Panel does NOT mount on homepage/portfolio | | | |
+| Quote walks a real book (latency replay) | | | |
+| price_moved rejection observable on fast market | | | |
+| Resolution lockout on 97c+ markets | | | |
+| Settlement sweep resolves past-close markets | | | |
+| Nothing renders on non-prediction sites | | | |
 
 **N/A for prediction (stated):** chart markers, average lines, positions bar
 drag, SPA navigation between tokens, overlay toggle -- these are token-specific

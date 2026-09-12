@@ -21,18 +21,33 @@
       : null;
   }
 
-  /* ── Settings check ─────────────────────────────────────────────── */
+  /* ── Settings check ───────────────────────────────────────────────
+   * The switch lives in the EXTENSION's chrome.storage.local. Reading venue
+   * localStorage instead (the original code) meant the toggle never worked
+   * AND any venue page could flip extension configuration from its own
+   * origin. The read is async; mount waits for it (A6).
+   */
 
   let overlayEnabled = true;
 
   function loadSettings() {
-    try {
-      const raw = localStorage.getItem('pt_settings');
-      if (raw) {
-        const s = JSON.parse(raw);
-        overlayEnabled = s.overlayEnabled !== false;
-      }
-    } catch { /* use default */ }
+    return new Promise((resolve) => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.get(['pt_settings'], (value) => {
+            try {
+              if (!chrome.runtime || !chrome.runtime.lastError) {
+                const s = value && value.pt_settings;
+                if (s && typeof s === 'object') overlayEnabled = s.overlayEnabled !== false;
+              }
+            } catch { /* default stands */ }
+            resolve();
+          });
+          return;
+        }
+      } catch { /* default stands */ }
+      resolve();
+    });
   }
 
   /* ── SIMULATED badge ────────────────────────────────────────────── */
@@ -96,22 +111,28 @@
 
   /* ── Init ───────────────────────────────────────────────────────── */
 
-  loadSettings();
+  loadSettings().then(() => {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', mount);
+    } else {
+      mount();
+    }
+  });
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mount);
-  } else {
-    mount();
-  }
-
-  // Re-detect on navigation (SPAs)
+  // Re-detect on navigation (SPAs). This used to be a subtree
+  // MutationObserver over document.body — one string comparison wearing a
+  // wakeup on every DOM mutation of a high-churn venue SPA. Navigation
+  // events catch back/forward/hash instantly and a 1s URL poll backstops
+  // pushState/replaceState (the token side's own doctrine: events + poll).
   let lastUrl = location.href;
-  const observer = new MutationObserver(() => {
+  function redetect() {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       unmount();
       mount();
     }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+  }
+  window.addEventListener('popstate', redetect, true);
+  window.addEventListener('hashchange', redetect, true);
+  setInterval(redetect, 1000);
 })();

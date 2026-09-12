@@ -31,6 +31,7 @@ import { dirname, resolve } from 'node:path';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import readline from 'node:readline';
+import { predictVerdict } from './verdict.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Env overrides let the SAME script run outside the repo tree — the Windows-
@@ -62,33 +63,39 @@ function looksGated(landedUrl, marketUrl) {
 
 /* The routes each venue must mount on, and the ones it must never touch.
  * Market URLs are re-resolved from the venue's own listing page when possible,
- * because a hardcoded market eventually resolves and 404s. */
+ * because a hardcoded market eventually resolves and 404s.
+ *
+ * B1: WHAT counts as a market is NOT written here. resolveMarket asks the
+ * SHIPPED predict-sites.js detect() — the same function the content script
+ * calls — so the harness pattern and the product regex are the same animal
+ * and can never drift (the token side already does this with sites.js). */
 const PLAN = {
   kalshi: {
     listing: 'https://kalshi.com/markets',
-    marketPattern: /^\/markets\/[^/]+\/[^/]+\/[^/]+$/,
     fallbackMarket: 'https://kalshi.com/markets/kxgdp/us-gdp-growth/kxgdp-26oct30',
     refuse: ['https://kalshi.com/markets', 'https://kalshi.com/portfolio'],
   },
   polymarket: {
     listing: 'https://polymarket.com/',
-    marketPattern: /^\/event\/[a-z0-9][a-z0-9-]{2,}$/,
     fallbackMarket: 'https://polymarket.com/event/kraken-ipo-in-2025',
     refuse: ['https://polymarket.com/', 'https://polymarket.com/leaderboard'],
   },
   limitless: {
     listing: 'https://limitless.exchange/',
-    marketPattern: /^\/markets\/[a-z0-9][a-z0-9-]{2,}$/,
     fallbackMarket: null,
     refuse: ['https://limitless.exchange/', 'https://limitless.exchange/leaderboard'],
   },
-  'hyperliquid-outcomes': {
-    listing: 'https://app.hyperliquid.xyz/outcomes',
-    marketPattern: /^\/outcomes\/[A-Z0-9]+$/,
-    fallbackMarket: null,
-    refuse: ['https://app.hyperliquid.xyz/trade/BTC', 'https://app.hyperliquid.xyz/portfolio'],
-  },
+  // hyperliquid-outcomes removed with its adapter (A3, 2026-09-12).
 };
+
+let _predictSites = null;
+async function predictSites() {
+  if (_predictSites) return _predictSites;
+  const mod = await import('node:module');
+  const require_ = mod.createRequire(import.meta.url);
+  _predictSites = require_(resolve(EXT, 'predict-sites.js'));
+  return _predictSites;
+}
 
 const BLOCK_RE = /restricted jurisdiction|not available in your|unavailable in your (region|country)|access denied|verify you are human|enable javascript and cookies/i;
 
@@ -233,12 +240,10 @@ const BOOK_HOST = {
   kalshi: /api\.elections\.kalshi\.com\/trade-api\/v2\/markets\/[^/]+\/orderbook/,
   polymarket: /clob\.polymarket\.com\/book\?token_id=/,
   limitless: /api\.limitless\.exchange\/orderbook\?marketId=/,
-  'hyperliquid-outcomes': /api\.hyperliquid\.xyz\/info/,
 };
-
 async function probeQuote(page, venue) {
   const present = await page.evaluate(() => !!document.getElementById('pt-predict-ticket'));
-  if (!present) return 'no ticket to click';
+  if (!present) return { text: 'no ticket to click', code: null };
 
   // The host div is 0x0 — the visible panel is `position: fixed` INSIDE a
   // closed shadow root, so it has no layout box of its own and its nodes
@@ -267,35 +272,40 @@ async function probeQuote(page, venue) {
   // permissions — so page-level network events never see it, and counting
   // them reported "no book request" while quotes were working. The ticket
   // publishes its state on the host element instead (data-pt-*), which is the
-  // number actually on screen rather than a proxy for it.
   const st = await page.evaluate(() => {
     const el = document.getElementById('pt-predict-ticket');
     return el ? { ...el.dataset } : null;
   });
-  if (!st) return 'ticket vanished';
+  if (!st) return { text: 'ticket vanished', code: null };
   if (st.ptState === 'quoted') {
-    return `QUOTED ${st.ptAvgPrice}c on ${st.ptMarket || '?'} (cost P$${st.ptCost})`
-      + (hits.length ? ` [page also fetched ${hits.length}]` : '');
+    return {
+      text: `QUOTED ${st.ptAvgPrice}c on ${st.ptMarket || '?'} (cost P$${st.ptCost})`
+        + (st.ptStale ? ' (STALE — quote outlived its 30s book)' : '')
+        + (hits.length ? ` [page also fetched ${hits.length}]` : ''),
+      code: null,
+    };
   }
-  if (st.ptState === 'error') return `refused: ${st.ptError}`;
-  return `no quote (state=${st.ptState || 'unknown'})`;
+  // B2: the code rides the report line for the human AND the code field for
+  // the verdict — machines switch on the code, never the prose.
+  if (st.ptState === 'error') {
+    const code = st.ptErrorCode || null;
+    return { text: `refused${code ? ` [${code}]` : ''}: ${st.ptError}`, code };
+  }
+  return { text: `no quote (state=${st.ptState || 'unknown'})`, code: null };
 }
-
-async function resolveMarket(ctx, plan) {
+async function resolveMarket(ctx, plan, S) {
   const r = await visit(ctx, plan.listing, { settle: 10000 });
   if (r.blocked) { await r.page.close(); return { url: null, blocked: true, why: 'listing page is geo/bot blocked' }; }
-  const href = await r.page.evaluate((src) => {
-    const re = new RegExp(src);
-    const a = [...document.querySelectorAll('a[href]')]
-      .map((x) => x.getAttribute('href'))
-      .filter((h) => h && h.startsWith('/') && re.test(h.split('?')[0]));
-    return a[0] || null;
-  }, plan.marketPattern.source).catch(() => null);
+  const host = new URL(plan.listing).hostname;
+  const hrefs = await r.page.evaluate(() => [...document.querySelectorAll('a[href]')]
+    .map((x) => x.getAttribute('href'))
+    .filter((h) => h && h.startsWith('/')).slice(0, 400)).catch(() => null);
+  const href = (hrefs || []).find((h) => { try { return S.detect(host, h.split('?')[0]) !== null; } catch { return false; } }) || null;
   const origin = new URL(plan.listing).origin;
   await r.page.close();
-  if (href) return { url: origin + href, blocked: false, why: 'resolved from the venue listing' };
-  if (plan.fallbackMarket) return { url: plan.fallbackMarket, blocked: false, why: 'listing yielded no link; used known market' };
-  return { url: null, blocked: false, why: 'no market link found on the listing page' };
+  if (href) return { url: origin + href, blocked: false, viaFallback: false, why: 'resolved from the venue listing' };
+  if (plan.fallbackMarket) return { url: plan.fallbackMarket, blocked: false, viaFallback: true, why: 'listing yielded no link; used known market' };
+  return { url: null, blocked: false, viaFallback: false, why: 'no market link found on the listing page' };
 }
 
 /** One token terminal: does the panel mount on a token page, does it show a
@@ -441,7 +451,7 @@ async function run(only, profileDir) {
     if (only && venue !== only) continue;
     const row = { venue, market: null, badge: null, ticket: null, priceTicks: null, refuses: [], notes: [] };
 
-    const found = await resolveMarket(ctx, plan);
+    const found = await resolveMarket(ctx, plan, await predictSites());
     row.notes.push(found.why);
     if (!found.url) {
       row.status = found.blocked ? 'BLOCKED' : 'NO MARKET FOUND';
@@ -467,7 +477,9 @@ async function run(only, profileDir) {
     // a CLOSED shadow root, so its internals cannot be queried — but a quote
     // must walk a real book, and that fetch is observable. Click through the
     // ticket's own coordinates and watch for the venue's book endpoint.
-    row.quote = await probeQuote(m.page, venue).catch((e) => 'error: ' + e.message.slice(0, 60));
+    const probed = await probeQuote(m.page, venue).catch((e) => ({ text: 'error: ' + e.message.slice(0, 60), code: null }));
+    row.quote = probed.text;
+    row.quoteCode = probed.code;
     await m.page.screenshot({ path: resolve(SHOTS, `${venue}-quote.png`) }).catch(() => {});
     await m.page.close();
 
@@ -478,21 +490,7 @@ async function run(only, profileDir) {
       await r.page.close();
     }
 
-    // An engine REFUSAL is not an integration failure — it is the product
-    // working. "Larger than this market can absorb", "already priced as a
-    // near-certainty", "no visible liquidity" all mean the book was fetched,
-    // the engine ran, and a rule fired. Only a refusal that means the pipeline
-    // never got a book is a defect. Conflating the two is how a harness starts
-    // crying wolf and stops being read.
-    const quoted = typeof row.quote === 'string' && row.quote.startsWith('QUOTED');
-    const guarded = typeof row.quote === 'string' && /near-certainty|no visible liquidity|market can absorb|has closed|lost the live book|Minimum order/i.test(row.quote);
-    const brokenPipe = typeof row.quote === 'string' && /No live book|not yet wired|not loaded|Unknown venue|ticket vanished|no quote \(/i.test(row.quote);
-    row.status = row.badge && row.ticket && quoted ? 'PASS'
-      : row.badge && row.ticket && guarded ? 'PASS (engine guard fired — pipeline healthy)'
-      : row.badge && row.ticket && brokenPipe ? `FAIL — panel mounts but no book reaches it (${row.quote})`
-      : row.badge && row.ticket ? `PARTIAL — ${row.quote}`
-      : row.badge && !row.ticket ? 'PARTIAL — badge only, no ticket UI'
-      : 'FAIL — nothing mounted';
+    row.status = predictVerdict({ badge: row.badge, ticket: row.ticket, quote: row.quote, quoteCode: row.quoteCode, viaFallback: found.viaFallback });
     results.push(row);
   }
 

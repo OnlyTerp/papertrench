@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PaperTrench",
-  "version": "3.23.0",
+  "version": "3.23.1",
   "description": "Paper-trade Solana memecoins with live P&L, native chart fills, session replay, AI coaching, and a verifiable track record.",
   "permissions": [
     "storage",
@@ -181,7 +181,6 @@
       "matches": [
         "https://kalshi.com/*",
         "https://polymarket.com/*",
-        "https://app.hyperliquid.xyz/*",
         "https://limitless.exchange/*"
       ],
       "js": [

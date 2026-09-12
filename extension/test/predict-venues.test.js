@@ -1,11 +1,10 @@
-/* Adapter lock tests for the three venues added after the Kalshi landing:
- * Polymarket, Hyperliquid outcomes, and Limitless.
+/* Adapter lock tests for the venues added after the Kalshi landing:
+ * Polymarket and Limitless. (Hyperliquid outcomes was removed in A3 —
+ * see the REMOVED note below.)
  *
- * These adapters shipped in d2c8ad7 with no tests at all. Every payload shape
- * below is the shape the live API actually returned when probed on 2026-08-08
- * (Hyperliquid `allMids` keys `#10330`/`#10331` confirm the `#{outcome}{side}`
- * convention; Polymarket books arrive worst-first; Limitless quotes one side).
- *
+ * Every payload shape below is the shape the live API actually returned
+ * when probed (Polymarket books arrive worst-first; Limitless quotes one
+ * side).
  * THE FAKE THROWS WHAT THE SITE THROWS (F-39). `fetchJson` turns a non-2xx
  * into an exception, so the fake returns `{ok: false, status}` for failures
  * rather than rejecting — a fake that rejects would exercise a path the real
@@ -139,83 +138,35 @@ test('Polymarket: the EVENT slug resolves to its most liquid market, and says wh
     // Picking one silently would put a true price next to the wrong question.
     const book = await V.adapterFor('polymarket').fetchBook('fed-decision');
     assert.equal(book.marketId, '0xcond', 'the 9000-liquidity market wins over the 10');
-    assert.equal(book.viaEvent, true);
+    assert.equal(book.resolvedVia, 'event');
     assert.equal(book.siblingCount, 2);
     assert.match(book.marketTitle, /Fed cut by 25bps/);
     assert.ok(!seen.some((s) => s.url.includes('token_id=thin')), 'the thin market is never priced');
   },
 ));
 
-test('Polymarket: a failed CLOB fetch REFUSES — never a book with one live side', () => withFetch(
+test('Polymarket: a failed CLOB fetch REFUSES with its status — never a book with one live side (B5)', () => withFetch(
   [
     ['gamma-api.polymarket.com/events?slug=', PM_EVENT],
     ['token_id=tokYES', PM_YES_WORST_FIRST],
     ['token_id=tokNO', HTTP(500)],
   ],
   async () => {
-    assert.equal(await V.adapterFor('polymarket').fetchBook('0xcond'), null, 'half a book is worse than no book');
+    const book = await V.adapterFor('polymarket').fetchBook('0xcond');
+    assert.equal(book.refused, true, 'half a book is worse than no book');
+    assert.equal(book.httpStatus, 500, 'the refusal must name the transport failure, not collapse to null');
+    assert.ok(!book.yes, 'a refusal is not a book');
   },
 ));
 
-/* ================================================================== */
-/*  Hyperliquid outcomes — the null-l2Book trap (H6)                   */
-/* ================================================================== */
-
-const HL_META = { universe: [{ name: 'BTC', index: 1033, tokens: [7] }] };
-const HL_L2 = {
-  coin: 'BTC',
-  levels: [
-    [{ 0: '0.40', 1: '10' }, { 0: '0.39', 1: '20' }].map((o) => [o[0], o[1]]),
-    [{ 0: '0.42', 1: '15' }, { 0: '0.43', 1: '25' }].map((o) => [o[0], o[1]]),
-  ],
-};
-
-function hlRoutes(reply) {
-  return [['api.hyperliquid.xyz/info', (url, opts) => {
-    const body = JSON.parse(opts.body);
-    if (body.type === 'spotMeta') return HL_META;
-    if (body.type === 'l2Book') return reply;
-    return {};
-  }]];
-}
-
-test('Hyperliquid: a null l2Book REFUSES — an unknown asset id must not render as an empty market', () => withFetch(
-  // The documented trap: l2Book answers a wrong coin id with `null` rather than
-  // an error, so a guess renders as a market with no depth instead of a bug.
-  hlRoutes(null),
-  async () => {
-    assert.equal(await V.adapterFor('hyperliquid-outcomes').fetchBook('BTC'), null);
-  },
-));
-
-test('Hyperliquid: an l2Book with no levels REFUSES', () => withFetch(
-  hlRoutes({ coin: 'BTC' }),
-  async () => {
-    assert.equal(await V.adapterFor('hyperliquid-outcomes').fetchBook('BTC'), null);
-  },
-));
-
-test('Hyperliquid: a market absent from the universe REFUSES (no invented coin id)', () => withFetch(
-  hlRoutes(HL_L2),
-  async () => {
-    assert.equal(await V.adapterFor('hyperliquid-outcomes').fetchBook('DOGE'), null, 'an unlisted market must not be priced');
-  },
-));
-
-test('Hyperliquid: the NO ladder is the mirror of YES, and both are best-first', () => withFetch(
-  hlRoutes(HL_L2),
-  async () => {
-    const book = await V.adapterFor('hyperliquid-outcomes').fetchBook('BTC');
-    assert.ok(book);
-    assert.deepEqual(book.yes.bids.map((l) => l[0]), [40, 39]);
-    assert.deepEqual(book.yes.asks.map((l) => l[0]), [42, 43]);
-    // A YES ask at 42 is a NO bid at 58; a YES bid at 40 is a NO ask at 60.
-    assert.deepEqual(book.no.bids.map((l) => l[0]), [58, 57]);
-    assert.deepEqual(book.no.asks.map((l) => l[0]), [60, 61]);
-    // Sizes ride along with the mirrored level, they are not recomputed.
-    assert.equal(book.no.bids[0][1], 15);
-  },
-));
+/* ── Hyperliquid outcomes: REMOVED (A3) ───────────────────────────────
+ * The adapter is deleted (it could only ever return null); these tests
+ * assert the absence, so a re-add without the discovery work fails loudly
+ * instead of re-shipping a panel that can never quote.
+ */
+test('Hyperliquid outcomes has no adapter — the venue is not quotable (A3)', () => {
+  assert.equal(V.adapterFor('hyperliquid-outcomes'), null);
+});
 
 /* ================================================================== */
 /*  Limitless — the constructed NO ladder                              */
@@ -255,7 +206,7 @@ test('Limitless: a GROUP resolves to its busiest child, whose slug keys the book
     assert.ok(book, 'a group must resolve, not refuse');
     assert.equal(book.marketId, 't1-x', 'the 9000-volume child wins over the 10');
     assert.equal(book.marketTitle, 'T1');
-    assert.equal(book.viaEvent, true);
+    assert.equal(book.resolvedVia, 'group');
     assert.equal(book.siblingCount, 2);
     assert.ok(seen.some((s) => s.url.includes('/markets/t1-x/orderbook')), 'the book is keyed by the CHILD slug');
   },
@@ -274,17 +225,21 @@ test('Limitless: the NO ladder is CONSTRUCTED by mirror — the venue quotes one
   },
 ));
 
-test('Limitless: a failed orderbook fetch REFUSES', () => withFetch(
+test('Limitless: a failed orderbook fetch REFUSES with its status (B5)', () => withFetch(
   llRoutes(HTTP(503)),
   async () => {
-    assert.equal(await V.adapterFor('limitless').fetchBook('t1-vs-hanwha'), null);
+    const book = await V.adapterFor('limitless').fetchBook('t1-vs-hanwha');
+    assert.equal(book.refused, true);
+    assert.equal(book.httpStatus, 503);
   },
 ));
 
-test('Limitless: an unknown slug REFUSES before any book is requested', () => withFetch(
+test('Limitless: an unknown slug REFUSES with its 404 before any book is requested (B5)', () => withFetch(
   [['api.limitless.exchange/markets/', HTTP(404)], ['/orderbook', LL_BOOK]],
   async (seen) => {
-    assert.equal(await V.adapterFor('limitless').fetchBook('no-such-market'), null);
+    const book = await V.adapterFor('limitless').fetchBook('no-such-market');
+    assert.equal(book.refused, true);
+    assert.equal(book.httpStatus, 404);
     assert.ok(!seen.some((s) => s.url.includes('orderbook')), 'must not ask for a book it cannot identify');
   },
 ));
@@ -311,5 +266,179 @@ test('every venue drops levels outside 0<p<100 and non-positive sizes', () => wi
     // depth at all. Only the 11¢ bid and the 13¢ ask survive.
     assert.deepEqual(book.yes.bids.map((l) => l[0]), [11]);
     assert.deepEqual(book.yes.asks.map((l) => l[0]), [13]);
+  },
+));
+
+/* ── Kalshi event path: the nested-markets pick (A1/A2) ────────────────
+ * Live shape verified 2026-08-08: every child reports liquidity_dollars
+ * "0.0000" while books hold real depth — sizes live in yes_bid_size_fp /
+ * yes_ask_size_fp. The fakes below carry that shape exactly, so a sort on
+ * the zero field is a no-op here exactly as it is live.
+ */
+const kxKid = (ticker, sub, bidFp, askFp, last) => ({
+  ticker, status: 'active', liquidity_dollars: '0.0000',
+  yes_bid_size_fp: String(bidFp), yes_ask_size_fp: String(askFp),
+  last_price_dollars: String(last), yes_sub_title: sub,
+  close_time: '2026-10-30T12:29:00Z',
+});
+const kxBook = { orderbook: { yes_dollars: [['0.50', '10']], no_dollars: [['0.50', '10']] } };
+const kxRoutes = (kids) => [
+  ['/markets/KXGDP-26OCT30/orderbook', {}], // direct ticker is an event: empty ladders
+  ['/events/KXGDP-26OCT30', { event: { markets: kids } }],
+  ['/markets/KXGDP-26OCT30-T', kxBook], // whichever child wins gets a book
+];
+
+test('Kalshi: the event pick sorts on book sizes, not the always-zero liquidity field (A1)', () => withFetch(
+  kxRoutes([
+    kxKid('KXGDP-26OCT30-T0.0', 'thin first', 10, 10, 0.47),
+    kxKid('KXGDP-26OCT30-T1.0', 'deep second', 500, 500, 0.60),
+  ]),
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.marketId, 'KXGDP-26OCT30-T1.0', 'the 1000-size book wins over the 20-size book');
+    assert.equal(book.resolvedVia, 'event');
+    assert.equal(book.siblingCount, 2);
+    assert.match(book.marketTitle, /deep second/);
+  },
+));
+
+test('Kalshi: a near-certain deepest book is skipped for a live question (A2)', () => withFetch(
+  kxRoutes([
+    kxKid('KXGDP-26OCT30-T0.0', 'thin first', 10, 10, 0.47),
+    kxKid('KXGDP-26OCT30-T1.0', 'deep live', 500, 500, 0.60),
+    kxKid('KXGDP-26OCT30-T2.0', 'deepest decided', 5000, 5000, 0.99),
+  ]),
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.marketId, 'KXGDP-26OCT30-T1.0', 'the 99c book is decided; the live 60c book wins');
+  },
+));
+
+test('Kalshi: when every child is decided, the deepest still wins so the lockout speaks (A2)', () => withFetch(
+  kxRoutes([
+    kxKid('KXGDP-26OCT30-T0.0', 'thin decided', 10, 10, 0.99),
+    kxKid('KXGDP-26OCT30-T1.0', 'deep decided', 500, 500, 0.01),
+  ]),
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.marketId, 'KXGDP-26OCT30-T1.0', 'fallback is most-liquid, not first-listed');
+  },
+));
+
+test('Kalshi: the event pick threads its close_time so expiry can refuse (A4)', () => withFetch(
+  kxRoutes([
+    kxKid('KXGDP-26OCT30-T0.0', 'thin first', 10, 10, 0.47),
+    kxKid('KXGDP-26OCT30-T1.0', 'deep second', 500, 500, 0.60),
+  ]),
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.marketId, 'KXGDP-26OCT30-T1.0');
+    assert.ok(book.closeTime, 'the picked market must carry its venue close_time');
+  },
+));
+
+test('Kalshi: the resolution record doubles as quote-path liveness (A4/A5)', () => withFetch(
+  [
+    ['/markets/KXSHUT', { market: { status: 'finalized', result: 'yes', close_time: '2026-08-01T12:00:00Z' } }],
+    ['/markets/KXOPEN', { market: { status: 'active', result: '', close_time: '2026-10-30T12:29:00Z' } }],
+  ],
+  async () => {
+    const open = await V.adapterFor('kalshi').checkResolution('KXOPEN');
+    assert.deepEqual(open, { resolved: false, closed: false, closeTime: '2026-10-30T12:29:00Z' });
+    const shut = await V.adapterFor('kalshi').checkResolution('KXSHUT');
+    assert.deepEqual(shut, { resolved: true, resolution: 'yes', closed: true, closeTime: '2026-08-01T12:00:00Z' });
+  },
+));
+
+test('Polymarket: the resolution record carries closed and endDate (A4/A5)', () => withFetch(
+  [
+    ['/markets?condition_ids=0xopen', [{ closed: false, endDate: '2026-11-04T00:00:00Z', outcomePrices: '["0.55","0.45"]' }]],
+    ['/markets?condition_ids=0xshut', [{ closed: true, endDate: '2026-08-01T00:00:00Z', outcomePrices: '["0.995","0.005"]' }]],
+  ],
+  async () => {
+    const open = await V.adapterFor('polymarket').checkResolution('0xopen');
+    assert.deepEqual(open, { resolved: false, closed: false, closeTime: '2026-11-04T00:00:00Z' });
+    const shut = await V.adapterFor('polymarket').checkResolution('0xshut');
+    assert.deepEqual(shut, { resolved: true, resolution: 'yes', closed: true, closeTime: '2026-08-01T00:00:00Z' });
+  },
+));
+
+/* ── B5: transport failures refuse WITH their status ───────────────────
+ * A 429/500/403 is not an empty book. Adapters return
+ * { refused: true, httpStatus } so the ticket can say "venue returned 429"
+ * instead of "no book" — and so a broken adapter and an empty market stop
+ * being the same test outcome. Only genuinely-empty/absent stays null.
+ */
+
+test('Kalshi: a rate-limited direct book REFUSES without hammering the event path (B5)', () => withFetch(
+  [
+    ['/markets/KXGDP-26OCT30/orderbook', HTTP(429)],
+    ['/events/KXGDP-26OCT30', { event: { markets: [] } }],
+  ],
+  async (seen) => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.refused, true);
+    assert.equal(book.httpStatus, 429);
+    assert.ok(!seen.some((s) => s.url.includes('/events/')), 'a 429 is transport, not "try the other endpoint"');
+  },
+));
+
+test('Kalshi: a 404 direct book still falls through to the event path (B5)', () => withFetch(
+  [
+    ['/markets/KXGDP-26OCT30/orderbook', HTTP(404)], // event ticker, not a market: by design
+    ['/events/KXGDP-26OCT30', { event: { markets: [kxKid('KXGDP-26OCT30-T1.0', 'deep second', 500, 500, 0.60)] } }],
+    ['/markets/KXGDP-26OCT30-T', kxBook],
+  ],
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.marketId, 'KXGDP-26OCT30-T1.0', '404 on direct means "resolve as event", not failure');
+  },
+));
+
+test('Kalshi: a failed event lookup REFUSES with its status (B5)', () => withFetch(
+  [
+    ['/markets/KXGDP-26OCT30/orderbook', {}], // empty ladders: an event, resolve it
+    ['/events/KXGDP-26OCT30', HTTP(500)],
+  ],
+  async () => {
+    const book = await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30');
+    assert.equal(book.refused, true);
+    assert.equal(book.httpStatus, 500);
+  },
+));
+
+test('Kalshi: an event with no open markets is genuinely-empty null, not a refusal (B5)', () => withFetch(
+  [
+    ['/markets/KXGDP-26OCT30/orderbook', {}],
+    ['/events/KXGDP-26OCT30', { event: { markets: [{ ticker: 'KXGDP-26OCT30-T0.0', status: 'settled' }] } }],
+  ],
+  async () => {
+    assert.equal(await V.adapterFor('kalshi').fetchBook('KXGDP-26OCT30'), null);
+  },
+));
+
+test('Polymarket: an event with no live markets is genuinely-empty null, not a refusal (B5)', () => withFetch(
+  [['gamma-api.polymarket.com/events?slug=', [{ title: 'Settled', markets: [{ conditionId: '0xdone', clobTokenIds: '["a","b"]', closed: true }] }]]],
+  async () => {
+    assert.equal(await V.adapterFor('polymarket').fetchBook('settled'), null);
+  },
+));
+
+test('Polymarket: when the depth field churns away, the pick sorts on volume (B6)', () => withFetch(
+  [
+    // No liquidityClob anywhere — the shape gamma serves when the field
+    // churns (closed markets already omit it; verified live 2026-09-12).
+    ['gamma-api.polymarket.com/events?slug=', [{
+      title: 'Pick', markets: [
+        { conditionId: '0xthin', clobTokenIds: '["thinYES","thinNO"]', question: 'Thin one', volumeNum: 10, orderPriceMinTickSize: 0.01 },
+        { conditionId: '0xcond', clobTokenIds: '["tokYES","tokNO"]', question: 'Deep one', volumeNum: 9000, orderPriceMinTickSize: 0.01 },
+      ],
+    }]],
+    ['token_id=tokYES', PM_YES_WORST_FIRST],
+    ['token_id=tokNO', PM_NO_WORST_FIRST],
+  ],
+  async () => {
+    const book = await V.adapterFor('polymarket').fetchBook('pick');
+    assert.equal(book.marketId, '0xcond', 'the 9000-volume market wins over the 10');
   },
 ));

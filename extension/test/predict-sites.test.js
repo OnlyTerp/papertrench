@@ -94,45 +94,19 @@ test('Polymarket — refuse /portfolio', () => {
 });
 
 /* ================================================================== */
-/*  5. Hyperliquid outcomes — must-mount pages                        */
+/*  5. Hyperliquid outcomes — REMOVED (A3): mounts nothing             */
 /* ================================================================== */
 
-test('Hyperliquid outcomes — /outcomes with title carrying BTC market', () => {
-  assert.deepEqual(
-    S.detect('app.hyperliquid.xyz', '/outcomes', '64,869 | BTC | Hyperliquid'),
-    {
-      venue: 'hyperliquid-outcomes',
-      market: 'BTC',
-      verified: false,
-    },
-  );
-});
-
-test('Hyperliquid outcomes — /outcomes index with no title REFUSES (never a half-mount)', () => {
-  // This asserted the opposite until pt-recon check caught it (RETURNED_NO_ID)
-  // against the captured /outcomes index. Returning {venue, market: null} reads
-  // to every caller as "we are on a market" and then there is nothing to price:
-  // the ticket mounts on the index page with no book behind it. The contract is
-  // null, or an identified market — never an object with no identifier.
+test('Hyperliquid outcomes — the venue is gone, every route refuses (A3)', () => {
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes', '64,869 | BTC | Hyperliquid'), null);
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/BTC', '64,869 | BTC | Hyperliquid'), null);
   assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes'), null);
-  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes', 'Hyperliquid'), null);
-  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/', 'no price here'), null);
-});
-
-/* ================================================================== */
-/*  6. Hyperliquid — must-refuse pages                                */
-/* ================================================================== */
-
-test('Hyperliquid — refuse /trade/SOL (perps, not outcomes)', () => {
   assert.equal(S.detect('app.hyperliquid.xyz', '/trade/SOL'), null);
-});
-
-test('Hyperliquid — refuse homepage app.hyperliquid.xyz', () => {
   assert.equal(S.detect('app.hyperliquid.xyz', '/'), null);
 });
 
 /* ================================================================== */
-/*  7. Limitless — must-mount pages                                   */
+/*  6. Limitless — must-mount pages                                   */
 /* ================================================================== */
 
 test('Limitless — market /markets/will-btc-hit-100k', () => {
@@ -165,10 +139,14 @@ test('Limitless — refuse /portfolio', () => {
 /*  mounting. Each bound below is asserted from both directions.       */
 /* ================================================================== */
 
-test('Bounds — Kalshi: 1 segment refuses, the 2-segment minimum mounts', () => {
+test('Bounds — Kalshi: series pages refuse, only 3-segment markets mount (B3)', () => {
   assert.equal(S.detect('kalshi.com', '/markets/x'), null);
-  assert.deepEqual(S.detect('kalshi.com', '/markets/x/y'), {
-    venue: 'kalshi', marketId: 'y', verified: true,
+  // A 2-segment SERIES page mounted badge+panel that could never quote
+  // (orderbook 404, event lookup 404, silent null) — the harness already
+  // required 3 segments, so it never saw the case the product accepted.
+  assert.equal(S.detect('kalshi.com', '/markets/kxgdp/us-gdp-growth'), null);
+  assert.deepEqual(S.detect('kalshi.com', '/markets/x/y/z'), {
+    venue: 'kalshi', marketId: 'z', verified: true,
   });
 });
 
@@ -180,17 +158,12 @@ test('Bounds — Polymarket: a 2-char slug refuses, the 3-char minimum mounts', 
   });
 });
 
-test('Bounds — Hyperliquid: /outcome refuses, and the ticker length gate holds both ways', () => {
+test('Bounds — Hyperliquid: every outcomes route refuses (venue removed, A3)', () => {
   assert.equal(S.detect('app.hyperliquid.xyz', '/outcome'), null);
-  // Ticker gate is [A-Z]{2,10}: one under and one over must refuse.
   assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/B'), null);
   assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/ABCDEFGHIJK'), null);
-  assert.deepEqual(S.detect('app.hyperliquid.xyz', '/outcomes/BT'), {
-    venue: 'hyperliquid-outcomes', market: 'BT', verified: false,
-  });
-  assert.deepEqual(S.detect('app.hyperliquid.xyz', '/outcomes/ABCDEFGHIJ'), {
-    venue: 'hyperliquid-outcomes', market: 'ABCDEFGHIJ', verified: false,
-  });
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/BT'), null);
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/ABCDEFGHIJ'), null);
 });
 
 test('Bounds — Limitless: a 2-char slug refuses, the 3-char minimum mounts', () => {
@@ -227,8 +200,8 @@ const MATRIX = [
   ['polymarket.com', '/new', false, 'category index that ticks live prices'],
   ['polymarket.com', '/politics', false, 'category index that ticks live prices'],
 
-  ['app.hyperliquid.xyz', '/outcomes/BTC', true, 'captured outcomes market'],
-  ['app.hyperliquid.xyz', '/outcomes/ETH', true, 'captured outcomes market'],
+  ['app.hyperliquid.xyz', '/outcomes/BTC', false, 'venue removed (A3) — mounts nothing'],
+  ['app.hyperliquid.xyz', '/outcomes/ETH', false, 'venue removed (A3) — mounts nothing'],
   ['app.hyperliquid.xyz', '/outcomes', false, 'outcomes INDEX — the half-mount pt-recon caught'],
   ['app.hyperliquid.xyz', '/trade/BTC', false, 'PERPS route — a different instrument entirely'],
   ['app.hyperliquid.xyz', '/trade/ETH', false, 'PERPS route — a different instrument entirely'],
@@ -258,21 +231,12 @@ for (const [host, path, shouldMount, why] of MATRIX) {
 }
 
 test('Hyperliquid: a PERPS page REFUSES even though its title parses as a market', () => {
-  // Perps and outcomes share app.hyperliquid.xyz, and the perps tab title has
-  // the same "<price> | <market> | Hyperliquid" shape the outcomes adapter
-  // reads (see [HL-TTL] in perps-sites.js: "73.483 | SOL | Hyperliquid").
-  // So on a real perps page the title extractor succeeds, and the ROUTE GATE
-  // is the only thing standing between a binary-outcome ticket and a
-  // leveraged perp. Passing a parseable title here is the difference between
-  // locking that gate and merely locking the null-market guard behind it.
+  // (A3 removed outcomes: the "outcomes still mounts" discrimination half of
+  // this test is gone with the venue. What remains is the load-bearing half:
+  // a leveraged-perp page must never mount the binary-outcome ticket.)
   const perpsTitle = '73.483 | SOL | Hyperliquid';
   assert.equal(S.detect('app.hyperliquid.xyz', '/trade/SOL', perpsTitle), null);
   assert.equal(S.detect('app.hyperliquid.xyz', '/trade/BTC', '64,869 | BTC | Hyperliquid'), null);
-  // And the outcomes route with the same title shape still mounts, so the gate
-  // is proven to discriminate by ROUTE rather than by failing to parse.
-  assert.deepEqual(S.detect('app.hyperliquid.xyz', '/outcomes', perpsTitle), {
-    venue: 'hyperliquid-outcomes', market: 'SOL', verified: false,
-  });
 });
 
 test('Matrix — only Kalshi is verified:true; the rest ship as stubs until their live pass', () => {
@@ -283,6 +247,30 @@ test('Matrix — only Kalshi is verified:true; the rest ship as stubs until thei
   const verifiedOf = (h, p) => (S.detect(h, p) || {}).verified;
   assert.equal(verifiedOf('kalshi.com', '/markets/kxgdp/us-gdp-growth/kxgdp-26oct30'), true);
   assert.equal(verifiedOf('polymarket.com', '/event/kraken-ipo-in-2025'), false);
-  assert.equal(verifiedOf('app.hyperliquid.xyz', '/outcomes/BTC'), false);
+  assert.equal(S.detect('app.hyperliquid.xyz', '/outcomes/BTC'), null, 'the removed venue detects nothing');
   assert.equal(verifiedOf('limitless.exchange', '/markets/xrp-up-or-down-daily-1786118400'), false);
+});
+
+test('B1 — manifest predict matches and detect() agree on venue hosts, both ways', () => {
+  // The manifest decides WHERE the content script runs; detect() decides
+  // WHAT it mounts on. A host in one but not the other is dead weight or a
+  // silent no-mount. livepass already asks this same detect() at run time,
+  // so the three — manifest, product, harness — are one animal.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const block = manifest.content_scripts.find((b) => (b.js || []).includes('predict-content.js'));
+  assert.ok(block, 'a content-script block must inject predict-content.js');
+  const hosts = block.matches.map((m) => m.replace(/^https?:\/\//, '').replace(/\/\*$/, ''));
+  const CANON = {
+    'kalshi.com': '/markets/kxgdp/us-gdp-growth/kxgdp-26oct30',
+    'polymarket.com': '/event/kraken-ipo-in-2025',
+    'limitless.exchange': '/markets/abc',
+  };
+  for (const h of Object.keys(CANON)) assert.ok(hosts.includes(h), `manifest must match ${h}`);
+  assert.ok(!hosts.some((h) => h.includes('hyperliquid')), 'removed venues must not linger in matches');
+  for (const h of hosts) {
+    assert.ok(CANON[h], `manifest matches ${h} but no venue claims it`);
+    assert.ok(S.detect(h, CANON[h]), `detect() must mount on manifest-matched ${h}${CANON[h]}`);
+  }
 });

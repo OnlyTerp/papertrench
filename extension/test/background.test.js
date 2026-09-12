@@ -1153,3 +1153,58 @@ test('a watch from a sender with no tab still releases unconditionally', async (
   await sendFrom(worker.listener, { type: 'pt_onchain_unwatch', mint: WATCH_MINT }, { id: 'papertrench-test' });
   assert.deepEqual(unwatched, [WATCH_MINT], 'a no-tab sender releases unconditionally');
 });
+
+/* ── PREDICT_QUOTE liveness: status guards the future, resolution the past (A4/A5) ── */
+
+function kalshiPredictWorker() {
+  const levels = { orderbook: { yes_dollars: [['0.50', '100']], no_dollars: [['0.50', '100']] } };
+  const market = (status, result, close_time) => ({ market: { status, result, close_time } });
+  return serviceWorker({
+    fetch: async (url) => {
+      const u = String(url);
+      const book = (t) => u.includes(`/markets/${t}/orderbook`);
+      const info = (t) => u.includes(`/markets/${t}`) && !u.includes('/orderbook');
+      if (book('KXRL')) return { ok: false, status: 429, json: async () => ({}) };
+      let body = null;
+      if (book('KXOPEN') || book('KXSHUT') || book('KXPAST')) body = levels;
+      else if (info('KXOPEN')) body = market('active', '', '2026-10-30T12:29:00Z');
+      else if (info('KXSHUT')) body = market('finalized', 'yes', '2026-08-01T12:00:00Z');
+      else if (info('KXPAST')) body = market('active', '', '2026-08-01T12:00:00Z');
+      if (!body) throw new Error(`strict fake: unrouted predict request ${u}`);
+      return { ok: true, status: 200, json: async () => body };
+    },
+  });
+}
+const predictQuote = (marketId) => ({
+  type: 'PREDICT_QUOTE', venue: 'kalshi', marketId,
+  side: 'buy', outcome: 'yes', realism: 'realistic', qty: 1,
+});
+
+test('PREDICT_QUOTE prices an open market end to end', async () => {
+  const worker = kalshiPredictWorker();
+  const r = await send(worker.listener, predictQuote('KXOPEN'));
+  assert.equal(r.ok, true, `open market must quote, got ${JSON.stringify(r).slice(0, 200)}`);
+  assert.ok(r.data.avgPrice > 0, 'a real average price comes back');
+});
+
+test('PREDICT_QUOTE refuses a resolved market with market_resolved (A5)', async () => {
+  const worker = kalshiPredictWorker();
+  const r = await send(worker.listener, predictQuote('KXSHUT'));
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'market_resolved', 'settlement in the past must refuse by code, not price');
+});
+
+test('PREDICT_QUOTE refuses a past-close market with market_closed (A4)', async () => {
+  const worker = kalshiPredictWorker();
+  const r = await send(worker.listener, predictQuote('KXPAST'));
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'market_closed', 'expiry in the past must refuse even with live depth');
+});
+
+test('PREDICT_QUOTE names a venue transport failure with venue_error (B5)', async () => {
+  const worker = kalshiPredictWorker();
+  const r = await send(worker.listener, predictQuote('KXRL'));
+  assert.equal(r.ok, false);
+  assert.equal(r.code, 'venue_error', 'a 429 is not "no book" — the refusal names its status');
+  assert.match(r.message, /429/, `got: ${r.message}`);
+});

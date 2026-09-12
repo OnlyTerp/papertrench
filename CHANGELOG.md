@@ -2,6 +2,13 @@
 
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
+ 
+## v3.23.1 — 2026-09-12
+
+- **Prediction markets: refusals that say why, quotes that expire, dead venues gone.** An external audit of the prediction port came back with a punchlist and this release works through it. Hyperliquid outcomes is removed entirely — its adapter could only ever return null, so it mounted a panel that could never quote; it comes back when the discovery work is done, not before. Kalshi series pages (2-segment URLs that can never resolve to a book) no longer mount badge or panel.
+- **"No live book" now names the reason.** A rate limit, an outage, or a dead market used to collapse into one sentence. Now the ticket says what the venue actually did — "Kalshi rate-limited this quote (HTTP 429)", "Polymarket has no market at this address (HTTP 404)" — and the live pass scores venue outages as pipeline failures instead of shrugging.
+- **Quotes expire after 30 seconds.** A quote is a promise on a live book, and the engine already refused to price off a stale one — but the ticket held the number on screen forever. Now an aged quote greys out, the button turns into Re-quote, and no submit path exists off a stale price, so the coming fill ledger can never record against one.
+- **The harness can no longer pass on a dead fallback.** The live pass used to score a closed fallback market as "engine guard fired — pipeline healthy" — a PASS on a venue whose entire corpus was resolved. Fallback markets that refuse anything are now BLOCKED (unverified corpus), verdicts switch on machine refusal codes instead of regexing English prose, and the market patterns come from the shipped detector itself, so product and harness can never drift apart again.
 
 ## v3.23.0 — 2026-09-12
 

@@ -3506,6 +3506,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // the host permissions — a content script asking a venue API for a
           // cross-origin book would need CORS the venue does not grant.
           const book = await adapter.fetchBook(message.marketId);
+          // B5: a transport refusal names its status — "venue returned 429",
+          // not "no book". The doctrine says a refusal names its reason.
+          if (book && book.refused) {
+            const venueName = { kalshi: 'Kalshi', polymarket: 'Polymarket', limitless: 'Limitless' }[message.venue] || message.venue;
+            const st = book.httpStatus;
+            const why = st === 429 ? 'rate-limited this quote (HTTP 429) — no book was harmed; try again in a bit'
+              : st === 404 ? 'has no market at this address (HTTP 404)'
+              : `returned HTTP ${st} instead of a book`;
+            sendResponse({ ok: false, code: 'venue_error', message: `${venueName} ${why}.` });
+            break;
+          }
           if (!book) {
             sendResponse({ ok: false, message: 'No live book for this market right now.' });
             break;
@@ -3518,9 +3529,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             no_bids: book.no.bids, no_asks: book.no.asks,
             captured_at: book.capturedAt,
           };
+          // Status guards the future, resolution guards the past (A4/A5): the
+          // check is one extra fetch on a user-initiated quote, and quoting
+          // a resolved market as open is exactly the wrong-number failure.
+          // A checker that errors or returns null is "unknown", never
+          // evidence — the quote proceeds on the book's own liveness legs.
+          let liveness = null;
+          if (typeof adapter.checkResolution === 'function') {
+            try {
+              liveness = await adapter.checkResolution(book.marketId || message.marketId);
+            } catch (_) { liveness = null; }
+          }
+          if (liveness && liveness.resolved) {
+            sendResponse({ ok: false, code: 'market_resolved', message: 'This market has resolved.' });
+            break;
+          }
           const market = {
-            status: 'open',
-            close_time: book.closeTime || null,
+            status: (liveness && liveness.closed) ? 'closed' : 'open',
+            close_time: book.closeTime || (liveness && liveness.closeTime) || null,
             tick_cents: book.tickCents || 1,
             min_order_size: book.minOrderSize || 1,
           };
@@ -3562,7 +3588,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // a true number next to the wrong question.
             resolvedMarketId: book.marketId,
             marketTitle: book.marketTitle || null,
-            viaEvent: !!book.viaEvent,
+            resolvedVia: book.resolvedVia || 'direct',
             siblingCount: book.siblingCount || 0,
             quotedAt: new Date().toISOString(),
           } });

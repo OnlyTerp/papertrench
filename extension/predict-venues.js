@@ -39,17 +39,24 @@
 
   async function fetchJson(url, opts) {
     const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${url}`);
+    if (!res.ok) {
+      // B5: the status rides the error so adapters can refuse WITH it — a
+      // 429/500/403 is not an empty book, and collapsing it to null made a
+      // broken adapter and an empty market the same test outcome.
+      const err = new Error(`HTTP ${res.status} ${url}`);
+      err.httpStatus = res.status;
+      throw err;
+    }
     return res.json();
   }
 
-  function postJson(url, body) {
-    return fetchJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+  /* A transport failure becomes a refusal object; anything else (parse,
+   * shape, absence) stays null — genuinely-empty, not broken-pipe. */
+  function transportRefusal(e) {
+    if (e && e.httpStatus) return { refused: true, httpStatus: e.httpStatus };
+    return null;
   }
+
 
   /* ── Book math (from predict-engine, inline to avoid load-order) ── */
 
@@ -149,9 +156,14 @@
       var raw = await fetchJson(KALSHI_BASE + '/markets/' + encodeURIComponent(ticker) + '/orderbook?depth=100');
       var direct = kalshiNormalizeBook(raw);
       if (direct.yes.bids.length || direct.no.bids.length) {
-        return { ticker: ticker, title: null, book: direct, viaEvent: false };
+        return { ticker: ticker, title: null, book: direct, resolvedVia: 'direct' };
       }
-    } catch (e) { /* fall through to the event path */ }
+    } catch (e) {
+      // 404/parse: an event ticker, not a market — fall through by design. Any
+      // other transport failure (429/403/500) refuses HERE; retrying the event
+      // endpoint against a rate limit is hammering, not resolving (B5).
+      if (e && e.httpStatus && e.httpStatus !== 404) return { refused: true, httpStatus: e.httpStatus };
+    }
 
     // The events endpoint is CASE-SENSITIVE where the markets endpoint is not:
     // verified live 2026-08-08, /events/kxgdp-26oct30 is a 404 while
@@ -165,28 +177,46 @@
         return m.ticker && (s === 'active' || s === 'open' || s === 'initialized');
       });
       if (!open.length) return null;
-      // Most liquid first — the thinnest book in an event is the one whose
-      // fills teach the least and whose depth cap bites hardest.
-      var liq = function(m) { var v = Number(m.liquidity_dollars); return isFinite(v) ? v : 0; };
-      open.sort(function(a, b) { return liq(b) - liq(a); });
-      var pick = open[0];
+      // Most liquid first — but liquidity_dollars is "0.0000" on EVERY nested
+      // child (verified live 2026-08-08: all 9 KXGDP children zero while
+      // books hold real depth), so sorting on it is a no-op that picks
+      // whatever order the API returned. Sort on top-of-book sizes instead
+      // (A1); they are monotonic in depth even if their units are venue lore.
+      var depth = function(m) {
+        var b = Number(m.yes_bid_size_fp), a = Number(m.yes_ask_size_fp);
+        return (isFinite(b) ? b : 0) + (isFinite(a) ? a : 0);
+      };
+      open.sort(function(a, b) { return depth(b) - depth(a); });
+      // The deepest book in an event is very often the one already priced at
+      // 1c or 99c — the outcome everybody has agreed on. Quoting it just
+      // trips the front-running lockout and the panel opens on a refusal.
+      // Prefer a market that is still a live question; fall back to the most
+      // liquid one if every market has effectively resolved, so the lockout
+      // still gets to speak rather than being pre-empted here (A2 — the same
+      // doctrine as the Polymarket picker).
+      var forecastable = open.filter(function(m) {
+        var p = Number(m.last_price_dollars);
+        return !isFinite(p) || (p > 0.03 && p < 0.97);
+      });
+      var pick = (forecastable.length ? forecastable : open)[0];
       var pickRaw = await fetchJson(KALSHI_BASE + '/markets/' + encodeURIComponent(pick.ticker) + '/orderbook?depth=100');
       return {
         ticker: pick.ticker,
         title: pick.yes_sub_title || pick.subtitle || pick.title || pick.ticker,
         book: kalshiNormalizeBook(pickRaw),
-        viaEvent: true,
+        resolvedVia: 'event',
         siblingCount: open.length,
+        closeTime: pick.close_time || null,
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
-
   async function kalshiFetchBook(ticker) {
     try {
       var resolved = await kalshiResolveMarket(ticker);
       if (!resolved) return null;
+      if (resolved.refused) return resolved;
       var book = resolved.book;
       var inv = checkBookInvariants(book.yes, book.no);
       return {
@@ -196,17 +226,22 @@
         // True when the URL named an event and we picked a market under it —
         // the ticket shows which one, so the number on screen is never for a
         // market the user did not know they were looking at.
-        viaEvent: !!resolved.viaEvent,
+        resolvedVia: resolved.resolvedVia || 'direct',
         siblingCount: resolved.siblingCount || 0,
+        closeTime: resolved.closeTime || null,
         yes: book.yes,
         no: book.no,
         capturedAt: new Date().toISOString(),
         invariantOk: inv.ok,
         invariantViolations: inv.violations,
+        // 1c is a VERIFIED constant, not a lazy one: neither nested nor
+        // /markets/<ticker> payloads carry any tick field (checked live
+        // 2026-09-12 — no tick_size key on either shape) and Kalshi quotes
+        // integer cents. Do not "thread" a field that does not exist.
         tickCents: 1,
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
@@ -216,12 +251,21 @@
       var m = raw.market;
       if (!m) return null;
       var status = (m.status || '').toLowerCase();
-      if (status !== 'finalized' && status !== 'settled') return { resolved: false };
+      // The record doubles as the market's liveness proof for the quote
+      // path (A4/A5): closed + closeTime let the background refuse expiry
+      // and settlement without fabricating status. Kalshi's open statuses
+      // mirror the event filter (active/open/initialized); anything else
+      // that is not finalized/settled is closed-but-unresolved.
+      var openish = status === 'active' || status === 'open' || status === 'initialized';
+      var base = { closed: !openish, closeTime: m.close_time || null };
+      if (status !== 'finalized' && status !== 'settled') {
+        return Object.assign({ resolved: false }, base);
+      }
       var result = (m.result || '').toLowerCase();
-      return {
+      return Object.assign({
         resolved: true,
         resolution: result === 'yes' ? 'yes' : result === 'no' ? 'no' : null,
-      };
+      }, base);
     } catch (e) {
       return null;
     }
@@ -269,7 +313,7 @@
         }).filter(function(l) { return l[0] > 0 && l[0] < 100 && l[1] > 0; }),
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
@@ -293,7 +337,16 @@
       var markets = (ev && ev.markets) || [];
       var live = markets.filter(function(m) { return m && m.clobTokenIds && !m.closed; });
       if (!live.length) return null;
-      var liq = function(m) { var v = Number(m.liquidityClob); return isFinite(v) ? v : 0; };
+      // Depth dollars pick the market; cumulative volume is the fallback when
+      // the depth field churns (verified live 2026-09-12: open markets carry
+      // both liquidityClob and volumeNum; closed carry volumeNum only — so a
+      // sort on depth alone would silently flatten to API order).
+      var liq = function(m) {
+        var l = Number(m.liquidityClob);
+        if (isFinite(l) && l > 0) return l;
+        var v = Number(m.volumeNum);
+        return isFinite(v) ? v : 0;
+      };
       live.sort(function(a, b) { return liq(b) - liq(a); });
       // The most liquid market in an event is very often the one already
       // priced at 1c or 99c — the outcome everybody has agreed on. Quoting it
@@ -315,11 +368,12 @@
         noTokenId: ids[1],
         title: pick.question || pick.groupItemTitle || null,
         tickCents: roundPrice(Number(pick.orderPriceMinTickSize || 0.01) * 100),
-        viaEvent: true,
+        resolvedVia: 'event',
         siblingCount: live.length,
+        endDate: pick.endDate || null,
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
@@ -327,11 +381,13 @@
     try {
       var resolved = await pmResolveMarket(eventSlug);
       if (!resolved) return null;
+      if (resolved.refused) return resolved;
 
       var yesBook = await pmFetchTokenBook(resolved.yesTokenId);
+      if (yesBook && yesBook.refused) return yesBook;
       var noBook = await pmFetchTokenBook(resolved.noTokenId);
+      if (noBook && noBook.refused) return noBook;
       if (!yesBook || !noBook) return null;
-      var market = { orderPriceMinTickSize: resolved.tickCents / 100 };
       var conditionId = resolved.conditionId;
 
       yesBook.bids.sort(function(a, b) { return b[0] - a[0]; });
@@ -347,17 +403,18 @@
         venue: 'polymarket',
         marketId: conditionId,
         marketTitle: resolved.title,
-        viaEvent: !!resolved.viaEvent,
+        resolvedVia: resolved.resolvedVia || 'event',
         siblingCount: resolved.siblingCount || 0,
+        closeTime: resolved.endDate || null,
         yes: yes,
         no: no,
         capturedAt: new Date().toISOString(),
         invariantOk: inv.ok,
         invariantViolations: inv.violations,
-        tickCents: roundPrice((market.orderPriceMinTickSize || 0.01) * 100),
+        tickCents: resolved.tickCents || 1,
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
@@ -366,13 +423,15 @@
       var markets = await fetchJson(PM_GAMMA + '/markets?condition_ids=' + encodeURIComponent(conditionId));
       if (!markets || markets.length === 0) return null;
       var m = markets[0];
-      if (!m.closed) return { resolved: false };
+      // Like Kalshi: the record doubles as the quote path's liveness proof.
+      var base = { closed: !!m.closed, closeTime: m.endDate || null };
+      if (!m.closed) return Object.assign({ resolved: false }, base);
       try {
         var prices = JSON.parse(m.outcomePrices || '[]');
         var yes = Number(prices[0]);
-        if (yes >= 0.99) return { resolved: true, resolution: 'yes' };
-        if (yes <= 0.01) return { resolved: true, resolution: 'no' };
-        return { resolved: true, resolution: null };
+        if (yes >= 0.99) return Object.assign({ resolved: true, resolution: 'yes' }, base);
+        if (yes <= 0.01) return Object.assign({ resolved: true, resolution: 'no' }, base);
+        return Object.assign({ resolved: true, resolution: null }, base);
       } catch (e) {
         return null;
       }
@@ -381,97 +440,15 @@
     }
   }
 
-  /* ── Hyperliquid Outcomes adapter ───────────────────────────────── */
-
-  // The DOCUMENTED public API host, and the same one perps already uses
-  // ([HL-API] in perps-venues.js). The capture shows the site's own frontend
-  // calling api-ui.hyperliquid.xyz, so that host was used here first — but
-  // api-ui is an undocumented frontend surface, free to change or rate-limit
-  // on its own schedule. Probed both live 2026-08-08: identical responses for
-  // allMids, l2Book(BTC) and l2Book(@1), all 200. Given a tie, the documented
-  // contract wins, and the extension keeps ONE Hyperliquid host to reason about.
-  const HL_API = 'https://api.hyperliquid.xyz';
-
-  async function hlOutcomesFetchCoin(market) {
-    try {
-      var meta = await postJson(HL_API + '/info', { type: 'spotMeta' });
-      var universe = meta.universe || [];
-      var coin = universe.find(function(c) { return c.name === market; });
-      if (!coin) return null;
-      return { coin: coin.name, index: coin.index, tokenId: coin.tokens && coin.tokens[0] };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function hlL2Levels(side) {
-    return function(rows) {
-      return (rows || []).map(function(r) {
-        var px = roundPrice(Number(r[0]) * 100);
-        var sz = Number(r[1]);
-        if (!(px > 0) || !(px < 100) || !(sz > 0)) return null;
-        return [px, roundQty(sz)];
-      }).filter(Boolean);
-    };
-  }
-
-  async function hlOutcomesFetchBook(market) {
-    try {
-      var coinInfo = await hlOutcomesFetchCoin(market);
-      if (!coinInfo) return null;
-      var coin = coinInfo.coin;
-      var l2 = await postJson(HL_API + '/info', { type: 'l2Book', coin: coin });
-      if (!l2 || !l2.levels) return null;
-      var levels = l2.levels;
-      var yesBids = hlL2Levels('bids')(levels[0]);
-      var yesAsks = hlL2Levels('asks')(levels[1]);
-      // Mirror: NO bid = 100 - YES ask, NO ask = 100 - YES bid
-      var noBids = yesAsks.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
-      var noAsks = yesBids.map(function(l) { return [roundPrice(100 - l[0]), l[1]]; }).filter(function(l) { return l[0] > 0 && l[0] < 100; });
-      yesBids.sort(function(a, b) { return b[0] - a[0]; });
-      yesAsks.sort(function(a, b) { return a[0] - b[0]; });
-      noBids.sort(function(a, b) { return b[0] - a[0]; });
-      noAsks.sort(function(a, b) { return a[0] - b[0]; });
-      var yes = { bids: yesBids, asks: yesAsks };
-      var no = { bids: noBids, asks: noAsks };
-      var inv = checkBookInvariants(yes, no);
-      return {
-        venue: 'hyperliquid-outcomes',
-        marketId: coin,
-        yes: yes,
-        no: no,
-        capturedAt: new Date().toISOString(),
-        invariantOk: inv.ok,
-        invariantViolations: inv.violations,
-        tickCents: 1,
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function hlOutcomesCheckResolution(market) {
-    try {
-      var meta = await postJson(HL_API + '/info', { type: 'spotMeta' });
-      var universe = meta.universe || [];
-      var coin = universe.find(function(c) { return c.name === market; });
-      if (!coin) return null;
-      // HIP-4 outcomes settle to a final price on chain; check if trading is delisted
-      if (coin.isDelisted) {
-        // If delisted, last mid is the settlement. We do not try to fabricate direction.
-        var mids = await postJson(HL_API + '/info', { type: 'allMids' });
-        var mid = (mids || {})[coin.name];
-        if (mid == null) return { resolved: true, resolution: null };
-        var px = Number(mid);
-        if (px >= 0.99) return { resolved: true, resolution: 'yes' };
-        if (px <= 0.01) return { resolved: true, resolution: 'no' };
-        return { resolved: true, resolution: null };
-      }
-      return { resolved: false };
-    } catch (e) {
-      return null;
-    }
-  }
+  /* ── Hyperliquid Outcomes: REMOVED (A3) ─────────────────────────────
+   * Deleted 2026-09-12: the adapter could only ever return null (coin
+   * lookup misses — no documented endpoint maps a market to its `#`
+   * outcome ids; l2Book levels are objects, not the arrays the parser
+   * read). A shipped adapter whose only output is null is worse than an
+   * absent one: it mounted badge+panel that could never quote. Restore by
+   * doing the discovery work first (see PREDICTION-AUDIT-FEEDBACK.md A3),
+   * not by reverting this deletion.
+   */
 
   /* ── Limitless adapter ───────────────────────────────────────────── */
 
@@ -489,7 +466,7 @@
     try {
       return await fetchJson(LL_API + '/markets/' + encodeURIComponent(slug));
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
@@ -506,6 +483,7 @@
   async function limitlessResolveMarket(slug) {
     var m = await limitlessFetchMarket(slug);
     if (!m) return null;
+    if (m.refused) return m;
     var kids = Array.isArray(m.markets) ? m.markets : [];
     if ((m.marketType === 'group' || !m.marketType) && kids.length) {
       var live = kids.filter(function(k) { return k && k.slug && !k.expired && (k.status || '').toUpperCase() !== 'RESOLVED'; });
@@ -513,15 +491,16 @@
       var vol = function(k) { var v = Number(k.volume); return isFinite(v) ? v : 0; };
       live.sort(function(a, b) { return vol(b) - vol(a); });
       var pick = live[0];
-      return { slug: pick.slug, title: pick.title || pick.proxyTitle || null, viaGroup: true, siblingCount: live.length, market: pick };
+      return { slug: pick.slug, title: pick.title || pick.proxyTitle || null, resolvedVia: 'group', siblingCount: live.length, market: pick };
     }
-    return { slug: slug, title: null, viaGroup: false, siblingCount: 0, market: m };
+    return { slug: slug, title: null, resolvedVia: 'direct', siblingCount: 0, market: m };
   }
 
   async function limitlessFetchBook(slug) {
     try {
       var resolved = await limitlessResolveMarket(slug);
       if (!resolved) return null;
+      if (resolved.refused) return resolved;
       var market = resolved.market;
       // The book route is `/markets/<slug>/orderbook` — keyed by slug; the
       // numeric id 404s. The old `/orderbook?marketId=` route does not exist.
@@ -546,7 +525,7 @@
         venue: 'limitless',
         marketId: resolved.slug,
         marketTitle: resolved.title,
-        viaEvent: !!resolved.viaGroup,
+        resolvedVia: resolved.resolvedVia || 'direct',
         siblingCount: resolved.siblingCount || 0,
         yes: yes,
         no: no,
@@ -556,19 +535,22 @@
         tickCents: roundPrice((market.orderPriceMinTickSize || 0.01) * 100),
       };
     } catch (e) {
-      return null;
+      return transportRefusal(e);
     }
   }
 
   async function limitlessCheckResolution(slug) {
     try {
       var market = await limitlessFetchMarket(slug);
-      if (!market) return null;
-      if (!market.closed && !market.resolved) return { resolved: false };
+      if (!market || market.refused) return null;
+      // The venue exposes no close timestamp; closed is still honest.
+      if (!market.closed && !market.resolved) return { resolved: false, closed: false, closeTime: null };
       var result = String(market.outcome || market.resolution || '').toLowerCase();
       return {
         resolved: true,
         resolution: result === 'yes' ? 'yes' : result === 'no' ? 'no' : null,
+        closed: true,
+        closeTime: null,
       };
     } catch (e) {
       return null;
@@ -587,10 +569,7 @@
       checkResolution: pmCheckResolution,
       fetchEvent: pmFetchEvent,
     },
-    'hyperliquid-outcomes': {
-      fetchBook: hlOutcomesFetchBook,
-      checkResolution: hlOutcomesCheckResolution,
-    },
+    // hyperliquid-outcomes removed (A3) — see the REMOVED note above.
     limitless: {
       fetchBook: limitlessFetchBook,
       checkResolution: limitlessCheckResolution,

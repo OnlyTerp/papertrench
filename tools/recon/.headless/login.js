@@ -14,7 +14,6 @@ import path from 'path';
 
 const SITES = {
   polymarket: 'https://polymarket.com',
-  'hyperliquid-outcomes': 'https://app.hyperliquid.xyz',
   limitless: 'https://limitless.exchange',
 };
 

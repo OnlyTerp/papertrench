@@ -14,6 +14,36 @@
 
   const BRAND_NAME = 'PaperTrench';
 
+  /* B4: a quote is a 30-second promise, not a price tag. The engine refuses
+   * to price off a book older than MAX_BOOK_AGE_MS; the ticket must refuse
+   * to DISPLAY (and, when fills land, to fill off) a quote older than the
+   * same limit, or calibration data gets poisoned by stale fills. The limit
+   * is read off the engine when present so the two can never disagree. */
+  function maxQuoteAgeMs() {
+    try {
+      const ms = self.PaperPredictEngine && self.PaperPredictEngine.MAX_BOOK_AGE_MS;
+      return ms > 0 ? ms : 30000;
+    } catch (e) { return 30000; }
+  }
+
+  function quoteStale() {
+    const q = state.quote;
+    if (!q || !q.quotedAt) return false;
+    const t = new Date(q.quotedAt).getTime();
+    return isFinite(t) && (Date.now() - t > maxQuoteAgeMs());
+  }
+
+  let staleTimer = null;
+  function armStaleTimer() {
+    if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
+    const q = state.quote;
+    if (!q || !q.quotedAt) return;
+    const age = Date.now() - new Date(q.quotedAt).getTime();
+    if (!isFinite(age)) return;
+    const wait = maxQuoteAgeMs() - age;
+    if (wait <= 0) return; // already stale: this render shows it
+    staleTimer = setTimeout(() => { staleTimer = null; render(); }, wait + 50);
+  }
   /* ── State ──────────────────────────────────────────────────────── */
 
   let state = {
@@ -24,6 +54,7 @@
     quote: null,
     loading: false,
     error: null,
+    errorCode: null,
   };
 
   let market = null;
@@ -34,6 +65,7 @@
     state.side = side;
     state.quote = null;
     state.error = null;
+    state.errorCode = null;
     render();
   }
 
@@ -41,6 +73,7 @@
     state.outcome = outcome;
     state.quote = null;
     state.error = null;
+    state.errorCode = null;
     render();
   }
 
@@ -66,6 +99,7 @@
 
     state.loading = true;
     state.error = null;
+    state.errorCode = null;
     render();
 
     try {
@@ -89,9 +123,11 @@
         state.quote = response.data;
       } else {
         state.error = response?.message || 'Quote failed';
+        state.errorCode = response?.code || null;
       }
     } catch (e) {
       state.error = e.message || 'Network error';
+      state.errorCode = null;
     }
 
     state.loading = false;
@@ -99,10 +135,13 @@
   }
 
   async function submitOrder() {
+    // B4: a stale quote can never become a fill — not even via a raced
+    // click between renders. Drop it and show the re-quote state.
+    if (state.quote && quoteStale()) { state.quote = null; render(); return; }
     if (state.loading || !state.quote) return;
-
     state.loading = true;
     state.error = null;
+    state.errorCode = null;
     render();
 
     try {
@@ -124,9 +163,11 @@
         state.notional = null;
       } else {
         state.error = response?.message || 'Order failed';
+        state.errorCode = response?.code || null;
       }
     } catch (e) {
       state.error = e.message || 'Network error';
+      state.errorCode = null;
     }
 
     state.loading = false;
@@ -160,9 +201,12 @@
 
   function render() {
     if (!shadow) return;
+    armStaleTimer();
 
     const q = state.quote;
     const hasQuote = !!q;
+    const stale = quoteStale();
+    const quotable = hasQuote && !stale;
 
     // The panel lives in a CLOSED shadow root, so nothing outside it can read
     // what it is showing — including the automated live pass, which would
@@ -177,13 +221,26 @@
         container.dataset.ptAvgPrice = String(q.avgPrice);
         container.dataset.ptMarket = String(q.resolvedMarketId || '');
         container.dataset.ptCost = String(q.cost);
+        // B4: the quote's birth certificate — the live pass asserts freshness
+        // off this, and ptStale names the verdict so no clock math is needed.
+        if (q.quotedAt) container.dataset.ptQuotedAt = String(q.quotedAt);
+        else delete container.dataset.ptQuotedAt;
+        if (stale) container.dataset.ptStale = 'true';
+        else delete container.dataset.ptStale;
       } else {
         delete container.dataset.ptAvgPrice;
         delete container.dataset.ptMarket;
         delete container.dataset.ptCost;
+        delete container.dataset.ptQuotedAt;
+        delete container.dataset.ptStale;
       }
       if (state.error) container.dataset.ptError = String(state.error);
       else delete container.dataset.ptError;
+      // B2: machines switch on the code (resolution_lockout | no_liquidity
+      // | market_closed | depth_cap vs stale_book | unknown_venue); prose
+      // is for users and the next copy tweak must not break the harness.
+      if (state.errorCode) container.dataset.ptErrorCode = String(state.errorCode);
+      else delete container.dataset.ptErrorCode;
     }
 
     shadow.innerHTML = `
@@ -221,7 +278,8 @@
         .submit:disabled { opacity: 0.5; cursor: not-allowed; }
         .error { color: #f87171; font-size: 11px; margin-top: 4px; }
         .quote-row { display: flex; justify-content: space-between; font-size: 11px; color: #9ca3af; margin-top: 2px; }
-        .brand { font-size: 10px; color: #666; text-align: center; margin-top: 6px; }
+        .quote.stale .quote-row { opacity: 0.45; }
+        .stale-note { font-size: 11px; color: #f59e0b; margin-top: 4px; text-align: center; }
       </style>
       <div class="ticket">
         <div class="row">
@@ -233,18 +291,21 @@
           <button class="btn ${state.outcome === 'no' ? 'active' : ''}" data-action="outcome" data-value="no">NO</button>
         </div>
         <input type="number" placeholder="Quantity" min="1" step="1" value="${state.qty || ''}" data-action="qty" />
-        ${hasQuote && q.viaEvent && q.marketTitle ? `
+        ${hasQuote && q.resolvedVia && q.resolvedVia !== 'direct' && q.marketTitle ? `
           <div class="quote-row market"><span>Market</span><span>${escapeHtml(q.marketTitle)}${q.siblingCount > 1 ? ` (1 of ${q.siblingCount})` : ''}</span></div>
         ` : ''}
         ${hasQuote ? `
+        <div class="quote${stale ? ' stale' : ''}">
           <div class="quote-row"><span>Avg price</span><span>${q.avgPrice.toFixed(1)}¢</span></div>
           <div class="quote-row"><span>Cost</span><span>P$${q.cost.toFixed(2)}</span></div>
           <div class="quote-row"><span>Fee</span><span>P$${q.fee.toFixed(2)}</span></div>
           <div class="quote-row"><span>Slippage</span><span>${q.slippageBps.toFixed(0)} bps</span></div>
+        </div>
+        ${stale ? `<div class="stale-note">Price expired — re-quote for a live price.</div>` : ''}
         ` : ''}
         ${state.error ? `<div class="error">${escapeHtml(state.error)}</div>` : ''}
-        <button class="submit" ${state.loading || (!state.qty && !state.notional) ? 'disabled' : ''} data-action="${hasQuote ? 'submit' : 'quote'}">
-          ${state.loading ? '...' : hasQuote ? `${state.side === 'buy' ? 'BUY' : 'SELL'} ${state.outcome.toUpperCase()} @ ${q.avgPrice.toFixed(1)}¢` : 'Get Quote'}
+        <button class="submit" ${state.loading || (!state.qty && !state.notional) ? 'disabled' : ''} data-action="${quotable ? 'submit' : 'quote'}">
+          ${state.loading ? '...' : stale ? 'Re-quote' : quotable ? `${state.side === 'buy' ? 'BUY' : 'SELL'} ${state.outcome.toUpperCase()} @ ${q.avgPrice.toFixed(1)}¢` : 'Get Quote'}
         </button>
         <div class="brand">${BRAND_NAME} · SIMULATED</div>
       </div>
@@ -277,6 +338,7 @@
   }
 
   function unmount() {
+    if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
     if (container && container.parentNode) {
       container.parentNode.removeChild(container);
     }

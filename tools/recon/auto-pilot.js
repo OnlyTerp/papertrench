@@ -31,17 +31,7 @@ const SITES = {
       return out;
     },
   },
-  'hyperliquid-outcomes': {
-    base: 'https://app.hyperliquid.xyz',
-    liveUrl: async () => [
-      { url: 'https://app.hyperliquid.xyz/outcomes/BTC', dwell: 30000, type: 'live' },
-      { url: 'https://app.hyperliquid.xyz/outcomes/ETH', dwell: 25000, type: 'live' },
-      { url: 'https://app.hyperliquid.xyz/outcomes/SOL', dwell: 25000, type: 'live' },
-      { url: 'https://app.hyperliquid.xyz/trade/BTC', dwell: 10000, type: 'refuse' },
-      { url: 'https://app.hyperliquid.xyz/portfolio', dwell: 10000, type: 'refuse' },
-      { url: 'https://app.hyperliquid.xyz/outcomes', dwell: 10000, type: 'list' },
-    ],
-  },
+  // hyperliquid-outcomes removed with its adapter (A3, 2026-09-12).
   limitless: {
     base: 'https://limitless.exchange',
     liveUrl: async () => {
