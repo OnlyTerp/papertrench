@@ -234,8 +234,30 @@
       }
     }
     if (!(Number.isFinite(priceNative) && priceNative > 0)) return null;
-    const mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
-
+    // Foreign magnitude gate (the 7Stock $915B display — v3.23.0): an EVM
+    // pair has no second source at resolve time, so a fantasy price or cap
+    // rides straight into the book and the header. The venue band (the same
+    // doctrine as GMGN/pump.fun quotations) refuses insane unit prices, and
+    // a market cap is adopted only when it is consistent with the pair's
+    // OWN price — implied whole-token supply inside the band. An
+    // inconsistent cap reads unknown (the price still trades); a fully-
+    // diluted fallback is adopted only in-band and flagged, so the header
+    // labels it instead of printing it as circulating. Solana keeps its
+    // existing behavior — Jupiter, the chain and the venue lanes
+    // cross-check it, and narrowing Solana risks refusing real dust.
+    let mcap = Number(pair.marketCap != null ? pair.marketCap : pair.fdv);
+    let mcapIsFdv = pair.marketCap == null && Number(pair.fdv) > 0;
+    if (foreign) {
+      if (!(normalizedPriceUsd >= VENUE_PRICE_MIN && normalizedPriceUsd <= VENUE_PRICE_MAX)) return null;
+      if (mcap > 0 && normalizedPriceUsd > 0) {
+        const impliedSupply = mcap / normalizedPriceUsd;
+        if (!(impliedSupply >= VENUE_SUPPLY_MIN && impliedSupply <= VENUE_SUPPLY_MAX)) {
+          mcap = NaN;
+          mcapIsFdv = false;
+        }
+      }
+    }
+    const mcapAdopted = Number.isFinite(mcap) && mcap > 0 && !isQuote ? mcap : null;
     const liquidityUsd = pairLiquidityUsd(pair);
     return {
       mint: token.address || fallbackAddress || null,
@@ -244,7 +266,8 @@
       name: token.name || token.symbol || null,
       priceNative,
       priceUsd: normalizedPriceUsd,
-      mcap: Number.isFinite(mcap) && mcap > 0 && !isQuote ? mcap : null,
+      mcap: mcapAdopted,
+      mcapIsFdv: mcapAdopted !== null && mcapIsFdv,
       dex: pair.dexId || null,
       priceSource: 'resolver',
       resolvedAt: Date.now(),
@@ -566,16 +589,16 @@
     var addresses = Array.isArray(payload.addresses) ? payload.addresses : [];
     var srcAddress = typeof t.srcAddress === 'string' ? t.srcAddress : '';
     var factMint = typeof payload.mint === 'string' ? payload.mint : '';
-    var tiedToPage = factMint === t.mint
-      || (srcAddress && addresses.indexOf(srcAddress) !== -1);
+    var tiedToPage = sameAddress(factMint, t.mint)
+      || (srcAddress && addresses.some(function (a) { return sameAddress(a, srcAddress); }));
     if (!tiedToPage) {
       result.reason = 'not-our-record';
       return result;
     }
 
-    var tiedToPageAddress = srcAddress && addresses.indexOf(srcAddress) !== -1;
-    var validMint = HOST_FACT_ADDRESS_RE.test(factMint);
-    if (tiedToPageAddress && validMint && factMint !== srcAddress && factMint !== t.mint) {
+    var tiedToPageAddress = srcAddress && addresses.some(function (a) { return sameAddress(a, srcAddress); });
+    var validMint = HOST_FACT_ADDRESS_RE.test(factMint) || EVM_RE.test(factMint);
+    if (tiedToPageAddress && validMint && !sameAddress(factMint, srcAddress) && !sameAddress(factMint, t.mint)) {
       if (HOST_FACT_QUOTE_MINTS.has(factMint)) {
         result.reason = 'quote-mint';
       } else {
@@ -686,15 +709,21 @@
 
     if (!pendingToken || !pendingToken.mint) return reject('no-token');
     if (!tick || typeof tick !== 'object') return reject('no-candidates');
-    if (tick.mint && tick.mint !== pendingToken.mint) return reject('mint-mismatch');
+    if (tick.mint && !sameAddress(tick.mint, pendingToken.mint)) return reject('mint-mismatch');
 
     var rate = Number(solUsd) > 0 ? Number(solUsd) : null;
     var candidates = Array.isArray(tick.candidates) ? tick.candidates : [];
     var tickMcap = Number(tick.mcap);
+    // P0-5: a 'native' unit on a foreign-chain page is denominated in that
+    // chain's gas token, not SOL — and the book is SOL-denominated on every
+    // chain. Reading it as SOL prices the first fill at the gas/SOL ratio
+    // (the "look at my balance" corruption). Off Solana only USD-denominated
+    // evidence may bootstrap the book.
+    var foreign = Boolean(pendingToken.chain && pendingToken.chain !== 'solana');
 
     // Only trust chart/trade sources or mint-tagged payloads. A random number
     // scraped off the page must never price a brand-new coin.
-    var trusted = tick.mint === pendingToken.mint
+    var trusted = sameAddress(tick.mint, pendingToken.mint)
       || tick.source === 'padre-chart-bar'
       || tick.source === 'chart-export'
       || tick.source === 'gmgn-ws-trade'
@@ -715,7 +744,7 @@
 
     // GMGN's live trade feed is mint-tagged and quotes in USD. Convert it to
     // the SOL price the engine trades in.
-    if (tick.source === 'gmgn-ws-trade' && tick.mint === pendingToken.mint && candidates.length) {
+    if (tick.source === 'gmgn-ws-trade' && sameAddress(tick.mint, pendingToken.mint) && candidates.length) {
       var usd = Number(candidates[0].value);
       if (!(usd > 0)) return reject('no-candidates');
       if (!rate) return reject('no-sol-rate');
@@ -731,6 +760,10 @@
       var unit = (cand && cand.unit) || 'unknown';
 
       if (unit === 'native') {
+        // P0-5: a foreign chain's native unit is its gas token, not SOL —
+        // unusable for the SOL book. Skip it; a USD candidate or a USD
+        // market cap further down the tick can still price the coin.
+        if (foreign) continue;
         // A memecoin native price is far below 1 SOL. Anything larger is almost
         // certainly a market cap or a mislabelled USD figure.
         if (v >= 1) return reject('native-looks-mcap');
@@ -787,7 +820,11 @@
             { basis: 'mcap', usd: v / supply, native: v / supply / rate, mcap: v,
               min: band.min, max: band.max },
           ];
+          // P0-5: off Solana the 'native' and 'native-mcap' readings assume
+          // a SOL denomination the page does not have — the gas token's
+          // price/cap is a different scale. Only USD readings may compete.
           var sane = readings.filter(function (r) {
+            if (foreign && (r.basis === 'native' || r.basis === 'native-mcap')) return false;
             return r.usd >= r.min && r.usd <= r.max;
           });
           if (sane.length > 1) return reject('ambiguous-unit');
@@ -806,7 +843,7 @@
         // sane pre-index USD band and only accept when exactly ONE fits.
         if (rate) {
           var usdIfNative = v * rate;
-          var nativePlausible = usdIfNative >= BOOTSTRAP_SANE_USD_MIN
+          var nativePlausible = !foreign && usdIfNative >= BOOTSTRAP_SANE_USD_MIN
             && usdIfNative <= BOOTSTRAP_SANE_USD_MAX;
           var usdPlausible = v >= BOOTSTRAP_SANE_USD_MIN
             && v <= BOOTSTRAP_SANE_USD_MAX;
@@ -826,8 +863,9 @@
 
         // No rate yet: keep the original magnitude-only heuristic. Very
         // small values are native SOL prices for memecoins (e.g. 1e-8);
-        // anything else needs the rate to be read at all.
-        if (v < BOOTSTRAP_NATIVE_THRESHOLD) {
+        // anything else needs the rate to be read at all. Off Solana a tiny
+        // unlabelled value is the GAS price — same corruption, no reading.
+        if (!foreign && v < BOOTSTRAP_NATIVE_THRESHOLD) {
           return accept(v, null, null, 'native');
         }
         return reject('no-sol-rate');
@@ -844,7 +882,9 @@
       var usdMc = tickMcap / mcSupply;
       var solMc = (tickMcap * rate) / mcSupply;
       var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.max;
-      var solOk = solMc >= mcBand.min && solMc <= mcBand.max;
+      // P0-5: a SOL-denominated cap reading is meaningless off Solana — the
+      // page's native cap is in gas units, not SOL.
+      var solOk = !foreign && solMc >= mcBand.min && solMc <= mcBand.max;
       if (usdOk && solOk) return reject('ambiguous-unit');
       if (usdOk) return accept(usdMc / rate, usdMc, tickMcap, 'mcap', mcSupplyInfo.basis);
       if (solOk) return accept(tickMcap / mcSupply, solMc, tickMcap * rate, 'native-mcap',
@@ -889,7 +929,7 @@
     if (!anchor || !(Number(anchor.priceNative) > 0)) return reject('no-anchor');
     if (!tick || typeof tick !== 'object') return reject('no-candidates');
     // A tick carrying a different mint is about a different token entirely.
-    if (tick.mint && anchor.mint && tick.mint !== anchor.mint) {
+    if (tick.mint && anchor.mint && !sameAddress(tick.mint, anchor.mint)) {
       return reject('mint-mismatch');
     }
 
@@ -897,6 +937,16 @@
     const anchorNative = Number(anchor.priceNative);
     const anchorUsd = Number(anchor.priceUsd) > 0 ? Number(anchor.priceUsd) : null;
     const anchorMcap = Number(anchor.mcap) > 0 ? Number(anchor.mcap) : null;
+    // P0-5: the anchor's priceNative is SOL-denominated on EVERY chain —
+    // foreign records derive it as priceUsd/solUsd. A 'native' tick on a
+    // foreign-chain page is denominated in THAT chain's gas token (BNB, RH),
+    // and an unlabelled close in native chart mode is the same number. Both
+    // sit inside the 20x band for the common gas tokens (BNB/SOL ≈ 4x), so
+    // without this gate a gas-denominated print becomes the SOL price and
+    // the next fill books the ledger at the wrong scale — the "look at my
+    // balance" corruption. Off Solana only USD-denominated evidence may
+    // move the book.
+    const foreign = Boolean(anchor.chain && anchor.chain !== 'solana');
 
     let nextNative = null;
     let nextUsd = null;
@@ -908,7 +958,7 @@
       if (!(v > 0)) continue;
       const unit = (cand && cand.unit) || 'unknown';
 
-      if (unit !== 'usd' && nextNative === null && withinBand(v, anchorNative)) {
+      if (!foreign && unit !== 'usd' && nextNative === null && withinBand(v, anchorNative)) {
         nextNative = v;
         basis = basis || 'native';
       }
@@ -937,7 +987,9 @@
     // plot the cap in SOL, which matches NEITHER the USD price band nor the
     // USD market-cap band — every such tick used to be rejected, freezing the
     // price to slow polling on exactly the charts the user trades on.
-    const anchorNativeMcap = anchorMcap && anchorUsd
+    // Foreign chains have no SOL-denominated cap: a gas-token cap print is
+    // the same wrong-scale number as a gas-token price (P0-5).
+    const anchorNativeMcap = !foreign && anchorMcap && anchorUsd
       ? anchorMcap * (anchorNative / anchorUsd)
       : null;
     if (nextNative === null && nextUsd === null
@@ -1684,7 +1736,8 @@
      * the headline figure whenever it is known, and the unit price moves to
      * the secondary line for the rare case someone wants it. */
     const hasMcap = Number(token.mcap) > 0;
-    const mcapText = hasMcap ? formatMarketCap(Number(token.mcap)) : '';
+    const mcapIsFdv = hasMcap && token.mcapIsFdv === true;
+    const mcapText = hasMcap ? formatMarketCap(Number(token.mcap)) + (mcapIsFdv ? ' FDV' : '') : '';
     const priceText = hasMcap
           ? mcapText
           : (hasTrustedPrice
@@ -1710,6 +1763,7 @@
       // What the headline number actually is, so the UI can label it honestly.
       priceIsMarketCap: hasMcap,
       mcapText,
+      mcapIsFdv,
       priceUsdText: Number(token.priceUsd) > 0 ? '$' + formatPrice(Number(token.priceUsd)) : '',
       pending: !hasTrustedPrice,
       hasTrustedPrice,

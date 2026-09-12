@@ -80,10 +80,14 @@ function foreignEnv(chain, options = {}) {
   return env;
 }
 
-function foreignRefusal(witnessUsd) {
-  return 'Price sources disagree (' + USD_PRICE / SOL_USD + ' vs recent ' + RECENT_NATIVE
-    + (witnessUsd ? ', witness ' + witnessUsd / SOL_USD : ', no second source')
-    + ') — paper fill refused. Try again in a moment.';
+function assertForeignRefusal(env, witnessUsd) {
+  const got = env.ladder.getRefusal();
+  const f = env.ladder.fmtWitness;
+  assert.match(got, /Price sources disagree/, 'the refusal names its reason');
+  assert.ok(got.includes(f(USD_PRICE / SOL_USD)) && got.includes(f(RECENT_NATIVE)),
+    `both legs print at significant digits: ${got}`);
+  if (witnessUsd === undefined) assert.match(got, /no second source/);
+  else assert.ok(got.includes('witness ' + f(witnessUsd / SOL_USD)), `the adopted witness value is shown: ${got}`);
 }
 
 for (const chain of ['bnb', 'robinhood']) {
@@ -100,7 +104,7 @@ for (const chain of ['bnb', 'robinhood']) {
   test('D-72 E3: ' + chain + ' dissenting USD witness preserves the existing refusal shape', async () => {
     const env = foreignEnv(chain, { quotes: { [EVM_MINT]: quote(null, { priceUsd: 0.5 }) } });
     assert.equal(await env.ladder.quoteForTrade(), null);
-    assert.equal(env.ladder.getRefusal(), foreignRefusal(0.5));
+    assertForeignRefusal(env, 0.5);
     assert.equal(env.rpcCalls(), 0);
     assert.equal(env.refreshCalls(), 0, 'an aggregator cannot corroborate itself');
   });
@@ -108,7 +112,7 @@ for (const chain of ['bnb', 'robinhood']) {
   test('D-72 E3: ' + chain + ' worker failure remains no second source, never an invented witness', async () => {
     const env = foreignEnv(chain, { fetch: async () => { throw new Error('worker offline'); } });
     assert.equal(await env.ladder.quoteForTrade(), null);
-    assert.equal(env.ladder.getRefusal(), foreignRefusal());
+    assertForeignRefusal(env);
     assert.equal(env.rpcCalls(), 0);
   });
 }
@@ -120,8 +124,17 @@ test('D-72 E3: a missing USD candidate cannot use a native-looking worker value'
     token, quotes: { [EVM_MINT]: quote(token.priceNative, { priceUsd: token.priceNative }) },
   });
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), foreignRefusal());
+  assertForeignRefusal(env);
   assert.equal(env.rpcCalls(), 0);
+});
+
+test('ethereum and base ride the same worker witness lane', async () => {
+  for (const chain of ['ethereum', 'base']) {
+    const accepted = boot({ quotes: { [EVM_MINT]: quote(null, { priceUsd: USD_PRICE }) } });
+    assert.equal((await accepted.R.workerQuote(EVM_MINT, chain))?.priceUsd, USD_PRICE,
+      chain + ' fills need a second source exactly like bnb/robinhood');
+    assert.equal(new URL(accepted.worker.fetchCalls[0]).searchParams.get('chain'), chain);
+  }
 });
 
 test('D-72 E3: foreign worker quotes preserve exact EVM keys and never expose priceNative', async () => {

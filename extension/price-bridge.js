@@ -99,7 +99,10 @@
       if (typeof v === 'string' && v.length >= 2) {
         next.push(String(v).toUpperCase());
       }
-      if (key in currentSymbolInfo) currentSymbolInfo[key] = v || null;
+      // Canonical intake: a checksummed resolver mint and a lowercase page
+      // feed meet on one key (EVM lowercased; base58 untouched; the symbol
+      // is a ticker, never an address — do not touch it).
+      if (key in currentSymbolInfo) currentSymbolInfo[key] = key === 'symbol' ? (v || null) : (normTokenAddress(v) || null);
     }
     const changed = next.length !== currentSymbolNeedles.length
       || !next.every((n) => currentSymbolNeedles.indexOf(n) >= 0);
@@ -359,6 +362,19 @@
   }
 
   const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  const EVM_RE = /^0x[0-9a-fA-F]{40}$/;
+  // Identity on the page comes in two families now: base58 (Solana) and
+  // 0x40-hex (every EVM chain). Whole-value match only — the O-11 substring
+  // discipline survives: a 0x run inside a longer string is never an address.
+  function isTokenAddress(value) {
+    return typeof value === 'string' && (BASE58_RE.test(value) || EVM_RE.test(value));
+  }
+  // EVM addresses are checksummed case-insensitively (quote.js sameAddress):
+  // lowercase at intake so a checksummed marker and a lowercase page feed
+  // meet on one key. Base58 is case-SENSITIVE and passes through untouched.
+  function normTokenAddress(value) {
+    return typeof value === 'string' && EVM_RE.test(value) ? value.toLowerCase() : value;
+  }
   // avgPrice is deliberately ABSENT: it is a position-average field, not a
   // live price. When the user holds a REAL position, the site streams their
   // real entry average under that key, and treating it as a market tick let
@@ -426,6 +442,13 @@
   // front reported ever older prices exactly as batches grew with volume
   // (DEFECT F-03). The budget only bites on pathological frames.
   const NODE_BUDGET = 20_000;
+  // Wall-clock twin of NODE_BUDGET: 20k small nodes still blow the frame on
+  // slow machines, so a walk also stops after half a 60fps frame of
+  // main-thread time (checked every 256 nodes so the clock read itself
+  // stays cheap). Records are atomic — a started node always finishes, so
+  // truncation drops LATER records only: fewer candidates, never wrong
+  // ones, and the next frame re-walks from scratch.
+  const WALK_TIME_BUDGET_MS = 8;
   const padreSupplyByMint = new Map();
   // Identifier strength: on several sites `address`/`ca` carry the AMM/pool
   // address rather than the token mint, so an explicit mint-ish key must win
@@ -454,6 +477,7 @@
     const top = { candidates: [], mcap: null, mint: null, symbol: null, name: null };
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
+    const walkStart = Date.now();
 
     const recordFor = (mint) => {
       let rec = records.get(mint);
@@ -472,13 +496,14 @@
       rec.candidates.push(cand);
     };
     const validPadreSymbol = (value) => typeof value === 'string'
-      && value.length <= 24 && !BASE58_RE.test(value) ? value : null;
+      && value.length <= 24 && !isTokenAddress(value) ? value : null;
     const validPadreName = (value) => typeof value === 'string'
-      && value.length <= 64 && !BASE58_RE.test(value) ? value : null;
+      && value.length <= 64 && !isTokenAddress(value) ? value : null;
 
     (function walk(node, depth, ctx, tainted) {
       if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
       if (budget-- <= 0) return;
+      if ((budget & 255) === 0 && Date.now() - walkStart > WALK_TIME_BUDGET_MS) { budget = 0; return; }
       seen.add(node);
 
       // Trade EVENTS and POSITION records taint their whole subtree exactly
@@ -493,16 +518,16 @@
         let bestRank = 0;
         let bestMint = null;
         for (const [key, value] of Object.entries(node)) {
-          if (typeof value !== 'string' || !BASE58_RE.test(value)) continue;
+          if (typeof value !== 'string' || !isTokenAddress(value)) continue;
           const rank = mintKeyRank(key);
-          if (rank > bestRank) { bestRank = rank; bestMint = value; }
+          if (rank > bestRank) { bestRank = rank; bestMint = normTokenAddress(value); }
         }
         if (bestMint) {
           target = recordFor(bestMint);
           const addresses = new Set(target.addresses);
           for (const value of Object.values(node)) {
-            if (typeof value === 'string' && BASE58_RE.test(value)) {
-              addresses.add(value);
+            if (typeof value === 'string' && isTokenAddress(value)) {
+              addresses.add(normTokenAddress(value));
             }
           }
           target.addresses = Array.from(addresses);
@@ -513,8 +538,8 @@
             supply: null, decimals: null, poolAddress: null, addresses: [],
           };
           for (const value of Object.values(node)) {
-            if (typeof value === 'string' && BASE58_RE.test(value)) {
-              nodeSnapshot.addresses.push(value);
+            if (typeof value === 'string' && isTokenAddress(value)) {
+              nodeSnapshot.addresses.push(normTokenAddress(value));
             }
           }
           factSnapshots.push(nodeSnapshot);
@@ -579,9 +604,9 @@
             && nodeSnapshot && nodeSnapshot.decimals === null) {
             nodeSnapshot.decimals = n;
           }
-        } else if (POOL_KEY.test(key) && typeof value === 'string' && BASE58_RE.test(value)) {
-          if (!rec.poolAddress) rec.poolAddress = value;
-          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = value;
+        } else if (POOL_KEY.test(key) && typeof value === 'string' && isTokenAddress(value)) {
+          if (!rec.poolAddress) rec.poolAddress = normTokenAddress(value);
+          if (nodeSnapshot && !nodeSnapshot.poolAddress) nodeSnapshot.poolAddress = normTokenAddress(value);
         } else if (SYMBOL_KEY.test(key) && typeof value === 'string' && value.length <= 24) {
           rec.symbol = rec.symbol || value;
           if (nodeSnapshot && !nodeSnapshot.symbol) nodeSnapshot.symbol = value;
@@ -608,18 +633,20 @@
   function notePadreSupplies(obj) {
     const seen = new WeakSet();
     let budget = NODE_BUDGET;
+    const walkStart = Date.now();
     (function walk(node, depth) {
       if (!node || typeof node !== 'object' || depth > MAX_DEPTH || seen.has(node)) return;
       if (budget-- <= 0) return;
+      if ((budget & 255) === 0 && Date.now() - walkStart > WALK_TIME_BUDGET_MS) { budget = 0; return; }
       seen.add(node);
-      if (typeof node.tokenAddress === 'string' && BASE58_RE.test(node.tokenAddress)) {
+      if (typeof node.tokenAddress === 'string' && isTokenAddress(node.tokenAddress)) {
         const totalSupply = numberValue(node.totalSupply);
         const decimals = numberValue(node.decimals);
         const supply = totalSupply > 0 && Number.isInteger(decimals) && decimals >= 0 && decimals <= 30
           ? totalSupply / (10 ** decimals)
           : null;
         if (supply > 0 && Number.isFinite(supply)) {
-          padreSupplyByMint.set(node.tokenAddress, supply);
+          padreSupplyByMint.set(normTokenAddress(node.tokenAddress), supply);
           if (padreSupplyByMint.size > 300) {
             padreSupplyByMint.delete(padreSupplyByMint.keys().next().value);
           }
@@ -676,9 +703,9 @@
     const now = Date.now();
     const latestByMint = new Map();
     for (const item of parsed.data) {
-      if (!item || typeof item.a !== 'string' || !BASE58_RE.test(item.a)) continue;
+      if (!item || typeof item.a !== 'string' || !isTokenAddress(item.a)) continue;
       const priceUsd = numberValue(item.pu);
-      if (priceUsd > 0) latestByMint.set(item.a, priceUsd);
+      if (priceUsd > 0) latestByMint.set(normTokenAddress(item.a), priceUsd);
     }
     if (!latestByMint.size) return true;
     // Emit the mint the user is actually looking at FIRST: under high volume a
@@ -929,6 +956,10 @@
     XHR.prototype.send = function (body) {
       this.addEventListener('load', () => {
         try {
+          // Mirror the fetch tap: with no tick consumer, never read the
+          // body at all. responseText materializes the full string on the
+          // page's main thread — most of this tap's cost.
+          if (!feedActive()) return;
           if (this.responseType === '' || this.responseType === 'text') forwardJson(this.responseText, 'xhr', this.responseURL);
           else if (this.responseType === 'json') forwardJson(this.response, 'xhr', this.responseURL);
         } catch (_) {}
@@ -4033,6 +4064,10 @@
   }
 
   function sweepRowChips() {
+    // A hidden tab's chips can wait: forced layout on an invisible page
+    // buys nothing, and scroll/resize/scan re-sweep within a second of
+    // becoming visible.
+    if (typeof document !== 'undefined' && document.hidden) return;
     // Phase R: measure every chip against clean layout…
     const plans = [];
     const dead = [];
@@ -4063,10 +4098,25 @@
   // Screener lists churn hard (New Pairs shifts every row down each time a
   // token lands) — chips must chase their rows the moment the DOM moves,
   // not on the next 350ms scan, or they visibly trail onto the wrong row.
+  // True when a mutation record is OUR OWN chip paint (see content.js
+  // rowMutationIsOurs — same loop, other world): a sweep that adds/removes
+  // chips must not schedule another sweep or the reposition loop never
+  // idles on churning lists (the September list freezes).
+  function chipMutationIsOurs(record) {
+    if (typeof document === 'undefined' || !record || !record.target) return false;
+    const layer = document.getElementById('pt-rowbuy-layer');
+    if (!layer) return false;
+    const target = record.target;
+    return target === layer || (typeof layer.contains === 'function' && layer.contains(target));
+  }
   let rowChipObserver = null;
   function ensureRowChipObserver() {
     if (rowChipObserver || !document.body) return;
-    rowChipObserver = new MutationObserver(scheduleRowChipReposition);
+    rowChipObserver = new MutationObserver((records) => {
+      for (const record of records || []) {
+        if (!chipMutationIsOurs(record)) { scheduleRowChipReposition(); return; }
+      }
+    });
     // childList only: rows shifting is a node change. characterData fired a
     // reposition (with its forced-layout chip walk) on EVERY price-digit
     // update across the whole list — main-thread starvation exactly when
@@ -4112,6 +4162,9 @@
       const consider = (value, keyName) => {
         // The WHOLE value must be one base58 address: substring matches let
         // EVM rows (0x…) and IPFS image CIDs sneak in as fake Solana mints.
+        // Row chips stay Solana-only on purpose (v3.23.0): a row carries no
+        // chain, and the same 0x address can exist on every EVM chain — row
+        // buys need per-row chain attribution before EVM chips are honest.
         if (typeof value !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value)) return;
         if (!/address|pair|token|mint|\bca\b/i.test(keyName)) return;
         if (/image|img|logo|icon|uri|url|banner/i.test(keyName)) return;
@@ -4559,14 +4612,22 @@
 
   setInterval(pollChartClose, CHART_EXPORT_POLL_MS);
 
-  // The bridge is installed before Padre creates window.tvWidget. Check
-  // frequently during startup so subscribeBars is wrapped before the chart
-  // subscribes, then continue at a low cadence to catch SPA widget replacement.
+  // The bridge is installed before Padre creates window.tvWidget. Probe
+  // densely during startup so subscribeBars is wrapped before the chart
+  // subscribes — then stop: the 1 s sweep below owns SPA widget
+  // replacement. A fixed 10 ms cadence here probed React fibers and
+  // iframes 500 times per page load (the September load-freeze on list
+  // pages, which never grow a widget); exponential backoff keeps the
+  // early race covered at a fourteenth of the cost.
   let fastChecks = 0;
-  const fastTimer = setInterval(() => {
+  let fastMs = 10;
+  const fastStep = () => {
     fastChecks += 1;
-    if (patchPadreWidget() || fastChecks >= 500) clearInterval(fastTimer);
-  }, 10);
+    if (patchPadreWidget() || fastChecks >= 14) return;
+    fastMs = Math.min(1000, Math.round(fastMs * 1.5));
+    setTimeout(fastStep, fastMs);
+  };
+  setTimeout(fastStep, fastMs);
   let sweepTicks = 0;
   setInterval(() => {
     sweepTicks += 1;

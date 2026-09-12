@@ -123,7 +123,7 @@ function boot(options = {}) {
     sliceContent('/* -------------------- action-time quotes and fills',
       '/* -------------------- fills --------------------')
       + '\n;({ quoteForTrade, corroborateForFill, setEvidence: value => { lastAcceptedMarket = value; },'
-      + ' getRefusal: () => lastQuoteRefusal });',
+      + ' getRefusal: () => lastQuoteRefusal, fmtWitness });',
     context, { filename: 'content.js#action-quotes' });
   ladder.setEvidence({ priceNative: MARKET, at: NOW - 2_000 });
   const host = vm.runInContext(
@@ -150,10 +150,16 @@ function pendingToken(mint = MINT) {
   return { mint, srcAddress: mint, pending: true, priceNative: null, priceUsd: null, mcap: null };
 }
 
-function refusal(witness = null, candidate = CANDIDATE) {
-  return 'Price sources disagree (' + candidate + ' vs recent ' + MARKET
-    + (witness ? ', witness ' + witness : ', no second source')
-    + ') — paper fill refused. Try again in a moment.';
+// The refusal's contract is its REASON and its legs — not its prose. Legs
+// print through the real fmtWitness (significant digits, never "0 vs 0").
+function assertRefusal(env, witness = null, candidate = CANDIDATE) {
+  const got = env.ladder.getRefusal();
+  const f = env.ladder.fmtWitness;
+  assert.match(got, /Price sources disagree/, 'the refusal names its reason');
+  assert.ok(got.includes(f(candidate)) && got.includes(f(MARKET)),
+    `both legs print at significant digits, never "0 vs recent 0": ${got}`);
+  if (witness === null) assert.match(got, /no second source/);
+  else assert.ok(got.includes('witness ' + f(witness)), `the adopted witness value is shown: ${got}`);
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -169,13 +175,13 @@ test('D-71 E1: dead RPC plus agreeing worker permits the aggregator fill', async
 test('D-71 E1: disagreeing worker still refuses with the existing witness message', async () => {
   const env = boot({ quotes: { [MINT]: quote(MARKET / 2) } });
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal(MARKET / 2));
+  assertRefusal(env, MARKET / 2);
 });
 
 test('D-71 E1: both witnesses absent retain the exact no-second-source refusal', async () => {
   const env = boot();
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal());
+  assertRefusal(env);
   assert.equal(env.refreshCalls(), 0);
 });
 
@@ -184,13 +190,13 @@ test('D-71 E1: worker network failure is null through the message path and canno
   assert.equal(await env.send({ type: 'pt_worker_quote', mints: [MINT] }), null);
   assert.equal(await env.R.workerQuote(MINT), null);
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal());
+  assertRefusal(env);
 });
 
 test('D-71 E1: first positive chain witness wins even when a worker would agree', async () => {
   const env = boot({ onchain: { priceNative: MARKET / 2 }, quotes: { [MINT]: quote() } });
   assert.equal(await env.ladder.corroborateForFill({ mint: MINT, source: 'resolver', priceNative: CANDIDATE }), null);
-  assert.equal(env.ladder.getRefusal(), refusal(MARKET / 2));
+  assertRefusal(env, MARKET / 2);
   assert.equal(env.worker.fetchCalls.length, 0, 'do not shop for a witness after the chain dissents');
 });
 
@@ -203,7 +209,7 @@ test('D-71 E1: a rejected facade call remains a null witness', async () => {
   const env = boot();
   env.R.workerQuote = async () => { throw new Error('message port closed'); };
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal());
+  assertRefusal(env);
 });
 
 test('D-71 E1: non-aggregator candidates still use resolver corroboration only', async () => {
@@ -218,7 +224,7 @@ test('D-71 E1: F-56 position evidence still refuses an unwitnessed aggregator mo
   const env = boot({ state: { positions: { [MINT]: { lastPriceNative: MARKET } } } });
   env.ladder.setEvidence(null);
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal());
+  assertRefusal(env);
 });
 
 test('D-71 E2: worker corroborates supply within the existing one-percent rule', async () => {
@@ -264,6 +270,34 @@ test('D-71 E2: failure preserves diagnostics and caches the attempt across repea
   assert.equal(env.worker.fetchCalls.length, 1, 'failure is cached per mint, not per fact payload');
   assert.deepEqual(plain(env.diagnostics[0]), originalDiagnostic[0]);
   assert.deepEqual(plain(env.diagnostics[1].details.missing), { priceUsd: true, mcap: false });
+});
+
+test('uncorroborated-supply diagnostics dedupe by shape, not by tick values', async () => {
+  // September debug reports carried the same "lacks corroborating USD
+  // price" fact x243: the dedupe keyed on tick VALUES, so every tick was
+  // a new episode and exports ballooned to 145 KB of one repeated fact.
+  const env = boot({ token: pendingToken() });
+  for (let i = 0; i < 10; i++) {
+    env.host.handleHostFacts(facts({ supply: 1000000 + i * 7, mcap: null, priceUsd: null }));
+  }
+  await settle();
+  const uncorr = env.diagnostics.filter((d) => d.message && d.message.includes('lacks corroborating'));
+  assert.equal(uncorr.length, 1, 'ten ticks, one shape, one diagnostic — never one episode per tick');
+});
+
+test('the supply worker attempt retries per minute, never per tick', async () => {
+  const env = boot({ token: pendingToken(), quotes: {} });
+  const missing = () => facts({ supply: 1000000, mcap: null, priceUsd: null });
+  env.host.handleHostFacts(missing());
+  await settle();
+  assert.equal(env.worker.fetchCalls.length, 1, 'the first attempt fires immediately');
+  env.host.handleHostFacts(missing());
+  await settle();
+  assert.equal(env.worker.fetchCalls.length, 1, 'no per-tick storm while the answer stays missing');
+  env.setNow(NOW + 61_000);
+  env.host.handleHostFacts(missing());
+  await settle();
+  assert.equal(env.worker.fetchCalls.length, 2, 'a transient miss recovers within the minute');
 });
 
 test('D-71 E2: in-flight host witness cannot overwrite a rekeyed token', async () => {
@@ -327,13 +361,55 @@ test('D-71 E1: mint-set cache normalizes order, coalesces in-flight requests, an
   assert.equal(env.worker.fetchCalls.length, 2);
 });
 
-test('D-71 E1: missing SOL anchor stays null, while USD remains usable for host corroboration', async () => {
-  const env = boot({ quotes: { [MINT]: quote(null, { priceUsd: 2, mcapUsd: 200 }) } });
+test('D-71 E1: missing SOL anchor stays null at the boundary but vouches via the live rate', async () => {
+  const env = boot({ quotes: { [MINT]: quote(null, { priceUsd: CANDIDATE * 180 }) } });
   const mapped = await env.R.workerQuote(MINT);
-  assert.equal(mapped.priceNative, null);
-  assert.equal(mapped.priceUsd, 2);
+  assert.equal(mapped.priceNative, null, 'the background never invents a native price');
+  assert.equal(mapped.priceUsd, CANDIDATE * 180);
+  env.R.solUsd = async () => 180;
+  const fill = await env.ladder.quoteForTrade();
+  assert.equal(fill && fill.priceNative, CANDIDATE, 'a USD-only worker vouches through the live cached rate');
+  assert.equal(env.ladder.getRefusal(), null);
+});
+
+test('USD-only worker without a rate still refuses — never an invented conversion', async () => {
+  const env = boot({ quotes: { [MINT]: quote(null, { priceUsd: 2, mcapUsd: 200 }) } });
+  env.R.solUsd = async () => 0;
   assert.equal(await env.ladder.quoteForTrade(), null);
-  assert.equal(env.ladder.getRefusal(), refusal());
+  assertRefusal(env);
+});
+
+test('non-aggregator candidates fall back to the worker when refresh misses', async () => {
+  // A page-feed candidate diverging from evidence with a dead aggregator
+  // used to refuse without ever asking the independent worker (hole D).
+  const candidate = { mint: MINT, source: 'page-feed', priceNative: MARKET * 4 };
+  const env = boot({ refresh: null, quotes: { [MINT]: quote(MARKET * 4 * 0.99) } });
+  const fill = await env.ladder.corroborateForFill(candidate);
+  assert.equal(fill, candidate, 'the worker vouches a page-feed candidate the aggregator cannot see');
+  assert.equal(env.refreshCalls(), 1, 'refresh stays the primary witness for its own family');
+  assert.equal(env.worker.fetchCalls.length, 1, 'the worker is consulted exactly once, on the miss');
+});
+
+test('worker-quote misses expire fast while hits keep the full TTL', async () => {
+  const env = boot({ quotes: {} }); // every fetch answers empty
+  assert.deepEqual(plain(await env.send({ type: 'pt_worker_quote', mints: [MINT] })), {});
+  assert.deepEqual(plain(await env.send({ type: 'pt_worker_quote', mints: [MINT] })), {});
+  assert.equal(env.worker.fetchCalls.length, 1, 'immediate misses still coalesce — no retry storm');
+  env.setNow(NOW + 2_500);
+  await env.send({ type: 'pt_worker_quote', mints: [MINT] });
+  assert.equal(env.worker.fetchCalls.length, 2, 'a miss must not bar the next click for ten seconds');
+});
+
+test('fmtWitness prints dust at significant digits, never bare zero', () => {
+  const env = boot();
+  const f = env.ladder.fmtWitness;
+  assert.equal(f(1.05e-8), '0.0000000105', 'dust legs stay distinguishable in pasted refusals');
+  assert.equal(f(1.4e-7), '0.00000014');
+  assert.equal(f(0.5), '0.5');
+  assert.equal(f(1234.5678), '1235');
+  assert.equal(f(0), '0');
+  assert.equal(f(null), '0');
+  assert.doesNotMatch(f(1.05e-8), /e[+-]/i, 'no exponents anywhere in the overlay');
 });
 
 test('D-71 E1: invalid mint sets never reach the worker and upstream failure returns null', async () => {

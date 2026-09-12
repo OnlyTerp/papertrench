@@ -63,6 +63,10 @@ const rugCache = new Map(); // mint -> { at, verdict }
 const LB_API = 'https://papertrench-api.onerobby.workers.dev';
 const WORKER_QUOTE_CACHE_MS = 10_000;
 const workerQuoteCache = new Map(); // chain + normalized mint set -> { at, promise }
+const WORKER_QUOTE_CHAINS = new Set(['solana', 'bnb', 'robinhood', 'ethereum', 'base']);
+// A miss (null, {}, unpriced) must not bar the next click for the full
+// 10 s: backdate it so it expires fast while still absorbing retry storms.
+const WORKER_QUOTE_NEGATIVE_MS = 2_000;
 
 /* -------------------- chain-feed watch ownership --------------------
  * The on-chain feed subscription for a mint is SHARED across every tab that
@@ -2869,6 +2873,10 @@ function isEvmAddress(s) {
 }
 
 function chainOfClaim(chain) {
+  // Legacy alias: detection emitted `bsc` before the vocabulary unification
+  // (v3.23.0), so stored journals and positions may still carry it. The
+  // canonical internal name is `bnb`; normalize at the trust boundary.
+  if (chain === 'bsc') return 'bnb';
   return typeof chain === 'string' && KNOWN_CHAINS.indexOf(chain) >= 0 ? chain : null;
 }
 
@@ -3414,7 +3422,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // host supply. EVM has USD prices only; never synthesize a SOL witness.
       case 'pt_worker_quote': {
         const chain = message.chain === undefined ? 'solana' : message.chain;
-        if ((chain !== 'solana' && chain !== 'bnb' && chain !== 'robinhood')
+        if (!WORKER_QUOTE_CHAINS.has(chain)
             || !Array.isArray(message.mints) || !message.mints.length
             || message.mints.length > 16 || !message.mints.every((mint) => isAddressForChain(mint, chain))) {
           sendResponse(null);
@@ -3429,8 +3437,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
         const promise = (async () => {
+          // Aligned with content.js WITNESS_BUDGET_MS (3000): every answered
+          // fetch counts. A worker quote slower than this is useless for a
+          // fill anyway — fail fast and let the click refuse visibly.
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 3500);
+          const timer = setTimeout(() => controller.abort(), 2500);
           try {
             const response = await fetch(LB_API + '/api/quote?mints=' + encodeURIComponent(mintList) + '&chain=' + chain, {
               credentials: 'omit', cache: 'no-store', signal: controller.signal,
@@ -3454,10 +3465,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           } catch (_) { return null; }
           finally { clearTimeout(timer); }
         })();
-        // Share in-flight reads too; cache failures for the same short TTL.
+        // Share in-flight reads too; failures share the same short window.
         workerQuoteCache.set(key, { at: Date.now(), promise });
         if (workerQuoteCache.size > 200) workerQuoteCache.delete(workerQuoteCache.keys().next().value);
-        sendResponse(await promise);
+        const result = await promise;
+        if (!result || !Object.keys(result).length) {
+          const entry = workerQuoteCache.get(key);
+          if (entry) entry.at = Date.now() - WORKER_QUOTE_CACHE_MS + WORKER_QUOTE_NEGATIVE_MS;
+        }
+        sendResponse(result);
         break;
       }
 

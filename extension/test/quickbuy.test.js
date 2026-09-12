@@ -259,7 +259,10 @@ test('chips live in a fixed overlay layer and never enter the page DOM', () => {
   assert.match(bridge, /function positionRowChip\(entry\)/);
   assert.match(bridge, /function sweepRowChips\(\)/);
   assert.match(bridge, /addEventListener\('scroll', scheduleRowChipReposition/);
-  assert.match(bridge, /new MutationObserver\(scheduleRowChipReposition\)/);
+  assert.match(bridge, /new MutationObserver\(\(records\) => \{/,
+    'the observer inspects its records');
+  assert.match(bridge, /if \(!chipMutationIsOurs\(record\)\) \{ scheduleRowChipReposition\(\); return; \}/,
+    'site mutations reposition chips; our own paint does not reschedule the sweep');
 });
 
 test('fiber addresses accept only whole base58 values on address-like keys', () => {
@@ -411,8 +414,8 @@ test('a panel buy on a fresh coin acquires the quote on the click before arming 
     'the shared buy entry performs an awaited acquisition beat');
   assert.match(content, /async function acquireClickQuote\(/,
     'the click-time acquisition helper exists');
-  assert.match(content, /await acquireClickQuote\(token\.mint \|\| token\.srcAddress, token\.chain\)/,
-    'the beat resolves the token actually on the page');
+  assert.match(content, /await bounded\(acquireClickQuote\(token\.mint \|\| token\.srcAddress, token\.chain\), CLICK_QUOTE_BUDGET_MS, null\)/,
+    'the beat resolves the token actually on the page — bounded, so a wedged worker cannot hold the click');
   assert.match(content, /maxAgeMs: 0, chain/,
     'the beat forces a fresh resolver pass — no display-cache land');
   assert.doesNotMatch(content, /Buy armed/,

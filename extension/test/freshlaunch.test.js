@@ -601,6 +601,38 @@ test('an armed buy expires visibly when no quote ever arrives', async () => {
     'an expired armed buy must never fill');
 });
 
+test('a click on a foreign pending token never touches the Solana chain', async () => {
+  // The RH debug reports' hundreds of Solana 403/429s: every click on a
+  // Robinhood page fired pool-then-mint Solana prewatch for a 0x address
+  // that could never answer, while the shared pool drowned. The resolver
+  // is the foreign click's last resort; the chain probe is Solana-only.
+  const RH = '0x7a3d9aa42d71a145c31e0dae984509904b23e8c9';
+  const ov = runFreshLaunch({
+    url: `https://gmgn.ai/robinhood/token/${RH}`,
+    resolved: () => false,
+    onchainPrewatch: () => ({ mint: RH, priceNative: 1e-8, pool: null }),
+  });
+  await ov.advance(3000);
+  assert.equal(ov.prewatchCalls(), 0, 'detection must not prewatch a foreign address');
+  ov.setInput('pt-custom', '10');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  assert.equal(ov.prewatchCalls(), 0, 'the click must not probe the Solana chain either');
+  assert.ok(ov.buyButtonArmed(), 'the click arms while unindexed — gated, not dead');
+});
+
+test('a click on an unpriced Solana token still reaches the chain (gate control)', async () => {
+  const ov = runFreshLaunch({ resolved: () => false, onchainPrewatch: () => null });
+  await ov.advance(3000);
+  const before = ov.prewatchCalls();
+  assert.ok(before >= 1, 'detection probes Solana (sanity)');
+  ov.setInput('pt-custom', '1');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  assert.ok(ov.prewatchCalls() > before,
+    'the chain gate must not starve Solana clicks — the D-38 leg still probes');
+});
+
 /* ---------------- the fire path must honor F-16's quiet-aware expiry ----------
  *
  * The 8/20 field reports (CHENG and SoranaSokan, Discord): armed buys that
@@ -1098,9 +1130,16 @@ test('D-60: the click asks the chain whenever no source priced it', () => {
   assert.ok(probeIdx !== -1, 'the click must be able to probe the chain');
 
   // The guard immediately above the probe must not require token.pending.
+  // (v3.23.0: one orthogonal gate sits between the price gate and the probe
+  // — the chain-family gate, which keeps EVM clicks off the Solana chain.
+  // It says nothing about pending, so the scan steps past it.)
   const guard = fn.slice(0, probeIdx);
-  const lastIf = guard.lastIndexOf('if (');
-  const condition = guard.slice(lastIf, guard.indexOf('{', lastIf));
+  let lastIf = guard.lastIndexOf('if (');
+  let condition = guard.slice(lastIf, guard.indexOf('{', lastIf));
+  if (/chainIsSolana/.test(condition)) {
+    lastIf = guard.slice(0, lastIf).lastIndexOf('if (');
+    condition = guard.slice(lastIf, guard.indexOf('{', lastIf));
+  }
   assert.doesNotMatch(condition, /token\.pending/,
     'the chain probe must not be gated on token.pending (D-60)');
   assert.match(condition, /priceNative/,
@@ -1185,3 +1224,33 @@ test('LIVE-MARKET: a failing prewatch re-probes immediately while mcap ticks pro
 });
 
 
+
+/* ---------------- v3.23.0: EVM bootstrap trust survives casing ------------
+ *
+ * Dexscreener returns CHECKSUMMED EVM addresses while page URLs and feeds
+ * are usually lowercase. A Robinhood page reached via a checksummed link
+ * used to distrust its own lowercase WS feed at the mint gate and never
+ * bootstrap — pending forever with a live price on screen.
+ */
+const EVM_LOWER = '0x7a3d9aa42d71a145c31e0dae984509904b23e8c9';
+const EVM_CHECKSUMMED = '0x7a3d9AA42d71a145c31E0Dae984509904B23E8c9';
+
+test('EVM: a checksummed pending mint trusts its lowercase WS feed', () => {
+  const pending = { mint: EVM_CHECKSUMMED, pending: true, chain: 'robinhood' };
+  const verdict = Q.bootstrapTick(pending, {
+    mint: EVM_LOWER, source: 'gmgn-ws-trade',
+    candidates: [{ value: 0.000003285, unit: 'usd' }],
+  }, 200);
+  assert.equal(verdict.accepted, true, 'same coin under two casings must bootstrap');
+  assert.equal(verdict.basis, 'ws-usd');
+  assert.ok(Math.abs(verdict.priceUsd - 0.000003285) < 1e-12);
+  assert.ok(Math.abs(verdict.priceNative - 0.000003285 / 200) < 1e-18);
+});
+
+test('sameAddress folds EVM casing only — base58 stays case-sensitive', () => {
+  assert.equal(Q.sameAddress(EVM_LOWER, EVM_CHECKSUMMED), true);
+  assert.equal(Q.sameAddress(NEW_MINT, NEW_MINT), true);
+  assert.equal(Q.sameAddress(NEW_MINT, NEW_MINT.toLowerCase()), false,
+    'lowercasing base58 names a DIFFERENT account — must never compare equal');
+  assert.equal(Q.sameAddress(EVM_LOWER, NEW_MINT), false);
+});

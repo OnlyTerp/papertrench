@@ -410,6 +410,20 @@ test('rejects a tick belonging to a different mint', () => {
   assert.equal(verdict.priceNative, a.priceNative);
 });
 
+test('accepts a lowercase live tick for a checksummed EVM anchor', () => {
+  const anchor = {
+    mint: '0x7a3d9AA42d71a145c31E0Dae984509904B23E8c9',
+    priceNative: 0.000003285 / 200, priceUsd: 0.000003285, mcap: 3285,
+    chain: 'robinhood',
+  };
+  const verdict = Q.validateTick(anchor, {
+    mint: '0x7a3d9aa42d71a145c31e0dae984509904b23e8c9',
+    candidates: [{ value: 0.000003285 * 1.1, unit: 'usd' }],
+  });
+  assert.equal(verdict.accepted, true, 'same coin under two casings must validate');
+  assert.notEqual(verdict.reason, 'mint-mismatch');
+});
+
 test('rejects ticks when there is no anchor to validate against', () => {
   const verdict = Q.validateTick(null, { candidates: [{ value: 0.44, unit: 'native' }] });
   assert.equal(verdict.accepted, false);
@@ -734,6 +748,18 @@ test('header shows the real name and the address as DISTINCT fields', () => {
   // Traders quote memecoins by market cap, so that is the headline figure.
   assert.equal(h.priceIsMarketCap, true);
   assert.match(h.priceText, /^\$/, 'the headline reads as a market cap');
+});
+
+test('an fdv-substituted cap is labeled FDV; a reported cap is not', () => {
+  const fdv = Q.headerFields({ mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'STOCK',
+    priceNative: 4.5, mcap: 9.1567e11, mcapIsFdv: true });
+  assert.match(fdv.mcapText, /FDV/, 'a fallback cap must say what it is');
+  assert.match(fdv.priceText, /FDV/, 'the headline carries the label, not just the parts');
+  assert.equal(fdv.mcapIsFdv, true);
+  const circ = Q.headerFields({ mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK',
+    priceNative: 1e-8, mcap: 5000 });
+  assert.doesNotMatch(circ.mcapText, /FDV/);
+  assert.equal(circ.mcapIsFdv, false);
 });
 
 test('header reports an explicit pending state instead of a fabricated price', () => {

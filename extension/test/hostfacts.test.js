@@ -8,6 +8,9 @@ const ROOT = path.join(__dirname, '..');
 const PAIR = '1111111111111111111111111111111111111111111';
 const MINT = '2222222222222222222222222222222222222222222';
 const OTHER = '3333333333333333333333333333333333333333333';
+const EVM_LOWER = '0x7a3d9aa42d71a145c31e0dae984509904b23e8c9';
+const EVM_CHECKSUMMED = '0x7a3d9AA42d71a145c31E0Dae984509904B23E8c9';
+const EVM_POOL = '0x3f261075d82bc731c4b8e83a88bbb24d47c63db9';
 
 function loadContentHarness() {
   global.window = {};
@@ -370,6 +373,18 @@ test('host-facts decisions are pure and preserve the R1/R2 rules', () => {
   assert.equal(Q.hostFactsDecision(
     { mint: PAIR, srcAddress: PAIR, pending: false }, tied
   ).reason, 'not-our-record');
+});
+
+test('host-facts ties survive EVM casing (checksummed page, lowercase feed)', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const token = { mint: EVM_CHECKSUMMED, srcAddress: EVM_CHECKSUMMED, pending: true };
+  const decision = Q.hostFactsDecision(token, {
+    mint: EVM_LOWER, addresses: [EVM_LOWER], poolAddress: EVM_POOL,
+    priceUsd: 0.000003285, mcap: 3285, supply: 1000000000, decimals: 9,
+  });
+  assert.notEqual(decision.reason, 'not-our-record',
+    'the same coin under two casings must tie to the page, not be dropped as foreign');
 });
 
 test('pending content ignores screener facts not tied to the page address', async () => {

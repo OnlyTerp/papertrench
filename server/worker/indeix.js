@@ -25,7 +25,19 @@ const CHAIN_IDS = Object.freeze({
   solana: 'solana',
   bnb: 'evm:56',
   robinhood: 'evm:4663',
+  ethereum: 'evm:1',
+  base: 'evm:8453',
 });
+
+// Dexscreener chain slugs for the EVM fallback lane. Indeix's coverage of
+// young EVM tokens — especially Robinhood — is thin (live 2026-09-12: every
+// reported RH token quoted {}), and an EVM fill has NO chain-RPC witness,
+// so the worker quote is its only second source. Dexscreener is free,
+// keyless, and already the extension's EVM resolve upstream: the honest
+// fallback, not a new dependency class. Solana never falls back here (it
+// has the chain witness and Jupiter).
+const DEXSCREENER_IDS = Object.freeze({ bnb: 'bsc', robinhood: 'robinhood', ethereum: 'ethereum', base: 'base' });
+const DEXSCREENER_BASE_URL = 'https://api.dexscreener.com';
 
 /**
  * Fetch a path from Indeix with one retry on the transient 5xx family that
@@ -148,6 +160,63 @@ function positiveNumber(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** One Dexscreener batch for the mints Indeix could not price, or null.
+ *
+ * GET /tokens/v1/{chain}/{addr,addr} answers a bare pairs array (verified
+ * live 2026-09-12 against a Robinhood token). Per mint we take the deepest-
+ * liquidity pair quoting it as BASE — a token that only appears as someone
+ * else's quote leg does not vouch for its own price. Keyed by the REQUEST
+ * string so the caller's round-trip lookup holds under any casing.
+ * Fail-closed in every direction: non-JSON, non-array, no base match, rate
+ * limit, spent budget — all null, and the Indeix partials stand as answered.
+ */
+async function dexscreenerPrices(mints, budget, chain) {
+  const dexChain = DEXSCREENER_IDS[chain];
+  if (!dexChain || !mints.length) return null;
+  if (budget && budget.used >= budget.max) return null;
+  if (budget) budget.used++;
+  const url = `${DEXSCREENER_BASE_URL}/tokens/v1/${dexChain}/${mints.map(encodeURIComponent).join(',')}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'PaperTrench/Quote-1.0' },
+    });
+  } catch { return null; }
+  if (!res.ok) return null;
+  let pairs;
+  try { pairs = await res.json(); } catch { return null; }
+  if (!Array.isArray(pairs)) return null;
+  const byMint = new Map();
+  for (const p of pairs) {
+    const base = p && p.baseToken && p.baseToken.address;
+    if (typeof base !== 'string') continue;
+    const priceUsd = positiveNumber(p.priceUsd);
+    if (priceUsd === null) continue;
+    const liq = Number(p && p.liquidity && p.liquidity.usd);
+    const key = base.toLowerCase();
+    const prev = byMint.get(key);
+    if (prev && !(liq > prev.liq)) continue;
+    byMint.set(key, {
+      priceUsd,
+      mcapUsd: positiveNumber(p.marketCap),
+      fdvUsd: positiveNumber(p.fdv),
+      liq: Number.isFinite(liq) ? liq : 0,
+    });
+  }
+  if (!byMint.size) return null;
+  const quotes = {};
+  for (const mint of mints) {
+    const hit = byMint.get(String(mint).toLowerCase());
+    if (!hit) continue;
+    quotes[mint] = {
+      priceUsd: hit.priceUsd, priceSol: null,
+      mcapUsd: hit.mcapUsd, fdvUsd: hit.fdvUsd,
+      source: 'dexscreener', asOf: Date.now(),
+    };
+  }
+  return quotes;
+}
+
 /** Batched whole-token prices: USD for every chain, SOL only for Solana. */
 async function prices(env, mints, budget, chain = 'solana') {
   if (!Object.hasOwn(CHAIN_IDS, chain)) throw new Error('indeix-unknown-chain');
@@ -188,6 +257,23 @@ async function prices(env, mints, budget, chain = 'solana') {
       fdvUsd: positiveNumber(item.marketCapDilutedUSD),
       source: 'indeix', asOf,
     };
+  }
+  // EVM-only gap fill: mints Indeix could not price get one Dexscreener
+  // batch before we answer. Without this an unindexed token refuses every
+  // divergent fill with "no second source" — the live RH outage. (An
+  // Indeix outage itself still 503s: a wholesale provider swap would
+  // silently change witness semantics, while a gap fill only completes an
+  // answer Indeix already gave.)
+  if (!isSolana) {
+    const missing = normalized.filter((mint) => !Object.hasOwn(quotes, mint));
+    if (missing.length) {
+      const fallback = await dexscreenerPrices(missing, budget, chain).catch(() => null);
+      if (fallback) {
+        for (const [mint, q] of Object.entries(fallback)) {
+          if (!Object.hasOwn(quotes, mint)) quotes[mint] = { ...q, asOf };
+        }
+      }
+    }
   }
   const answer = { asOf, quotes };
   try { await cachePut(upstreamUrl.toString(), answer, PRICE_CACHE_TTL_SEC); } catch { /* best effort */ }

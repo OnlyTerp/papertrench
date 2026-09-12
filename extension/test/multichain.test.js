@@ -108,6 +108,58 @@ test('the resolver never asks Solana-only sources about a foreign token', async 
   }
 });
 
+test('foreign pairs outside the venue price band never resolve (fantasy units)', () => {
+  for (const priceUsd of ['1e-10', '2e6']) {
+    assert.equal(Q.normalizePair(bnbPair({ priceUsd }), EVM, { chain: 'bnb', solUsd: 200 }), null,
+      `a $${priceUsd} unit price is data error, not a market: ${priceUsd}`);
+  }
+  assert.ok(Q.normalizePair(bnbPair({ priceUsd: '915.67' }), EVM, { chain: 'bnb', solUsd: 200 }),
+    'an in-band price still resolves — the band judges magnitude, not chain');
+});
+
+test('a foreign cap inconsistent with its own price reads unknown; the price still trades', () => {
+  const rec = Q.normalizePair(bnbPair({ priceUsd: '1', marketCap: 1e15 }), EVM, { chain: 'bnb', solUsd: 200 });
+  assert.ok(rec, 'the price is usable even when the cap is nonsense');
+  assert.equal(rec.priceUsd, 1);
+  assert.equal(rec.mcap, null, 'a 1e15 implied supply is not a market cap');
+  assert.equal(rec.mcapIsFdv, false);
+});
+
+test('an in-band fdv fallback is adopted AND flagged; an absurd one is dropped', () => {
+  const flagged = Q.normalizePair(bnbPair({ marketCap: null, fdv: 5e6 }), EVM, { chain: 'bnb', solUsd: 200 });
+  assert.ok(flagged);
+  assert.equal(flagged.mcap, 5e6);
+  assert.equal(flagged.mcapIsFdv, true, 'a substituted fully-diluted value must say so');
+  const dropped = Q.normalizePair(bnbPair({ marketCap: null, fdv: 1e15 }), EVM, { chain: 'bnb', solUsd: 200 });
+  assert.ok(dropped, 'the price still trades');
+  assert.equal(dropped.mcap, null);
+  assert.equal(dropped.mcapIsFdv, false);
+});
+
+test('a consistent B-scale foreign cap still displays (the band judges consistency, not size)', () => {
+  // 7Stock printed $915.67B. Price and cap agreed with each other (1e9
+  // implied supply), so the pair data is not PROVABLY wrong — it may be a
+  // real stock-mirror quote. The unit corruption behind the $677M cash was
+  // P0-5's gas-as-SOL tick, fixed at the validator; the resolve gate must
+  // not invent a size ceiling that would also eat legitimate large caps.
+  const rec = Q.normalizePair(bnbPair({ priceUsd: '915.67', marketCap: 9.1567e11 }), EVM,
+    { chain: 'bnb', solUsd: 200 });
+  assert.ok(rec);
+  assert.equal(rec.mcap, 9.1567e11);
+  assert.equal(rec.mcapIsFdv, false, 'a reported marketCap is not a fallback');
+});
+
+test('Solana keeps its legacy resolve behavior — the band is foreign-only', () => {
+  const rec = Q.normalizePair({
+    chainId: 'solana',
+    pairAddress: 'PooLAddress1111111111111111111111111111111',
+    baseToken: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'DUST' },
+    quoteToken: { address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', symbol: 'USDC' },
+    priceNative: '0.0000000001', priceUsd: '1e-10', marketCap: 100,
+  }, 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', { solUsd: 200 });
+  assert.ok(rec, 'sub-band Solana dust still resolves — Jupiter/chain/venue cross-check it');
+});
+
 test('engine fills and rounds carry the chain, defaulting to solana', () => {
   const E = require('../engine.js');
   const settings = E.defaultSettings();

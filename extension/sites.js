@@ -63,8 +63,13 @@
   // GMGN (live-verified 2026-08-06: all four token pages rendered; robinhood
   // slug live 2026-09-04 — gmgn.ai blog "Robinhood Chain is live on GMGN" and
   // indexed token page gmgn.ai/robinhood/token/0xcd1c…).
-  const GMGN_CHAIN_BY_SLUG = { sol: 'solana', eth: 'ethereum', bsc: 'bsc', base: 'base', robinhood: 'robinhood' };
-  const GMGN_SLUG_BY_CHAIN = { solana: 'sol', ethereum: 'eth', bsc: 'bsc', base: 'base', robinhood: 'robinhood' };
+  // Chain vocabulary: the internal canonical name is `bnb` (background
+  // KNOWN_CHAINS, worker /api/quote, quote.js CHAIN_MAP); `bsc` is only ever
+  // a URL slug / DexScreener chainId at the boundary. GMGN's own slug is
+  // `bsc`, with `bnb` accepted defensively — both emit canonical `bnb`, and
+  // the reverse map rebuilds GMGN's own `bsc` slug for outbound links.
+  const GMGN_CHAIN_BY_SLUG = { sol: 'solana', eth: 'ethereum', bsc: 'bnb', bnb: 'bnb', base: 'base', robinhood: 'robinhood' };
+  const GMGN_SLUG_BY_CHAIN = { solana: 'sol', ethereum: 'eth', bnb: 'bsc', base: 'base', robinhood: 'robinhood' };
 
   // fomo (docs/MULTICHAIN.md corpus). Its detect() keeps its own slug as the
   // chain string for continuity with the landed contract, so the reverse map
@@ -77,21 +82,23 @@
   // Padre (Terminal) — its own slug IS the canonical name (identity map,
   // live-verified 2026-09-04 from padre.gg's chain copy: Solana, Ethereum,
   // Base, BNB — no robinhood).
-  const PADRE_CHAIN_BY_SLUG = { solana: 'solana', ethereum: 'ethereum', base: 'base', bnb: 'bsc', bsc: 'bsc' };
-  const PADRE_SLUG_BY_CHAIN = { solana: 'solana', ethereum: 'ethereum', base: 'base', bsc: 'bnb' };
+  const PADRE_CHAIN_BY_SLUG = { solana: 'solana', ethereum: 'ethereum', base: 'base', bnb: 'bnb', bsc: 'bnb' };
+  const PADRE_SLUG_BY_CHAIN = { solana: 'solana', ethereum: 'ethereum', base: 'base', bnb: 'bnb' };
 
   // Birdeye (live-verified 2026-08-06): the site MOVED to /<chain>/token/<addr>
   // and 308-redirects the old ?chain= form onto it. Its slugs are already the
   // canonical names, so the map is an identity — but an explicit one, so an
   // unrecognised slug still fails closed.
   const BIRDEYE_CHAIN_BY_SLUG = {
-    solana: 'solana', ethereum: 'ethereum', bsc: 'bsc', base: 'base',
+    solana: 'solana', ethereum: 'ethereum', bsc: 'bnb', base: 'base',
     arbitrum: 'arbitrum', avalanche: 'avalanche', optimism: 'optimism', polygon: 'polygon',
   };
 
   // DexScreener (slugs harvested from its own chain nav, 2026-08-06). These
-  // ARE the canonical chainIds — DexScreener is where the price layer looks
-  // them up — so the adapter accepts exactly the ones we can price.
+  // ARE the chainIds the price layer queries — with one exception: the BNB
+  // Smart Chain slug is `bsc` on the wire but `bnb` internally (background
+  // KNOWN_CHAINS, worker /api/quote, quote.js CHAIN_MAP), so detect() emits
+  // canonical `bnb` for it while outbound links rebuild the `bsc` slug.
   const DEXSCREENER_CHAINS = [
     'solana', 'ethereum', 'bsc', 'base', 'arbitrum', 'avalanche', 'optimism',
     'polygon', 'sui', 'ton', 'tron', 'hyperliquid', 'monad', 'robinhood',
@@ -99,6 +106,12 @@
   ];
   const DEXSCREENER_CHAIN_BY_SLUG = {};
   for (const c of DEXSCREENER_CHAINS) DEXSCREENER_CHAIN_BY_SLUG[c] = c;
+  DEXSCREENER_CHAIN_BY_SLUG.bsc = 'bnb';
+  /** A canonical internal chain back to the slug dexscreener.com URLs use. */
+  function dexScreenerSlug(chain) {
+    if (chain === 'bnb') return 'bsc';
+    return DEXSCREENER_CHAIN_BY_SLUG[chain] || 'solana';
+  }
 
   // Axiom (live-verified 2026-08-07 from a LOGGED-IN capture via pt-recon). A
   // token page is axiom.trade/meme/<address>?chain=<slug> — the chain lives in
@@ -107,8 +120,8 @@
   // trackerChains params: sol, bnb, eth, robinhood (robinhood CONFIRMED
   // shipped 2026-07-11 — chain selector SOL/HOOD/BNB/ETH). Mapped to
   // Dexscreener's canonical chainIds; an unlisted slug fails closed.
-  const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bsc', eth: 'ethereum', robinhood: 'robinhood' };
-  const AXIOM_SLUG_BY_CHAIN = { solana: 'sol', bsc: 'bnb', ethereum: 'eth', robinhood: 'robinhood' };
+  const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bnb', eth: 'ethereum', robinhood: 'robinhood' };
+  const AXIOM_SLUG_BY_CHAIN = { solana: 'sol', bnb: 'bnb', ethereum: 'eth', robinhood: 'robinhood' };
 
   /**
    * Validate an address against the shape its OWN chain uses, and return the
@@ -328,12 +341,13 @@
       id: 'dexscreener',
       name: 'Dexscreener',
       tokenUrl: (mint, pairAddress, chain) => 'https://dexscreener.com/'
-        + (DEXSCREENER_CHAIN_BY_SLUG[chain] || 'solana') + '/' + (pairAddress || mint),
+        + dexScreenerSlug(chain) + '/' + (pairAddress || mint),
       match: (h) => /(^|\.)dexscreener\.com$/.test(h),
       // dexscreener.com/<chain>/<pairAddress> (live-verified 2026-08-06).
-      // DexScreener's slugs ARE the chainIds the price layer queries, so the
-      // adapter accepts exactly the chains we can actually price and fails
-      // closed on anything else. Requiring a whole address in the second
+      // DexScreener's slugs are the chainIds the price layer queries (modulo
+      // bsc-on-the-wire/bnb-internal), so the adapter accepts exactly the
+      // chains we can actually price and fails closed on anything else. Requiring
+      // a whole address in the second
       // segment is also what keeps utility routes (/gainers, /watchlist,
       // /multicharts) from ever mounting the panel (O-10), and per-chain
       // shape strictness replaces the old Solana-only prefix gate (O-11).
@@ -347,7 +361,7 @@
       id: 'birdeye',
       name: 'Birdeye',
       tokenUrl: (mint, pairAddress, chain) => 'https://birdeye.so/'
-        + (BIRDEYE_CHAIN_BY_SLUG[chain] ? chain : 'solana') + '/token/' + mint,
+        + (chain === 'bnb' ? 'bsc' : (BIRDEYE_CHAIN_BY_SLUG[chain] ? chain : 'solana')) + '/token/' + mint,
       match: (h) => /(^|\.)birdeye\.so$/.test(h),
       // birdeye.so/<chain>/token/<addr> — the LIVE scheme as of 2026-08-06.
       //
@@ -528,7 +542,7 @@
     }
     // The universal link must name the token's own chain too — DexScreener
     // is multichain, and /solana/<evm address> is a page about nothing.
-    const fallbackChain = DEXSCREENER_CHAIN_BY_SLUG[chain] || 'solana';
+    const fallbackChain = dexScreenerSlug(chain);
     return 'https://dexscreener.com/' + fallbackChain + '/' + (pairAddress || mint);
   }
 

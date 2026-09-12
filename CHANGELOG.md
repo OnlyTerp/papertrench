@@ -3,6 +3,62 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.23.0 — 2026-09-12
+
+- **Robinhood and BNB trading actually works now.** v3.22 could see the
+  pages, but three separate breaks kept every foreign trade from landing:
+  BNB pages spoke a chain name the background did not know (every BNB page
+  sat pending forever), the page feed dropped every 0x trade tick before it
+  could price anything, and the second-opinion quote came back empty for
+  every reported Robinhood token. All three are fixed — BNB detection, EVM
+  live ticks, and a Dexscreener-backed second opinion whenever the primary
+  has no quote. Ethereum and Base ride the same witness lane.
+- **Buys and sells no longer wedge.** A stalled price lane used to hold the
+  fill open forever ("fetching price" while the screen showed a number),
+  and a wedged wallet write queued every later fill behind a promise that
+  never settled ("can't buy or sell at all"). Every hop between click and
+  committed fill now has a deadline, so a hung lane costs at most seconds —
+  then the fill lands on the freshest validated price or refuses visibly.
+- **Axiom and GMGN list pages stop freezing.** The row quick-buy chips
+  repainted through a layer both page observers watched, so every chip
+  add/remove re-fired full list scans several times a second, forever —
+  saturating the same thread the page itself runs on. Chip paint no longer
+  schedules work, the scan observer stands down after the list hydrates
+  (the 1-second sweep owns steady state), hidden tabs cost zero, the
+  startup widget hunt backs off instead of probing 500 times, and feed
+  parsing stops after a few milliseconds per frame.
+- **A dead public RPC degrades instead of refusing.** The second witness
+  used to die with the free Solana pool: slow worker answers were
+  discarded by a shorter deadline, USD-only answers were thrown away, and
+  misses were cached for the full ten seconds. Deadlines are aligned so
+  every answered quote counts, USD-only answers convert at the live rate,
+  misses expire in two seconds, and page-feed candidates get the worker
+  fallback too.
+- **Fills refuse with numbers that mean something.** Dust-scale refusals
+  used to read "(0 vs recent 0)" — unactionable in a bug report. Both legs
+  now print at significant digits, longhand, never bare zero.
+- **Balance corruption class closed.** A Robinhood/BNB page's
+  gas-denominated ticks could be read as SOL and banked into the wallet
+  (the $677M cash report). Foreign ticks validate in USD only, foreign
+  pairs pass a magnitude gate before they can price anything, and
+  fully-diluted fallback caps are labeled FDV instead of printing as
+  circulating. (A wallet already corrupted needs one Settings → Reset —
+  the ledger cannot un-bank a fantasy fill.)
+- **Debug reports shrank.** The same "lacks corroborating price" fact
+  repeated hundreds of times per export (145 KB of one sentence).
+  Diagnostics now dedupe by failure shape, and the recovery quote retries
+  per minute instead of never.
+
+Tested: 34 new extension pins (BNB vocabulary round-trip through the real
+background validators, 0x WS/collect ticks with checksummed-marker casing,
+case-tolerant trust at every mint gate, EVM click/ detect chain gates with
+a Solana control, USD-leg + non-aggregator + negative-TTL witness
+behavior, shape-keyed supply dedupe with per-minute retry, foreign
+magnitude band + FDV labels, chip-layer observer filters, frame time
+budget) and 5 new server pins (Dexscreener gap fill incl. fail-closed
+shapes, ethereum/base lanes). Every new rule proven by a production
+negative control with byte-identical restore. Full suite green.
+
 ## v3.22.0 — 2026-09-10
 
 - **Robinhood Chain and BNB paper trading works.** v3.19 could see and price

@@ -85,6 +85,8 @@ function quote(priceUsd, priceSol = null, mcapUsd = null, fdvUsd = null, asOf = 
 for (const [chain, chainId, address] of [
   ['bnb', 'evm:56', EVM_B.toUpperCase()],
   ['robinhood', 'evm:4663', EVM],
+  ['ethereum', 'evm:1', EVM_B],
+  ['base', 'evm:8453', EVM],
 ]) {
   test(chain + ' quotes use the EVM batch and never invent SOL', async (t) => {
     const h = await harness(t, ({ url, init }) => {
@@ -221,4 +223,66 @@ test('expired EVM quotes fail closed on outage and can recover immediately', asy
   assert.deepEqual(await recovered.json(), { asOf: NOW + 10001, quotes: {
     [EVM]: quote(3, null, null, null, NOW + 10001),
   } });
+});
+
+test('RH gap fill: Indeix-unpriced mints fall back to Dexscreener (live RH outage)', async (t) => {
+  const h = await harness(t, ({ url }) => {
+    if (url.startsWith('https://api.dexscreener.com/tokens/v1/robinhood/')) {
+      assert.ok(url.includes(EVM), 'the fallback batch names the missing mint');
+      return Response.json([
+        { chainId: 'robinhood', pairAddress: '0xpair1', baseToken: { address: EVM, symbol: 'REAL' },
+          priceUsd: '0.000003285', marketCap: 3285, fdv: 32850, liquidity: { usd: 12000 } },
+        { chainId: 'robinhood', pairAddress: '0xpair2', baseToken: { address: EVM, symbol: 'REAL' },
+          priceUsd: '0.0000039', marketCap: 3900, liquidity: { usd: 400 } },
+      ]);
+    }
+    return Response.json({ payload: [{ error: 'unlisted' }] });
+  });
+  const response = await h.request('?chain=robinhood&mints=' + EVM);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { asOf: NOW, quotes: {
+    [EVM]: { priceUsd: 0.000003285, priceSol: null, mcapUsd: 3285, fdvUsd: 32850, source: 'dexscreener', asOf: NOW },
+  } });
+});
+
+test('BNB gap fill uses the bsc slug and never overwrites an Indeix price', async (t) => {
+  const h = await harness(t, ({ url }) => {
+    if (url.startsWith('https://api.dexscreener.com/')) {
+      assert.ok(url.startsWith('https://api.dexscreener.com/tokens/v1/bsc/'),
+        'BNB Smart Chain is bsc on Dexscreener, whatever the internal name');
+      assert.ok(url.includes(EVM) && !url.includes(EVM_B),
+        'only the Indeix-missing mint is re-requested, never the priced one');
+      return Response.json([
+        { chainId: 'bsc', pairAddress: '0xpair1', baseToken: { address: EVM_B, symbol: 'STRAY' },
+          priceUsd: '999', liquidity: { usd: 1e9 } },
+        { chainId: 'bsc', pairAddress: '0xpair2', baseToken: { address: EVM, symbol: 'WANT' },
+          priceUsd: '0.05', marketCap: 50000, liquidity: { usd: 250000 } },
+      ]);
+    }
+    // Positional batch [EVM, EVM_B]: the first is unlisted, the second prices.
+    return Response.json({ payload: [{ error: 'unlisted' }, { priceUSD: 7 }] });
+  });
+  // mints sort ascending: EVM (0x99..) before EVM_B (0xfe..).
+  const response = await h.request('?chain=bnb&mints=' + EVM + ',' + EVM_B);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { asOf: NOW, quotes: {
+    [EVM]: { priceUsd: 0.05, priceSol: null, mcapUsd: 50000, fdvUsd: null, source: 'dexscreener', asOf: NOW },
+    [EVM_B]: quote(7),
+  } });
+});
+
+test('a broken Dexscreener answer fails closed to the Indeix partials', async (t) => {
+  for (const broken of [
+    { payload: [{ priceUSD: 3 }] }, // wrong shape: object, not a pairs array
+    [{ chainId: 'bsc', baseToken: { address: EVM }, priceUsd: '0', liquidity: { usd: 1 } }], // unpriced
+    [{ chainId: 'bsc', baseToken: { address: EVM_B }, priceUsd: '5', liquidity: { usd: 1 } }], // not our mint
+  ]) {
+    const h = await harness(t, ({ url }) => (url.startsWith('https://api.dexscreener.com/')
+      ? Response.json(broken)
+      : Response.json({ payload: [{ error: 'unlisted' }] })));
+    const response = await h.request('?chain=bnb&mints=' + EVM);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { asOf: NOW, quotes: {} },
+      'no fallback quote may be invented from ' + JSON.stringify(broken).slice(0, 60));
+  }
 });

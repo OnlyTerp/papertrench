@@ -343,7 +343,7 @@ test('quoteForTrade fills honestly: fresh sources first, stale snapshots bounded
   // F-13: the click-time snapshot is captured BEFORE the service-worker round
   // trip, so that trip cannot consume the snapshot's freshness budget.
   const snapAt = block.indexOf('const atClick = quoteSnapshot()');
-  const chainAt = block.indexOf('await R.onchainQuote');
+  const chainAt = block.indexOf('R.onchainQuote');
   assert.ok(snapAt !== -1 && chainAt !== -1 && snapAt < chainAt,
     'the click-time snapshot must be taken before the first async hop');
 
@@ -709,7 +709,7 @@ test('quoteForTrade prices a fresh screen at the price on screen (F-33 → F-52)
   assert.match(block, /&& lastPageTickAt > 0\s*\n\s*&& clickAt - lastPageTickAt <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
     'the fast path requires the PAGE FEED to have ticked, not merely a fresh timestamp');
   const screenReturnAt = block.indexOf('if (screenFresh) return atClick');
-  const chainHopAt = block.indexOf('await R.onchainQuote');
+  const chainHopAt = block.indexOf('R.onchainQuote');
   assert.ok(screenReturnAt !== -1, 'a fresh screen must fill at the on-screen price, unconditionally');
   assert.ok(chainHopAt !== -1 && screenReturnAt < chainHopAt,
     'the chain round trip must not even be paid when the screen is fresh');

@@ -38,6 +38,21 @@
     batchPrices: (mints, chains) => sendMessage({ type: 'pt_batch_prices', mints, chains }).then((r) => (r && typeof r === 'object' && !r.error) ? r : {}),
     clearCache: () => { if (resolver && typeof resolver.clearCache === 'function') resolver.clearCache(); },
   };
+  const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+  // Case-tolerant mint equality: Dexscreener returns checksummed EVM
+  // addresses while page URLs and feeds are usually lowercase — the same
+  // coin under two casings. Base58 is case-SENSITIVE and never folds.
+  function sameMint(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    if (a === b) return true;
+    return EVM_ADDR_RE.test(a) && EVM_ADDR_RE.test(b) && a.toLowerCase() === b.toLowerCase();
+  }
+  // Solana-only machinery (bonding curves, pool watching, holder scans): a
+  // foreign-chain token skips it instead of failing it. Absent chain is the
+  // legacy Solana default.
+  function chainIsSolana(chain) {
+    return !chain || chain === 'solana';
+  }
   const HOST_ID = 'papertrench-host';
   const DETECT_MS = 800;
   // The heartbeat is a SAFETY NET only — it re-quotes when the feed is quiet
@@ -424,6 +439,7 @@
     }
   }
 
+
   // Exposed for tests so the in-flight storage/messaging paths can be driven
   // directly; harmless in a page (a plain reference on the isolated-world
   // global, which the host page cannot see).
@@ -558,7 +574,12 @@
 
   const hostSupplyRefusals = new Set();
   const hostSupplyRefusalCounts = new Map();
-  const hostSupplyWorkerAttempts = new Set();
+  // Independent-quote attempts per mint, with the last try stamped: a
+  // transient miss (worker 503, empty quote for a coin that indexes a
+  // minute later) must not consume the mint's only attempt forever, but
+  // retries stay at most one per minute — never a per-tick storm.
+  const hostSupplyWorkerAttempts = new Map();
+  const HOST_SUPPLY_WORKER_RETRY_MS = 60_000;
 
   function recordHostFactsDiagnostic(message, kind, details) {
     const EL = window.PTErrors;
@@ -568,23 +589,21 @@
     } catch (_) { /* diagnostics must never affect the trading path */ }
   }
 
-  function hostSupplyEvidenceKey(mint, facts) {
-    const keyPart = (value) => {
-      const number = Number(value);
-      return Number.isFinite(number) ? number.toPrecision(12) : String(value);
-    };
-    return [
-      mint,
-      facts && facts.source,
-      keyPart(facts && facts.priceUsd),
-      keyPart(facts && facts.mcap),
-      keyPart(facts && facts.supply),
-      keyPart(facts && facts.decimals),
-    ].join('|');
+  // The dedupe key is the failure SHAPE, never the tick values: keying on
+  // priceUsd/mcap/supply made every tick a new episode (the x243
+  // "lacks corroborating USD price" storms in September debug reports —
+  // 145 KB exports of one repeated fact). One record per shape per mint;
+  // the first-seen values still ride along in the details for debugging.
+  function hostSupplyEvidenceKey(mint, facts, kind, details) {
+    const missing = details && details.missing;
+    const shape = missing
+      ? 'no' + (missing.priceUsd ? '-usd' : '') + (missing.mcap ? '-mcap' : '')
+      : 'refused';
+    return [mint, facts && facts.source, kind, shape].join('|');
   }
 
   function recordHostSupplyDiagnostic(mint, facts, message, kind, details) {
-    const key = hostSupplyEvidenceKey(mint, facts);
+    const key = hostSupplyEvidenceKey(mint, facts, kind, details);
     if (hostSupplyRefusals.has(key)) return;
     const count = hostSupplyRefusalCounts.get(mint) || 0;
     if (count >= 8) return;
@@ -636,10 +655,12 @@
     if (decision.reason === 'no-united-price') {
       noteUncorroboratedHostSupply(token.mint, facts);
       // D-71: preserve the immediate diagnostic, then try one independent
-      // united USD quote per mint. A miss is an attempt too, not a tick loop.
+      // united USD quote per mint per minute. A miss is an attempt too,
+      // not a tick loop — but a transient miss must not bar recovery.
       const mint = token.mint;
-      if (!hostSupplyWorkerAttempts.has(mint)) {
-        hostSupplyWorkerAttempts.add(mint);
+      const lastAttempt = hostSupplyWorkerAttempts.get(mint) || 0;
+      if (Date.now() - lastAttempt >= HOST_SUPPLY_WORKER_RETRY_MS) {
+        hostSupplyWorkerAttempts.set(mint, Date.now());
         const pendingToken = token;
         R.workerQuote(mint, token.chain).then((q) => {
           if (token !== pendingToken || token.mint !== mint || !token.pending || !q
@@ -776,7 +797,7 @@
     // Reject cross-token page ticks as early as possible. The bridge is
     // supposed to filter, but a preload chart or an unknown-symbol feed can
     // still leak through.
-    if (payload.mint && payload.mint !== token.mint) return;
+    if (payload.mint && !sameMint(payload.mint, token.mint)) return;
     if (payload.symbol && token.symbol
       && String(payload.symbol).toUpperCase() !== String(token.symbol).toUpperCase()) return;
 
@@ -911,6 +932,9 @@
         priceNative: Number(token.priceNative),
         priceUsd: Number(token.priceUsd) || null,
         mcap: Number(token.mcap) || null,
+        // P0-5: the anchor's denomination context — validateTick refuses
+        // 'native'-unit ticks on foreign chains (gas units, not SOL).
+        chain: token.chain || null,
       };
     }
 
@@ -975,14 +999,15 @@
   }
 
   /* -------------------- rug guard -------------------- */
-
   // mint -> chain-read holder-concentration verdict. Refreshed when a token
   // is identified (resolve or prewatch); the background caches reads for a
   // minute, so this stays two RPC calls per coin per minute at most.
   const rugVerdicts = new Map();
 
   function refreshRugVerdict(mint) {
-    if (!mint || settings.guardRugEnabled === false) return;
+    // Rug verdicts read Solana holder state — a foreign address has no
+    // verdict, and must not spend the read finding that out.
+    if (!mint || EVM_ADDR_RE.test(mint) || settings.guardRugEnabled === false) return;
     R.rugCheck(mint).then((verdict) => {
       if (!verdict || !verdict.known) return;
       rugVerdicts.set(mint, verdict);
@@ -1047,7 +1072,7 @@
    * bootstrap, so the armed buy sat on a nondescript wait state forever).
    */
   function prewatchPending(candidate) {
-    if (!candidate || prewatchedAddress === candidate.address) return;
+    if (!candidate || prewatchedAddress === candidate.address || !chainIsSolana(candidate.chain)) return;
     // Backoff gate (D-60 companion): a probe that failed moments ago is not
     // re-paid on every detect tick. The backoff is keyed to the address —
     // a different address is never delayed by a previous coin's failures.
@@ -1200,7 +1225,7 @@
     // D-66: a detection tick that acts (or proves the current token belongs
     // to this URL) re-stamps the quick-buy identity anchor.
     tokenHref = location.href;
-    if (settled && (token.mint === candidate.address || token.pairAddress === candidate.address || token.srcAddress === candidate.address)) { lastHref = location.href; return; }
+    if (settled && (sameMint(token.mint, candidate.address) || sameMint(token.pairAddress, candidate.address) || sameMint(token.srcAddress, candidate.address))) { lastHref = location.href; return; }
     // lastHref is only committed once this tick actually acts on the URL. If a
     // resolve is still in flight, leave it uncommitted so a navigation that
     // landed during the resolve is retried on the next tick instead of being
@@ -1217,14 +1242,14 @@
     // A prewatch may have swapped the stand-in pair address for the real
     // mint (srcAddress keeps the URL identity), so both count as "same".
     const alreadyPendingSame = token && token.pending
-      && (token.mint === candidate.address || token.srcAddress === candidate.address);
+      && (sameMint(token.mint, candidate.address) || sameMint(token.srcAddress, candidate.address));
     if (!alreadyPendingSame) {
       // P0-3: stash the identity being replaced (and any armed intent keyed
       // to it) so the resolve below can prove or disprove "same coin, new
       // home" — a pump.fun graduation reappears under its migration pool
       // URL. A plain navigation disproves it and drops the armed buy exactly
       // as before; only a proven re-appearance of the same mint restores it.
-      if (token && token.mint && token.mint !== candidate.address) {
+      if (token && token.mint && !sameMint(token.mint, candidate.address)) {
         swapStash = {
           fromMint: token.mint,
           armedBuy: (armedBuy && armedBuy.mint === token.mint) ? armedBuy : null,
@@ -1236,6 +1261,13 @@
       setToken({
         mint: candidate.address, srcAddress: candidate.address, symbol: null, name: null,
         priceNative: null, priceUsd: null, pending: true,
+        // P0-3: the pending record must carry the page's chain. Without it
+        // every `token.chain || 'solana'` consumer — the click-path resolve,
+        // the fill record, the panel denomination — saw Solana for the whole
+        // pending window on a foreign-chain page, so a click on a GMGN
+        // robinhood pair resolved the 0x address through the Solana path and
+        // booked the fill as chain:'solana' ("goes to SOL instead of RH").
+        chain: candidate.chain || null,
       });
       pendingSince = Date.now();
       pendingAttempts = 0;
@@ -1515,6 +1547,9 @@
   const attemptedStandInProbes = new Set();
 
   async function probeStandInPosition(standIn) {
+    // Solana identify classifies Solana accounts; an EVM stand-in key heals
+    // through the resolver, never through this probe.
+    if (!standIn || EVM_ADDR_RE.test(standIn)) return;
     try {
       const found = await R.onchainIdentify({ pool: standIn, mint: standIn });
       if (!found || !found.mint) return;
@@ -1597,6 +1632,7 @@
         priceNative: Number(token.priceNative),
         priceUsd: Number(token.priceUsd) || null,
         mcap: Number(token.mcap) || null,
+        chain: token.chain || null,
       };
     }
     // Navigating to a different token invalidates any armed intent. But a
@@ -1831,6 +1867,7 @@
         priceNative: Number(fresh.priceNative),
         priceUsd: Number(fresh.priceUsd) || null,
         mcap: Number(fresh.mcap) || null,
+        chain: token.chain || null,
       };
 
       // When the page's own feed is live, the CHART owns the price level —
@@ -2179,6 +2216,69 @@
   // must answer to when the two ever get compared (F-33 showed the chain
   // path CAN be wrong). Sub-second, so a stale display never rides it.
   const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600;
+  // Bounds for the awaited hops below. The ladder may WAIT for a fresher
+  // price, but it may never HANG: a wedged worker, a dead feed socket or a
+  // slow aggregator each cost at most their bound, then the ladder falls
+  // back to the freshest validated page tick (the stale-fill path) or
+  // refuses fast — never "fetching price" forever while the screen shows
+  // a number.
+  const ONCHAIN_QUOTE_BUDGET_MS = 800;
+  const REFRESH_BUDGET_MS = 1500;
+  // The worker-quote fetch aborts at 2500 ms in the background; this bound
+  // sits above it so every ANSWERED fetch counts — a bound shorter than the
+  // fetch (the v3.22.0 2500-vs-3500 split) discarded slow successes as "no
+  // second source" exactly when the pool was stressed. The 500 ms headroom
+  // is the service-worker dispatch slack on a cold worker.
+  const WITNESS_BUDGET_MS = 3000;
+  // The SOL/USD conversion for a USD-only worker answer rides the cached
+  // rate lane — fast or absent, never worth the full witness wait.
+  const WITNESS_RATE_BUDGET_MS = 1500;
+  const CLICK_QUOTE_BUDGET_MS = 3000;
+  const COMMIT_BUDGET_MS = 2500;
+  const ATTEST_BUDGET_MS = 2500;
+
+  /**
+   * A promise that must answer inside `ms` — the fill path's answer to a
+   * wedged service worker or a stalled RPC. The loser keeps running (its
+   * late answer is ignored); the caller gets `fallback` and moves on.
+   * Every awaited hop between a click and a committed fill is bounded by
+   * this, so no single hung lane can hold a buy or sell open (the
+   * "fetching price" stalls) or wedge the mutation chain behind a dead
+   * pt_state_commit (the "can't buy or sell at all" report — every later
+   * fill queued behind a promise that never settled). Declared inside the
+   * action-quotes section so the isolated ladder tests slice it too.
+   */
+  function bounded(promise, ms, fallback) {
+    return Promise.race([
+      Promise.resolve(promise).catch(() => fallback),
+      new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+    ]);
+  }
+  // Significant digits for the witness refusal: E.fmt rounds dust-scale SOL
+  // natives to "0", which made every pasted refusal read "(0 vs recent 0)"
+  // — unactionable in a bug report. Four significant digits, expanded long-
+  // hand: the overlay never renders scientific notation (formatting.test.js
+  // pins that), so dust prints as decimals, never exponents.
+  function fmtWitness(n) {
+    const v = Number(n);
+    if (!(v > 0)) return '0';
+    if (v >= 0.0001 && v < 100000) return String(Number(v.toPrecision(4)));
+    if (v >= 100000) return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const digits = Math.min(20, Math.ceil(-Math.log10(v)) + 3);
+    return v.toFixed(digits).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  }
+
+  // A USD-only worker answer still vouches: convert at the live cached rate
+  // (the WSOL anchor fails upstream exactly when the pool is stressed, which
+  // is when the second source matters most). Null when unconvertible —
+  // never a guessed rate.
+  async function workerNativeFromUsd(worker) {
+    if (!worker || !(worker.priceUsd > 0)) return null;
+    if (worker.priceNative > 0) return worker.priceNative;
+    if (typeof R.solUsd !== 'function') return null;
+    const rate = await bounded(R.solUsd(), WITNESS_RATE_BUDGET_MS, 0).catch(() => 0);
+    return rate > 0 ? worker.priceUsd / rate : null;
+  }
 
   function quoteSnapshot() {
     if (!token || !(Number(token.priceNative) > 0)) return null;
@@ -2310,34 +2410,41 @@
     const chain = (token && token.chain) || 'solana';
     const aggregator = Q.isAggregatorSource(chosen.source);
     const useUsdWitness = chain !== 'solana' && aggregator;
+    const mint = token && token.mint;
     let witnessNative = null;
     let witnessUsd = null;
+    // The independent worker vouches in EITHER branch when the primary
+    // witness misses — a page-feed candidate diverging from evidence with
+    // an unreachable aggregator used to refuse without ever asking it.
+    const consultWorker = async () => {
+      try {
+        const worker = await bounded(R.workerQuote(mint, chain), WITNESS_BUDGET_MS, null);
+        if (!worker || !(worker.priceUsd > 0)) return;
+        if (chain !== 'solana') {
+          witnessUsd = worker.priceUsd;
+          // Foreign priceNative is still SOL book units (normalizePair).
+          // Derive the native leg for the refusal line and the native
+          // comparison; without a chosen-USD rate there is no honest leg.
+          if (chosen.priceUsd > 0) witnessNative = witnessUsd * (chosen.priceNative / chosen.priceUsd);
+        } else {
+          witnessNative = await workerNativeFromUsd(worker);
+        }
+      } catch (_) { /* no worker observation leaves the refusal intact */ }
+    };
     if (aggregator) {
-      const mint = token && token.mint;
-      const obs = chain === 'solana' ? await R.onchainQuote(mint).catch(() => null) : null;
+      const obs = chain === 'solana' ? await bounded(R.onchainQuote(mint), WITNESS_BUDGET_MS, null) : null;
       if (obs && obs.priceNative > 0) witnessNative = obs.priceNative;
-      if (!(witnessNative > 0)) {
-        try {
-          const worker = await R.workerQuote(mint, chain);
-          if (useUsdWitness) {
-            if (worker && worker.priceUsd > 0) {
-              witnessUsd = worker.priceUsd;
-              // Foreign priceNative is still SOL book units (normalizePair).
-              // Compare USD directly; convert only for the existing refusal.
-              if (chosen.priceUsd > 0) witnessNative = witnessUsd * (chosen.priceNative / chosen.priceUsd);
-            }
-          } else if (worker && worker.priceNative > 0) witnessNative = worker.priceNative;
-        } catch (_) { /* no worker observation leaves the refusal intact */ }
-      }
+      if (!(witnessNative > 0) && !(witnessUsd > 0)) await consultWorker();
     } else {
-      const fresh = await R.refresh(token).catch(() => null);
+      const fresh = await bounded(R.refresh(token), WITNESS_BUDGET_MS, null);
       if (fresh && Number(fresh.priceNative) > 0) witnessNative = Number(fresh.priceNative);
+      if (!(witnessNative > 0)) await consultWorker();
     }
     if (Q.witnessAgrees(useUsdWitness ? chosen.priceUsd : chosen.priceNative,
       useUsdWitness ? witnessUsd : witnessNative)) return chosen;
     lastQuoteRefusal = 'Price sources disagree ('
-      + E.fmt(chosen.priceNative) + ' vs recent ' + E.fmt(evidence.priceNative)
-      + (witnessNative ? ', witness ' + E.fmt(witnessNative) : ', no second source')
+      + fmtWitness(chosen.priceNative) + ' vs recent ' + fmtWitness(evidence.priceNative)
+      + (witnessNative ? ', witness ' + fmtWitness(witnessNative) : ', no second source')
       + ') — paper fill refused. Try again in a moment.';
     console.debug('PaperTrench: fill witness refused', {
       candidate: chosen.priceNative, source: chosen.source,
@@ -2406,7 +2513,9 @@
     // tab accepted as money (the F-47 stream); on contradiction the chain
     // read is DEMOTED, not trusted, and the ladder below re-prices from
     // sources that can vouch for themselves.
-    const observation = !token.chain || token.chain === 'solana' ? await R.onchainQuote(startMint) : null;
+    const observation = !token.chain || token.chain === 'solana'
+      ? await bounded(R.onchainQuote(startMint), ONCHAIN_QUOTE_BUDGET_MS, null)
+      : null;
     if (!token || token.mint !== startMint) return null;
     const onchain = quoteFromOnchain(observation);
     if (onchain) {
@@ -2446,7 +2555,7 @@
     // The feed is quiet. Take exactly one action-time resolver quote rather
     // than filling from the stale display snapshot. If the page ticks while it
     // is in flight, the newer page quote wins.
-    const fresh = await R.refresh(token);
+    const fresh = await bounded(R.refresh(token), REFRESH_BUDGET_MS, null);
     if (!token || token.mint !== startMint) return null;
     if (pageQuoteSeq > seqAtClick) {
       const newerPageQuote = quoteSnapshot();
@@ -2471,12 +2580,20 @@
     }
 
     // Every live source failed (resolver outage, unindexed migration). The
-    // on-screen snapshot may stand in — but only within the same bound the
-    // header uses to flag a price as stale, and for EVERY price source alike.
-    // Beyond that, the fill is refused with a visible reason instead of
+    // on-screen snapshot may stand in — judged by its age AT CLICK, the same
+    // rule F-13 applies above: the bounded hops must not age a price the
+    // trader clicked on out of its own window, or a slow aggregator turns a
+    // fillable click into a refusal after seconds of waiting. A snapshot
+    // that arrived DURING the hops is judged by its own (fresher) age.
+    // Beyond the bound, the fill is refused with a visible reason instead of
     // executing at a price the UI itself no longer stands behind (F-01/F-20).
     const lastResort = quoteSnapshot();
-    if (lastResort && Date.now() - lastResort.receivedAt <= STALE_FILL_MAX_AGE_MS) return lastResort;
+    if (lastResort) {
+      const resortAge = lastResort.receivedAt <= clickAt
+        ? clickAt - lastResort.receivedAt
+        : Date.now() - lastResort.receivedAt;
+      if (resortAge <= STALE_FILL_MAX_AGE_MS) return lastResort;
+    }
     return null;
   }
 
@@ -2581,9 +2698,9 @@
       // fill was being re-adopted (and, since F-40, replayed) as if another
       // tab had made it. The write STAMP survives cloning and does.
       lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
-      const reply = await sendMessage({
+      const reply = await bounded(sendMessage({
         type: 'pt_state_commit', state, expectedSeq: state.seq - 1,
-      }).catch(() => null);
+      }), COMMIT_BUDGET_MS, null);
       if (reply && reply.ok) return;
       if (!reply || reply.reason !== 'stale' || !reply.current) {
         // The worker is unreachable (dying update, cold start failure). A
@@ -2627,9 +2744,9 @@
       state.updatedAt = Date.now();
       lastWrittenState = state;
       lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
-      const forced = await sendMessage({
+      const forced = await bounded(sendMessage({
         type: 'pt_state_commit', state, expectedSeq: state.seq - 1, force: true,
-      }).catch(() => null);
+      }), COMMIT_BUDGET_MS, null);
       if (!forced || !forced.ok) {
         // SW unreachable: the direct-write fallback, same availability rule
         // as inside the loop. A fill is never droppable.
@@ -3452,6 +3569,11 @@
       // directly (prewatch does exactly this for the panel at detection) so
       // the buy never waits on an indexer. Price is chain state.
       //
+      // Solana ONLY: an EVM address has no Solana pool or curve, and probing
+      // it here fired real getMultipleAccounts storms on every foreign click
+      // (the RH debug reports' hundreds of Solana 403/429s) while the answer
+      // could never arrive. The resolver is the foreign click's last resort.
+      //
       // D-60: this used to also require `token.pending`. That flag means "the
       // panel has never had a price", but the condition guarding this block
       // is already the stronger, more direct fact: no source produced a
@@ -3460,9 +3582,12 @@
       // but no number, a coin whose feed went quiet — could therefore never
       // reach the chain at all, which is the one source that always knows.
       // The chain is the authority on price; asking it is never wrong here.
-      let found = await R.onchainPrewatch({ pool: addr }).catch(() => null);
-      if (!found || !(Number(found.priceNative) > 0)) {
-        found = await R.onchainPrewatch({ mint: addr }).catch(() => null);
+      let found = null;
+      if (chainIsSolana(chain)) {
+        found = await R.onchainPrewatch({ pool: addr }).catch(() => null);
+        if (!found || !(Number(found.priceNative) > 0)) {
+          found = await R.onchainPrewatch({ mint: addr }).catch(() => null);
+        }
       }
       if (found && found.mint && Number(found.priceNative) > 0) {
         data = {
@@ -3480,11 +3605,15 @@
     }
     if (!data || !(Number(data.priceNative) > 0)) return null;
     if (!token) return null;
-    if (token.mint !== addr && token.srcAddress !== addr) return null;
+    if (!sameMint(token.mint, addr) && !sameMint(token.srcAddress, addr)) return null;
     const freshMint = data.mint || addr;
-    if (token.mint && freshMint !== token.mint) {
+    if (token.mint && !sameMint(freshMint, token.mint)) {
       if (!token.pending) return null;
-      if (token.srcAddress !== token.mint && token.pairAddress && token.pairAddress !== freshMint) return null;
+      // Cross-family renames are never legitimate: a Solana probe answer
+      // must not rename an EVM stand-in and vice versa (the P0-3 "goes to
+      // SOL instead of RH" class — same corruption, later in the click).
+      if (EVM_ADDR_RE.test(freshMint || '') !== EVM_ADDR_RE.test(token.mint || '')) return null;
+      if (!sameMint(token.srcAddress, token.mint) && token.pairAddress && !sameMint(token.pairAddress, freshMint)) return null;
       token.mint = freshMint;
     }
     if (data.priceSource === 'resolver' || data.priceSource === 'chain'
@@ -3503,6 +3632,7 @@
       token.anchor = {
         mint: token.mint, priceNative: Number(token.priceNative),
         priceUsd: Number(token.priceUsd) || null, mcap: Number(token.mcap) || null,
+        chain: token.chain || null,
       };
     }
     if (token.mint) E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
@@ -3595,7 +3725,7 @@
         buyInFlight = true;
         buyInFlightAt = Date.now();
         try {
-          await acquireClickQuote(token.mint || token.srcAddress, token.chain);
+          await bounded(acquireClickQuote(token.mint || token.srcAddress, token.chain), CLICK_QUOTE_BUDGET_MS, null);
         } catch (_) { /* a failed acquisition beat is not a teardown */ }
         buyInFlight = false;
         if (!contextAlive()) return shutdown('invalidated');
@@ -7008,8 +7138,7 @@
    * chain is evidence for an optional leaderboard.
    */
   async function commitFill(trade) {
-    if (!trade) return;
-    const result = await sendMessage({ type: 'pt_attest_append', trade });
+    const result = await bounded(sendMessage({ type: 'pt_attest_append', trade }), ATTEST_BUDGET_MS, null);
     if (!result || result.ok !== true) {
       /* evidence is best-effort; never interfere with trading — but say so
        * ONCE, or verifyChain later reports a mismatch the user cannot explain
@@ -7223,7 +7352,9 @@
    * as the panel's pending-token path does. An identity/supply-only answer
    * stays honest: no price, no fill. */
   async function rowChainQuote(addr, kind) {
-    if (!addr || !ROW_ADDR_RE.test(addr)) return null;
+    // Row chips are Solana-only (a row carries no chain): an EVM address
+    // never reaches the Solana prewatch.
+    if (!addr || !ROW_ADDR_RE.test(addr) || EVM_ADDR_RE.test(addr)) return null;
     // D-39/D-40: probe BOTH shapes. The kind label guesses (pair -> pool,
     // mint -> mint), but a fresh Trenches row can be either: the chain
     // classifies the account, not the page's kind. Pool first (a live
@@ -7308,6 +7439,9 @@
   function scanRowBuys() {
     if (!site || !site.rowBuy || settings.listQuickBuyEnabled === false) return;
     if (!site.rowBuy.listPaths.test(location.pathname)) return;
+    // A hidden tab's chips can wait: layout reads on an invisible page buy
+    // nothing, and the next visible bar-scan re-sweeps within a second.
+    if (typeof document !== 'undefined' && document.hidden) return;
     const now = Date.now();
     if (now - rowBuyScanAt < 350) return;
     rowBuyScanAt = now;
@@ -7332,9 +7466,29 @@
   // observer makes chips appear with the row instead of on the next poll.
   let rowBuyObserver = null;
   let rowBuyDebounce = null;
+  // True when a mutation record is OUR OWN chip paint: chips live in a
+  // plain-DOM layer under body, so every chip add/remove is a body-subtree
+  // childList mutation. Reacting to it re-asks for the scan that just
+  // painted, sustaining a several-Hz full-list walk on churning screeners
+  // (the September Axiom/GMGN page freezes — renderer thread saturated by
+  // forced layout, F12 dead). Only site mutations schedule work.
+  function rowMutationIsOurs(record) {
+    if (typeof document === 'undefined' || !record || !record.target) return false;
+    const layer = document.getElementById('pt-rowbuy-layer');
+    if (!layer) return false;
+    const target = record.target;
+    return target === layer || (typeof layer.contains === 'function' && layer.contains(target));
+  }
   function startRowBuyObserver() {
     if (rowBuyObserver || !document.body) return;
-    rowBuyObserver = new MutationObserver(() => {
+    rowBuyObserver = new MutationObserver((records) => {
+      if (records && records.length) {
+        let siteTouched = false;
+        for (const record of records) {
+          if (!rowMutationIsOurs(record)) { siteTouched = true; break; }
+        }
+        if (!siteTouched) return;
+      }
       if (rowBuyDebounce) return;
       rowBuyDebounce = setTimeout(() => {
         rowBuyDebounce = null;
@@ -7345,6 +7499,11 @@
       }, 200);
     });
     rowBuyObserver.observe(document.body, { childList: true, subtree: true });
+    // First-paint accelerator only: once the list has hydrated, the 1 s
+    // bar-scan cadence owns steady state (new rows wait at most a second
+    // for chips). A perpetual observer here drove a full MAIN-world list
+    // walk several times a second, forever.
+    setTimeout(() => { stopRowBuyObserver(); }, 8000);
     onTeardown(stopRowBuyObserver);
   }
   function stopRowBuyObserver() {
@@ -7490,10 +7649,13 @@
     // The chain classifies the click address the same way prewatch does —
     // one bounded read, never blocking the fill: a miss keeps the row's own
     // address as the key, exactly the honest legacy behavior.
-    if (address && (!data.mint || data.mint === address)) {
+    if (address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)) {
       try {
         const found = await R.onchainPrewatch({ mint: address, pool: address }).catch(() => null);
-        if (found && found.mint && found.mint !== data.mint) {
+        // Cross-family answers are never adopted: the Solana chain cannot
+        // name an EVM coin, whatever shape the answer wears.
+        if (found && found.mint && !sameMint(found.mint, data.mint)
+          && EVM_ADDR_RE.test(found.mint) === EVM_ADDR_RE.test(data.mint || address)) {
           data.mint = found.mint;
           if (!data.pairAddress && found.pool) data.pairAddress = found.pool;
         }

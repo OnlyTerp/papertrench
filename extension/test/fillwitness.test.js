@@ -81,15 +81,17 @@ test('F-47: the fill path actually routes through the witness', () => {
   // only — a foreign token skips the Solana RPC pool entirely (never a fake
   // onchainLive for another chain) and goes straight to the independent
   // worker quote with its chain attached.
-  assert.match(content, /if \(aggregator\) \{\s*\n\s*const mint = token && token\.mint;\s*\n\s*const obs = chain === 'solana' \? await R\.onchainQuote\(mint\)\.catch\(\(\) => null\) : null;/,
-    'an aggregator candidate must be witnessed by the chain on solana, never by the aggregator again — and EVM must not touch the RPC pool');
+  assert.match(content, /const mint = token && token\.mint;/,
+    'the witness reads the settled token mint');
+  assert.match(content, /const obs = chain === 'solana' \? await bounded\(R\.onchainQuote\(mint\), WITNESS_BUDGET_MS, null\) : null;/,
+    'an aggregator candidate must be witnessed by the chain on solana, never by the aggregator again — and EVM must not touch the RPC pool (bounded, so a wedged feed cannot hang the fill)');
   // D-71 (RPC exit): when the public pool has no positive chain observation,
   // the witness falls back to the independent worker quote (Indeix via
   // papertrench.com) — still never the aggregator that served the candidate.
   // E3: that quote is chain-qualified, so an EVM witness can never be served
   // from Solana data.
-  assert.match(content, /const worker = await R\.workerQuote\(mint, chain\);/,
-    'a dead chain lane falls back to the chain-qualified worker quote, not to silence');
+  assert.match(content, /const worker = await bounded\(R\.workerQuote\(mint, chain\), WITNESS_BUDGET_MS, null\);/,
+    'a dead chain lane falls back to the chain-qualified worker quote, not to silence (bounded)');
   assert.match(content, /if \(Q\.witnessAgrees\(useUsdWitness \? chosen\.priceUsd : chosen\.priceNative,\s*\n\s*useUsdWitness \? witnessUsd : witnessNative\)\) return chosen;/,
     'only an agreeing witness lets a divergent candidate fill - and foreign candidates are compared in their own USD units');
 });

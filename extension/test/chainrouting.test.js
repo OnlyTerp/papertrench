@@ -81,12 +81,12 @@ const MATRIX = [
   // The 8/6 refusal rows were inverted — same URLs, same chains, now MOUNT.
   // Shape strictness and O-10 rows below are unchanged.
   [`https://gmgn.ai/eth/token/${USDT_ETH}`, 'gmgn', 'mint', USDT_ETH, 'ethereum', 'GATE OPEN: ethereum mounts with its true chain'],
-  [`https://gmgn.ai/bsc/token/${USDT_BSC}`, 'gmgn', 'mint', USDT_BSC, 'bsc', 'GATE OPEN: bsc'],
+  [`https://gmgn.ai/bsc/token/${USDT_BSC}`, 'gmgn', 'mint', USDT_BSC, 'bnb', 'GATE OPEN: bnb (GMGN slug bsc emits canonical bnb)'],
   [`https://gmgn.ai/base/token/${USDC_BASE}`, 'gmgn', 'mint', USDC_BASE, 'base', 'GATE OPEN: base'],
   [`https://birdeye.so/ethereum/token/${USDT_ETH}`, 'birdeye', 'mint', USDT_ETH, 'ethereum', 'GATE OPEN: ethereum'],
   [`https://birdeye.so/base/token/${USDC_BASE}`, 'birdeye', 'mint', USDC_BASE, 'base', 'GATE OPEN: base'],
   [`https://dexscreener.com/ethereum/${WETH_PAIR}`, 'dexscreener', 'pair', WETH_PAIR, 'ethereum', 'GATE OPEN: ethereum'],
-  [`https://dexscreener.com/bsc/${USDT_BSC}`, 'dexscreener', 'pair', USDT_BSC, 'bsc', 'GATE OPEN: bsc'],
+  [`https://dexscreener.com/bsc/${USDT_BSC}`, 'dexscreener', 'pair', USDT_BSC, 'bnb', 'GATE OPEN: bnb (DexScreener slug bsc emits canonical bnb)'],
   [`https://fomo.family/tokens/bnb/${USDT_BSC}`, 'fomo', 'mint', USDT_BSC, 'bnb', 'GATE OPEN: fomo is the chain-densest terminal, so this branch matters most'],
 
   // ---- Robinhood Chain: the NEW chain this gate opening exists for ----
@@ -123,7 +123,7 @@ const MATRIX = [
   [`https://axiom.trade/t/${SOL_MINT}?chain=sol`, 'axiom', 'mint', SOL_MINT, 'solana', 'the /t/ mint route is untouched, explicit sol slug'],
   [`https://axiom.trade/meme/${SOL_MINT}`, 'axiom', 'pair', SOL_MINT, 'solana', 'no ?chain= stays Solana — old links and tokenUrl() output resolve unchanged'],
   [`https://axiom.trade/meme/${USDT_ETH}?chain=eth`, 'axiom', 'pair', USDT_ETH, 'ethereum', 'GATE OPEN: eth recognised via ?chain= and mounted'],
-  [`https://axiom.trade/meme/${USDT_BSC}?chain=bnb`, 'axiom', 'pair', USDT_BSC, 'bsc', "GATE OPEN: bnb (Axiom's slug for BSC)"],
+  [`https://axiom.trade/meme/${USDT_BSC}?chain=bnb`, 'axiom', 'pair', USDT_BSC, 'bnb', "GATE OPEN: bnb (Axiom's slug for BSC)"],
   [`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`, 'axiom', 'pair', EVM_B58ISH, 'ethereum', 'the O-11 hazard resolves to its OWN chain, never to Solana'],
   [`https://axiom.trade/meme/${SOL_MINT}?chain=eth`, 'axiom', null, null, null, 'a base58 mint under an EVM slug is a contradiction'],
   [`https://axiom.trade/meme/${USDT_ETH}?chain=sol`, 'axiom', null, null, null, 'an EVM address under the sol slug is never a mint'],
@@ -193,7 +193,7 @@ test('the route knowledge survives the gate: shapes are still parsed, then decli
   sameRecord(detectWithGateOpen(`https://gmgn.ai/eth/token/${USDT_ETH}`),
     { kind: 'mint', address: USDT_ETH, chain: 'ethereum' }, 'gmgn ethereum');
   sameRecord(detectWithGateOpen(`https://gmgn.ai/bsc/token/${USDT_BSC}`),
-    { kind: 'mint', address: USDT_BSC, chain: 'bsc' }, 'gmgn bsc');
+    { kind: 'mint', address: USDT_BSC, chain: 'bnb' }, 'gmgn bnb (bsc slug emits canonical bnb)');
   sameRecord(detectWithGateOpen(`https://birdeye.so/ethereum/token/${USDT_ETH}`),
     { kind: 'mint', address: USDT_ETH, chain: 'ethereum' }, 'birdeye ethereum');
   sameRecord(detectWithGateOpen(`https://dexscreener.com/ethereum/${WETH_PAIR}`),
@@ -201,7 +201,7 @@ test('the route knowledge survives the gate: shapes are still parsed, then decli
   sameRecord(detectWithGateOpen(`https://axiom.trade/meme/${USDT_ETH}?chain=eth`),
     { kind: 'pair', address: USDT_ETH, chain: 'ethereum' }, 'axiom ethereum (chain in the query)');
   sameRecord(detectWithGateOpen(`https://axiom.trade/t/${USDT_BSC}?chain=bnb`),
-    { kind: 'mint', address: USDT_BSC, chain: 'bsc' }, 'axiom bsc (bnb slug maps to bsc)');
+    { kind: 'mint', address: USDT_BSC, chain: 'bnb' }, 'axiom bnb (bnb slug is canonical)');
   // And the hazard address routes to ETHEREUM even then — never to Solana.
   assert.equal(detectWithGateOpen(`https://gmgn.ai/eth/token/${EVM_B58ISH}`).chain, 'ethereum');
   assert.equal(detectWithGateOpen(`https://axiom.trade/meme/${EVM_B58ISH}?chain=eth`).chain, 'ethereum');
@@ -251,10 +251,10 @@ test('a positions-bar chip returns to the RIGHT chain', () => {
   // design B needs it intact. A chip that returns to the wrong chain is a
   // link to a different token.
   const S = sitesApi();
-  assert.match(S.tokenUrlFor(USDT_BSC, { siteId: 'gmgn', chain: 'bsc' }), /gmgn\.ai\/bsc\/token\//);
+  assert.match(S.tokenUrlFor(USDT_BSC, { siteId: 'gmgn', chain: 'bnb' }), /gmgn\.ai\/bsc\/token\//);
   assert.match(S.tokenUrlFor(USDT_ETH, { siteId: 'birdeye', chain: 'ethereum' }), /birdeye\.so\/ethereum\/token\//);
   assert.match(S.tokenUrlFor(USDT_ETH, { siteId: 'dexscreener', chain: 'ethereum' }), /dexscreener\.com\/ethereum\//);
-  assert.ok(!/\/tokens\/solana\//.test(S.tokenUrlFor(USDT_BSC, { siteId: 'fomo', chain: 'bsc' })),
+  assert.ok(!/\/tokens\/solana\//.test(S.tokenUrlFor(USDT_BSC, { siteId: 'fomo', chain: 'bnb' })),
     'a BSC token must never be linked as a fomo solana route');
   assert.ok(!/dexscreener\.com\/solana\//.test(S.tokenUrlFor(USDT_ETH, { siteId: 'nope', chain: 'ethereum' })),
     'the universal fallback must not send an ethereum token to /solana/');
@@ -262,4 +262,43 @@ test('a positions-bar chip returns to the RIGHT chain', () => {
   // Solana keeps its exact existing behaviour, chain or no chain.
   assert.match(S.tokenUrlFor(SOL_MINT, { siteId: 'gmgn' }), /gmgn\.ai\/sol\/token\//);
   assert.match(S.tokenUrlFor(SOL_MINT, { siteId: 'fomo' }), /fomo\.family\/tokens\/solana\//);
+});
+
+test('every chain detection emits survives the background trust boundary', () => {
+  // The v3.22 BNB outage in one lock: sites.js emitted `bsc` while the
+  // background's chainOfClaim knew only `bnb` — pt_resolve defaulted to
+  // solana, the 0x shape check failed, and BNB pages sat pending forever
+  // ("Why can't I use BSC?"). Real detect() URLs through the REAL
+  // background validators, so the two vocabularies can never split again.
+  const backgroundTests = fs.readFileSync(path.join(__dirname, 'background.test.js'), 'utf8');
+  const workerStart = backgroundTests.indexOf('function serviceWorker(');
+  const workerEnd = backgroundTests.indexOf('\nfunction send(', workerStart);
+  assert.ok(workerStart >= 0 && workerEnd > workerStart, 'existing worker harness must exist');
+  const serviceWorker = new Function('ROOT', 'fs', 'path', 'vm',
+    backgroundTests.slice(workerStart, workerEnd) + '\nreturn serviceWorker;')(ROOT, fs, path, vm);
+  const worker = serviceWorker();
+  const claim = (chain) => vm.runInContext(`chainOfClaim(${JSON.stringify(chain)})`, worker.ctx);
+  const shapeOk = (addr, chain) => vm.runInContext(
+    `isAddressForChain(${JSON.stringify(addr)}, ${JSON.stringify(chain)})`, worker.ctx);
+
+  const BNB_URLS = [
+    `https://gmgn.ai/bsc/token/${USDT_BSC}`,
+    `https://gmgn.ai/bnb/token/${USDT_BSC}`,
+    `https://axiom.trade/meme/${USDT_BSC}?chain=bnb`,
+    `https://dexscreener.com/bsc/${USDT_BSC}`,
+    `https://trade.padre.gg/trade/bnb/${USDT_BSC}`,
+    `https://birdeye.so/bsc/token/${USDT_BSC}`,
+    `https://fomo.family/tokens/bnb/${USDT_BSC}`,
+  ];
+  for (const href of BNB_URLS) {
+    const token = detectAt(href).token;
+    assert.ok(token, `${href} must detect`);
+    assert.equal(token.chain, 'bnb', `${href} must emit canonical bnb`);
+    assert.equal(claim(token.chain), 'bnb', `${href}: the background must accept the emitted chain`);
+    assert.ok(shapeOk(token.address, claim(token.chain)), `${href}: the address must pass its own chain's shape`);
+  }
+  // Legacy stored data still says `bsc` — the boundary heals it, never Solana.
+  assert.equal(claim('bsc'), 'bnb', 'legacy bsc normalizes to canonical bnb');
+  assert.ok(shapeOk(USDT_BSC, claim('bsc')), 'a legacy-bnb address passes under the normalized chain');
+  assert.equal(claim('notachain'), null, 'unknown chains fail closed, never Solana');
 });
