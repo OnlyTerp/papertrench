@@ -223,7 +223,7 @@ test('F-33: single-account pools keep the strict newer-slot guard', () => {
 
 const vm2 = require('node:vm');
 
-function feedWithRpc(handler) {
+function feedWithRpc(handler, opts) {
   const sentFrames = [];
   const rpcMethods = [];
   const sandbox = {
@@ -253,9 +253,9 @@ function feedWithRpc(handler) {
   vm2.runInContext(fs.readFileSync(path.join(ROOT, 'onchain-feed.js'), 'utf8'), ctx, { filename: 'onchain-feed.js' });
   sandbox.PTOnchainFeed._sentFrames = sentFrames;
   sandbox.PTOnchainFeed._rpcMethods = rpcMethods;
+  if (opts && opts.errors) sandbox.PTErrors = opts.errors;
   return sandbox.PTOnchainFeed;
 }
-
 function curveAccountB64({ virtualToken, virtualSol, complete }) {
   const bytes = Buffer.alloc(64);
   bytes.writeBigUInt64LE(BigInt(virtualToken), 8);
@@ -644,4 +644,32 @@ test('D-62: a throwing RPC makes prewatch resolve null — not reject from its o
   assert.equal(rejection, null,
     `prewatch must swallow probe faults and resolve; it rejected with: ${rejection && rejection.message}`);
   assert.equal(result, null, 'the designed answer for an unreachable chain is null');
+});
+
+test('pool-down prewatch failures log once per minute, not per call (ark 2026-09-12)', async () => {
+  const BOOM_MINT = 'BoomMint11111111111111111111111111111111111';
+  let records = 0;
+  const feed = feedWithRpc(async () => {
+    const down = new Error('rpc pool cooling down');
+    down.kind = 'pool-down';
+    throw down;
+  }, { errors: { record() { records += 1; } } });
+
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(await feed.prewatch({ mint: BOOM_MINT }), null, 'pool-down still resolves null');
+  }
+  assert.equal(records, 1, 'three same-minute pool-down failures must log exactly once');
+});
+
+test('non-pool-down prewatch failures still log every time', async () => {
+  const BOOM_MINT = 'BoomMint11111111111111111111111111111111111';
+  let records = 0;
+  const feed = feedWithRpc(async () => { throw new Error('weird transport fault'); }, {
+    errors: { record() { records += 1; } },
+  });
+
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(await feed.prewatch({ mint: BOOM_MINT }), null);
+  }
+  assert.equal(records, 3, 'genuine faults must never be quieted by the pool-down rule');
 });

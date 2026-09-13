@@ -373,13 +373,14 @@
    * Failover is the entire point: a keyless endpoint WILL throttle, and the
    * user must never see that as a dead price feed.
    */
-  // Circuit breaker: once every endpoint is benched, more traffic resets
-  // nothing — it keeps the strikes coming and the pool benched forever
-  // (DEFECT F-09 cascade). Fail fast during the cooldown and let one
+  // Circuit breaker: once every endpoint is down (benched OR throttled —
+  // 429s throttle without benching, so a benched-only check never fired and
+  // the pool re-walked itself ~600 times/hr, ark 2026-09-12), more traffic
+  // resets nothing — it keeps the strikes coming and the pool down forever
+  // (DEFECT F-09 cascade). Fail fast during the outage and let one
   // half-open probe through periodically to discover recovery.
   let lastBenchedProbeAt = 0;
   const BENCHED_PROBE_MS = 5000;
-
   /* Flight recorder: the last ATTEMPT_LOG_MAX attempts, for forensics. The
    * ark_trades13 debug export showed errors with no attempt context, which
    * turned a 5-minute diagnosis into an archaeology dig. Exposed via
@@ -510,10 +511,31 @@
       throw blocked;
     }
     let endpoints = ranked(Object.assign({}, opts, { method }));
+    // Confirmed policy blocks are never re-attempted: a 403-confirmed
+    // endpoint answers the same refusal every walk, so attempting it burns
+    // an HTTP round trip and a log line for a known answer (ark 2026-09-12:
+    // publicnode+labs 403s re-attempted on every prewatch). The filter can
+    // only empty the list when methodBlockedEverywhere already threw above
+    // (a user endpoint never carries blocks), but it guards anyway — worst
+    // case is the old behavior, never an empty walk.
+    if (method) {
+      const unblocked = endpoints.filter(
+        (e) => !((stateFor(e.id).methodBlocks[method] || 0) > Date.now()));
+      if (unblocked.length) endpoints = unblocked;
+    }
     const now = Date.now();
-    if (endpoints.length && endpoints.every((e) => stateFor(e.id).benchedUntil > now)) {
+    // Pool-wide fast-fail: benched OR throttled on every endpoint means the
+    // pool is down, and re-walking it per call only rebuilds the storm the
+    // F-09 breaker was built to stop (429s throttle without benching, so the
+    // old all-benched check never fired: ~600 errors/hr). Fail fast with a
+    // stamped kind so callers log once/minute, and let one half-open probe
+    // through per window to discover recovery.
+    const poolDown = (e) => stateFor(e.id).benchedUntil > now || stateFor(e.id).throttledUntil > now;
+    if (endpoints.length && endpoints.every(poolDown)) {
       if (now - lastBenchedProbeAt < BENCHED_PROBE_MS) {
-        throw new Error('rpc pool cooling down');
+        const down = new Error('rpc pool cooling down');
+        down.kind = 'pool-down';
+        throw down;
       }
       lastBenchedProbeAt = now;
       // The single half-open probe ROTATES (F-63): one dead head used to
@@ -523,7 +545,6 @@
       probeCursor += 1;
       endpoints = endpoints.slice(probeIndex, probeIndex + 1);
     }
-    if (!endpoints.length) throw new Error('no rpc endpoint available');
 
     const controllers = [];
     const race = { winner: null };

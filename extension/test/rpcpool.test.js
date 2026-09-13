@@ -331,7 +331,11 @@ test('a wholly refused pool reports null latency — the notice guard bails on i
     'no successful call means nothing to measure — this is why a latency-only notice is silent');
 
   const stress = P.poolStress();
-  assert.ok(stress.attempts >= 12, `real attempts must be recorded, got ${stress.attempts}`);
+  // The count floor is deliberately 0, not the old walk shape: what matters
+  // is that real attempts exist in the log and every one failed (a dead pool
+  // must look STRESSED, never clean). The walk shape itself (fast-fail +
+  // single probe) is pinned by the throttle-storm tests in rpcthrottle.test.js.
+  assert.ok(stress.attempts > 0, `real attempts must be recorded, got ${stress.attempts}`);
   assert.equal(stress.failRate, 1, 'every attempt failed; the pool cannot do its job');
 });
 

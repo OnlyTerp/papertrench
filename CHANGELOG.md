@@ -2,7 +2,12 @@
 
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
- 
+
+## v3.23.2 — 2026-09-12
+
+- **The public RPC storm is over.** When every free Solana endpoint was 403/429, the pool re-walked itself hundreds of times an hour instead of cooling down — 429s throttle without benching, so the old "all benched" breaker never fired. Now a fully-down pool fails fast (one probe every 5s to discover recovery), 403-confirmed endpoints are skipped instead of re-attempted, and the same "pool is down" line logs once a minute instead of flooding the debug dump. If you were dumping 600 publicnode errors an hour on 3.23.0, this is the one.
+- **Axiom supply corroboration actually adopts.** Axiom's WS supply ticks carry no price and no mcap, so every token refused the venue's supply forever and the overlay never corroborated. The live quote now completes those legs, the 1% rule still applies, and the overlay can finally agree with the page.
+
 ## v3.23.1 — 2026-09-12
 
 - **Prediction markets: refusals that say why, quotes that expire, dead venues gone.** An external audit of the prediction port came back with a punchlist and this release works through it. Hyperliquid outcomes is removed entirely — its adapter could only ever return null, so it mounted a panel that could never quote; it comes back when the discovery work is done, not before. Kalshi series pages (2-segment URLs that can never resolve to a book) no longer mount badge or panel.

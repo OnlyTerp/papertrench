@@ -572,7 +572,7 @@
     'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
   ]);
 
-  function hostFactsDecision(t, facts) {
+  function hostFactsDecision(t, facts, live) {
     var result = {
       adoptMint: null,
       poolAddress: null,
@@ -612,6 +612,16 @@
 
     var priceUsd = Number(payload.priceUsd);
     var mcap = Number(payload.mcap);
+    // Supply-only facts (Axiom WS supply ticks carry no price, no mcap, no
+    // decimals) complete from the LIVE validated quote instead of refusing:
+    // the content already trades on these numbers, so corroborating the
+    // venue's supply against them is honest. The 1% rule below still
+    // applies — completion only supplies the legs, never the verdict.
+    // (ark_trades13 2026-09-12: every Axiom token refused supply forever.)
+    if ((!((priceUsd > 0) && (mcap > 0))) && live && typeof live === 'object') {
+      if (!(priceUsd > 0) && Number(live.priceUsd) > 0) priceUsd = Number(live.priceUsd);
+      if (!(mcap > 0) && Number(live.mcap) > 0) mcap = Number(live.mcap);
+    }
     var hasSupply = payload.supply !== null && payload.supply !== undefined;
     if (!(priceUsd > 0) || !(mcap > 0)) {
       if (hasSupply) result.reason = result.reason || 'no-united-price';

@@ -639,7 +639,15 @@
 
   function handleHostFacts(facts) {
     if (!facts || !token || !token.pending) return;
-    const decision = Q.hostFactsDecision(token, facts);
+    // Live legs for supply-only facts: the validated quote corroborates the
+    // venue's supply when the facts frame carries none (Axiom WS supply
+    // ticks). token.priceUsd/mcap are set on accepted ticks only — never
+    // resolver adoptions — so this is the price we trade on, not a guess.
+    const live = {
+      priceUsd: Number(token.priceUsd) > 0 ? Number(token.priceUsd) : null,
+      mcap: Number(token.mcap) > 0 ? Number(token.mcap) : null,
+    };
+    const decision = Q.hostFactsDecision(token, facts, live);
     if (decision.adoptMint) {
       const oldMint = token.mint;
       if (armedBuy && armedBuy.mint === oldMint) armedBuy.mint = decision.adoptMint;
@@ -672,16 +680,21 @@
       return;
     }
     if (!(decision.supplyUi > 0)) return;
+    // Adoption with missing facts legs means the live quote completed them
+    // (the decision requires united values) — the witness says so, or a
+    // later reader mistakes venue data for something the venue never sent.
+    const completed = !(Number(facts.priceUsd) > 0) || !(Number(facts.mcap) > 0);
     token.hostSupplyUi = decision.supplyUi;
     token.hostSupplyWitness = {
       source: facts.source || null,
       url: facts.url || null,
       keys: {
-        priceUsd: facts.priceUsd,
-        mcap: facts.mcap,
+        priceUsd: completed && !(Number(facts.priceUsd) > 0) ? live.priceUsd : facts.priceUsd,
+        mcap: completed && !(Number(facts.mcap) > 0) ? live.mcap : facts.mcap,
         supply: facts.supply,
         decimals: facts.decimals,
       },
+      completedFromLive: completed || undefined,
       atMs: Date.now(),
     };
   }

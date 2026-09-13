@@ -899,3 +899,65 @@ test('host-supply bootstrap reports its supply provenance', () => {
   assert.equal(verdict.accepted, true);
   assert.equal(verdict.supplyBasis, 'host');
 });
+
+test('supply-only WS facts complete from the live quote (ark Axiom 2026-09-12)', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const token = { mint: PAIR, srcAddress: PAIR, pending: true };
+  // Exactly what Axiom's WS emits: supply with no price, no mcap, no decimals.
+  const facts = { mint: MINT, addresses: [PAIR], supply: 1000000000 };
+  const live = { priceUsd: 0.006, mcap: 6000000 };
+  const d = Q.hostFactsDecision(token, facts, live);
+  assert.equal(d.refused, false, 'live-completed facts must not refuse');
+  assert.equal(d.supplyUi, 1000000000, 'supply agreeing with live-implied adopts');
+});
+
+test('live completion still enforces the 1% agreement rule', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const token = { mint: PAIR, srcAddress: PAIR, pending: true };
+  const facts = { mint: MINT, addresses: [PAIR], supply: 2000000000 };
+  const live = { priceUsd: 0.006, mcap: 6000000 }; // implies 1e9, facts say 2e9
+  const d = Q.hostFactsDecision(token, facts, live);
+  assert.equal(d.refused, true, 'a disagreeing supply must refuse even when completed');
+  assert.equal(d.reason, 'no-reading-agreed');
+});
+
+test('without live values a supply-only fact still reports no-united-price', () => {
+  global.window = global.window || {};
+  const Q = require('../quote.js');
+  const token = { mint: PAIR, srcAddress: PAIR, pending: true };
+  const facts = { mint: MINT, addresses: [PAIR], supply: 1000000000 };
+  assert.equal(Q.hostFactsDecision(token, facts, null).reason, 'no-united-price');
+  assert.equal(Q.hostFactsDecision(token, facts, {}).reason, 'no-united-price');
+  assert.equal(Q.hostFactsDecision(token, facts).reason, 'no-united-price');
+});
+
+test('pending overlay adopts supply-only facts against its live quote (ark Axiom 2026-09-12)', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    // Live quote exists: 0.02 USD with a 1e8 cap (implied supply 5e9).
+    // Tick VALIDATION is locked elsewhere; here only the legs matter.
+    Q.bootstrapTick = () => ({
+      accepted: true, priceNative: 0.0001, priceUsd: 0.02,
+      mcap: 100000000, basis: 'mcap',
+    });
+    api.pageTick({ mint: PAIR, symbol: 'T', source: 'test-live', candidates: [] });
+    await settleOverlay(ov);
+    Q.bootstrapTick = originalBootstrap;
+    assert.equal(api.getToken().priceUsd, 0.02, 'the live leg must be set before facts arrive');
+    // Axiom WS supply tick: supply with no price, no mcap, no decimals.
+    ov.dispatchBridge('facts', { mint: PAIR, addresses: [PAIR], supply: 5000000000 });
+    const tok = api.getToken();
+    assert.equal(tok.hostSupplyUi, 5000000000, 'supply agreeing with the live quote must adopt');
+    assert.equal(tok.hostSupplyWitness && tok.hostSupplyWitness.completedFromLive, true,
+      'the witness must record that the live quote completed the legs');
+  } finally {
+    loader.restore();
+  }
+});

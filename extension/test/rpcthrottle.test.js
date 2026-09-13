@@ -175,3 +175,38 @@ test('network failures still take two strikes and bench unchanged', async () => 
   assert.equal(state.failures, 2);
   assert.ok(state.benchedUntil > Date.now());
 });
+
+test('the half-open probe touches exactly one endpoint, then fast-fail resumes', async () => {
+  let fetchCalls = 0;
+  const P = loadPool(async () => {
+    fetchCalls += 1;
+    return throttleResponse();
+  });
+
+  await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
+  assert.equal(fetchCalls, 3);
+  // The probe window is fresh (no probe sent yet): exactly one endpoint.
+  await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
+  assert.equal(fetchCalls, 4, 'half-open probe touches exactly one endpoint (F-09 contract)');
+  // Window spent: fast-fail again with no attempts.
+  await assert.rejects(() => P.call('getMultipleAccounts', []), /cooling down/);
+  assert.equal(fetchCalls, 4);
+});
+
+test('method-blocked endpoints are skipped, never re-attempted', async () => {
+  let fetchCalls = 0;
+  const P = loadPool(async () => {
+    fetchCalls += 1;
+    return throttleResponse();
+  });
+
+  // Confirm policy blocks on two endpoints (two-strike evidence law).
+  for (const id of ['publicnode', 'solana-labs']) {
+    P.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
+    P.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
+  }
+  // Only tatum remains eligible: one attempt, then the 429 rejects.
+  // Before the fix the walk re-attempted both confirmed-403 endpoints.
+  await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
+  assert.equal(fetchCalls, 1, 'confirmed policy blocks must not be re-attempted');
+});

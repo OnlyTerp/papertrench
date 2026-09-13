@@ -135,6 +135,15 @@
     } catch (_) { /* never load-bearing */ }
   }
 
+  // Pool-down is steady-state, not news: the pool fails fast with a stamped
+  // kind, so a dead pool would otherwise log an identical line per prewatch
+  // (ark 2026-09-12: 'prewatch' x595/hr). Once per (fn, minute) keeps the
+  // fact without the flood; every other failure still logs every time.
+  function notePoolAware(error, context) {
+    if (error && error.kind === 'pool-down') noteFallbackErrorOnce(error, context);
+    else noteFeedError(error, context);
+  }
+
   /** Read accounts in size-capped batches, keeping the highest response slot.
    * On a method refusal mid-walk, the remaining keys fall back to the
    * per-account lane — already-answered batches are kept. */
@@ -1033,7 +1042,7 @@
       };
     } catch (error) {
       try { console.debug('PaperTrench: prewatch failed:', error && error.message); } catch (_) {}
-      noteFeedError(error, { fn: 'prewatch', pool: address || null });
+      notePoolAware(error, { fn: 'prewatch', pool: address || null });
       return null;
     }
   }
@@ -1072,7 +1081,7 @@
       return found ? { mint: found, pool: address } : null;
     } catch (error) {
       try { console.debug('PaperTrench: identify failed:', error && error.message); } catch (_) {}
-      noteFeedError(error, { fn: 'identify', pool: address || null });
+      notePoolAware(error, { fn: 'identify', pool: address || null });
       return null;
     }
   }
@@ -1106,7 +1115,7 @@
       desc = await describePool(poolAddress, mint);
     } catch (error) {
       try { console.error('PaperTrench: on-chain watch failed:', error && error.message); } catch (_) {}
-      noteFeedError(error, { fn: 'watch', mint, pool: poolAddress });
+      notePoolAware(error, { fn: 'watch', mint, pool: poolAddress });
       return false;
     }
     if (!desc) return false;
