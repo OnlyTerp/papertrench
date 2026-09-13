@@ -196,6 +196,39 @@ test('F-57: a genuine page tick still takes the fast path and pays nothing', asy
     'a fresh page tick must not pay the chain round trip — that is what F-52 bought');
 });
 
+test('a live chart older than 600ms still fills at the page price — RPC is not the click (ark 2026-09-12)', async () => {
+  // Axiom/Padre 1s candles easily go >600ms between ticks. The F-52 window
+  // was 600ms so a "quiet" chart paid an RPC hop, then maybeNoteSlowPool
+  // toasted "connection is being throttled" on a healthy machine, and half
+  // the brand-new-coin clicks missed. If the PAGE FEED is what last moved
+  // the number and the UI still stands behind it (STALE_FILL_MAX_AGE_MS),
+  // the click fills at that number. Resolver adoptions still cannot ride
+  // this path — lastPageTickAt is the provenance, not lastPriceAt.
+  const debugLines = [];
+  const now = Date.now();
+  const R = fakeResolver({
+    observation: { mint: MINT, priceNative: N_LAGGED, observedAt: now, slot: 99 },
+  });
+  const ladder = bootLadder({
+    token: {
+      mint: MINT, priceNative: N_MARKET, priceUsd: N_MARKET * 180,
+      mcap: 25_000, priceSource: 'padre-chart-bar', pending: false,
+    },
+    lastPriceAt: now - 1_800,
+    lastPageTickAt: now - 1_800,
+    R,
+    debugLines,
+  });
+  ladder.setEvidence({ priceNative: N_MARKET, at: now - 1_800 });
+
+  const q = await ladder.quoteForTrade();
+  assert.ok(q, 'a chart the trader is looking at must fill — not arm, not refuse, not wait on RPC');
+  assert.ok(Math.abs(q.priceNative - N_MARKET) / N_MARKET < 1e-9,
+    `the fill must land at the number on screen (got ${q.priceNative})`);
+  assert.equal(R.calls.onchain, 0,
+    'a live page tick inside the UI stale bound must not pay the chain at all');
+});
+
 test('F-57: an aggregator candidate is witnessed by the chain, not by the aggregator again', async () => {
   const debugLines = [];
   const now = Date.now();

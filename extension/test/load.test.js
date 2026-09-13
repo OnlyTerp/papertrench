@@ -685,23 +685,25 @@ test('fill errors reach the trader — withState no longer swallows them', () =>
   assert.match(contentSrc, /toast\(err\.message \|\| 'Sell failed'\)/);
 });
 
-test('quoteForTrade prices a fresh screen at the price on screen (F-33 → F-52)', () => {
+test('quoteForTrade prices a live page tick at the price on screen (F-33 → F-52)', () => {
   // F-33 established that the chain path CAN be systematically wrong (a
   // starved vault leg filled 13% under the Padre chart for a whole session),
   // so a fresh screen won the DIVERGENCE case. F-52 (superski) closed the
   // inconsistency that remained: inside the 6% agree band the chain still
   // overrode the number the trader clicked on, so recorded entries landed a
   // few percent above or below "the actual entry". The rule is now uniform —
-  // an on-screen price inside the sub-second window prices the fill, and the
-  // chain round trip is only paid when the screen is quiet.
+  // an on-screen PAGE-FEED price prices the fill for as long as the UI
+  // itself still stands behind it (STALE_FILL_MAX_AGE_MS). The old 600ms
+  // "sub-second" window threw a live 1s Axiom/Padre chart onto RPC and
+  // toasted "connection throttled" on a healthy machine (ark 2026-09-12).
   const contentSrc = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
   const fnStart = contentSrc.indexOf('async function pickQuoteForTrade()');
   const block = contentSrc.slice(fnStart, contentSrc.indexOf('\n  }', fnStart) + 4);
 
   assert.match(block, /const screenFresh = atClick\s*\n\s*&& atClickAge <= ONCHAIN_SCREEN_CHECK_MAX_AGE_MS/,
     'freshness is judged at click time, before any async hop');
-  assert.match(contentSrc, /const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600/,
-    'the fill-at-screen window must stay sub-second so a stale display never rides it');
+  assert.match(contentSrc, /const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = STALE_FILL_MAX_AGE_MS/,
+    'the fill-at-screen window is the UI stale bound — a live 1s chart must fill without RPC');
   // F-57: "fresh screen" must mean the SCREEN. atClickAge derives from
   // lastPriceAt, which resolver adoptions also stamp — so age alone let a
   // lagging aggregator quote take this path AS the on-screen price. The page
@@ -710,7 +712,7 @@ test('quoteForTrade prices a fresh screen at the price on screen (F-33 → F-52)
     'the fast path requires the PAGE FEED to have ticked, not merely a fresh timestamp');
   const screenReturnAt = block.indexOf('if (screenFresh) return atClick');
   const chainHopAt = block.indexOf('R.onchainQuote');
-  assert.ok(screenReturnAt !== -1, 'a fresh screen must fill at the on-screen price, unconditionally');
+  assert.ok(screenReturnAt !== -1, 'a live page tick must fill at the on-screen price, unconditionally');
   assert.ok(chainHopAt !== -1 && screenReturnAt < chainHopAt,
-    'the chain round trip must not even be paid when the screen is fresh');
+    'the chain round trip must not even be paid when the page feed is live');
 });

@@ -380,3 +380,19 @@ test('the notice fires on a failing pool and names which fault it saw', () => {
   assert.match(content, /throttled or refused where you are/,
     'the toast must describe a refused pool honestly rather than calling it slow');
 });
+
+test('the throttle notice is never written from a fill-path RPC hop (ark 2026-09-12)', () => {
+  // maybeNoteSlowPool still exists for the dashboard. It used to run after
+  // every pt_onchain_watch / pt_onchain_prewatch — i.e. every token page
+  // and every brand-new-coin click — so a healthy machine whose public
+  // pool was 403/429 toasted "connection is being throttled" on the buy.
+  const src = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+  const watch = src.slice(src.indexOf("case 'pt_onchain_watch'"), src.indexOf("case 'pt_onchain_unwatch'"));
+  const prewatch = src.slice(src.indexOf("case 'pt_onchain_prewatch'"), src.indexOf("case 'pt_onchain_identify'"));
+  assert.doesNotMatch(watch, /maybeNoteSlowPool/,
+    'watching a pool must not toast about the public connection');
+  assert.doesNotMatch(prewatch, /maybeNoteSlowPool/,
+    'a brand-new-coin prewatch must not toast about the public connection');
+  assert.match(src, /async function maybeNoteSlowPool/,
+    'the notice writer itself stays — dashboard / settings still say the fix');
+});

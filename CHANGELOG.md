@@ -3,6 +3,10 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.23.3 — 2026-09-13
+
+- **If the chart is on the page, the buy fills. Period.** A live Axiom/Padre 1-second candle easily goes more than 600ms between ticks. The old fill path treated that as a "quiet screen" and asked Solana RPC for a second opinion — then toasted "the public price connection is being throttled" on a machine whose internet was fine, and missed the click about half the time on brand-new coins. Now a page-feed price the UI still stands behind (same 3-second stale bound as the header) IS the fill. RPC is the fallback when the chart itself has gone stale, not between two candles. The throttle toast no longer fires from a token-page watch or a new-coin probe.
+
 ## v3.23.2 — 2026-09-12
 
 - **The public RPC storm is over.** When every free Solana endpoint was 403/429, the pool re-walked itself hundreds of times an hour instead of cooling down — 429s throttle without benching, so the old "all benched" breaker never fired. Now a fully-down pool fails fast (one probe every 5s to discover recovery), 403-confirmed endpoints are skipped instead of re-attempted, and the same "pool is down" line logs once a minute instead of flooding the debug dump. If you were dumping 600 publicnode errors an hour on 3.23.0, this is the one.

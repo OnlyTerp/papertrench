@@ -3343,8 +3343,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const watchTabId = sender && sender.tab && sender.tab.id;
           if (Number.isFinite(watchTabId)) chainWatchAdd(message.mint, watchTabId);
           sendResponse({ live: await FEED.watch(message.mint, message.pool) });
-          // The moment slowness hurts is the moment worth checking for it.
-          maybeNoteSlowPool(settings).catch(() => {});
+          // The throttle toast used to fire here — every token page that
+          // started a chain watch. A healthy click then read as "connection
+          // throttled" (ark 2026-09-12). The notice still exists; it is
+          // written from the dashboard, never from a fill.
         } catch (e) { sendResponse({ live: false }); }
         break;
       }
@@ -3393,8 +3395,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const settings = await getSettings();
           FEED.configure({ rpcUrl: settings.rpcUrl || null });
           sendResponse(await FEED.prewatch({ pool, mint }));
-          // The sniping path is where a throttled region bleeds — check here.
-          maybeNoteSlowPool(settings).catch(() => {});
+          // Same: a brand-new-coin click must not toast about the public
+          // pool. The fill uses the page price; the pool is not the click.
         } catch (e) { sendResponse(null); }
         break;
       }

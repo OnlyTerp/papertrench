@@ -2224,11 +2224,15 @@
   // price would be a lie. The old 10 s window routinely filled 30-50% away
   // from the live market on a moving memecoin (DEFECT F-01).
   const STALE_FILL_MAX_AGE_MS = 3000;
-  // An on-screen price at most this old is the price the trader is looking
-  // at — it prices the fill directly (F-52), and it is what a chain read
-  // must answer to when the two ever get compared (F-33 showed the chain
-  // path CAN be wrong). Sub-second, so a stale display never rides it.
-  const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = 600;
+  // An on-screen PAGE-FEED price is the price the trader is looking at —
+  // it prices the fill directly (F-52) for as long as the UI itself still
+  // stands behind it. The old 600ms window (F-33/F-52 "sub-second") was
+  // written against a tick-every-frame feed. Axiom/Padre 1s candles easily
+  // go >600ms between ticks; a live chart then paid an RPC hop, toasted
+  // "connection throttled" on a healthy machine, and missed the click
+  // (ark 2026-09-12). Provenance is lastPageTickAt, not lastPriceAt, so a
+  // resolver adoption still cannot ride this path (F-57).
+  const ONCHAIN_SCREEN_CHECK_MAX_AGE_MS = STALE_FILL_MAX_AGE_MS;
   // Bounds for the awaited hops below. The ladder may WAIT for a fresher
   // price, but it may never HANG: a wedged worker, a dead feed socket or a
   // slow aggregator each cost at most their bound, then the ladder falls

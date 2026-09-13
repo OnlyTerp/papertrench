@@ -94,39 +94,35 @@ function fakeResolver(overrides) {
   };
 }
 
-test('F-48: the WhiteBull sell — a lagging chain read on a quiet screen no longer prices the fill', async () => {
+test('F-48: the WhiteBull sell — a lagging chain read on a stale screen is refused, never booked', async () => {
   const debugLines = [];
   const now = Date.now();
   const R = fakeResolver({
-    // Value-lag wearing a fresh timestamp: the observation is stale in VALUE
-    // only — its observedAt is the moment of the click.
     observation: { mint: MINT, priceNative: N_LAGGED, observedAt: now, slot: 1 },
-    refreshResult: null, // pump-family, no aggregator anchor — exactly the field case
+    refreshResult: null,
   });
-  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 1500, R, debugLines });
-  // The tab accepted the 41K tick as money 1.5s ago — quiet (>600ms), not stale (<3s).
+  // Page feed itself is stale (>3s): the UI no longer stands behind the
+  // number, so the ladder asks the chain. A 24% lag with no independent
+  // vouch is a refuse — never a booked -9.6% on a winning trade.
+  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 4000, lastPageTickAt: now - 4000, R, debugLines });
   ladder.setEvidence({ priceNative: N_CHART, at: now - 1500 });
 
   const q = await ladder.quoteForTrade();
-  assert.ok(q, 'the fill must not be refused — the trader\'s own screen price is in bound');
-  assert.ok(Math.abs(q.priceNative - N_CHART) / N_CHART < 1e-9,
-    `the fill must price at the ~41K the trader was looking at, not the lagging 33.1K (got ${q.priceNative})`);
-  assert.notEqual(q.source, 'onchain',
-    'the contradicted chain read must not be the source of this fill');
+  assert.equal(q, null,
+    'a contradicted chain read with a stale screen must refuse, not fill 24% off the chart');
   assert.ok(debugLines.some((l) => l.includes('contradicts accepted market evidence')),
     'the demotion must leave a console trail naming both numbers');
 });
 
-test('F-48: a REAL move is confirmed by an independent source and fills at the moved level', async () => {
+test('F-48: a REAL move on a stale screen is confirmed by an independent source and fills at the moved level', async () => {
   const debugLines = [];
   const now = Date.now();
   const nMoved = N_CHART * 0.72; // a genuine -28% dump since the last tick
   const R = fakeResolver({
     observation: { mint: MINT, priceNative: nMoved, observedAt: now, slot: 2 },
-    // The aggregator has seen the same move — the chain read was TRUE.
     refreshResult: { mint: MINT, priceNative: nMoved * 1.01, priceUsd: nMoved * 1.01 * 180, mcap: 29_700 },
   });
-  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 1500, R, debugLines });
+  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 4000, lastPageTickAt: now - 4000, R, debugLines });
   ladder.setEvidence({ priceNative: N_CHART, at: now - 1500 });
 
   const q = await ladder.quoteForTrade();
@@ -176,36 +172,40 @@ test('F-52: inside the old 6% agree band, a fresh screen STILL prices the fill',
     'a fresh screen pays no chain round trip at all — the click is the price, and the fill is faster for it');
 });
 
-test('F-48: agreement adopts the chain read with no extra round trip', async () => {
+test('F-48: on a stale screen, agreement adopts the chain read with no extra round trip', async () => {
   const debugLines = [];
   const now = Date.now();
   const nClose = N_CHART * 1.03; // inside the evidence band — ordinary drift
   const R = fakeResolver({
     observation: { mint: MINT, priceNative: nClose, observedAt: now, slot: 4 },
   });
-  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 1500, R, debugLines });
+  const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 4000, lastPageTickAt: now - 4000, R, debugLines });
   ladder.setEvidence({ priceNative: N_CHART, at: now - 1500 });
 
   const q = await ladder.quoteForTrade();
   assert.ok(q, 'the fill must not be refused');
-  assert.equal(q.source, 'onchain', 'an agreeing chain read is still the authority');
+  assert.equal(q.source, 'onchain', 'an agreeing chain read is still the authority when the page feed is stale');
   assert.equal(R.calls.refresh, 0,
     'the default path must never pay an aggregator round trip — the guard is free when nothing is wrong');
 });
 
-test('F-48: no evidence, no veto — a fresh boot still fills from the only source there is', async () => {
+test('F-48: no evidence, no veto — a live chart still fills from the page, not RPC', async () => {
   const debugLines = [];
   const now = Date.now();
   const R = fakeResolver({
     observation: { mint: MINT, priceNative: N_LAGGED, observedAt: now, slot: 5 },
   });
   // Screen quiet AND no accepted evidence yet (first seconds on a token page).
+  // A 1.5s-old chart-export tick is still the number on screen — filling
+  // from a lagging chain read here was the ark miss. RPC is the fallback
+  // when the page feed itself is stale, not when a 1s candle is between ticks.
   const ladder = bootLadder({ token: luteToken(), lastPriceAt: now - 1500, R, debugLines });
 
   const q = await ladder.quoteForTrade();
   assert.ok(q, 'the fill must not be refused');
-  assert.equal(q.source, 'onchain',
-    'with nothing to contradict, the chain read is the only truth and must fill');
+  assert.equal(q.source, 'chart-export',
+    'a live page tick is the price, even with no accepted-market evidence yet');
+  assert.equal(R.calls.onchain, 0, 'must not pay RPC for a number the chart already shows');
 });
 
 test('F-48: when every honest source is gone, the answer is a refusal — never the lagging read', async () => {
