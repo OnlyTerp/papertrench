@@ -1332,12 +1332,18 @@ function writeArmedRowIntent(intent) {
     const read = await readArmedRowList();
     if (!read.ok) return false;
     const list = read.list;
+    const stored = {
+      address: intent.address,
+      amount: intent.amount,
+      at: intent.at,
+      // A fillable list click stashes the quote so the chart can COMMIT it
+      // after the list tab dies mid-fill (ark 2026-09-13). Unquoted arms
+      // carry amount only, as before.
+      quote: intent.quote && Number(intent.quote.priceNative) > 0 ? intent.quote : undefined,
+    };
     const index = list.findIndex((item) => item.address === intent.address);
-    if (index !== -1) {
-      list[index] = { address: intent.address, amount: intent.amount, at: intent.at };
-    } else {
-      list.push({ address: intent.address, amount: intent.amount, at: intent.at });
-    }
+    if (index !== -1) list[index] = stored;
+    else list.push(stored);
     while (list.length > ARMED_ROW_MAX) list.shift();
     await new Promise((resolve) => chrome.storage.session.set(
       { [ARMED_ROW_KEY]: list }, () => resolve(),

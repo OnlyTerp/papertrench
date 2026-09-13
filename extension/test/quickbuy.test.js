@@ -159,6 +159,42 @@ test('row quick-buy chips are configured for Axiom, Padre and GMGN screener page
   assert.match(sites, /listPaths:[\s\S]{0,40}pulse\|discover/);
 });
 
+test('Padre trenches chip never sits on the native ⚡ 1 pill (ark 2026-09-13)', () => {
+  // Compact Padre pills read "1" with a lightning icon — no "SOL" text.
+  // The old '\\bSOL\\b' matcher missed them, so before-buy-button fell
+  // through to the bottom-right gutter: exactly on top of the native pill.
+  const padre = sites.slice(sites.indexOf("id: 'padre'"), sites.indexOf("id: 'photon'"));
+  const rowBuy = padre.slice(padre.indexOf('rowBuy:'));
+  const m = rowBuy.match(/buyButtonPattern:\s*'([^']+)'/);
+  assert.ok(m, 'Padre must declare a buy-button pattern');
+  const re = new RegExp(m[1].replace(/\\\\/g, '\\'));
+  assert.ok(re.test('1'), 'compact lightning pill text "1" must match');
+  assert.ok(re.test('0.1'), 'compact 0.1 pill must match');
+  assert.ok(re.test('1 SOL'), 'legacy SOL-labelled pill must still match');
+  assert.ok(!re.test('MC $4.5K') && !re.test('V $1.9'),
+    'volume/MC labels must not be treated as the buy pill');
+  assert.match(rowBuy, /placement: 'before-buy-button'/,
+    'once the pill is found the chip sits LEFT of it, covering nothing');
+});
+
+test('a list-chip fill that is still in flight is adopted by the chart as the entry (ark 2026-09-13)', () => {
+  // Click P 0.1, immediately open the chart: the list tab dies mid-fill.
+  // D-42 only mirrored UNFILLED arms. A fill that had a quote but had not
+  // persisted yet vanished — no position, no line.
+  assert.match(content, /intent: \{ address, amount, at: Date\.now\(\), quote: data \}/,
+    'a fillable list click stashes the quote with the intent, not just the amount');
+  assert.match(content, /intent\.quote/,
+    'the chart reads the stashed quote and commits it as the entry');
+  // Even a fill that DID persist was invisible: healStandInPositions ran
+  // BEFORE reloadState, so a pair-keyed bag never rekeyed onto the mint
+  // the chart looks up for the entry line.
+  const detect = content.slice(content.indexOf('F-61 backstop'), content.indexOf('startTitleSignal()'));
+  const reloadAt = detect.indexOf('await reloadState()');
+  const healAt = detect.indexOf('healStandInPositions(data)');
+  assert.ok(reloadAt !== -1 && healAt !== -1 && reloadAt < healAt,
+    'the chart must reload the wallet BEFORE healing stand-in keys, or a list fill never becomes the entry line');
+});
+
 test('row buys run the full fill pipeline and never navigate the row', () => {
   const bridge = fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8');
   assert.match(content, /function scanRowBuys\(\)/);

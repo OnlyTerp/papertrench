@@ -1403,9 +1403,9 @@
       // in-context stash bridge above, nothing links the two sessions. The
       // resolver's own payload carries the proof for free: Dexscreener lists
       // EVERY pool for the base mint — including the graduated bonding-era
-      // pair — so a position whose key appears among the pool list is the
-      // same coin under its old stand-in. Deterministic identity proof, one
-      // rekey, no network added.
+      // pair. Reload FIRST: heal against an empty in-memory wallet is a
+      // no-op, so a list fill never became the chart entry (ark 2026-09-13).
+      await reloadState();
       healStandInPositions(data);
       healStandInPositionsByChain(data);
       // Rug verdicts read Solana holder state — a foreign chain has no
@@ -1433,7 +1433,27 @@
             || candidate.address === data.pairAddress
             || candidate.address === data.srcAddress));
         if (intent) {
-          if (!armedBuy) {
+          const q = intent.quote;
+          if (q && Number(q.priceNative) > 0 && !state.positions[data.mint]
+              && !(q.mint && state.positions[q.mint])) {
+            // The list tab died mid-fill with a quote in hand. Commit it
+            // here so the chart opens on the entry, not an empty bag.
+            const latch = acquireRowBuyLatch();
+            try {
+              await fillRowBuy(intent.address, {
+                mint: data.mint,
+                pairAddress: data.pairAddress || q.pairAddress || null,
+                symbol: data.symbol || q.symbol || null,
+                name: data.name || q.name || null,
+                priceNative: Number(q.priceNative),
+                priceUsd: Number(q.priceUsd) > 0 ? Number(q.priceUsd) : null,
+                mcap: Number(q.mcap) > 0 ? Number(q.mcap) : null,
+                priceSource: q.priceSource || 'row-feed',
+              }, intent.amount, latch);
+            } finally {
+              releaseRowBuyLatch(latch);
+            }
+          } else if (!armedBuy) {
             armedBuy = {
               amount: intent.amount, usd: null, at: intent.at,
               mint: data.mint, fromClick: true,
@@ -1442,8 +1462,6 @@
             renderBuyButton();
             flushArmedBuy();
           }
-          // Consumed either way: an intent the chart adopts is never
-          // re-fillable by the (likely dead) board context.
           sendMessage({
             type: 'pt_armed_row_clear',
             address: intent.address,
@@ -1469,9 +1487,8 @@
       pendingSince = 0;
       pendingAttempts = 0;
       nextResolveAt = 0;
-      // After the token is resolved and state is current, restore any
-      // existing trade markers from the journal (page reload scenario).
-      await reloadState();
+      // Wallet already reloaded before the stand-in heal above. Markers and
+      // the entry line read that same state.
       restoreMarkersFromJournal();
       syncAveragePriceLines();
     } catch (e) {
@@ -8028,12 +8045,23 @@
       }
       timing.priceSource = data.priceSource;
 
+      // Stash the fillable quote BEFORE commit. If the trader opens the
+      // chart while this tab is still persisting, the list context dies
+      // and the chart adopts this quote as the entry (ark 2026-09-13).
+      sendMessage({
+        type: 'pt_armed_row_arm',
+        intent: { address, amount, at: Date.now(), quote: data },
+      }).catch(() => {});
+
       // D-40: the commit core is shared with the armed flush — one extractor,
       // identical guard/engine/attestation/rail behaviour on both paths.
       rowBuyTimingState = timing;
       try {
         const result = await fillRowBuy(address, data, amount, rowBuyToken);
         if (!result && !timing.outcome) outcome = 'refused';
+        if (result) {
+          sendMessage({ type: 'pt_armed_row_clear', address }).catch(() => {});
+        }
       } finally {
         rowBuyTimingState = null;
       }

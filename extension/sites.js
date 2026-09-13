@@ -256,10 +256,13 @@
       rowBuy: {
         listPaths: /^\/(trenches|terminal|feed)?\/?$/,
         linkSelectors: ['a[href*="/trade/solana/"]', 'a[href*="pump.fun/coin/"]', 'a[href*="solscan.io/token/"]'],
-        // Every Trenches card has Padre's own SOL quick-buy pill at the
-        // bottom — the chip sits immediately left of it, covering nothing.
+        // Compact Padre pills read "1" / "0.1" with a lightning icon — no
+        // "SOL" text. Matching only \\bSOL\\b missed them, so the chip
+        // fell to the bottom-right gutter ON TOP of the native pill
+        // (ark 2026-09-13). A bare compact amount is the buy control;
+        // volume/MC labels ("V $1.9", "MC $4.5K") never match.
         placement: 'before-buy-button',
-        buyButtonPattern: '\\bSOL\\b',
+        buyButtonPattern: '^(?:Buy\\s)?[\\d.,]+[KMB]?(?:\\s*(?:SOL|ETH|BNB|USD))?$',
         containerMode: 'heuristic',
         kind: 'mint',
       },
