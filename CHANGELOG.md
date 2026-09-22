@@ -3,7 +3,7 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.24.0 — 2026-09-18
+## v3.24.0 — 2026-09-22
 
 - **If the chart is showing a price, the trade goes through — even with the free RPC pool face down.** The fill ladder has five lanes and all five can be empty at once: a quiet 1-second lowcap chart, a public Solana pool cooling down under 429s, an unreachable aggregator. Our own price service was already running and already trusted — but only as a *witness* against a suspicious price, never as a source of one. It now prices the fill when every other lane is dead, judged by the same honesty gates as anything else, and it can never vouch for itself. That is the "I often can't make a purchase in time… generally only happens with low-market-cap coins" report, and it explains why it only ever bit on lowcaps.
 
@@ -17,7 +17,7 @@ details live in the commit messages.
 
 - **Open a second window and your order is still there when you close it.** Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said "armed" over a wallet that had never heard of it. That is cheng.4848's "after closing that window, the order disappeared".
 
-- **The P&L on the card is now what the same-price sale returns.** Unrealized marks and clipped-sell receipts include buy fees in the gross basis, the panel previews proceeds after sell fees, and a slow price retry now says it is waiting. Shared cards also stop mixing a price on one side with a market cap on the other.
+- **The P&L you see is the P&L you get.** The panel's Unrealized P&L left the buy fee out of your cost, so it ran ahead of what a sale actually returned — and the ledger on the same card showed a second, different number. Both now count the buy fee, a new "If you sell now" line shows exactly what selling at this price returns after fees, and partial sells add up to the round's final P&L instead of more. That is the "my interface showed a profit of $50, but after selling I only received $20" report. A click that is waiting on a price now says so instead of looking ignored, and shared cards no longer print the entry as a price and the exit as a market cap.
 
 Tested: extension 2618/2618, server 387/387, bot 20/20 green (3025 total).
 Twenty-two source-negative controls: the worker lane, its self-witness ban,

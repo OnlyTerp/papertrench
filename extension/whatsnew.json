@@ -1,6 +1,6 @@
 {
   "version": "3.24.0",
-  "date": "2026-09-18",
+  "date": "2026-09-22",
   "entries": [
     {
       "title": "If the chart is showing a price, the trade goes through — even with the free RPC pool face down.",
@@ -27,8 +27,8 @@
       "text": "Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said \"armed\" over a wallet that had never heard of it. That is cheng.4848's \"after closing that window, the order disappeared\"."
     },
     {
-      "title": "The P&L on the card is now what the same-price sale returns.",
-      "text": "Unrealized marks and clipped-sell receipts include buy fees in the gross basis, the panel previews proceeds after sell fees, and a slow price retry now says it is waiting. Shared cards also stop mixing a price on one side with a market cap on the other."
+      "title": "The P&L you see is the P&L you get.",
+      "text": "The panel's Unrealized P&L left the buy fee out of your cost, so it ran ahead of what a sale actually returned — and the ledger on the same card showed a second, different number. Both now count the buy fee, a new \"If you sell now\" line shows exactly what selling at this price returns after fees, and partial sells add up to the round's final P&L instead of more. That is the \"my interface showed a profit of $50, but after selling I only received $20\" report. A click that is waiting on a price now says so instead of looking ignored, and shared cards no longer print the entry as a price and the exit as a market cap."
     }
   ]
 }
