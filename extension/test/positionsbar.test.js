@@ -17,6 +17,8 @@ require('../sites.js');
 require('../engine.js');
 const S = global.window.PaperTrenchSites;
 const E = global.window.PaperEngine;
+const rowsFor = (state, livePrices, activeMint, activeQuote) =>
+  Q.positionRows(state, livePrices, activeMint, activeQuote, E.grossOpenCostSol);
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 const WIF = 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm';
@@ -80,7 +82,7 @@ function twoPositionState() {
 test('rows are marked from live batch prices and ordered newest position first', () => {
   const { state } = twoPositionState();
 
-  const rows = Q.positionRows(state, {
+  const rows = rowsFor(state, {
     [BONK]: { priceNative: 0.000002, priceUsd: 0.0004 },  // 2x
     [WIF]: { priceNative: 0.001, priceUsd: 0.2 },         // halved
   }, BONK);
@@ -93,7 +95,7 @@ test('rows are marked from live batch prices and ordered newest position first',
 
   // Derived from the position, not pasted.
   const bonkPos = state.positions[BONK];
-  assert.ok(Math.abs(bonk.pnlSol - (bonkPos.qty * 0.000002 - bonkPos.costSol)) < 1e-12);
+  assert.ok(Math.abs(bonk.pnlSol - E.unrealizedPnlGross(bonkPos, 0.000002)) < 1e-12);
   assert.equal(bonk.up, true);
   assert.equal(wif.up, false, 'a halved position must read as losing');
   assert.equal(bonk.active, true, 'the on-screen token is flagged active');
@@ -101,11 +103,29 @@ test('rows are marked from live batch prices and ordered newest position first',
   assert.equal(bonk.stale, false, 'a mint with a live quote is not stale');
 });
 
+test('position chips and totals use the gross basis when buys paid fees', () => {
+  const settings = E.defaultSettings();
+  settings.feeBps = 100;
+  settings.gasSolPerTx = 0;
+  settings.tipSolPerTx = 0;
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: 1_000_000, mint: BONK, symbol: 'BONK', site: 'padre', priceNative: 1, solAmount: 0.5 });
+  const pos = state.positions[BONK];
+  const price = 0.6272 / pos.qty;
+  const rows = rowsFor(state, { [BONK]: { priceNative: price, priceUsd: price * 200 } }, null);
+  const bonk = rows[0];
+  const summary = Q.portfolioSummary(rows);
+
+  assert.ok(Math.abs(bonk.pnlSol - E.unrealizedPnlGross(pos, price)) < 1e-12);
+  assert.ok(Math.abs(bonk.pnlPct - E.positionPnlPct({ ...pos, lastPriceNative: price })) < 1e-12);
+  assert.ok(Math.abs(summary.pnlSol - E.unrealizedPnlGross(pos, price)) < 1e-12);
+});
+
 test('a position with no live quote falls back to its stored mark and is flagged stale', () => {
   const { state } = twoPositionState();
 
   // Only BONK got a fresh price this cycle.
-  const rows = Q.positionRows(state, { [BONK]: { priceNative: 0.000002 } }, null);
+  const rows = rowsFor(state, { [BONK]: { priceNative: 0.000002 } }, null);
   const wif = rows.find((r) => r.mint === WIF);
 
   assert.equal(wif.stale, true, 'no fresh quote must be surfaced as stale, never as live');
@@ -118,7 +138,7 @@ test('rows never include closed or zero-quantity positions', () => {
   const { settings, state } = twoPositionState();
   E.sell(state, settings, { ts: 2_000_000, mint: BONK, qtyFraction: 1, priceNative: 0.000002 });
 
-  const rows = Q.positionRows(state, {}, null);
+  const rows = rowsFor(state, {}, null);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].mint, WIF, 'a fully exited position must leave the bar');
 });
@@ -138,7 +158,7 @@ test('O-30: the on-screen token is marked from the page feed, not a lingering ba
   // While BONK was off-screen the poller cached a Dexscreener quote…
   const livePrices = { [BONK]: { priceNative: 0.0000012, priceUsd: 0.00024 } };
   // …but BONK is on screen now and its page feed reads 2e-6.
-  const rows = Q.positionRows(state, livePrices, BONK, { priceNative: 0.000002, priceUsd: 0.0004 });
+  const rows = rowsFor(state, livePrices, BONK, { priceNative: 0.000002, priceUsd: 0.0004 });
 
   const bonk = rows.find((row) => row.mint === BONK);
   assert.equal(bonk.priceNative, 0.000002,
@@ -151,7 +171,7 @@ test('O-30: the on-screen token is marked from the page feed, not a lingering ba
 test('O-30: with the page feed quiet, the active chip falls back exactly as before', () => {
   const { state } = twoPositionState();
   const livePrices = { [BONK]: { priceNative: 0.0000012, priceUsd: 0.00024 } };
-  const rows = Q.positionRows(state, livePrices, BONK, null);
+  const rows = rowsFor(state, livePrices, BONK, null);
   const bonk = rows.find((row) => row.mint === BONK);
   assert.equal(bonk.priceNative, 0.0000012,
     'no page quote means the batch quote stays in charge — no behavior change off the fix path');
@@ -159,7 +179,7 @@ test('O-30: with the page feed quiet, the active chip falls back exactly as befo
 
 test('O-30: the page quote never prices anyone else\'s chip', () => {
   const { state } = twoPositionState();
-  const rows = Q.positionRows(state, {}, BONK, { priceNative: 0.000002 });
+  const rows = rowsFor(state, {}, BONK, { priceNative: 0.000002 });
   const wif = rows.find((row) => row.mint === WIF);
   assert.equal(wif.stale, true, 'the off-screen chip must not inherit the on-screen feed');
 });
@@ -167,7 +187,7 @@ test('O-30: the page quote never prices anyone else\'s chip', () => {
 test('O-30: the bar wires the page feed through, and setToken clears the stale cache', () => {
   const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
 
-  assert.match(contentSrc, /Q\.positionRows\(state, livePositionPrices, token && token\.mint, activeQuote\)/,
+  assert.match(contentSrc, /Q\.positionRows\(state, livePositionPrices, token && token\.mint, activeQuote, E\.grossOpenCostSol\)/,
     'renderPositionsBar must hand the page feed quote to the row builder');
   assert.match(contentSrc, /Date\.now\(\) - lastPriceAt < Q\.STALE_AFTER_MS/,
     'the injected quote must be bounded by the same staleness mark the header uses');
@@ -204,7 +224,7 @@ test('requote adopts refreshed SOL/USD rates on both feed and anchor paths', () 
 
 test('portfolio totals equal the sum of their rows', () => {
   const { state } = twoPositionState();
-  const rows = Q.positionRows(state, {
+  const rows = rowsFor(state, {
     [BONK]: { priceNative: 0.000002 },
     [WIF]: { priceNative: 0.001 },
   }, null);
@@ -232,7 +252,7 @@ test('an empty portfolio summarizes cleanly instead of dividing by zero', () => 
 
 test('the summary flags staleness when any single row lacks a live quote', () => {
   const { state } = twoPositionState();
-  const rows = Q.positionRows(state, { [BONK]: { priceNative: 0.000002 } }, null);
+  const rows = rowsFor(state, { [BONK]: { priceNative: 0.000002 } }, null);
   assert.equal(Q.portfolioSummary(rows).anyStale, true);
 });
 

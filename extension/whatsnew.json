@@ -25,6 +25,10 @@
     {
       "title": "Open a second window and your order is still there when you close it.",
       "text": "Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said \"armed\" over a wallet that had never heard of it. That is cheng.4848's \"after closing that window, the order disappeared\"."
+    },
+    {
+      "title": "The P&L on the card is now what the same-price sale returns.",
+      "text": "Unrealized marks and clipped-sell receipts include buy fees in the gross basis, the panel previews proceeds after sell fees, and a slow price retry now says it is waiting. Shared cards also stop mixing a price on one side with a market cap on the other."
     }
   ]
 }

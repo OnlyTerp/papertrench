@@ -439,8 +439,8 @@ function updateOpenPositionMarks() {
     if (!p) return; // closed — the fingerprint change rebuilds the section
     const node = row.querySelector('[data-pos-pnl]');
     if (!node) return;
-    const pnl = E.unrealizedPnl(p);
-    // D-08: gross-invested basis, same as closed rounds.
+    const pnl = E.unrealizedPnlGross(p);
+    // D-08/D-77: open P&L and percentage share the gross basis used by rounds.
     const pct = E.positionPnlPct(p);
     const win = pnl >= 0;
     node.classList.toggle('green', win);
@@ -1829,11 +1829,9 @@ function renderOpenPositions() {
   if (!mints.length) return emptyState('No open positions', 'Your live paper positions will appear here.');
   return mints.map((m) => {
     const p = state.positions[m];
-    const pnl = E.unrealizedPnl(p);
-    // D-08: percentage on the gross-invested basis — the same denominator
-    // closed rounds use (engine closeRound: returned/investedSol − 1). The
-    // old pnl/costSol (net-of-fee) basis made the % jump ~2×feeBps at the
-    // moment of close with no price move.
+    const pnl = E.unrealizedPnlGross(p);
+    // D-08/D-77: open P&L and percentage use the same gross-invested basis as
+    // closed rounds (engine closeRound: returned/investedSol − 1).
     const pct = E.positionPnlPct(p);
     const win = pnl >= 0;
     // D-28: data-pos-row/-pnl/-qty mark the nodes refreshLiveDerived updates
@@ -3279,7 +3277,7 @@ function openShareCardForPosition(mint) {
   // with the overlay's in-page composer — same numbers wherever the card is
   // opened. Only the engine-derived P&L figures are computed here.
   cardSourceCurrent = PC.positionCardSource(pos, state.journal, {
-    pnlSol: E.unrealizedPnl(pos),
+    pnlSol: E.unrealizedPnlGross(pos),
     pnlPct: E.positionPnlPct(pos),
     avgBuyNative: (E.averageFillPrices(state, mint) || {}).avgBuyNative,
   }, Date.now());

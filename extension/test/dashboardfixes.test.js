@@ -704,14 +704,16 @@ test('D-02: a legacy state without the accumulator falls back to the journal', (
     'the journal sells carry the same per-sell definition and must back-fill it');
 });
 
-test('D-02: the popup uses the same per-sell definition', () => {
+test('D-02/D-77: popup realized is derived from equity less gross open P&L', () => {
   const block = fnBlock(popupJs, 'function computeStats(state, settings)');
   assert.doesNotMatch(block, /rounds\.reduce\(\(s, r\) => s \+ \(r\.pnlSol \|\| 0\), 0\)/,
     'the rounds-only sum reported +0 for a trade the dashboard calendar showed as +2');
-  assert.match(block, /state\.stats \|\| \{\}\)\.realizedPnlSol/,
-    'the popup must read the per-sell accumulator');
-  assert.match(block, /t\.side === 'sell' \? \(Number\(t\.pnlSol\) \|\| 0\) : 0/,
-    'with the journal fallback for legacy states');
+  assert.match(block, /const openGrossPnl = positions\.reduce/,
+    'the popup removes the gross mark of every open position');
+  assert.match(block, /const realized = equity - anchor - openGrossPnl/,
+    'realized is derived from the equity identity, not the net-basis accumulator');
+  assert.doesNotMatch(block, /state\.stats \|\| \{\}\)\.realizedPnlSol/,
+    'the popup display must not read stats.realizedPnlSol');
 });
 
 /* ---------------- D-03: the chain agrees with honest local state ---------- */
@@ -996,6 +998,8 @@ test('D-08: open % uses the gross-invested basis; only the sell fee moves it at 
 
 test('D-08: the dashboard open-positions % goes through the shared basis', () => {
   const open = fnBlock(dashJs, 'function renderOpenPositions()');
+  assert.match(open, /E\.unrealizedPnlGross\(p\)/,
+    'the open P&L must use the gross-invested basis');
   assert.match(open, /E\.positionPnlPct\(p\)/,
     'the open % must come from the engine, on the gross-invested basis');
   assert.doesNotMatch(open, /pnl \/ p\.costSol/,

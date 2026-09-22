@@ -685,14 +685,9 @@
     return { trade, position: pos };
   }
 
-  /**
-   * Sell `qtyFraction` (0..1) of the current position. Returns {trade, state}.
-   * Closing the whole stack also closes the round trip and appends to rounds.
-   */
-  function sell(state, settings, o) {
-    const pos = state.positions[o.mint];
+  /** Preview the same fee, slippage and cost-share math sell() will commit. */
+  function previewSell(pos, settings, o) {
     if (!pos || pos.qty <= EPS) throw new Error('No open paper position in this token');
-    if (!pos.sessionId) pos.sessionId = replaySessionId(pos.mint, pos.openedAt || o.ts);
 
     let qty = Number(o.qty);
     if (!(qty > 0)) {
@@ -706,22 +701,36 @@
       baseReserve: o.baseReserve,
       quoteReserve: o.quoteReserve,
       reserves: o.reserves,
-      // The whole clip hits the pool at once, so the whole clip walks the
-      // curve. Fees are taken from the PROCEEDS below (fees.js's concern),
-      // which is why the gross quantity is the honest curve input here.
+      // The whole clip hits the pool at once, so it walks the curve as one.
       tokensIn: qty,
     });
     if (!(px > 0)) throw new Error('No live price available');
 
     const gross = qty * px;
-    const feeBps = effectiveFeeBps(settings, o);
-    const fee = applyBps(gross, feeBps);
+    const fee = applyBps(gross, effectiveFeeBps(settings, o));
     const flat = txCostSol(settings);
+    const net = gross - fee - flat;
+    const grossCostShare = grossOpenCostSol(pos) * (qty / pos.qty);
+    return {
+      qty, px, gross, fee, flat, net, grossCostShare,
+      pnlGrossSol: net - grossCostShare,
+    };
+  }
+
+  /**
+   * Sell `qtyFraction` (0..1) of the current position. Returns {trade, state}.
+   * Closing the whole stack also closes the round trip and appends to rounds.
+   */
+  function sell(state, settings, o) {
+    const pos = state.positions[o.mint];
+    if (!pos || pos.qty <= EPS) throw new Error('No open paper position in this token');
+    if (!pos.sessionId) pos.sessionId = replaySessionId(pos.mint, pos.openedAt || o.ts);
+
+    const preview = previewSell(pos, settings, o);
+    const { qty, px, gross, fee, flat, net, pnlGrossSol } = preview;
     // Net proceeds pay the platform fee AND the flat tx costs. A dust sell
     // can genuinely net negative — you paid gas to exit a worthless bag,
     // which is precisely the lesson worth learning on paper.
-    const net = gross - fee - flat;
-
     const costShare = pos.costSol * (qty / pos.qty);
     const pnl = net - costShare;
 
@@ -751,6 +760,7 @@
       txCostSol: flat,
       solNet: net,
       pnlSol: pnl,
+      pnlGrossSol,
       mcap: o.mcap || null,
       chain: pos.chain || 'solana',
     };
@@ -1339,6 +1349,14 @@
     return invested;
   }
 
+  function unrealizedPnlGross(pos, priceNative) {
+    if (!pos) return 0;
+    const px = priceNative === undefined
+      ? Number(pos.lastPriceNative) || 0
+      : Number(priceNative) || 0;
+    return (Number(pos.qty) || 0) * px - grossOpenCostSol(pos);
+  }
+
   /**
    * D-08: open-position P&L percentage on the same gross-invested basis as
    * closed rounds, so the % no longer jumps ~2×feeBps at close. The residual
@@ -1419,7 +1437,7 @@
       winRate: decided > 0 ? (wins / decided) * 100 : 0,
       realizedPnlSol: realized,
       openPositions: Object.keys(state.positions).length,
-      unrealizedSol: Object.values(state.positions).reduce((s, p) => s + unrealizedPnl(p), 0),
+      unrealizedSol: Object.values(state.positions).reduce((s, p) => s + unrealizedPnlGross(p), 0),
       equitySol: eq,
       equityVsStart: eq - anchorStartSol(state, settings),
       feesPaidSol: Number(st.feesPaidSol) || 0,
@@ -2291,7 +2309,7 @@
 
     let openPnlSol = 0;
     const positions = (state && state.positions) || {};
-    for (const mint of Object.keys(positions)) openPnlSol += unrealizedPnl(positions[mint]);
+    for (const mint of Object.keys(positions)) openPnlSol += unrealizedPnlGross(positions[mint]);
 
     const nowDate = new Date(now);
     const todayDay = nowDate.getFullYear() === year && nowDate.getMonth() === month
@@ -2410,10 +2428,21 @@
       };
     }
 
-    const pnlSol = Number(sell.pnlSol) || 0;
+    const hasGrossPnl = sell.pnlGrossSol != null && Number.isFinite(Number(sell.pnlGrossSol));
+    const pnlSol = hasGrossPnl ? Number(sell.pnlGrossSol) : (Number(sell.pnlSol) || 0);
     const returnedSol = Number(sell.solNet) || 0;
-    // sell.pnlSol = net proceeds - cost basis closed by this sell.
-    const closedCostSol = returnedSol - pnlSol;
+    let closedCostSol = returnedSol - pnlSol;
+    if (!hasGrossPnl) {
+      const remaining = state.positions && state.positions[mint];
+      const soldQty = Number(sell.qty) || 0;
+      const remainingQty = Number(remaining && remaining.qty) || 0;
+      if (soldQty > 0 && remainingQty > 0) {
+        const fraction = soldQty / (soldQty + remainingQty);
+        const remainingGross = grossOpenCostSol(remaining);
+        const legacyGrossShare = remainingGross * fraction / (1 - fraction);
+        if (legacyGrossShare > 0) closedCostSol = legacyGrossShare;
+      }
+    }
     return {
       kind: 'partial',
       symbol: sell.symbol || '',
@@ -2505,6 +2534,7 @@
     resetState,
     buy,
     sell,
+    previewSell,
     // Exported so the panel can plan an exit against the SAME flat cost the
     // fill will charge. Re-deriving it there would be a second copy of the
     // clamp, free to drift from this one.
@@ -2522,6 +2552,7 @@
     rekeyMint,
     markPosition,
     unrealizedPnl,
+    unrealizedPnlGross,
     equitySol,
     equityCurvePoints,
     stepOf,

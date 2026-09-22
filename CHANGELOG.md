@@ -17,17 +17,17 @@ details live in the commit messages.
 
 - **Open a second window and your order is still there when you close it.** Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said "armed" over a wallet that had never heard of it. That is cheng.4848's "after closing that window, the order disappeared".
 
-Tested: extension 2609/2609, server 387/387, bot 20/20 green. Fifteen new
-rules, each proven by a production negative control: the worker lane, its
-self-witness ban, its Solana-only gate, the retry and the retry's budget; the
-foreign-tick rate and its do-not-overwrite guard, the Axiom HOOD slug, the
-preset/prompt re-denomination, and the limit-buy conversion; the heartbeat's
-blind-write ban, the armed-order and cancel durability contracts, and the two
-storage-fake fidelity fixes that had been hiding the whole class (a fake that
-handed back its own stored object let a wallet advance with no write at all).
-Every control broke real source (never a test), was watched go RED with the
-expected failure, then restored byte-identically by SHA-256 compare and
-watched go GREEN.
+- **The P&L on the card is now what the same-price sale returns.** Unrealized marks and clipped-sell receipts include buy fees in the gross basis, the panel previews proceeds after sell fees, and a slow price retry now says it is waiting. Shared cards also stop mixing a price on one side with a market cap on the other.
+
+Tested: extension 2615/2615, server 387/387, bot 20/20 green (3022 total).
+Twenty source-negative controls: the worker lane, its self-witness ban, its
+Solana-only gate, the retry and its budget; the foreign-tick rate and
+non-overwrite guard, Axiom HOOD routing, preset/prompt re-denomination, limit
+conversion, heartbeat blind-write ban, armed-order and cancel durability,
+the two storage-fake fidelity fixes, gross P&L / sell preview math, position
+marks, the pinned 0.5 SOL panel field, paired share-card units, and retry status.
+Each control broke real source (never a test), went RED with the expected
+failure, then was restored byte-identically by SHA-256 compare and went GREEN.
 
 ## v3.23.4 — 2026-09-13
 

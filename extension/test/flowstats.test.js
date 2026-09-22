@@ -110,16 +110,15 @@ test('flow stats: two tokens hold independently', () => {
 
 /* ---------------- popup helper ---------------- */
 
-/** Load the popup's journal-derived helpers into a bare context. The slice
- * starts at the cost-basis helper because journalFlow depends on it. */
+/** Load the popup's pure flow and P&L helpers into a bare context. */
 function loadPopupFlow() {
   const popupSrc = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
   const ctx = { console, Math, Number, Object, parseFloat };
   vm.createContext(ctx);
   const start = popupSrc.indexOf('function grossOpenCostSol(');
-  const end = popupSrc.indexOf('/** Equity = cash');
+  const end = popupSrc.indexOf('/* Turbo receipts', start);
   assert.ok(start !== -1 && end > start,
-    'journalFlow and its cost-basis helper must exist in popup.js');
+    'popup cost-basis, flow, anchor and stats helpers must exist in popup.js');
   vm.runInContext(popupSrc.slice(start, end), ctx);
   return ctx;
 }
@@ -150,6 +149,28 @@ test('popup journalFlow agrees with the engine on a REAL engine state', () => {
     `bought must match the engine (${flow.boughtSol} vs ${engine.boughtSol})`);
   assert.ok(Math.abs(flow.soldSol - engine.soldSol) < 1e-9,
     `sold must match the engine (${flow.soldSol} vs ${engine.soldSol})`);
+});
+
+test('popup realized P&L is equity less the gross unrealized remainder', () => {
+  const settings = freshSettings({ balanceStartSol: 10, feeBps: 100, gasSolPerTx: 0, tipSolPerTx: 0 });
+  const state = E.defaultState(settings);
+  const buy = buyAt(state, settings, MINT_A, 0.5, 1);
+  const pos = state.positions[MINT_A];
+  const currentPrice = 0.6272 / pos.qty;
+  E.markPosition(state, MINT_A, currentPrice, currentPrice * 150);
+  const exit = sellPct(state, settings, MINT_A, 25, currentPrice);
+
+  const popup = loadPopupFlow().computeStats(state, settings);
+  const openGross = Object.values(state.positions)
+    .reduce((sum, open) => sum + E.unrealizedPnlGross(open), 0);
+  const expected = E.equitySol(state) - E.anchorStartSol(state, settings) - openGross;
+
+  assert.ok(Math.abs(popup.realizedPnlSol - expected) < 1e-12);
+  assert.ok(Math.abs(popup.realizedPnlSol - exit.trade.pnlGrossSol) < 1e-9,
+    'with one partial exit, popup realized equals that sell\'s gross-basis P&L');
+  assert.ok(Math.abs(popup.realizedPnlSol - state.stats.realizedPnlSol) > 1e-6,
+    'the popup display is not the net-basis accumulator');
+  assert.ok(buy.trade.feeSol > 0);
 });
 
 test('popup journalFlow reads a legacy position that predates netInvestedSol', () => {

@@ -22,6 +22,8 @@ const Q = require('../quote.js');
 global.window = global.window || {};
 require('../engine.js');
 const E = global.window.PaperEngine;
+const grossMark = (pos, priceNative, priceUsd) =>
+  Q.positionMark(pos, priceNative, priceUsd, E.grossOpenCostSol(pos));
 
 /* ---------------- scheduler cadence ---------------- */
 
@@ -126,14 +128,14 @@ test('unrealized P&L recomputes from the current price on every mark', () => {
   const entry = 0.001;
   const { pos } = openPosition(entry, 1);
 
-  const flat = Q.positionMark(pos, entry, null);
-  const up = Q.positionMark(pos, entry * 2, null);
-  const down = Q.positionMark(pos, entry * 0.5, null);
+  const flat = grossMark(pos, entry, null);
+  const up = grossMark(pos, entry * 2, null);
+  const down = grossMark(pos, entry * 0.5, null);
 
-  // Expectations derived from the position itself, not pasted literals.
-  assert.ok(Math.abs(flat.pnlSol - (pos.qty * entry - pos.costSol)) < 1e-12);
-  assert.ok(Math.abs(up.pnlSol - (pos.qty * entry * 2 - pos.costSol)) < 1e-12);
-  assert.ok(Math.abs(down.pnlSol - (pos.qty * entry * 0.5 - pos.costSol)) < 1e-12);
+  // The display uses the engine's gross open basis, not costSol's net basis.
+  assert.ok(Math.abs(flat.pnlSol - E.unrealizedPnlGross(pos, entry)) < 1e-12);
+  assert.ok(Math.abs(up.pnlSol - E.unrealizedPnlGross(pos, entry * 2)) < 1e-12);
+  assert.ok(Math.abs(down.pnlSol - E.unrealizedPnlGross(pos, entry * 0.5)) < 1e-12);
 
   assert.ok(up.pnlSol > flat.pnlSol, 'a higher price must raise unrealized P&L');
   assert.ok(down.pnlSol < flat.pnlSol, 'a lower price must lower unrealized P&L');
@@ -145,8 +147,8 @@ test('P&L percentage and USD value track the same price move', () => {
   const entry = 0.001;
   const { pos } = openPosition(entry, 2);
 
-  const m = Q.positionMark(pos, entry * 1.5, entry * 1.5 * 200);
-  assert.ok(Math.abs(m.pnlPct - (m.pnlSol / pos.costSol) * 100) < 1e-9);
+  const m = grossMark(pos, entry * 1.5, entry * 1.5 * 200);
+  assert.ok(Math.abs(m.pnlPct - E.positionPnlPct({ ...pos, lastPriceNative: entry * 1.5 })) < 1e-9);
   assert.ok(Math.abs(m.pnlUsd - m.pnlSol * 200) < 1e-6, 'USD P&L must use the token\'s own rate');
 });
 
@@ -155,7 +157,7 @@ test('a sequence of price ticks produces a strictly moving P&L', () => {
   const { pos } = openPosition(entry, 1);
 
   const prices = [entry, entry * 1.1, entry * 1.25, entry * 1.2, entry * 1.6];
-  const pnls = prices.map((p) => Q.positionMark(pos, p, null).pnlSol);
+  const pnls = prices.map((p) => grossMark(pos, p, null).pnlSol);
 
   for (let i = 1; i < pnls.length; i++) {
     assert.notEqual(pnls[i], pnls[i - 1], `tick ${i} must change the P&L`);
@@ -174,10 +176,12 @@ test('markPosition keeps the engine peak/trough in step with live ticks', () => 
   const trough = pos.troughPnlSol;
 
   assert.ok(peak > 0 && trough < 0);
-  // The card's number must agree with the engine's mark at the same price.
-  const m = Q.positionMark(pos, 0.0004, null);
-  assert.ok(Math.abs(m.pnlSol - trough) < 1e-12,
-    'the displayed P&L must equal the engine mark at the same price');
+  // The storage mark remains net for the curve identity; the display uses
+  // the gross open basis at that same price.
+  assert.ok(Math.abs(E.unrealizedPnl(pos) - trough) < 1e-12);
+  const m = grossMark(pos, 0.0004, null);
+  assert.ok(Math.abs(m.pnlSol - E.unrealizedPnlGross(pos, 0.0004)) < 1e-12,
+    'the displayed P&L uses the gross open basis');
 });
 
 /* ---------------- the shipped heartbeat, driven on a fake clock ---------------- */
@@ -215,7 +219,7 @@ function runOverlay(priceSeries, opts = {}) {
         this._h = v;
         // Materialise a child node per data-f attribute so querySelector and
         // subsequent textContent writes land on stable, inspectable nodes.
-        const re = /data-f="([a-z]+)"/g; let m;
+        const re = /data-f="([a-z-]+)"/g; let m;
         while ((m = re.exec(v))) {
           const child = makeNode('span');
           child.dataset.f = m[1];
@@ -232,7 +236,7 @@ function runOverlay(priceSeries, opts = {}) {
       },
       click() { (this._listeners && this._listeners.click || []).forEach((fn) => fn()); },
       querySelector(sel) {
-        const m = /data-f="([a-z]+)"/.exec(sel);
+        const m = /data-f="([a-z-]+)"/.exec(sel);
         if (m && this._fields && this._fields[m[1]]) return this._fields[m[1]];
         return makeNode('span');
       },
@@ -279,6 +283,7 @@ function runOverlay(priceSeries, opts = {}) {
 
   let priceIdx = 0;
   let fetchCount = 0;
+  let networkDown = false;
   const storage = {};
   const storageListeners = [];
   const sandbox = {
@@ -299,6 +304,9 @@ function runOverlay(priceSeries, opts = {}) {
     fetch: (u) => {
       fetchCount++;
       const url = String(u);
+      if (networkDown) {
+        return Promise.resolve({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
+      }
       // Resolver refresh path asks for a re-resolve and can be forced to fail
       // to simulate a freshly migrated coin that has not been re-indexed yet.
       if (opts.refreshFails && url.includes(opts.refreshFails)) {
@@ -437,8 +445,8 @@ function runOverlay(priceSeries, opts = {}) {
    * Write a real paper position into the same storage the content script
    * reads, using the shipped engine, so the overlay renders a genuine card.
    */
-  function openPaperPosition(spendSol) {
-    const settings = E.defaultSettings();
+  function openPaperPosition(spendSol, settingsOverrides) {
+    const settings = Object.assign(E.defaultSettings(), settingsOverrides || {});
     const state = E.defaultState(settings);
     const entry = priceSeries[Math.min(priceIdx, priceSeries.length - 1)];
     E.buy(state, settings, {
@@ -496,6 +504,9 @@ function runOverlay(priceSeries, opts = {}) {
   return {
     advance, shadowNodes, openPaperPosition, fieldText, fieldClasses, markedPrice,
     clickById, setValue, currentState,
+    fillStatus: () => shadowNodes['pt-fill-status']?.textContent || '',
+    setNetworkDown: (down) => { networkDown = Boolean(down); },
+    toastTexts: () => (shadowNodes['pt-toast-root']?.children || []).map((node) => node.textContent),
     nextPrice: () => { priceIdx++; },
     fetchCount: () => fetchCount,
   };
@@ -616,4 +627,62 @@ test('the quick-sell row never moves when the P&L wraps (gibsonandjustin)', () =
   const pnlBlock = src.slice(src.indexOf('.pt-pos .pnl {'), src.indexOf('.pt-pos .pnl .usd-part'));
   assert.match(pnlBlock, /min-height: calc\(2 \* 1\.25em \+ 10px\);/,
     'the P&L block must reserve its wrapped height, or the sell row shifts under the cursor');
+});
+
+test('T3: panel unrealized and pre-sell ledger agree on the gross basis', async () => {
+  const sellPrice = 0.6272 / 0.495;
+  const ov = runOverlay([1, sellPrice]);
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(0.5, { feeBps: 100, gasSolPerTx: 0, tipSolPerTx: 0 }));
+  await ov.advance(600);
+  ov.nextPrice();
+  await ov.advance(2500);
+
+  const state = ov.currentState();
+  const pos = state.positions['DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'];
+  const panelPnl = ov.fieldText('pnl');
+  assert.match(panelPnl, /0\.1272 SOL \(\+25\.4%\)/,
+    `the rendered mark must be +0.1272 SOL / 25.4%, not net basis: ${panelPnl}`);
+  assert.ok(Math.abs(E.unrealizedPnlGross(pos) - 0.1272) < 1e-12);
+  assert.ok(Math.abs(E.positionPnlPct(pos) - 25.44) < 1e-9);
+
+  const ledger = Q.positionLedger(state.journal, pos, pos.qty * sellPrice);
+  assert.ok(Math.abs(ledger.changeSol - E.unrealizedPnlGross(pos)) < 1e-12,
+    'before any sell, ledger P&L change equals gross unrealized P&L');
+  assert.equal(ov.fieldText('led-chg'), '+0.1272 SOL (+25.4%)');
+  assert.match(ov.fieldText('exitpreview'), /^If you sell now:/);
+  ov.setNetworkDown(true);
+  await ov.advance(Q.STALE_AFTER_MS + 200);
+  assert.equal(ov.fieldText('exitpreview'), '', 'the sale preview hides once the live quote expires');
+});
+
+test('T5: retry status appears after 700ms and clears on fill and refusal', async () => {
+  const settings = { panelCustomAmount: true, feeBps: 0, slippageBps: 0, gasSolPerTx: 0, tipSolPerTx: 0 };
+  const filled = runOverlay([0.001, 0.001], { });
+  await filled.advance(1200);
+  assert.ok(filled.openPaperPosition(0.5, settings));
+  filled.setNetworkDown(true);
+  await filled.advance(4000);
+  filled.setValue('pt-custom', '0.1');
+  filled.clickById('pt-buy');
+  await filled.advance(800);
+  assert.equal(filled.fillStatus(), 'Waiting for a live price…');
+  filled.setNetworkDown(false);
+  await filled.advance(3000);
+  assert.equal(filled.fillStatus(), '', 'a successful fill clears the non-toast wait status');
+  assert.equal(filled.currentState().journal.filter((trade) => trade.side === 'buy').length, 2);
+
+  const refused = runOverlay([0.001]);
+  await refused.advance(1200);
+  assert.ok(refused.openPaperPosition(0.5, settings));
+  refused.setNetworkDown(true);
+  await refused.advance(4000);
+  refused.setValue('pt-custom', '0.1');
+  refused.clickById('pt-buy');
+  await refused.advance(800);
+  assert.equal(refused.fillStatus(), 'Waiting for a live price…');
+  await refused.advance(9000);
+  assert.equal(refused.fillStatus(), '', 'a refusal clears the non-toast wait status');
+  assert.equal(refused.currentState().journal.filter((trade) => trade.side === 'buy').length, 1);
+  assert.ok(refused.toastTexts().some((text) => /Could not obtain a fresh price/.test(text)));
 });

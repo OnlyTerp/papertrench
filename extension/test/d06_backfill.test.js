@@ -169,14 +169,14 @@ test('D-56: sessionStats — jb repro: +0.091 SOL stays +0.091 SOL after a 10→
 
 /* ---------------- source contracts: the read-only surfaces ---------------- */
 
-test('D-56: popup carries the derived-anchor layer (self-contained, no engine.js)', () => {
+test('D-56/D-77: popup anchors to birth and derives realized gross P&L', () => {
   const src = read('popup.js');
   assert.match(src, /function derivedAnchor\(/, 'popup.js must define derivedAnchor');
   assert.match(src, /function anchorFor\(/, 'popup.js must define anchorFor');
-  // Both anchor sites go through it — no raw setting fallback left in a
-  // vs-start computation.
-  assert.match(src, /equityVsStart: equity - anchorFor\(state, settings\)/);
+  // Both display identities use the same birth anchor.
   assert.match(src, /const anchor = anchorFor\(state, settings\)/);
+  assert.match(src, /equityVsStart: equity - anchor/);
+  assert.match(src, /const realized = equity - anchor - openGrossPnl/);
   // The derived layer sits BETWEEN snapshot and setting.
   assert.match(src, /function anchorFor\(state, settings\) \{[\s\S]{0,220}?Number\(state && state\.startSol\)[\s\S]{0,220}?derivedAnchor\(state\)[\s\S]{0,220}?settings && settings\.balanceStartSol/s);
   // The derivation rule itself: buy debits its fee, sell credits its pnl.

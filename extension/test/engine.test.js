@@ -20,7 +20,7 @@ function freshSettings(over) {
 
 test('engine installs its public API on the browser global', () => {
   assert.equal(typeof E, 'object');
-  for (const fn of ['buy', 'sell', 'defaultState', 'defaultSettings', 'sessionStats', 'markPosition']) {
+  for (const fn of ['buy', 'sell', 'previewSell', 'defaultState', 'defaultSettings', 'sessionStats', 'markPosition', 'grossOpenCostSol', 'unrealizedPnlGross']) {
     assert.equal(typeof E[fn], 'function', `${fn} must be exported`);
   }
 });
@@ -353,8 +353,10 @@ test('latestClosedPnl reports the realized result of a partial sell', () => {
   const closed = E.latestClosedPnl(state, 'MintA');
   assert.equal(closed.kind, 'partial');
   assert.equal(closed.closedAt, trade.ts);
-  assert.ok(Math.abs(closed.pnlSol - trade.pnlSol) < CLOSE);
+  assert.ok(Math.abs(closed.pnlSol - trade.pnlGrossSol) < CLOSE);
   assert.ok(closed.pnlPct > 0, 'a profitable partial exit must show a positive realized percentage');
+  assert.ok(Math.abs(closed.pnlPct - (trade.pnlGrossSol / closed.investedSol) * 100) < CLOSE,
+    'the partial-exit percentage uses its gross cost share');
   assert.ok(Math.abs(closed.returnedSol - trade.solNet) < CLOSE);
 });
 

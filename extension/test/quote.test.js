@@ -245,7 +245,7 @@ test('requested-side USD flows into downstream USD P&L at the observed SOL rate'
     priceUsd: '200',
   });
   const quote = Q.normalizePair(pair, mint);
-  const mark = Q.positionMark({ qty: 1, costSol: 0, lastPriceNative: 0 }, quote.priceNative, quote.priceUsd);
+  const mark = Q.positionMark({ qty: 1, costSol: 0, lastPriceNative: 0 }, quote.priceNative, quote.priceUsd, 0);
   assert.equal(mark.pnlUsd, quote.priceUsd);
 });
 
@@ -360,7 +360,7 @@ test('batch pricing ranks a deep pool ahead of malformed liquidity', () => {
 test('BONK USDC pricing keeps the SOL mark near the booked entry', () => {
   const mint = solPair().baseToken.address;
   const rec = Q.normalizePair(solPair(), mint, { solUsd: 102 });
-  const mark = Q.positionMark({ qty: 1, costSol: rec.priceNative }, rec.priceNative, rec.priceUsd);
+  const mark = Q.positionMark({ qty: 1, costSol: rec.priceNative }, rec.priceNative, rec.priceUsd, rec.priceNative);
   assert.ok(mark);
   assert.equal(mark.valueSol, rec.priceNative);
   assert.ok(Math.abs(mark.pnlSol) < 1e-18);

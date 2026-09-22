@@ -2185,6 +2185,33 @@ cheng.4848, 2026-09-15: *"After placing the buy order, I opened this page in a s
 **fixed v3.24.0** (only a mutation may fall back to a blind write — `if (!remutate) return;` — so a heartbeat walks away and re-asks against fresh truth next beat, which is what the forced-commit path below it already stated for the same reason; `armLimitBuy` and `cancelLimitBuy` now take the same contract a fill takes, serializing on the mutation chain, re-reading the wallet, then committing through the CAS with a re-runnable mutation — the pattern `armMcAlertFromInput` already used, which is what made limit orders the outlier; `persistSoon`'s contract is now written down as MARKS ONLY. Locked by `test/statepersist.test.js` — 3 tests: a stale view never blind-writes over a fill it did not see, an armed order lands with the worker down and the wallet ahead, and a cancelled order stays cancelled. Two storage-fake fidelity defects were fixed to make the class visible at all: `chrome.storage.local.get` handed back the STORED object by reference, so the content script's in-memory state WAS storage — `state.seq += 1` advanced "storage" with no write and a CAS then refused its own write as stale, manufacturing a phantom duplicate fill — and the harnesses answered `{}` to a commit, i.e. "worker unreachable", so every ordinary write reached storage only through the fallback. Both harnesses now clone on both storage edges and model the real CAS, with an explicit `workerDown` switch for the field case. Negative controls C11–C15: the guard, the arm, the cancel, the fake's aliasing, and one proving the tests actually need the dead worker.)
 ---
 
+**D-77 · S1 · The panel understated unrealized P&L and had no after-fees exit view**
+`extension/engine.js` (gross open basis and sell preview), `extension/quote.js` (position mark), `extension/content.js` (panel), dashboard and popup open-position displays
+
+D-08 moved open-position percentages to gross invested cost but left `positionMark`'s P&L numerator and USD value on net `costSol`. gymbro, 2026-09-17: screenshot of a 0.5 SOL buy at 1% fee showed +0.1322 SOL / 26.7% on a $0.6272 mark instead of +0.1272 SOL / 25.44%. cheng.4848, 2026-09-22: *"showed $50 profit, received $20"* — the card had no view of net sale proceeds after fees.
+
+**fixed v3.24.0** (all open P&L marks use the engine's gross open cost, while `unrealizedPnl` remains net for the equity-curve identity; the panel adds an exact `previewSell` after-fees estimate from the shared sell math. Locked by T1–T3 in `test/grosspnl.test.js` / `test/livepnl.test.js` and the hermetic `pnl-core` suite; T5 locks the delayed retry status. Negative controls T1–T3 and T5.)
+
+---
+
+**D-78 · S1 · Partial-exit P&L used a different basis from the completed round**
+`extension/engine.js` (sell and `latestClosedPnl`), `extension/content.js` (partial-exit toasts)
+
+ark_trades13, 2026-09-21: *"sell amounts aren't correct when clipping"*; cheng.4848, 2026-09-22, reported the partial-sell P&L did not add up to the closed round. The stored per-sell `pnlSol` is net-basis and is required by the equity curve, but the partial receipt presented it as the round result.
+
+**fixed v3.24.0** (`sell()` now also stores `pnlGrossSol` from the same pure preview calculation used by the panel; partial receipts use it and its gross cost-share denominator, retaining `pnlSol` for the curve and state accumulator. Locked by the seeded fee/flat-cost property test T1 and `pnl-core`. Negative control T1.)
+
+---
+
+**D-79 · S1 · A share card mixed entry-price and exit-market-cap units**
+`extension/pnlcard.js` (closed-round source and card model)
+
+01jb, 2026-09-18: *"ENTRY 0.0₅5096 · EXIT $11.0K"* — one side used a price while the other used market cap because only one side had complete mcap fills.
+
+**fixed v3.24.0** (entry and exit mcaps are rendered only as a complete pair; if either weighted side is missing mcap, both use price text. Locked by `test/d09_mcap.test.js`. Negative control T4.)
+
+---
+
 ## V — Visual polish
 
 *(Phase 4 screenshot sweep pending. Already queued from code audits: O-27, O-28, C-27,

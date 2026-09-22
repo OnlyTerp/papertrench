@@ -95,8 +95,8 @@ test('weeks are Monday-start rows with weekly totals', () => {
 test('open unrealized and the today marker only apply to the current month', () => {
   const now = at(2026, 7, 15);
   const positions = {
-    Mint1: { mint: 'Mint1', qty: 100, costSol: 1, lastPriceNative: 0.012 },
-    Mint2: { mint: 'Mint2', qty: 50, costSol: 1, lastPriceNative: 0.01 },
+    Mint1: { mint: 'Mint1', qty: 100, costSol: 1, investedSol: 1, netInvestedSol: 1, lastPriceNative: 0.012 },
+    Mint2: { mint: 'Mint2', qty: 50, costSol: 1, investedSol: 1, netInvestedSol: 1, lastPriceNative: 0.01 },
   };
   const state = stateWith([sell(at(2026, 7, 15), 0.2, 'A')], positions);
 

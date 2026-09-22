@@ -230,9 +230,9 @@
     // carry mcap: null; the plain weighted() above counts their qty in the
     // denominator but 0 in the numerator, understating the entry/exit mcap
     // on the card — the exact shape usdTotal/weightedUsd guard against
-    // elsewhere. All-or-nothing: incomplete set → null → the card falls
-    // back to the price line, never a partial average that pretends to be
-    // the whole story.
+    // elsewhere. Each side is all-or-nothing, and the pair is too: if either
+    // side is incomplete, both endpoints fall back to prices rather than
+    // mixing a price on one side with a market cap on the other.
     const weightedMcap = (list) => {
       // Only fills that actually contribute qty to the average get a vote;
       // a zero-qty row carries no information either way.
@@ -240,12 +240,15 @@
       const ok = real.length > 0 && real.every((t) => num(t.mcap) > 0);
       return ok ? weighted(real, 'mcap') : null;
     };
+    const entryMcap = weightedMcap(buys);
+    const exitMcap = weightedMcap(sells);
+    const completeMcapPair = entryMcap !== null && exitMcap !== null;
     return {
       ...round,
       entryPrice: weighted(buys, 'priceNative'),
       exitPrice: weighted(sells, 'priceNative'),
-      entryMcap: weightedMcap(buys),
-      exitMcap: weightedMcap(sells),
+      entryMcap: completeMcapPair ? entryMcap : null,
+      exitMcap: completeMcapPair ? exitMcap : null,
       investedUsd: usdTotal(trades, 'buy', 'solGross'),
       returnedUsd: usdTotal(trades, 'sell', 'solNet'),
       // The trainer that tells the truth: every fill's simulated fee is

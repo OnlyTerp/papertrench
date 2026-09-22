@@ -27,7 +27,7 @@ function runScenario({ feeBps = 0, slippageBps = 0, gas = 0, tip = 0, buySol = 1
 
   const pos = state.positions[mint];
   const price = growth; // the token has run to `growth`x the entry price
-  const mark = Q.positionMark(pos, price, null);
+  const mark = Q.positionMark(pos, price, null, E.grossOpenCostSol(pos));
   const ledger = Q.positionLedger(state.journal, pos, mark.valueSol);
   const plan = Q.sellInitialPlan(pos, ledger, price, {
     feeBps, slippageBps, flatSol: gas + tip,

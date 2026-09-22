@@ -562,18 +562,12 @@ function computeStats(state, settings) {
   const rounds = state.rounds || [];
   const openValue = positions.reduce((s, p) => s + (p.qty || 0) * (p.lastPriceNative || 0), 0);
   const equity = (state.cashSol || 0) + openValue;
-  // D-02: realized P&L is the engine's per-sell accumulator, which credits
-  // partial exits the moment they happen — the same definition the dashboard
-  // sidebar, calendar, journal, and the attest chain replay use. The old
-  // rounds-only sum showed +0 here while the calendar showed the banked
-  // partial. Legacy states can miss the accumulator; the journal's per-sell
-  // pnlSol entries are the same definition and back-fill it.
-  let realized = Number((state.stats || {}).realizedPnlSol);
-  if (!Number.isFinite(realized)) {
-    realized = (state.journal || []).reduce(
-      (s, t) => s + (t.side === 'sell' ? (Number(t.pnlSol) || 0) : 0), 0
-    );
-  }
+  // Keep the popup's realized figure on the same gross basis as the paper
+  // wallet's equity: equity less the birth anchor and the gross P&L still open.
+  const anchor = anchorFor(state, settings);
+  const openGrossPnl = positions.reduce((sum, pos) => sum
+    + (Number(pos.qty) || 0) * (Number(pos.lastPriceNative) || 0) - grossOpenCostSol(pos), 0);
+  const realized = equity - anchor - openGrossPnl;
   const flow = journalFlow(state.journal || [], state.positions || {});
   return {
     equitySol: equity,
@@ -582,7 +576,7 @@ function computeStats(state, settings) {
     rounds: rounds.length,
     // D-06 + D-56: birth snapshot → journal-derived birth (legacy wallets)
     // → live setting, all through anchorFor.
-    equityVsStart: equity - anchorFor(state, settings),
+    equityVsStart: equity - anchor,
     boughtSol: flow.boughtSol,
     heldSol: flow.heldSol,
     soldSol: flow.soldSol,

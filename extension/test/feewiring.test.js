@@ -27,11 +27,13 @@ test('every engine order call site carries the fee context', () => {
   assert.equal(buySites.length, 3, 'expected 3 buy call sites in content.js');
   assert.equal(sellSites.length, 2, 'expected 2 sell call sites in content.js');
 
+  const previewSites = src.match(/E\.previewSell\(pos, settings, \{/g) || [];
+  assert.equal(previewSites.length, 1, 'the live sale preview has one engine call site');
   const wired = src.match(/\.\.\.\(feeContextForOrder\(\) \|\| \{\}\)/g) || [];
   assert.equal(
     wired.length,
-    buySites.length + sellSites.length,
-    `all ${buySites.length + sellSites.length} order call sites must spread feeContextForOrder(); found ${wired.length}`,
+    buySites.length + sellSites.length + previewSites.length,
+    `all ${buySites.length + sellSites.length} order and ${previewSites.length} preview call sites spread feeContextForOrder(); found ${wired.length}`,
   );
 });
 

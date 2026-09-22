@@ -4,10 +4,9 @@
  * The old weighted() counted that fill's qty in the denominator but 0 in
  * the numerator — the card understated the entry/exit mcap (or showed a
  * bogus small number where the trader remembered "in at 240K"). The house
- * discipline (usdTotal / weightedUsd) is all-or-nothing: if even one fill
- * on the side lacks mcap, the average is null and the card falls back to
- * the price line. This locks that contract on the shared derivation both
- * card composers use. */
+ * discipline (usdTotal / weightedUsd) is all-or-nothing: if either side
+ * lacks an mcap average, both endpoints use prices. This locks that contract
+ * on the shared derivation both card composers use. */
 const test = require('node:test');
 const assert = require('node:assert');
 const PC = require('../pnlcard.js');
@@ -29,19 +28,18 @@ test('D-09: all fills carry mcap → weighted entry/exit mcap as before', () => 
   assert.equal(src.exitMcap, 900_000);
 });
 
-test('D-09: one buy missing mcap → entryMcap is null (never a partial average)', () => {
+test('T4 / D-79: one buy missing mcap → both sides use prices, never mixed units', () => {
   const partial = journal([{ id: 't4', side: 'buy', qty: 5, priceNative: 110, mcap: null, priceUsd: null }]);
   const src = PC.roundCardSource({ ...ROUND, tradeIds: ['t1', 't2', 't4', 't3'] }, partial);
   // OLD behavior: (240k*10 + 260k*10 + 0*5) / 25 = 200_000 — a 20% lie.
   assert.equal(src.entryMcap, null);
-  // The side without gaps still averages normally.
-  assert.equal(src.exitMcap, 900_000);
+  assert.equal(src.exitMcap, null, 'a complete exit mcap cannot pair with a missing entry mcap');
 });
 
-test('D-09: one sell missing mcap → exitMcap is null, entry unaffected', () => {
+test('T4 / D-79: one sell missing mcap → both entry and exit mcap are null', () => {
   const partial = journal([{ id: 't5', side: 'sell', qty: 3, priceNative: 150, mcap: null, priceUsd: null }]);
   const src = PC.roundCardSource({ ...ROUND, tradeIds: ['t1', 't2', 't3', 't5'] }, partial);
-  assert.equal(src.entryMcap, 250_000);
+  assert.equal(src.entryMcap, null);
   assert.equal(src.exitMcap, null);
 });
 
@@ -53,7 +51,7 @@ test('D-09: zero-qty fills do not poison the gate', () => {
   assert.equal(src.entryMcap, 250_000);
 });
 
-test('D-09: cardModel falls back to the price line when mcap is null', () => {
+test('T4 / D-79: a missing mcap on either side renders both endpoints as prices', () => {
   const partial = journal([{ id: 't4', side: 'buy', qty: 5, priceNative: 110, mcap: null, priceUsd: null }]);
   const src = PC.roundCardSource({
     ...ROUND,
@@ -62,8 +60,8 @@ test('D-09: cardModel falls back to the price line when mcap is null', () => {
   }, partial);
   const model = PC.cardModel(src, {});
   assert.ok(model, 'model builds');
-  // entryMcap null → entryText derives from entryPrice (formatPrice), never
-  // from a partial mcap. formatPrice output has no 'K'/'M' market-cap suffix.
-  assert.ok(typeof model.entryText === 'string' && model.entryText.length > 0);
-  assert.ok(!/\d(\.\d+)?K\b/.test(model.entryText), `entryText not price-shaped: ${model.entryText}`);
+  assert.equal(model.entryText, PC.formatPrice(src.entryPrice));
+  assert.equal(model.exitText, PC.formatPrice(src.exitPrice));
+  assert.ok(!/\d(\.\d+)?[KM]\b/.test(model.entryText), `entryText not price-shaped: ${model.entryText}`);
+  assert.ok(!/\d(\.\d+)?[KM]\b/.test(model.exitText), `exitText not price-shaped: ${model.exitText}`);
 });

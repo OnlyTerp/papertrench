@@ -2107,7 +2107,7 @@
       profitAlertLevels.delete(mint);
       return;
     }
-    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
+    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd, E.grossOpenCostSol(pos));
     if (!mark) return;
 
     const interval = Math.max(1, Number(settings.profitAlertPct) || 10);
@@ -2529,19 +2529,56 @@
   // event most likely to make the next attempt succeed.
   const FILL_RETRY_WINDOW_MS = 6000;
   const FILL_RETRY_BEAT_MS = 400;
+  const FILL_WAIT_STATUS_MS = 700;
+  let fillWaitUsers = 0;
+  let fillWaitStatusTimer = null;
+  let fillWaitStatusGeneration = 0;
+
+  function beginFillWaitStatus() {
+    fillWaitUsers += 1;
+    if (fillWaitUsers !== 1) return;
+    const generation = ++fillWaitStatusGeneration;
+    fillWaitStatusTimer = setTimeout(() => {
+      if (generation !== fillWaitStatusGeneration || fillWaitUsers === 0) return;
+      fillWaitStatusTimer = null;
+      const status = typeof els === 'undefined' ? null : els.fillStatus;
+      if (!status) return;
+      status.textContent = 'Waiting for a live price…';
+      status.classList.remove('pt-hidden');
+    }, FILL_WAIT_STATUS_MS);
+  }
+
+  function endFillWaitStatus() {
+    if (fillWaitUsers === 0) return;
+    fillWaitUsers -= 1;
+    if (fillWaitUsers > 0) return;
+    fillWaitStatusGeneration += 1;
+    if (fillWaitStatusTimer !== null) clearTimeout(fillWaitStatusTimer);
+    fillWaitStatusTimer = null;
+    const status = typeof els === 'undefined' ? null : els.fillStatus;
+    if (status) {
+      status.textContent = '';
+      status.classList.add('pt-hidden');
+    }
+  }
 
   async function quoteForTradeWithin(windowMs) {
-    const deadline = Date.now() + Math.max(0, windowMs);
-    const startMint = token && token.mint;
-    for (;;) {
-      const quote = await quoteForTrade();
-      if (quote) return quote;
-      // Never keep trying against a coin the page has since navigated away
-      // from — the refusal belongs to the click that made it.
-      if (!token || token.mint !== startMint) return null;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) return null;
-      await waitForNewPageQuote(pageQuoteSeq, Math.min(FILL_RETRY_BEAT_MS, remaining));
+    beginFillWaitStatus();
+    try {
+      const deadline = Date.now() + Math.max(0, windowMs);
+      const startMint = token && token.mint;
+      for (;;) {
+        const quote = await quoteForTrade();
+        if (quote) return quote;
+        // Never keep trying against a coin the page has since navigated away
+        // from — the refusal belongs to the click that made it.
+        if (!token || token.mint !== startMint) return null;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return null;
+        await waitForNewPageQuote(pageQuoteSeq, Math.min(FILL_RETRY_BEAT_MS, remaining));
+      }
+    } finally {
+      endFillWaitStatus();
     }
   }
 
@@ -4291,13 +4328,16 @@
         }).catch(() => {});
         runTradeEffect('sell');
         playTradeSound('sell');
-        const pnl = result.trade.pnlSol;
+        const pnl = result.trade.pnlGrossSol != null && Number.isFinite(Number(result.trade.pnlGrossSol))
+          ? Number(result.trade.pnlGrossSol) : (Number(result.trade.pnlSol) || 0);
+        const partialCostShare = (Number(result.trade.solNet) || 0) - pnl;
+        const partialPct = partialCostShare > 0 ? (pnl / partialCostShare) * 100 : 0;
         const exitMcap = mcapAtPrice(result.trade.priceNative);
         // Wave 1 (F-B9): a full close speaks ONCE — sold + round result in
         // one line instead of two stacked toasts. Partial sells keep the
         // single sold line; the grade line (gaming) stays its own thought.
         if (!result.round) {
-          toast(`Sold ${Math.round(fraction * 100)}%${exitMcap ? ` at ${fmtMoney(exitMcap)} MC` : ''} — ${pnl >= 0 ? '+' : ''}${E.fmt(pnl)} SOL paper`);
+          toast(`Sold ${Math.round(fraction * 100)}%${exitMcap ? ` at ${fmtMoney(exitMcap)} MC` : ''} — ${pnl >= 0 ? '+' : ''}${E.fmt(pnl)} SOL (${partialPct > 0 ? '+' : ''}${partialPct.toFixed(1)}%) paper`);
         } else {
           toast(`Sold ${Math.round(fraction * 100)}%${exitMcap ? ` at ${fmtMoney(exitMcap)} MC` : ''} — round closed: ${result.round.pnlSol >= 0 ? '+' : ''}${E.fmt(result.round.pnlSol)} SOL (${result.round.pnlPct.toFixed(1)}%) paper`);
           // The grade toast judges PROCESS, decoupled from P&L on purpose: a
@@ -5015,6 +5055,9 @@
       white-space: nowrap;
     }
     .pt-costs:hover span { color: var(--pt-dim); border-color: var(--pt-line-2, var(--pt-line)); }
+    .pt-fill-status {
+      margin-top: 4px; color: var(--pt-dim); font-size: 10px; line-height: 1.35;
+    }
 
     /* Inline preset editor (lev: "on the tab for quick fixes" — the TRADING
        tab, like the pencil on the site's own widget). One compact block:
@@ -5179,6 +5222,10 @@
     }
     /* USD sits on its own line at narrow widths rather than being truncated. */
     .pt-pos .pnl .usd-part { opacity: 0.85; }
+    .pt-pos .exit-preview {
+      margin: 3px 2px 0; color: var(--pt-faint); font-size: 10px;
+      line-height: 1.35; font-variant-numeric: tabular-nums;
+    }
 
     /* ---------------- closed P&L ---------------- */
 
@@ -6039,6 +6086,7 @@
             </div>
             <input class="pt-custom" id="pt-custom" type="number" min="0" step="0.01" placeholder="Or type a custom SOL amount…" />
             <button class="pt-buy" id="pt-buy">BUY</button>
+            <div class="pt-fill-status pt-hidden" id="pt-fill-status" role="status" aria-live="polite"></div>
             <!-- N2 (limit buys): one compact arm-row directly under BUY.
                  Reads as "same money, but only at my price". -->
             <div class="pt-limit-row" id="pt-limit-row">
@@ -6106,6 +6154,7 @@
     els.editTip = shadow.getElementById('pt-edit-tip');
     els.editSlip = shadow.getElementById('pt-edit-slip');
     els.btnBuy = shadow.getElementById('pt-buy');
+    els.fillStatus = shadow.getElementById('pt-fill-status');
     els.limitPrice = shadow.getElementById('pt-limit-price');
     els.limitArm = shadow.getElementById('pt-limit-arm');
     els.limitList = shadow.getElementById('pt-limit-list');
@@ -8305,7 +8354,7 @@
         priceUsd: Number(token.priceUsd) > 0 ? Number(token.priceUsd) : null,
       }
       : null;
-    const rows = Q.positionRows(state, livePositionPrices, token && token.mint, activeQuote);
+    const rows = Q.positionRows(state, livePositionPrices, token && token.mint, activeQuote, E.grossOpenCostSol);
     const enabled = settings.positionsBarEnabled !== false;
     // away32 (8/21): "overlay sol balance at the top without needing to open
     // the ext" — with zero positions the bar used to vanish entirely, taking
@@ -8780,7 +8829,7 @@
       ? 'Warning: entry price and P&L use a host supply that disagreed with measured supply.'
       : '';
 
-    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
+    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd, E.grossOpenCostSol(pos));
     if (!mark) return;
 
     // Re-arm whatever the empty state switched off — the card persists now,
@@ -8795,11 +8844,13 @@
     posEls.value.textContent = `${E.fmt(mark.valueSol, 4)} SOL`;
 
     const sign = mark.pnlSol >= 0 ? '+' : '';
+    const pctSign = mark.pnlPct > 0 ? '+' : '';
     posEls.pnl.textContent =
-      `${sign}${E.fmt(mark.pnlSol)} SOL (${mark.pnlPct.toFixed(1)}%)` +
+      `${sign}${E.fmt(mark.pnlSol)} SOL (${pctSign}${mark.pnlPct.toFixed(1)}%)` +
       (mark.pnlUsd !== null ? ` · ${E.fmtUsd(mark.pnlUsd)}` : '');
     posEls.pnl.classList.toggle('pt-green', mark.up);
     posEls.pnl.classList.toggle('pt-red', !mark.up);
+    renderExitPreview(pos, mark);
 
     // Flash when the underlying price moves, but color by TOTAL position P&L,
     // never by tick direction. A losing position stays red during a bounce;
@@ -8829,7 +8880,7 @@
   function currentInitialPlan() {
     const pos = token && state.positions[token.mint];
     if (!pos) return null;
-    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd);
+    const mark = Q.positionMark(pos, token.priceNative, token.priceUsd, E.grossOpenCostSol(pos));
     if (!mark) return null;
     const led = Q.positionLedger(state.journal, pos, mark.valueSol);
     return Q.sellInitialPlan(pos, led, mark.price, {
@@ -8904,6 +8955,10 @@
     posEls.pnl.textContent = DASH;
     posEls.pnl.title = '';
     posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
+    if (posEls.exitPreview) {
+      posEls.exitPreview.textContent = '';
+      posEls.exitPreview.classList.add('pt-hidden');
+    }
 
     if (posEls.ledger) {
       posEls.ledger.classList.remove('pt-hidden', 'pt-house');
@@ -8923,6 +8978,41 @@
     if (posEls.orders) posEls.orders.classList.add('pt-hidden');
     lastRenderedPrice = null;
   }
+  function renderExitPreview(pos, mark) {
+    const node = posEls && posEls.exitPreview;
+    if (!node) return;
+    const priceNative = Number(mark && mark.price);
+    const priceUsd = Number(token && token.priceUsd);
+    if (!(priceNative > 0) || !(lastPriceAt > 0) || Q.isPriceStale(lastPriceAt, Date.now())) {
+      node.textContent = '';
+      node.classList.add('pt-hidden');
+      return;
+    }
+
+    let preview;
+    try {
+      preview = E.previewSell(pos, settings, {
+        qtyFraction: 1,
+        priceNative,
+        priceUsd: priceUsd > 0 ? priceUsd : undefined,
+        mcap: token.mcap,
+        ...(feeContextForOrder() || {}),
+      });
+    } catch (_) {
+      node.textContent = '';
+      node.classList.add('pt-hidden');
+      return;
+    }
+    const grossCost = preview.grossCostShare;
+    const pct = grossCost > 0 ? (preview.pnlGrossSol / grossCost) * 100 : 0;
+    const sign = preview.pnlGrossSol > 0 ? '+' : '';
+    const pctSign = pct > 0 ? '+' : '';
+    const solUsd = priceUsd > 0 ? priceUsd / priceNative : null;
+    const proceedsUsd = solUsd !== null ? E.fmtUsd(preview.net * solUsd) : '$—';
+    node.textContent = `If you sell now: ${sign}${E.fmt(preview.pnlGrossSol)} SOL (${pctSign}${pct.toFixed(1)}%) · ${proceedsUsd} after ${E.fmt(preview.fee + preview.flat, 4)} SOL fees`;
+    node.classList.remove('pt-hidden');
+  }
+
   function renderPositionLedger(pos, mark) {
     if (!posEls || !posEls.ledger) return;
     const led = Q.positionLedger(state.journal, pos, mark.valueSol);
@@ -8942,8 +9032,10 @@
     posEls.ledLeft.textContent = money(led.remainingSol);
 
     const up = led.changeSol >= 0;
-    posEls.ledChg.textContent = `${up ? '+' : ''}${money(led.changeSol)}`
-      + ` (${up ? '+' : ''}${led.changePct.toFixed(0)}%)`;
+    const change = rate
+      ? E.fmtUsd(led.changeSol * rate)
+      : `${up ? '+' : ''}${E.fmt(led.changeSol)} SOL`;
+    posEls.ledChg.textContent = `${change} (${led.changePct > 0 ? '+' : ''}${led.changePct.toFixed(1)}%)`;
     posEls.ledChg.classList.toggle('pt-green', up);
     posEls.ledChg.classList.toggle('pt-red', !up);
     // Once the sells alone cover what went in, the rest of the bag is
@@ -9184,7 +9276,7 @@
     let trenchRound = null;
     if (pos) {
       source = PC.positionCardSource(pos, state.journal, {
-        pnlSol: E.unrealizedPnl(pos),
+        pnlSol: E.unrealizedPnlGross(pos),
         pnlPct: E.positionPnlPct(pos),
         avgBuyNative: (E.averageFillPrices(state, mint) || {}).avgBuyNative,
       }, Date.now());
@@ -9464,6 +9556,7 @@
       <div class="row pt-detail"><span class="k">Avg entry</span><span class="v" data-f="entry"></span></div>
       <div class="row pt-detail"><span class="k">Value</span><span class="v" data-f="value"></span></div>
       <div class="row row-pnl"><span class="k">Unrealized P&amp;L</span><span class="v pnl" data-f="pnl"></span></div>
+      <div class="exit-preview pt-hidden" data-f="exitpreview"></div>
       <div class="pt-ledger" data-f="ledger">
         <div class="pt-led"><span class="k">Invested</span><span class="v" data-f="led-in"></span></div>
         <div class="pt-led"><span class="k">Sold</span><span class="v" data-f="led-out"></span></div>
@@ -9481,6 +9574,7 @@
       entry: card.querySelector('[data-f="entry"]'),
       value: card.querySelector('[data-f="value"]'),
       pnl: card.querySelector('[data-f="pnl"]'),
+      exitPreview: card.querySelector('[data-f="exitpreview"]'),
       ledger: card.querySelector('[data-f="ledger"]'),
       ledIn: card.querySelector('[data-f="led-in"]'),
       ledOut: card.querySelector('[data-f="led-out"]'),

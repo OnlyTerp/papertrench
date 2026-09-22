@@ -592,7 +592,7 @@ test("the dashboard offers Share on live open positions", () => {
   const fnStart = dash.indexOf("function openShareCardForPosition(");
   assert.ok(fnStart !== -1);
   const block = dash.slice(fnStart, dash.indexOf("\nfunction openShareCard(", fnStart));
-  assert.match(block, /E\.unrealizedPnl\(pos\)/, "P&L is the engine live mark, never recomputed ad hoc");
+  assert.match(block, /E\.unrealizedPnlGross\(pos\)/, "P&L is the engine gross live mark, never recomputed ad hoc");
   assert.match(block, /PC\.positionCardSource\(pos, state\.journal/,
     "the dashboard must use the ONE shared open-position derivation");
   // The honest-USD rule lives in the shared builder now.

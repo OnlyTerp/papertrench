@@ -1402,7 +1402,8 @@
       // A sell older than this position belongs to a previous round.
       if (openedAt && Number(t.ts) < openedAt) continue;
       soldSol += Number(t.solNet) || 0;
-      realizedSol += Number(t.pnlSol) || 0;
+      realizedSol += t.pnlGrossSol != null && Number.isFinite(Number(t.pnlGrossSol))
+        ? Number(t.pnlGrossSol) : (Number(t.pnlSol) || 0);
       sells += 1;
     }
 
@@ -1474,14 +1475,17 @@
       shortfall: fraction > 1,
     };
   }
-  function positionMark(pos, priceNative, priceUsd) {
+  // The engine supplies the gross cost so this module never re-derives it.
+  function positionMark(pos, priceNative, priceUsd, grossCostSol) {
     if (!pos || !(pos.qty > 0)) return null;
     var px = Number(priceNative) > 0 ? Number(priceNative) : Number(pos.lastPriceNative);
     if (!(px > 0)) return null;
+    var basis = Number(grossCostSol);
+    if (!(basis >= 0) || !Number.isFinite(basis)) return null;
 
     var value = pos.qty * px;
-    var pnl = value - pos.costSol;
-    var pct = pos.costSol > 0 ? (pnl / pos.costSol) * 100 : 0;
+    var pnl = value - basis;
+    var pct = basis > 0 ? (pnl / basis) * 100 : 0;
     var avgEntry = pos.qty > 0 ? pos.costSol / pos.qty : 0;
 
     // Derive the SOL->USD rate from the token's own two quotes so the USD P&L
@@ -1569,8 +1573,9 @@
    * `livePrices` and outrank the live feed — so the bar chip and the position
    * card marked the same bag from two different venues and disagreed about
    * its P&L. The token on screen is priced by what the screen shows, always.
+   * `grossOpenCostFor` injects the engine's one gross-basis implementation.
    */
-  function positionRows(state, livePrices, activeMint, activeQuote) {
+  function positionRows(state, livePrices, activeMint, activeQuote, grossOpenCostFor) {
     const positions = (state && state.positions) || {};
     const prices = livePrices || {};
     const rows = [];
@@ -1589,7 +1594,8 @@
         ? Number(live.priceUsd)
         : Number(pos.lastPriceUsd) || null;
 
-      const mark = positionMark(pos, priceNative, priceUsd);
+      const grossCost = typeof grossOpenCostFor === 'function' ? grossOpenCostFor(pos) : NaN;
+      const mark = positionMark(pos, priceNative, priceUsd, grossCost);
       if (!mark) continue;
 
       rows.push({
