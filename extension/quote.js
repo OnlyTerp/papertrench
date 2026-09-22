@@ -1253,6 +1253,10 @@
   var AGGREGATOR_WITNESS_RATIO = 1.15;
   var AGGREGATOR_SOURCES = {
     resolver: 1, 'action-resolver': 1, jupiter: 1, gmgn: 1, pumpfun: 1,
+    // Our own price service is Dexscreener-backed: an aggregator snapshot
+    // like any other, so it answers to the tight band, never the wide
+    // live-feed one.
+    'action-worker': 1,
   };
 
   /** True for a price that came from a periodic snapshot rather than the

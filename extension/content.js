@@ -916,6 +916,23 @@
     token.priceNative = verdict.priceNative;
     if (verdict.priceUsd) token.priceUsd = verdict.priceUsd;
     if (verdict.mcap) token.mcap = verdict.mcap;
+    // A foreign panel prices orders in DOLLARS and converts at the rate the
+    // record carried out of the resolver (panelUsdRate reads
+    // token.solUsdAtResolve). A BSC or Robinhood page the resolver never
+    // resolved — priced entirely by the site's own USD feed — therefore
+    // showed a live price while EVERY buy refused "No SOL/USD rate for this
+    // chain": cheng.4848 9/08 "Why can't I use BSC?", and his 9/15 debug
+    // report on gmgn.ai/bsc/token/0x4d10… carrying hasPriceNative true with
+    // pending still true.
+    //
+    // The tick that just passed validation carries BOTH legs, so the rate is
+    // the ratio of those two numbers — never a guessed rate, and never over
+    // a rate the resolver already recorded.
+    if (token.chain && token.chain !== 'solana'
+      && !(Number(token.solUsdAtResolve) > 0)
+      && Number(verdict.priceUsd) > 0 && Number(verdict.priceNative) > 0) {
+      token.solUsdAtResolve = Number(verdict.priceUsd) / Number(verdict.priceNative);
+    }
     token.priceSource = payload.source || 'page-feed';
     if (verdict.supplyBasis === 'host') {
       token.hostSupplySource = 'site-facts';
@@ -2451,6 +2468,11 @@
     // witness misses — a page-feed candidate diverging from evidence with
     // an unreachable aggregator used to refuse without ever asking it.
     const consultWorker = async () => {
+      // F-57 independence: a candidate our own price service served cannot
+      // be witnessed by that same service. The chain above (or the resolver
+      // in the else branch) is the only honest second source for an
+      // 'action-worker' fill; absent one, the divergence refuses as always.
+      if (chosen.source === 'action-worker') return;
       try {
         const worker = await bounded(R.workerQuote(mint, chain), WITNESS_BUDGET_MS, null);
         if (!worker || !(worker.priceUsd > 0)) return;
@@ -2490,6 +2512,37 @@
 
   async function quoteForTrade() {
     return corroborateForFill(await pickQuoteForTrade());
+  }
+
+  // A click is an intent, not a single sample. When the ladder cannot PROVE a
+  // price at this instant, the honest answer is to keep asking for a moment —
+  // not to drop the trade. Every gate still runs on every attempt (this loops
+  // quoteForTrade itself), so a fill only ever lands on a price that passed
+  // them; what changes is that a momentary gap no longer costs the user their
+  // trade. This is the mechanism behind the most-repeated complaint we have:
+  // cheng.4848 9/16 "I have to refresh the page a few times before I can
+  // sell" — the refresh was only ever a way to buy one more sample.
+  //
+  // Bounded well under the 20 s stuck-latch hygiene, and silent: the common
+  // case answers on the first pass and narrates nothing. The beat waits for
+  // the next PAGE tick rather than sleeping blind, because a new tick is the
+  // event most likely to make the next attempt succeed.
+  const FILL_RETRY_WINDOW_MS = 6000;
+  const FILL_RETRY_BEAT_MS = 400;
+
+  async function quoteForTradeWithin(windowMs) {
+    const deadline = Date.now() + Math.max(0, windowMs);
+    const startMint = token && token.mint;
+    for (;;) {
+      const quote = await quoteForTrade();
+      if (quote) return quote;
+      // Never keep trying against a coin the page has since navigated away
+      // from — the refusal belongs to the click that made it.
+      if (!token || token.mint !== startMint) return null;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      await waitForNewPageQuote(pageQuoteSeq, Math.min(FILL_RETRY_BEAT_MS, remaining));
+    }
   }
 
   async function pickQuoteForTrade() {
@@ -2611,6 +2664,51 @@
         source: 'action-resolver',
         receivedAt: Date.now(),
       };
+    }
+
+    // Every aggregator lane is down (a cooling-down public pool, an
+    // unreachable resolver) — but OUR OWN price service is a live,
+    // independent source, and until now the primary ladder never asked it:
+    // workerQuote existed only as a WITNESS for a divergent candidate in
+    // corroborateForFill. So a quiet lowcap chart on a degraded pool refused
+    // every click while a real, fresh price sat one bounded request away.
+    // That is exactly the residual field report: cheng.4848 9/16 "I often
+    // can't make a purchase in time... generally only happens with
+    // low-market-cap coins", ark_trades13 9/17 "lost a lot today due to the
+    // extension not working properly" — both on 3.23.4, both with tatum 429
+    // storms and "rpc pool cooling down" filling their logs.
+    //
+    // Solana only, deliberately. The USD->SOL leg here is the same cached-
+    // rate conversion the witness path already trusts; a foreign pair must
+    // keep validating in USD only (the v3.23.0 gas-ticks-banked-as-SOL
+    // corruption class), so EVM chains are never priced from this lane.
+    // The facade guard mirrors workerNativeFromUsd's `typeof R.solUsd` check:
+    // the isolated ladder harnesses boot a subset of R, and a missing lane is
+    // a lane that simply cannot answer — never a throw inside a click.
+    if ((!token.chain || token.chain === 'solana') && typeof R.workerQuote === 'function') {
+      const worker = await bounded(R.workerQuote(startMint, 'solana'), WITNESS_BUDGET_MS, null);
+      if (!token || token.mint !== startMint) return null;
+      // A page tick that landed while we were asking is still the price the
+      // trader is looking at — it wins here exactly as it does above.
+      if (pageQuoteSeq > seqAtClick) {
+        const tickDuringWorker = quoteSnapshot();
+        if (tickDuringWorker && Date.now() - tickDuringWorker.receivedAt <= ACTION_QUOTE_MAX_AGE_MS) {
+          return tickDuringWorker;
+        }
+      }
+      const workerNative = worker ? await workerNativeFromUsd(worker) : null;
+      if (workerNative > 0) {
+        return {
+          mint: startMint,
+          priceNative: workerNative,
+          priceUsd: Number(worker.priceUsd) > 0 ? Number(worker.priceUsd) : null,
+          // mcapUsd only — an FDV fallback must never print as circulating
+          // market cap (v3.23.0).
+          mcap: Number(worker.mcapUsd) > 0 ? Number(worker.mcapUsd) : null,
+          source: 'action-worker',
+          receivedAt: Date.now(),
+        };
+      }
     }
 
     // Every live source failed (resolver outage, unindexed migration). The
@@ -2737,10 +2835,30 @@
       }), COMMIT_BUDGET_MS, null);
       if (reply && reply.ok) return;
       if (!reply || reply.reason !== 'stale' || !reply.current) {
-        // The worker is unreachable (dying update, cold start failure). A
-        // fill MUST NOT be droppable on availability grounds — fall back to
-        // the direct write this function always did. The clobber window this
-        // reopens is the width of a worker outage, not of every heartbeat.
+        // A MUTATION is never droppable on availability grounds (a dying
+        // update, a cold start) — it falls back to the direct write this
+        // function always did, and its remutate has already re-applied it
+        // onto whatever truth was adopted.
+        //
+        // A HEARTBEAT must NEVER take that path. It carries nothing unique —
+        // marks, post-exit prices and post-watch finalisation are recomputed
+        // on the next poll — while a blind full-state write erases everything
+        // that landed since this view last read. That is how a SECOND view on
+        // the same wallet makes a committed fill vanish: the new window reads
+        // the wallet, the fill lands in the first window, and the new
+        // window's next beat writes its pre-fill copy straight over it
+        // (cheng.4848 9/15 — "After placing the buy order, I opened this page
+        // in a separate window; then, after closing that window, the order
+        // disappeared"). `bounded` returns null on TIMEOUT as well as on
+        // failure, so "unreachable" also means "merely slow" — which is
+        // exactly what opening and closing windows does to the service
+        // worker. Walking away costs a heartbeat nothing; the next beat
+        // re-asks against fresh truth.
+        //
+        // This is the policy the forced commit below already states for the
+        // same reason ("a pure heartbeat has nothing unique — it walks away");
+        // this branch simply never got it.
+        if (!remutate) return;
         await store.set({ [E.STORAGE_KEYS.state]: state });
         return;
       }
@@ -3253,7 +3371,7 @@
     renderAll();
   }
 
-  function armLimitBuy() {
+  async function armLimitBuy() {
     if (!token || !token.mint) return toast('Waiting for the token…');
     const price = Number(els.limitPrice && els.limitPrice.value);
     // Same amount read the BUY button uses: custom box wins, else the
@@ -3262,22 +3380,59 @@
     const sel = els.buyPresets && els.buyPresets.querySelector('.pt-preset.sel');
     const amount = custom > 0 ? custom : sel ? Number(sel.dataset.amt) : 0;
     if (!(price > 0)) return toast('Type a limit price first (SOL)');
-    if (!(amount > 0)) return toast('Pick a SOL amount first (presets or custom)');
+    if (!(amount > 0)) {
+      return toast(panelUsd() ? 'Pick a dollar amount first (presets or custom)'
+        : 'Pick a SOL amount first (presets or custom)');
+    }
     if (token.priceNative && price >= Number(token.priceNative)) {
       // A bid ABOVE the market is a market buy in disguise — refuse the
       // confusion and say why. Buy it now instead.
       return toast('That limit is at or above the live price — just press BUY');
     }
+    // Dollar panels type DOLLARS, and the engine only ever speaks the book's
+    // currency — so convert exactly as requestBuy does before anything locks
+    // SOL. Without this, arming from a "$100" chip locked 100 SOL, or threw
+    // "Not enough free SOL" on a wallet holding 12: the same amount-
+    // substitution class as the stale chips (Souly 9/17, "for some coins it
+    // won't lemme put money on — it picks like a certain amount for me").
+    let solAmount = amount;
+    let quotedUsd = null;
+    if (panelUsd()) {
+      const rate = panelUsdRate();
+      // Never guess a rate; a limit that locks the wrong currency is worse
+      // than one that was refused out loud.
+      if (!rate) return toast('No SOL/USD rate for this chain — limit buy not armed');
+      quotedUsd = amount;
+      solAmount = amount / rate;
+    }
+    // An armed order is USER INTENT, not a recomputable mark, so it takes the
+    // same contract a fill takes: serialize on the mutation chain, re-read
+    // the wallet, then commit through the CAS with a re-runnable mutation.
+    // It used to hand the change to persistSoon, which could lose it two
+    // ways: the debounced write walks away when the worker is slow, and when
+    // storage is ahead that writer ADOPTS the stored wallet — dropping the
+    // order out of memory as well, so the panel showed "armed" over a wallet
+    // that had never heard of it (open a second window on the same wallet,
+    // close it, watch the order go). Re-reading first also means the free-SOL
+    // check runs against the balance another tab actually left behind.
     try {
-      const order = E.addPendingBuy(state, settings, token.mint, {
-        ts: Date.now(), triggerPrice: price, solAmount: amount,
-        symbol: token.symbol, name: token.name, site: site && site.id,
+      const order = await withState(async () => {
+        let armed = null;
+        const mutate = () => {
+          armed = E.addPendingBuy(state, settings, token.mint, {
+            ts: Date.now(), triggerPrice: price, solAmount,
+            symbol: token.symbol, name: token.name, site: site && site.id,
+          });
+        };
+        mutate();
+        await persistStateNow(mutate);
+        return armed;
       });
-      persistSoon();
       if (els.limitPrice) els.limitPrice.value = '';
       const askedMcap = mcapAtPrice(price);
-      toast(`Limit buy armed${askedMcap ? ` at ${fmtMoney(askedMcap)} MC` : ''} — ${E.fmt(amount, 3)} SOL locked`);
+      toast(`Limit buy armed${askedMcap ? ` at ${fmtMoney(askedMcap)} MC` : ''} — ${E.fmt(solAmount, 3)} SOL locked${quotedUsd ? ` ($${quotedUsd})` : ''}`);
       renderLimitBuys();
+      return order;
     } catch (err) {
       toast(err.message || 'Could not arm the limit buy');
     }
@@ -3286,10 +3441,14 @@
   function cancelLimitBuy(id) {
     if (!token || !token.mint) return;
     withState(async () => {
-      E.removePendingBuy(state, token.mint, id);
+      // A dropped cancel is worse than a dropped arm: the order comes back
+      // and can still fill. Same mutation contract, and removePendingBuy is
+      // idempotent, so a re-run on an adopted base is always safe.
+      const mutate = () => { E.removePendingBuy(state, token.mint, id); };
+      mutate();
+      await persistStateNow(mutate);
       return null;
     }).then(() => {
-      persistSoon();
       renderLimitBuys();
       toast('Limit buy cancelled — SOL unlocked');
     }).catch(() => {});
@@ -3516,6 +3675,18 @@
   // "seq:updatedAt" of this tab's newest write — the clone-proof identity of
   // our own state, since the storage event never hands back our object.
   let lastWrittenStamp = null;
+  /**
+   * The 800 ms debounced writer. MARKS ONLY — live prices, post-exit notes,
+   * expired watches, host-fact flags: everything on this path is recomputed
+   * from the next tick or poll, so losing a round costs nothing.
+   *
+   * USER INTENT MAY NEVER RIDE THIS WRITER. It drops the write when the
+   * worker is slow or contended (a heartbeat's privilege — see
+   * persistStateNow), and when storage is ahead it ADOPTS the stored wallet
+   * wholesale, which throws away the very change it was called to save. A
+   * fill, an armed order, a cancelled order — anything the trader typed —
+   * goes through persistStateNow(mutate) with a re-runnable mutation.
+   */
   function persistSoon() {
     if (persistTimer) return;
     persistTimer = setTimeout(async () => {
@@ -3808,7 +3979,7 @@
     const rugRefusal = rugRefusalMessage();
     if (rugRefusal) return toast(rugRefusal);
     const tClick = perfNow();
-    const fillQuote = await quoteForTrade();
+    const fillQuote = await quoteForTradeWithin(FILL_RETRY_WINDOW_MS);
     if (!fillQuote) return toast(lastQuoteRefusal || 'Could not obtain a fresh price — paper buy not filled.');
     const tQuoted = perfNow();
     try {
@@ -4063,7 +4234,7 @@
 
   async function doSellInner(fraction) {
     const tClick = perfNow();
-    const fillQuote = await quoteForTrade();
+    const fillQuote = await quoteForTradeWithin(FILL_RETRY_WINDOW_MS);
     if (!fillQuote) return toast(lastQuoteRefusal || 'Could not obtain a fresh price — paper sell not filled.');
     const tQuoted = perfNow();
     try {
@@ -6261,6 +6432,29 @@
 
   window.addEventListener('keydown', onShortcutKey, true);
 
+  // Chips carry PANEL units, and the panel's unit follows the COIN's chain
+  // (panelUsd). renderPresets only ran on mount, on a settings write and on
+  // a preset save — never when the token changed — so navigating between a
+  // Solana coin and a foreign-chain coin left the PREVIOUS chain's chips on
+  // screen while requestBuy read them in the NEW unit: a chip labelled
+  // "$1000" asked for 1000 SOL and was refused for balance, and a chip
+  // labelled "2 SOL" quietly bought $2. Either way the chip placed an order
+  // of a different magnitude than its own label — Souly 9/17, "for some
+  // coins it won't lemme put money on. Like it picks like a certain amount
+  // for me to do."
+  //
+  // This syncs from renderAll rather than from the token swap on purpose: a
+  // pending coin resolves its chain AFTER the swap, so keying on the swap
+  // alone would still paint the wrong unit on exactly the fresh pairs people
+  // trade. Guarded by the last rendered mode, so the common beat costs one
+  // boolean compare and never rebuilds the chips.
+  let presetsUsdMode = null;
+  function syncPresetUnits() {
+    if (!els.buyPresets) return;
+    if (panelUsd() === presetsUsdMode) return;
+    renderPresets();
+  }
+
   function renderPresets() {
     // Two user toggles strip the buy controls back: the preset row can be
     // hidden on its own, or the whole buy section (label, presets, custom
@@ -6277,6 +6471,13 @@
     // preset when it is empty.
     const customOn = sectionOn && settings.panelCustomAmount === true;
     if (els.custom) els.custom.style.display = customOn ? '' : 'none';
+    // The box reads amounts in panel units, so its own prompt must say which
+    // (it was hardcoded to SOL on every chain).
+    if (els.custom) {
+      els.custom.placeholder = panelUsd()
+        ? 'Or type a custom $ amount…'
+        : 'Or type a custom SOL amount…';
+    }
     const instant = settings.instantBuyEnabled !== false;
     if (els.btnBuy) els.btnBuy.style.display = sectionOn && (!instant || customOn) ? '' : 'none';
     if (els.buyPresets) els.buyPresets.style.display = presetsOn ? '' : 'none';
@@ -6284,6 +6485,7 @@
     // Chips carry PANEL units: SOL on Solana, dollars on foreign chains
     // (requestBuy converts at the recorded rate).
     const usdMode = panelUsd();
+    presetsUsdMode = usdMode;
     const list = usdMode
       ? (settings.presetsBuyUsd || USD_PRESETS_DEFAULT)
       : (settings.presetsBuy || [0.1, 0.5, 1, 2]);
@@ -6700,6 +6902,7 @@
     if (contextDead || !shadow) return;
     applyFocusMode();
     renderHeader();
+    syncPresetUnits();
     renderBalance();
     renderMicroWallet();
     renderFlow();
@@ -9892,7 +10095,17 @@
     if (!notice || !notice.latest) return;
     updateNoticeShown = true;
     const running = (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || '';
-    toast(`PaperTrench v${notice.latest} is out (you run v${running}) — grab it on GitHub`);
+    // The popup's update banner already gates its own download link on a
+    // fresh backup — but the people who lose a wallet never went through it:
+    // they read the release post and replaced the folder straight from
+    // GitHub. An unpacked install keyed to a NEW folder is a NEW extension
+    // id, which is a NEW chrome.storage partition, which is a wallet that
+    // looks deleted (ark_trades13 8/27 "is there anyway we can get our
+    // progress back", 9/05 "Forgot to back up my extension this morning";
+    // his own debug reports carry three different extension ids across
+    // 3.22.0, 3.23.0 and 3.23.4). This toast is the one that reaches those
+    // users, because it fires where they actually are — on the chart.
+    toast(`PaperTrench v${notice.latest} is out (you run v${running}) — back up your wallet first (Settings → Backup wallet), then grab it on GitHub`);
   }
 
   // Prices and market caps share one readable convention across the whole

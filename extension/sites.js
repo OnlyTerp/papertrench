@@ -120,7 +120,17 @@
   // trackerChains params: sol, bnb, eth, robinhood (robinhood CONFIRMED
   // shipped 2026-07-11 — chain selector SOL/HOOD/BNB/ETH). Mapped to
   // Dexscreener's canonical chainIds; an unlisted slug fails closed.
-  const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bnb', eth: 'ethereum', robinhood: 'robinhood' };
+  // Ark, 9/15: "why doesnt the extension work on Axiom robinhood?" — the
+  // `robinhood` slug here was INFERRED from a captured SOLANA page's
+  // chain/pulseChains params; it was never seen on a real RH token page,
+  // while the note above records the live selector as SOL/HOOD/BNB/ETH and
+  // every other Axiom slug is the short form. An unlisted slug fails closed,
+  // so a page served as ?chain=hood never mounted at all. Both spellings now
+  // name the same canonical chain — a slug is an identifier, not a price, so
+  // accepting the alias guesses nothing. Outbound links are deliberately
+  // LEFT emitting `robinhood` until a real RH URL settles which the site
+  // serves; one screenshot of that address bar decides it.
+  const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bnb', eth: 'ethereum', robinhood: 'robinhood', hood: 'robinhood' };
   const AXIOM_SLUG_BY_CHAIN = { solana: 'sol', bnb: 'bnb', ethereum: 'eth', robinhood: 'robinhood' };
 
   /**

@@ -28,6 +28,20 @@
  *   "mint-set cache" observes 2 concurrent requests instead of 1 (1 failure).
  * - background.js:1980 — remove 'pt_worker_quote' from VIEWER_QUIET_MESSAGES.
  *   "hidden warm viewers" receives a quote instead of null (1 failure).
+ * D-73 controls (worker as a PRIMARY lane + the bounded in-click retry),
+ * same protocol, each run against production source:
+ * - content.js — `const workerNative = worker ? await workerNativeFromUsd(worker) : null;`
+ *   -> `= null`. The primary-lane fill, the self-witness refusal and the
+ *   retry all lose their price (3 failures).
+ * - content.js — `if (chosen.source === 'action-worker') return;` -> `if (false)`.
+ *   The worker then witnesses its own candidate and a divergent price fills
+ *   (1 failure).
+ * - content.js — the lane's `if (!token.chain || token.chain === 'solana') {`
+ *   -> `if (true) {`. A foreign pair reaches the Solana-only lane (1 failure).
+ * - content.js — `if (remaining <= 0) return null;` -> `return null;`, making
+ *   the retry single-shot. The retry and its budget both fail (2 failures).
+ * - content.js — `const deadline = Date.now() + Math.max(0, windowMs);`
+ *   -> `* 5`. The budget case no longer stops on its own window (1 failure).
  * Every control ran this entire file with node --test (exit 1), then restored
  * source byte-identically (backup + SHA-256 compare) and reran it (exit 0).
  * No witness ratio, refusal gate, position anchor, or pure Q helper changed.
@@ -113,7 +127,8 @@ function boot(options = {}) {
     Q, R, E: { fmt: value => String(value) }, Date: Clock,
     console: { debug: (...args) => observations.push(args) }, setTimeout,
     token: currentToken, state: options.state || { positions: {} },
-    lastPriceAt: NOW - 200, lastPageTickAt: NOW - 4_000,
+    lastPriceAt: options.lastPriceAt === undefined ? NOW - 200 : options.lastPriceAt,
+    lastPageTickAt: options.lastPageTickAt === undefined ? NOW - 4_000 : options.lastPageTickAt,
     pageQuoteSeq: 0, pageQuoteWaiters: new Set(), site: { id: 'axiom' },
     window: { PTErrors: { record: (message, details) => diagnostics.push({ message, details }) } },
     armedBuy: null, rekeyLiveState: () => {}, sendPadreMarker: () => {},
@@ -122,7 +137,8 @@ function boot(options = {}) {
   const ladder = vm.runInContext(
     sliceContent('/* -------------------- action-time quotes and fills',
       '/* -------------------- fills --------------------')
-      + '\n;({ quoteForTrade, corroborateForFill, setEvidence: value => { lastAcceptedMarket = value; },'
+      + '\n;({ quoteForTrade, quoteForTradeWithin, corroborateForFill,'
+      + ' setEvidence: value => { lastAcceptedMarket = value; },'
       + ' getRefusal: () => lastQuoteRefusal, fmtWitness });',
     context, { filename: 'content.js#action-quotes' });
   ladder.setEvidence({ priceNative: MARKET, at: NOW - 2_000 });
@@ -426,4 +442,97 @@ test('D-71 E1: hidden warm viewers do not spend worker quote traffic', async () 
   vm.runInContext('warmViewerTabs.add(1)', env.worker.ctx);
   assert.equal(await env.R.workerQuote(MINT), null);
   assert.equal(env.worker.fetchCalls.length, 0);
+});
+
+/* ---- D-73: the worker is a PRIMARY lane, and a click is an intent ----
+ *
+ * Field, both on 3.23.4 with tatum 429 storms and "rpc pool cooling down"
+ * filling their exported logs: cheng.4848 9/16 "I often can't make a
+ * purchase in time, and sometimes I can't sell either; I have to refresh the
+ * page a few times before I can sell... generally only happens with
+ * low-market-cap coins"; ark_trades13 9/17 "lost a lot today due to the
+ * extension not working properly".
+ *
+ * Two causes, both closed here. (1) A quiet lowcap chart on a cooling-down
+ * public pool refused every click while our own price service — already
+ * shipped, already trusted as a WITNESS — was never asked for a price of its
+ * own. (2) A refusal threw the user's intent away, so the only recovery was
+ * the page refresh they described.
+ */
+const STALE_SCREEN = { lastPriceAt: NOW - 5_000, lastPageTickAt: NOW - 5_000 };
+
+test('D-73: a dead chain, a dead resolver and a stale screen still fill from our own price service', async () => {
+  const env = boot({ ...STALE_SCREEN, quotes: { [MINT]: quote() } });
+  // Evidence agrees with the worker's price, so no witness is owed: this
+  // case is about the PRIMARY lane existing, not about the witness gate.
+  env.ladder.setEvidence({ priceNative: CANDIDATE * 0.99, at: NOW - 2_000 });
+  const fill = await env.ladder.quoteForTrade();
+  assert.equal(fill && fill.source, 'action-worker',
+    'the worker prices the fill when every other lane is dead');
+  assert.equal(fill.priceNative, CANDIDATE * 0.99, 'the served price is the fill price, unaltered');
+  assert.equal(fill.mcap, 25_000, 'the live market cap rides along, never the FDV');
+  assert.equal(env.ladder.getRefusal(), null);
+});
+
+test('D-73: the worker lane never prices a foreign pair', async () => {
+  const env = boot({
+    ...STALE_SCREEN,
+    token: {
+      mint: MINT, chain: 'bnb', priceNative: CANDIDATE, priceUsd: CANDIDATE * 180,
+      mcap: 35_000, priceSource: 'resolver', pending: false,
+    },
+  });
+  let asks = 0;
+  env.R.workerQuote = async () => { asks += 1; return null; };
+  env.ladder.setEvidence({ priceNative: CANDIDATE * 0.99, at: NOW - 2_000 });
+  assert.equal(await env.ladder.quoteForTrade(), null);
+  assert.equal(asks, 0,
+    'a foreign pair keeps validating in USD only — this lane never synthesizes its SOL leg');
+});
+
+test('D-73: our own price service cannot witness its own candidate', async () => {
+  // Accepted market evidence sits 1.39x below the worker's price, so the
+  // candidate owes a witness — and the only source that could vouch is the
+  // one that served it.
+  const env = boot({ ...STALE_SCREEN, quotes: { [MINT]: quote() } });
+  assert.equal(await env.ladder.quoteForTrade(), null,
+    'a divergent worker candidate refuses rather than vouching for itself');
+  assertRefusal(env, null, CANDIDATE * 0.99);
+});
+
+test('D-73: a refused first pass retries inside the click instead of losing the trade', async () => {
+  const env = boot({ ...STALE_SCREEN });
+  let asks = 0;
+  env.R.workerQuote = async () => {
+    asks += 1;
+    // Every pass costs a second of market time, so this case terminates on
+    // its own budget under any breakage — a control can never hang it.
+    env.setNow(NOW + asks * 1_000);
+    // The first pass finds nothing anywhere; the second finds a price, the
+    // way a real beat later does when a throttled endpoint recovers.
+    return asks === 1 ? null : {
+      priceNative: CANDIDATE * 0.99, priceUsd: CANDIDATE * 0.99 * 180,
+      mcapUsd: 25_000, at: NOW - 20,
+    };
+  };
+  env.ladder.setEvidence({ priceNative: CANDIDATE * 0.99, at: NOW - 2_000 });
+  const fill = await env.ladder.quoteForTradeWithin(6_000);
+  assert.equal(fill && fill.source, 'action-worker', 'the second pass fills the original click');
+  assert.equal(asks, 2, 'the click asked again rather than refusing on one sample');
+  assert.equal(await env.ladder.quoteForTrade() === null, false,
+    'the single-shot ladder is unchanged — the retry lives in the caller');
+});
+
+test('D-73: the retry is bounded — an unpriceable coin still refuses', async () => {
+  const env = boot({ ...STALE_SCREEN });
+  let asks = 0;
+  env.R.workerQuote = async () => {
+    asks += 1;
+    // Each pass costs real market time while every lane stays dead, so the
+    // budget — not luck — is what ends this.
+    env.setNow(NOW + asks * 2_000);
+    return null;
+  };
+  assert.equal(await env.ladder.quoteForTradeWithin(6_000), null);
+  assert.equal(asks, 3, 'the window spends its own budget and stops — never an unbounded spin');
 });

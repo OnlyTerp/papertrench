@@ -342,6 +342,24 @@ function runOverlay(priceSeries, opts = {}) {
           // F-14: the worker owns the attest chain; the harness acks appends
           // so a fill does not trip the F-28 failure toast mid-test.
           if (msg.type === 'pt_attest_append') return Promise.resolve({ ok: true, seq: 0, head: 'pt-test-head' });
+          // The worker owns pt_state through a serialized compare-and-swap;
+          // model it, because answering {} means "worker unreachable" and the
+          // content script's fallback direct write is mutation-only (D-76 — a
+          // heartbeat must never blind-write a state it based on a pre-fill
+          // read). Without this the marks a beat carries reach no storage at
+          // all here, and the card would out-run the engine's own mark.
+          if (msg.type === 'pt_state_commit') {
+            const cur = storage.pt_state;
+            const curSeq = cur ? (Number(cur.seq) || 0) : 0;
+            if (!msg.force && curSeq !== (Number(msg.expectedSeq) || 0)) {
+              return Promise.resolve({
+                ok: false, reason: 'stale',
+                current: cur ? JSON.parse(JSON.stringify(cur)) : null,
+              });
+            }
+            sandbox.chrome.storage.local.set({ pt_state: JSON.parse(JSON.stringify(msg.state)) });
+            return Promise.resolve({ ok: true });
+          }
           const R = win.PaperTrenchResolver;
           if (!R) return Promise.resolve({});
           if (msg.type === 'pt_resolve') return R.resolve(msg.address);
@@ -360,7 +378,11 @@ function runOverlay(priceSeries, opts = {}) {
           get: (keys, cb) => {
             const out = {};
             const list = Array.isArray(keys) ? keys : [keys];
-            for (const k of list) if (k in storage) out[k] = storage[k];
+            // A clone on the way out as well: handing back the stored object
+            // makes the content script's `state` BE storage, so bumping its
+            // seq advances storage before the commit carrying it — a CAS then
+            // refuses its own write as stale. No browser does that.
+            for (const k of list) if (k in storage) out[k] = JSON.parse(JSON.stringify(storage[k]));
             if (cb) cb(out);
             return Promise.resolve(out);
           },
@@ -374,8 +396,8 @@ function runOverlay(priceSeries, opts = {}) {
             // must copy what the platform copies.
             for (const k of Object.keys(obj)) {
               changes[k] = { newValue: JSON.parse(JSON.stringify(obj[k])), oldValue: storage[k] };
+              storage[k] = JSON.parse(JSON.stringify(obj[k]));
             }
-            Object.assign(storage, obj);
             for (const fn of storageListeners) { try { fn(changes, 'local'); } catch (e) {} }
             if (cb) cb();
             return Promise.resolve();

@@ -3,6 +3,32 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.24.0 — 2026-09-18
+
+- **If the chart is showing a price, the trade goes through — even with the free RPC pool face down.** The fill ladder has five lanes and all five can be empty at once: a quiet 1-second lowcap chart, a public Solana pool cooling down under 429s, an unreachable aggregator. Our own price service was already running and already trusted — but only as a *witness* against a suspicious price, never as a source of one. It now prices the fill when every other lane is dead, judged by the same honesty gates as anything else, and it can never vouch for itself. That is the "I often can't make a purchase in time… generally only happens with low-market-cap coins" report, and it explains why it only ever bit on lowcaps.
+
+- **A refused fill no longer costs you the trade.** A click was treated as one sample: if nothing could PROVE a price in that instant, the trade was dropped and the only recovery was reloading the page — "I have to refresh the page a few times before I can sell". A click is an intent now. It keeps asking for up to six seconds, with every gate re-running on every attempt, and fills the moment a provable price lands. Nothing fills at an unproven price; you just stop losing the exit.
+
+- **A buy chip can no longer buy an amount other than the one it says.** Foreign-chain coins price in dollars, Solana in SOL — but the chips were only rebuilt on mount, so walking from a BSC coin back to a Solana one left dollar chips on a SOL panel: tapping "$1000" asked for 1000 SOL and got refused for balance, and the other direction quietly bought $2 instead of 2 SOL. The chips, the amount box's own prompt, and armed limit buys now all follow the coin in front of you — a "$100" limit locks the converted SOL, or refuses out loud when the rate is missing.
+
+- **BSC and Robinhood pages are tradeable, not just visible.** A foreign page the resolver never resolved showed a live price and then refused every buy with "No SOL/USD rate for this chain", because only the resolver ever recorded that rate. It now comes from the accepted tick itself, which already carries both legs. Axiom's Robinhood pages also never mounted at all: the route table only knew the long `robinhood` spelling while Axiom's own chain selector reads HOOD — both spellings mount now.
+
+- **The update notice finally says the part that costs people their wallet.** An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The on-chart update notice now tells you to back up first, where you will actually see it rather than only in the popup you skipped.
+
+- **Open a second window and your order is still there when you close it.** Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said "armed" over a wallet that had never heard of it. That is cheng.4848's "after closing that window, the order disappeared".
+
+Tested: extension 2609/2609, server 387/387, bot 20/20 green. Fifteen new
+rules, each proven by a production negative control: the worker lane, its
+self-witness ban, its Solana-only gate, the retry and the retry's budget; the
+foreign-tick rate and its do-not-overwrite guard, the Axiom HOOD slug, the
+preset/prompt re-denomination, and the limit-buy conversion; the heartbeat's
+blind-write ban, the armed-order and cancel durability contracts, and the two
+storage-fake fidelity fixes that had been hiding the whole class (a fake that
+handed back its own stored object let a wallet advance with no write at all).
+Every control broke real source (never a test), was watched go RED with the
+expected failure, then restored byte-identically by SHA-256 compare and
+watched go GREEN.
+
 ## v3.23.4 — 2026-09-13
 
 - **The paper chip no longer sits on the terminal's own buy.** Compact Padre trenches pills read "1" with a lightning icon — no "SOL" text — so the matcher missed them and dropped our P 0.1 on top of the native ⚡ 1. It now recognizes those compact amounts and sits to the left of the real button.

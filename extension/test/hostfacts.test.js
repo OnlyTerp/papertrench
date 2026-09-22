@@ -961,3 +961,47 @@ test('pending overlay adopts supply-only facts against its live quote (ark Axiom
     loader.restore();
   }
 });
+
+/* D-74: a foreign page the resolver never resolved still has to be tradeable.
+ * panelUsdRate() reads token.solUsdAtResolve, and only resolver adoption ever
+ * wrote it — so a BSC or Robinhood coin priced entirely by the site's own USD
+ * feed showed a live price while EVERY buy refused "No SOL/USD rate for this
+ * chain" (cheng.4848 9/08 "Why can't I use BSC?"; his 9/15 debug report on
+ * gmgn.ai/bsc/token/0x4d10… carries hasPriceNative true with pending true).
+ * The accepted tick carries both legs, so the rate is the ratio of the two
+ * numbers that just passed validation — never a guess.
+ *
+ * Negative control: delete the `token.solUsdAtResolve = …` block from
+ * handlePageTick in content.js — this test fails with undefined (1 failure),
+ * then restores byte-identically and passes.
+ */
+test('D-74: an accepted foreign tick records the SOL/USD rate the dollar panel needs', async () => {
+  const loader = loadContentHarness();
+  try {
+    const ov = loader.runOverlay([0.0001], {
+      url: 'https://axiom.trade/meme/' + EVM_LOWER + '?chain=bnb',
+    });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    const mint = api.getToken().mint;
+    // Chain DETECTION has its own matrix (chainrouting.test.js); what is
+    // under test here is what the tick path does once the token is foreign.
+    api.getToken().chain = 'bnb';
+    let verdict = { accepted: true, priceNative: 0.00001, priceUsd: 0.002, basis: 'price' };
+    Q.bootstrapTick = () => verdict;
+    api.pageTick({ mint, source: 'gmgn-ws-trade', candidates: [] });
+    assert.equal(api.getToken().solUsdAtResolve, 200,
+      'the rate is priceUsd / priceNative, taken from the tick that just passed validation');
+
+    // A rate the resolver recorded outranks any tick — a different price on
+    // the second tick proves the guard, not the duplicate-price early return.
+    api.getToken().solUsdAtResolve = 321;
+    verdict = { accepted: true, priceNative: 0.000011, priceUsd: 0.0033, basis: 'price' };
+    api.pageTick({ mint, source: 'gmgn-ws-trade', candidates: [] });
+    assert.equal(api.getToken().solUsdAtResolve, 321,
+      'a recorded rate is never overwritten by a page tick');
+    Q.bootstrapTick = originalBootstrap;
+  } finally { loader.restore(); }
+});

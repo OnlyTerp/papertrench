@@ -31,6 +31,20 @@ test('the baked notes describe the version that is actually shipping', () => {
     'a release with no notes tells the user nothing');
 });
 
+test('every card entry has a headline, and the engineering footer is not one', () => {
+  // v3.23.4 shipped as a single untitled wall of text because the generator
+  // never stripped the markdown list marker, so no bold lead-in ever matched.
+  // The other half of the same contract: each section of this log ends with a
+  // "Tested: …" record — counts, negative controls, byte-identical restores —
+  // which is written for whoever audits a build, not for a trader reading a
+  // card. It belongs in the changelog and nowhere near this payload.
+  for (const entry of notes.entries) {
+    assert.ok(entry.title, `an entry with no headline reads as a wall of text: "${String(entry.text).slice(0, 50)}…"`);
+    assert.ok(!/^Tested:/.test(String(entry.text)),
+      'the release-verification footer must not be shown as a release note');
+  }
+});
+
 test('whatsnew.json is exactly what CHANGELOG.md says — no hand edits', () => {
   // It is generated, so it can drift the moment someone edits either side.
   execFileSync(process.execPath,

@@ -57,6 +57,44 @@ test('foreign-chain panels quick-buy in DOLLARS at the recorded rate', () => {
     'chips print the venue currency ($10, not 10 SOL) on foreign chains');
 });
 
+/* D-75: a chip must never place an order of a different magnitude than its own
+ * label. The panel's unit follows the COIN's chain (panelUsd), but
+ * renderPresets only ran on mount, on a settings write and on a preset save —
+ * never when the token changed. Navigating between a Solana coin and a
+ * foreign-chain coin left the previous chain's chips on screen while
+ * requestBuy read them in the NEW unit: a "$1000" chip asked for 1000 SOL and
+ * was refused for balance, a "2 SOL" chip quietly bought $2. Souly, 9/17:
+ * "For some coins it won't lemme put money on. Like it picks like a certain
+ * amount for me to do. Idk why."
+ *
+ * Pinned as source, like every other contract in this file: els.buyPresets is
+ * not wired in any bootable harness (statepersist's fake DOM parses chips out
+ * of innerHTML but never exposes the container), so there is no observable to
+ * assert against. Negative controls for all four are recorded in the header.
+ */
+test('D-75: the panel re-denominates its own controls when the coin changes chain', () => {
+  assert.match(content, /if \(panelUsd\(\) === presetsUsdMode\) return;\s*\n\s*renderPresets\(\);/,
+    'a mode flip re-renders the chips; an unchanged mode costs one boolean compare');
+  assert.match(content, /const usdMode = panelUsd\(\);\s*\n\s*presetsUsdMode = usdMode;/,
+    'renderPresets records the mode it just painted, so every existing call site stays in sync');
+  assert.match(content, /renderHeader\(\);\s*\n\s*syncPresetUnits\(\);/,
+    'the sync runs from renderAll — a pending coin resolves its chain AFTER the swap');
+  assert.match(content, /els\.custom\.placeholder = panelUsd\(\)\s*\n\s*\? 'Or type a custom \$ amount…'/,
+    'the amount box reads panel units, so its own prompt must name them');
+});
+
+test('D-75: an armed limit buy converts dollars before it locks SOL', () => {
+  // The limit path read the same chips and passed the number straight into
+  // E.addPendingBuy, so arming from a "$100" chip locked 100 SOL — or threw
+  // "Not enough free SOL" on a 12 SOL wallet.
+  assert.match(content, /if \(!rate\) return toast\('No SOL\/USD rate for this chain — limit buy not armed'\);/,
+    'a rateless foreign record refuses the arm instead of locking the wrong currency');
+  assert.match(content, /quotedUsd = amount;\s*\n\s*solAmount = amount \/ rate;/,
+    'the typed dollars become SOL book units before anything is locked');
+  assert.match(content, /ts: Date\.now\(\), triggerPrice: price, solAmount,/,
+    'the engine only ever receives the converted amount');
+});
+
 test('a dollar buy on a still-resolving token arms in dollars and converts at fire time', () => {
   assert.match(content, /armedBuy = \{ amount: solAmount, usd: quotedUsd, at: Date\.now\(\), mint: token\.mint, fromClick: true \};/,
     'the armed intent remembers its currency and that a click created it (D-39)');

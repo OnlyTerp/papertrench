@@ -41,13 +41,25 @@ function sectionFor(v) {
  * Markdown -> the small shape the dashboard renders.
  *
  * Each entry in this changelog is a **bold lead-in** followed by prose, so the
- * lead-in becomes the headline and the rest the detail. Anything that does not
- * fit that shape is kept as a plain paragraph rather than dropped — release
- * notes that silently omit an item are worse than ones that look uneven.
+ * lead-in becomes the headline and the rest the detail. The bullet marker is
+ * stripped first: every entry in this log is written as a markdown list item,
+ * so without that the lead-in never matched and the whole release collapsed
+ * into ONE untitled wall of text — which is exactly how v3.23.4's what's-new
+ * card shipped. Anything that still does not fit the shape is kept as a plain
+ * paragraph rather than dropped: release notes that silently omit an item are
+ * worse than ones that look uneven.
+ *
+ * The trailing `Tested:` paragraph is the exception, and it is not an item at
+ * all: it is this log's house footer for the release — test counts, negative
+ * controls, byte-identical restores — written for whoever audits the build.
+ * The dashboard card is read by traders, so the footer stays in the changelog
+ * and out of the payload.
  */
 function parseEntries(body) {
-  return body.split(/\n\s*\n/).map((para) => {
-    const flat = para.replace(/\n/g, ' ').trim();
+  const paras = body.split(/\n\s*\n/);
+  while (paras.length && /^Tested:/.test(paras[paras.length - 1].trim())) paras.pop();
+  return paras.map((para) => {
+    const flat = para.replace(/\n/g, ' ').trim().replace(/^[-*]\s+/, '');
     if (!flat) return null;
     const lead = /^\*\*(.+?)\*\*\s*(.*)$/.exec(flat);
     if (lead) return { title: lead[1].trim(), text: lead[2].trim() };

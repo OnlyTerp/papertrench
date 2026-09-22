@@ -77,12 +77,29 @@ function runOverlay(priceSeries, opts) {
           child._parent = this;
           this.children.push(child);
         }
+        // The armed-order rows, so a CANCEL is a real click here too: losing
+        // a cancel is worse than losing an arm (the order comes back, and
+        // then it fills), and that is only testable if the button exists.
+        const cancels = /<button class="pt-limit-x" data-id="([^"]+)"/g;
+        while ((m = cancels.exec(v))) {
+          const child = makeNode('button');
+          child.dataset.id = m[1];
+          child._attrs = { 'data-id': m[1] };
+          child.classList.add('pt-limit-x');
+          child._parent = this;
+          this.children.push(child);
+        }
       },
       get innerHTML() { return this._h || ''; },
       appendChild(c) { this.children.push(c); this.childNodes = this.children; c._parent = this; return c; },
       removeChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); },
       remove() { if (this._parent) this._parent.removeChild(this); },
       setAttribute() {},
+      getAttribute(name) {
+        if (this._attrs && name in this._attrs) return this._attrs[name];
+        const m = /^data-(.+)$/.exec(name);
+        return m && this.dataset && m[1] in this.dataset ? this.dataset[m[1]] : null;
+      },
       addEventListener(type, fn) {
         if (!this._listeners) this._listeners = {};
         if (!this._listeners[type]) this._listeners[type] = [];
@@ -99,8 +116,8 @@ function runOverlay(priceSeries, opts) {
         return makeNode('span');
       },
       querySelectorAll(sel) {
-        if (sel === '.pt-preset') {
-          return this.children.filter((child) => child.classList.contains('pt-preset'));
+        if (sel === '.pt-preset' || sel === '.pt-limit-x') {
+          return this.children.filter((child) => child.classList.contains(sel.slice(1)));
         }
         return [];
       },
@@ -195,6 +212,36 @@ function runOverlay(priceSeries, opts) {
           // F-14: the worker owns the attest chain; the harness acks appends
           // so a fill does not trip the F-28 failure toast mid-test.
           if (msg.type === 'pt_attest_append') return Promise.resolve({ ok: true, seq: 0, head: 'pt-test-head' });
+          // The worker owns pt_state through a serialized compare-and-swap
+          // (pt_state_commit). Modelled here with the real semantics: a
+          // matching base — or a force — lands the write and acks, a stale
+          // base is refused with `current` so the caller can adopt and
+          // re-apply. Before this the harness answered {} to a commit, i.e.
+          // "worker unreachable", and EVERY ordinary write in this file
+          // reached storage only through the content script's fallback
+          // direct write. That fallback is now mutation-only (D-76: a
+          // heartbeat must never blind-write a full state it based on a
+          // pre-fill read), so a harness that never acks a commit no longer
+          // persists anything a beat carries. Structured-clone at both edges,
+          // and go through the same local.set so onChanged fires exactly as
+          // it does when the real worker lands the write.
+          if (msg.type === 'pt_state_commit') {
+            // options.workerDown models the MV3 worker asleep, dying or just
+            // slow: `bounded` cannot tell those apart, so the content script
+            // sees one thing either way — no reply. Opening and closing a
+            // window is exactly what produces it.
+            if (options.workerDown) return Promise.resolve({});
+            const cur = storage.pt_state;
+            const curSeq = cur ? (Number(cur.seq) || 0) : 0;
+            if (!msg.force && curSeq !== (Number(msg.expectedSeq) || 0)) {
+              return Promise.resolve({
+                ok: false, reason: 'stale',
+                current: cur ? JSON.parse(JSON.stringify(cur)) : null,
+              });
+            }
+            sandbox.chrome.storage.local.set({ pt_state: JSON.parse(JSON.stringify(msg.state)) });
+            return Promise.resolve({ ok: true });
+          }
           const R = win.PaperTrenchResolver;
           if (!R) return Promise.resolve({});
           if (msg.type === 'pt_resolve') return R.resolve(msg.address);
@@ -219,7 +266,15 @@ function runOverlay(priceSeries, opts) {
             }
             const out = {};
             const list = Array.isArray(keys) ? keys : [keys];
-            for (const k of list) if (k in storage) out[k] = storage[k];
+            // chrome.storage.local.get hands back a STRUCTURED CLONE too, and
+            // that matters as much as it does on the write side: handing back
+            // the stored object made the content script's in-memory `state`
+            // literally BE the stored value, so `state.seq += 1` advanced
+            // "storage" before the commit that carried it — a compare-and-swap
+            // could then find its own not-yet-sent write already there and
+            // refuse it as stale. No browser behaves that way; a fake that
+            // does invents races the product cannot have.
+            for (const k of list) if (k in storage) out[k] = JSON.parse(JSON.stringify(storage[k]));
             if (cb) cb(out);
             return Promise.resolve(out);
           },
@@ -233,8 +288,12 @@ function runOverlay(priceSeries, opts) {
             // must copy what the platform copies.
             for (const k of Object.keys(obj)) {
               changes[k] = { newValue: JSON.parse(JSON.stringify(obj[k])), oldValue: storage[k] };
+              // …and the STORED value is its own copy, not the caller's live
+              // object: the direct-write fallback hands `state` itself, and
+              // aliasing it here would let every later in-memory mutation
+              // rewrite "storage" with no write at all.
+              storage[k] = JSON.parse(JSON.stringify(obj[k]));
             }
-            Object.assign(storage, obj);
             for (const fn of storageListeners) { try { fn(changes, 'local'); } catch (e) {} }
             if (cb) cb();
             return Promise.resolve();
@@ -317,6 +376,13 @@ function runOverlay(priceSeries, opts) {
     clickPreset: (index) => {
       const presets = shadowNodes['pt-buy-presets'] && shadowNodes['pt-buy-presets'].children;
       if (presets && presets[index]) presets[index].click();
+    },
+    /** The × on an armed-order row — the only way a trader cancels one. */
+    clickLimitCancel: (index) => {
+      const rows = (shadowNodes['pt-limit-list'] && shadowNodes['pt-limit-list'].children) || [];
+      const buttons = rows.filter((child) => child.classList.contains('pt-limit-x'));
+      if (buttons[index]) buttons[index].click();
+      return buttons.length;
     },
     presetAmount: (index) => Number(shadowNodes['pt-buy-presets'].children[index].dataset.amt),
     toastTexts: () => (shadowNodes['pt-toast-root'].children || []).map((child) => child.textContent),
@@ -1415,4 +1481,116 @@ test('the chip always labels the money as paper', () => {
   const site = fs.readFileSync(path.join(__dirname, '..', '..', 'site', 'nav-wallet.js'), 'utf8');
   assert.match(site, /nav-wallet-tag">PAPER</,
     'this number shares a bar with a leaderboard and a sign-in — it must never read as real');
+});
+
+/* -------- reported: "the order disappeared" (cheng.4848, 9/15) ------------
+ *
+ * "After placing the buy order, I opened this page in a separate window;
+ * then, after closing that window, the order disappeared."
+ *
+ * Two views on one wallet. The order is in storage; the second view holds the
+ * copy it read BEFORE the order and never saw the adoption event — the window
+ * carrying it went away. Every write normally goes through the worker's CAS,
+ * which refuses a stale base, so this should be impossible. But opening and
+ * closing a window is precisely what puts an MV3 service worker to sleep, and
+ * `bounded` cannot tell a timeout from a death: both arrive as no reply. The
+ * fallback then wrote the stale full state blind, and the order was gone.
+ *
+ * Note the seq asymmetry, which is why "adopt whatever is ahead" is no
+ * defence: a view bumps seq on every persist ATTEMPT, so a view whose writes
+ * all fail still counts upward — its number overtakes the number in storage
+ * while its contents fall further behind.
+ */
+test('a stale view never blind-writes over a fill it did not see (cheng.4848 9/15)', async () => {
+  const ov = runOverlay([0.001], { workerDown: true });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the wallet opens with a position on screen');
+  await ov.advance(2000);
+
+  const base = JSON.parse(JSON.stringify(ov.storage().pt_state));
+  const committed = JSON.parse(JSON.stringify(base));
+  committed.seq = Number(base.seq) || 0;
+  committed.updatedAt = (Number(base.updatedAt) || 0) + 1;
+  committed.journal = [{
+    id: 'other-window-fill', side: 'buy', mint: BONK, ts: committed.updatedAt,
+    solGross: 0.5, priceNative: 0.001, priceUsd: 0.2,
+  }].concat(base.journal || []);
+  // The other window's fill, with the adoption event missed.
+  ov.externalWriteSilently({ pt_state: committed });
+
+  await ov.advance(4000);
+
+  const after = ov.storage().pt_state;
+  assert.ok(after.journal.some((t) => t.id === 'other-window-fill'),
+    'a heartbeat that cannot reach the worker must walk away, never write its pre-fill copy');
+});
+
+test('an armed limit order lands even with the worker down and the wallet ahead', async () => {
+  const ov = runOverlay([0.001], {
+    workerDown: true,
+    initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the wallet opens with a position on screen');
+  await ov.advance(600);
+
+  // The other window banked a fill and its wallet is unambiguously NEWER, so
+  // the debounced writer's contention guard adopts it — and an order arriving
+  // through that writer is simply thrown away with the copy that held it.
+  const base = JSON.parse(JSON.stringify(ov.storage().pt_state));
+  const ahead = JSON.parse(JSON.stringify(base));
+  ahead.seq = (Number(base.seq) || 0) + 10000;
+  ahead.updatedAt = (Number(base.updatedAt) || 0) + 1;
+  ahead.journal = [{
+    id: 'other-window-fill', side: 'buy', mint: BONK, ts: ahead.updatedAt,
+    solGross: 0.5, priceNative: 0.001, priceUsd: 0.2,
+  }].concat(base.journal || []);
+  ov.externalWriteSilently({ pt_state: ahead });
+
+  ov.setValue('pt-custom', 0.25);
+  ov.setValue('pt-limit-price', '0.0005');
+  ov.clickById('pt-limit-arm');
+  await ov.advance(2000);
+
+  const after = ov.storage().pt_state;
+  const armed = (after.pendingBuys || {})[BONK] || [];
+  assert.equal(armed.length, 1,
+    'the armed order must reach the wallet, not just the panel that reported it');
+  assert.equal(armed[0].solAmount, 0.25, 'and it must carry the amount that was typed');
+  assert.ok(after.journal.some((t) => t.id === 'other-window-fill'),
+    'arming must build on the other window s truth instead of replacing it');
+  assert.ok(ov.toastTexts().some((t) => t.startsWith('Limit buy armed')),
+    'the trader was told it was armed — that promise has to be the truth');
+});
+
+test('a cancelled limit order stays cancelled even with the worker down', async () => {
+  const ov = runOverlay([0.001], {
+    workerDown: true,
+    initialSettings: { panelCustomAmount: true, settingsRevision: E.SETTINGS_REVISION },
+  });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the wallet opens with a position on screen');
+  await ov.advance(600);
+
+  ov.setValue('pt-custom', 0.25);
+  ov.setValue('pt-limit-price', '0.0005');
+  ov.clickById('pt-limit-arm');
+  await ov.advance(900);
+  assert.equal(((ov.storage().pt_state.pendingBuys || {})[BONK] || []).length, 1,
+    'the order has to be armed before cancelling it can mean anything');
+
+  // The other window's wallet is newer again, and it still holds the order.
+  const base = JSON.parse(JSON.stringify(ov.storage().pt_state));
+  const ahead = JSON.parse(JSON.stringify(base));
+  ahead.seq = (Number(base.seq) || 0) + 10000;
+  ahead.updatedAt = (Number(base.updatedAt) || 0) + 1;
+  ov.externalWriteSilently({ pt_state: ahead });
+
+  assert.equal(ov.clickLimitCancel(0), 1, 'the armed row must carry a cancel button');
+  await ov.advance(2000);
+
+  assert.deepEqual((ov.storage().pt_state.pendingBuys || {})[BONK] || [], [],
+    'a cancelled order must not come back off another window s copy — it can still fill');
+  assert.ok(ov.toastTexts().some((t) => t.startsWith('Limit buy cancelled')),
+    'and the trader was told the SOL was unlocked');
 });

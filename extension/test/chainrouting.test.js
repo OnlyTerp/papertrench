@@ -92,6 +92,12 @@ const MATRIX = [
   // ---- Robinhood Chain: the NEW chain this gate opening exists for ----
   [`https://gmgn.ai/robinhood/token/${USDC_BASE}`, 'gmgn', 'mint', USDC_BASE, 'robinhood', 'RH: gmgn serves /robinhood/token/<0x> (live-verified 2026-09-04)'],
   [`https://axiom.trade/meme/${USDC_BASE}?chain=robinhood`, 'axiom', 'pair', USDC_BASE, 'robinhood', 'RH: axiom chain selector HOOD = robinhood slug'],
+  // The alias Ark's report turned up (9/15, "why doesnt the extension work on
+  // Axiom robinhood?"): the `robinhood` row above was inferred from a Solana
+  // capture's params, while Axiom's own selector reads HOOD and every other
+  // Axiom slug is the short form. A page served as ?chain=hood used to fail
+  // closed and never mount.
+  [`https://axiom.trade/meme/${USDC_BASE}?chain=hood`, 'axiom', 'pair', USDC_BASE, 'robinhood', 'RH: axiom HOOD short slug mounts as robinhood'],
   [`https://fomo.family/tokens/robinhood/${USDC_BASE}`, 'fomo', 'mint', USDC_BASE, 'robinhood', 'RH: the live corpus from docs/MULTICHAIN.md mounts'],
 
   // ---- The O-11 hazard: now routes to its OWN chain instead of being refused.
