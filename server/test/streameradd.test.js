@@ -161,3 +161,71 @@ test('the public card rules hold for moderators too', async () => {
   assert.equal(db.log.filter((l) => l.sql.includes('INSERT INTO streamer_applications')).length, 0,
     'none of the refused payloads may have written a row');
 });
+
+/* ---------------- the audit trail ----------------
+ *
+ * Roster decisions were the only moderation actions absent from
+ * moderation_log — the review path predates the table. Both doors now write
+ * one entry each, so /admin-mod's history tells the whole story.
+ */
+
+test('a direct add writes its moderation_log entry', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(usersRoute);
+  const { status } = await postAdd(worker, makeEnv(db), VALID);
+  assert.equal(status, 200);
+  const log = db.log.find((l) => l.sql.includes('INSERT INTO moderation_log'));
+  assert.ok(log, 'the add must be logged');
+  assert.equal(log.args[1], 'streamer.add');
+  assert.equal(log.args[2], 'streamer');
+  assert.equal(log.args[4], 'Ark1317 — https://kick.com/ark1317',
+    'the label carries what an autoincrement id cannot');
+  assert.equal(log.args[5], 'direct roster add (kick)');
+  assert.equal(log.args[0], MOD.id, 'the actor is the moderator, not the applicant');
+});
+
+test('a refused add writes no log entry', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB((sql) => {
+    if (sql.includes('INSERT INTO streamer_applications')) throw new Error('UNIQUE');
+    return usersRoute(sql);
+  });
+  await postAdd(worker, makeEnv(db), VALID);
+  assert.equal(db.log.filter((l) => l.sql.includes('INSERT INTO moderation_log')).length, 0,
+    'a 409 is not a moderation action and must not be logged as one');
+});
+
+async function postReview(worker, env, payload) {
+  const res = await worker.fetch(new Request('https://api.test/api/streamer/review', {
+    method: 'POST',
+    headers: { Origin: ORIGIN, 'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + await sessionToken(MOD.id) },
+    body: JSON.stringify(payload),
+  }), env, { waitUntil: () => {} });
+  return { status: res.status, body: await res.json() };
+}
+
+test('a review decision writes its moderation_log entry', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(usersRoute);
+  const { status } = await postReview(worker, makeEnv(db), { id: 42, status: 'approved' });
+  assert.equal(status, 200);
+  const log = db.log.find((l) => l.sql.includes('INSERT INTO moderation_log'));
+  assert.ok(log, 'the decision must be logged');
+  assert.equal(log.args[1], 'streamer.review');
+  assert.equal(log.args[3], 42);
+  assert.equal(log.args[5], 'queue decision: approved');
+});
+
+test('a review that changes nothing logs nothing', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB((sql) => {
+    if (sql.includes('UPDATE streamer_applications')) return { meta: { changes: 0 } };
+    return usersRoute(sql);
+  });
+  const { status, body } = await postReview(worker, makeEnv(db), { id: 99, status: 'approved' });
+  assert.equal(status, 404);
+  assert.equal(body.reason, 'not-found');
+  assert.equal(db.log.filter((l) => l.sql.includes('INSERT INTO moderation_log')).length, 0,
+    'a 404 touched nothing and the log must agree');
+});

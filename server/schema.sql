@@ -315,7 +315,8 @@ CREATE TABLE IF NOT EXISTS moderation_log (
   actor_id INTEGER NOT NULL REFERENCES users(id),  -- the moderator
   action TEXT NOT NULL,             -- user.ban | user.unban | record.disqualify
                                     -- record.reinstate | clan.disband | clan.restore
-  target_kind TEXT NOT NULL,        -- user | record | clan
+                                    -- streamer.review | streamer.add
+  target_kind TEXT NOT NULL,        -- user | record | clan | streamer
   target_id INTEGER NOT NULL,
   target_label TEXT,                -- handle or [TAG] at the time, for reading
   reason TEXT NOT NULL,             -- mandatory at the route; never empty here
