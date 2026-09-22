@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaperTrench — Tournaments</title>
+<meta name="description" content="Fixed-field elimination tournaments on an isolated paper ledger. Everyone starts on the same stack, the bottom of the board is cut each round, and the last trader standing takes the pot.">
+<meta property="og:title" content="PaperTrench — Tournaments">
+<meta property="og:description" content="Same stack, same clock, no excuses. Bottom five cut every round until one name is left.">
+<meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
+<link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="/assets/icon192.png">
+
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="arena.css">
+<style>
+/* tournament.html — page-scoped only.
+ *
+ * arena.css owns the Arena vocabulary; this file adds only what is true of
+ * this page: a seven-column standings grid (no verification chip — tournament
+ * numbers are self-reported snapshots, labeled as such, never dressed as
+ * verified), the spectate card, and the directory list. */
+
+/* Standings: pos, trader, state, equity, P&L, ROI, last push. Doubled
+ * selectors outrank arena.css's ten-column default at every width, same
+ * trick sprint.html uses — gap and padding still come from arena.css. */
+.ar-tourn .ar-thead,
+.ar-tourn .ar-row {
+  grid-template-columns:
+    46px minmax(140px, 1.5fr) 92px minmax(72px, 0.8fr)
+    minmax(72px, 0.8fr) 64px 74px;
+}
+
+/* Tournament state chips reuse the chip vocabulary but are their own set:
+ * "alive"/"cut" are bracket facts, not verification verdicts. */
+.ar-chip.alive {
+  color: var(--green);
+  border-color: rgba(52, 211, 153, 0.38);
+  background: rgba(52, 211, 153, 0.09);
+}
+.ar-chip.cut {
+  color: var(--down);
+  border-color: rgba(224, 67, 58, 0.45);
+  background: rgba(224, 67, 58, 0.1);
+}
+.ar-chip.waiting {
+  color: var(--blue);
+  border-color: rgba(106, 169, 255, 0.38);
+  background: rgba(106, 169, 255, 0.08);
+}
+
+/* The cut line: the last N seats are shaded so the boundary is visible on
+ * the board itself, not just in the copy. */
+.ar-row.on-the-bubble {
+  background: linear-gradient(90deg, rgba(224, 67, 58, 0.09), rgba(224, 67, 58, 0.02));
+  box-shadow: inset 3px 0 0 rgba(224, 67, 58, 0.55);
+}
+.ar-row.on-the-bubble.is-you {
+  background: linear-gradient(90deg, rgba(255, 157, 69, 0.13), rgba(224, 67, 58, 0.05));
+}
+
+/* Directory cards: one tournament per row, status chip + seats + clock. */
+.ar-tlist { display: grid; }
+.ar-titem {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 92px 90px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: var(--rail);
+  color: inherit;
+  text-decoration: none;
+}
+.ar-titem:hover { background: rgba(255, 255, 255, 0.028); }
+.ar-titem .tname { font-weight: 800; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-titem .tmeta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 3px; }
+.ar-titem .tright { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: right; }
+
+/* The spectate card: one trader's live positions, polled. */
+.ar-spec-pos { display: grid; }
+.ar-spec-pos .prow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) 90px 90px;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: var(--rail);
+  font-family: var(--mono);
+  font-size: 12px;
+  align-items: center;
+}
+.ar-spec-pos .prow:last-child { border-bottom: 0; }
+.ar-spec-pos .phead { color: var(--dim); font-size: 9.5px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; }
+.ar-spec-pos .r { text-align: right; }
+
+/* Create form: quiet, one column, same control language as the rest. */
+.ar-form { display: grid; gap: 14px; }
+.ar-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.ar-form label small { color: var(--dim); font-weight: 600; font-size: 11px; }
+.ar-form input, .ar-form select {
+  background: var(--pane-lo);
+  border: var(--edge);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 12px;
+}
+.ar-form input:focus, .ar-form select:focus { outline: 2px solid var(--orange); outline-offset: -1px; }
+.ar-form .frow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.ar-empty p a { color: var(--orange2); }
+.ar-clockcard > .pad { padding: 18px 20px 20px; }
+.ar-clockcard .ar-clock { margin-top: 16px; }
+.ar-clockcard .ar-clock .seg { flex: 1; }
+.ar-clockcard .ar-note { margin-top: 10px; }
+
+@media (max-width: 1180px) {
+  .ar-tourn .ar-thead,
+  .ar-tourn .ar-row {
+    grid-template-columns:
+      42px minmax(120px, 1.4fr) 90px minmax(70px, 0.8fr)
+      minmax(70px, 0.8fr) 60px 70px;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Equity and last-push go. Position, trader, state, P&L and ROI stay —
+   * the state chip is never the dropped column: a row whose bracket state
+   * is invisible reads as alive, and that is the misreading this page is
+   * not allowed to let a phone cause. */
+  .ar-tourn .ar-thead,
+  .ar-tourn .ar-row { grid-template-columns: 32px minmax(0, 1fr) 86px 66px 52px; }
+  .ar-tourn .ar-c-eq,
+  .ar-tourn .ar-c-push { display: none; }
+  .ar-tourn .ar-row .pos { font-size: 13px; }
+  .ar-tourn .ar-row .val { font-size: 12px; }
+  .ar-titem { grid-template-columns: minmax(0, 1.4fr) 84px minmax(0, 0.9fr); }
+  .ar-titem .tseats { display: none; }
+}
+
+@media (max-width: 480px) {
+  .ar-tourn .ar-thead,
+  .ar-tourn .ar-row { grid-template-columns: 26px minmax(0, 1fr) 80px 56px; }
+  .ar-tourn .ar-c-roi { display: none; }
+  .ar-tourn .ar-face { width: 24px; height: 24px; font-size: 9.5px; }
+  .ar-tourn .ar-who { gap: 7px; }
+  .ar-tourn .ar-chip { font-size: 8.5px; padding: 3px 6px; letter-spacing: 0.7px; }
+  .ar-form .frow { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="bg-glow" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+
+<nav aria-label="Primary">
+  <div class="nav-inner">
+    <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="PaperTrench logo">PaperTrench</a>
+    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="nav-menu" aria-label="Open menu">
+      <span class="nav-burger-box" aria-hidden="true"><i></i><i></i><i></i></span>
+    </button>
+    <div class="nav-links" id="nav-menu">
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/sprint">Sprint</a>
+      <a href="/events">Events</a>
+      <a href="/duels">Duels</a>
+      <a href="/clans">Clans</a>
+      <a href="/tournament" aria-current="page">Tournaments</a>
+      <a href="/replay">Replay</a>
+      <a href="/news">News</a>
+      <a href="/links">Links</a>
+      <a href="/#install">Install</a>
+      <a class="nav-live" href="/streams" title="Watch streamers run the PaperTrench Challenge live on Twitch"><span class="dot"></span>Live</a>
+      <span id="nav-wallet"></span>
+      <span id="nav-profile"></span>
+      <a class="nav-cta" href="https://github.com/OnlyTerp/papertrench/releases/latest" target="_blank" rel="noopener">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header class="ar-hero">
+  <div class="wrap">
+    <div class="ar-hero-grid">
+      <div>
+        <span class="ar-eyebrow"><span class="dot"></span>Elimination bracket · isolated paper ledger</span>
+        <h1 class="ar-title"><span class="line">Same stack, same clock,</span><span class="line accent">last trader standing.</span></h1>
+        <p class="ar-lede">Everyone enters on the same paper stack and the tournament ledger
+          counts from zero — your main-board record is never touched. At each round boundary
+          the <strong>bottom of the board is cut</strong>, and the bracket runs until one name
+          is left. Click any trader to watch their positions move in near-real time.</p>
+
+        <div class="ar-spec" role="list" aria-label="Tournament parameters">
+          <div role="listitem"><div class="k">Stack</div><div class="v" id="spec-stack">—</div></div>
+          <div role="listitem"><div class="k">Round</div><div class="v" id="spec-round">—</div></div>
+          <div role="listitem"><div class="k">Cut</div><div class="v" id="spec-cut">—</div></div>
+          <div role="listitem"><div class="k">Prizes</div><div class="v ok" id="spec-prize">—</div></div>
+        </div>
+      </div>
+
+      <!-- The clock card is the bracket's instrument: which round, how many
+           are still in, and how long until the next cut. Nothing is drawn
+           until the server has said which tournament this is — until then
+           the segments read "—" rather than counting down to a guess. -->
+      <aside class="ar-verifier ar-clockcard" aria-labelledby="clock-h">
+        <div class="bar">
+          <span class="bulbs" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="name" id="clock-h">tournament · next boundary</span>
+          <span class="streaming"><span class="dot"></span>LIVE</span>
+        </div>
+        <div class="pad">
+          <div class="ar-stats">
+            <div class="ar-stat"><div class="num" id="round-no">—</div><div class="lbl">Round</div></div>
+            <div class="ar-stat"><div class="num" id="alive-count">—</div><div class="lbl">Still in</div></div>
+          </div>
+
+          <div class="ar-clock" id="clock" role="timer"
+               aria-label="Time until the next round boundary is not known yet">
+            <div class="seg" aria-hidden="true"><b id="cd-d">—</b><span>Days</span></div>
+            <div class="seg" aria-hidden="true"><b id="cd-h">—</b><span>Hrs</span></div>
+            <div class="seg" aria-hidden="true"><b id="cd-m">—</b><span>Min</span></div>
+            <div class="seg" aria-hidden="true"><b id="cd-s">—</b><span>Sec</span></div>
+          </div>
+
+          <div class="ar-window" id="window-bar" hidden role="progressbar"
+               aria-label="Elapsed share of the current round"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="window-fill"></i></div>
+
+          <p class="ar-note" id="clock-caption" aria-live="polite">Asking the server where the
+            bracket stands.</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="wrap" style="padding-bottom:96px">
+  <div class="ar-shell">
+
+    <div class="ar-stack">
+      <!-- Directory mode: every open and live tournament. -->
+      <section class="ar-pane" id="directory-pane" aria-labelledby="dir-h" hidden>
+        <div class="ar-pane-head">
+          <span class="glyph" style="color:var(--orange2)">🏆</span>
+          <span id="dir-h">Tournaments</span>
+          <span class="spacer"></span>
+          <div class="ar-tabs">
+            <a class="ar-tab" href="/leaderboard">All-time</a>
+            <a class="ar-tab" href="/sprint">Sprint</a>
+            <a class="ar-tab" href="/tournament" aria-current="page">Tournaments</a>
+          </div>
+        </div>
+        <div class="ar-tlist" id="directory"></div>
+        <div class="pad" style="border-top:var(--edge)">
+          <p class="ar-note" id="dir-status" aria-live="polite">Loading tournaments.</p>
+        </div>
+      </section>
+
+      <!-- Board mode: one tournament's standings. -->
+      <section class="ar-pane" id="board-pane" aria-labelledby="board-h" hidden>
+        <div class="ar-pane-head ar-sprint-head" style="flex-wrap:wrap;row-gap:10px">
+          <span class="glyph" style="color:var(--orange2)">🏆</span>
+          <span id="board-h">Standings</span>
+          <span class="spacer"></span>
+          <div class="ar-tabs">
+            <a class="ar-tab" href="/tournament">All tournaments</a>
+          </div>
+        </div>
+        <div class="ar-tourn" id="board"></div>
+        <div class="pad" style="border-top:var(--edge)">
+          <p class="ar-note" id="board-status" aria-live="polite">Loading the bracket.</p>
+          <p class="ar-note" style="margin-top:10px">Tournament numbers are
+            <strong>self-reported live snapshots</strong> pushed by each entrant's extension —
+            equity in, P&amp;L derived server-side. They are labeled as reported, not verified:
+            the all-time board's replay-and-reprice pipeline does not run inside a tournament.
+            A row marked <span class="ar-chip waiting" style="font-size:8px">No data</span> has
+            pushed nothing yet and stands at its starting stack — silence is a number, not an
+            excuse.</p>
+        </div>
+      </section>
+
+      <!-- Elimination log: who fell, at which boundary. -->
+      <section class="ar-pane" id="elim-pane" aria-labelledby="elim-h" hidden>
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--down)">✂</span>
+          <span id="elim-h">Eliminations</span></div>
+        <div class="pad"><div id="elim-list"></div></div>
+      </section>
+
+      <details class="ar-pane ar-doc" aria-labelledby="rules-h">
+        <summary class="ar-pane-head"><span class="glyph">§</span>
+          <span id="rules-h">How a tournament works</span><span class="doc-tag">Reference</span><svg class="doc-chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9.5 6 6 6-6"/></svg></summary>
+        <div class="pad">
+          <ol style="list-style:none;counter-reset:s;display:grid;gap:14px">
+            <li style="counter-increment:s">
+              <b style="font-size:13px">One ledger, started even.</b>
+              <p class="ar-note">Every entrant begins on the same paper stack — 10&nbsp;◎ by
+                default — on a ledger that exists only inside the tournament. Your all-time
+                record is never read and never touched: a bad bracket can't hurt it, and a
+                lifetime record can't be donated to a bracket.</p>
+            </li>
+            <li>
+              <b style="font-size:13px">The clock is the server's.</b>
+              <p class="ar-note">Rounds are fixed windows folded from the tournament's start
+                time — 24 hours by default. When a boundary passes, the cron settles it once,
+                freezes the standings it decided from (hash and all), and cuts the bottom of
+                the board. A boundary can never be re-run or talked into a different result.</p>
+            </li>
+            <li>
+              <b style="font-size:13px">The bottom five fall, every round.</b>
+              <p class="ar-note">Ranking is tournament P&amp;L — pushed equity minus the start
+                stack, computed server-side. Never pushed a snapshot? You stand at your stack:
+                silence is a number, not a hiding place. When the survivors number no more than
+                the cut, that round is the final — it crowns instead of cutting.</p>
+            </li>
+            <li>
+              <b style="font-size:13px">Spectating is data, not video.</b>
+              <p class="ar-note">Click any trader on the board and their live card polls every
+                few seconds: equity, cash, positions, last push. It's the extension's own
+                report, labeled as such — the honest version of "watch them trade" that a
+                paper ledger can actually serve.</p>
+            </li>
+          </ol>
+        </div>
+      </details>
+    </div>
+
+    <div class="ar-stack">
+      <section class="ar-pane" aria-labelledby="you-h">
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--orange2)">◆</span>
+          <span id="you-h">Your seat</span></div>
+        <div class="pad">
+          <div id="your-seat" aria-live="polite"><p class="ar-note">Checking sign-in…</p></div>
+        </div>
+      </section>
+
+      <!-- Spectate: one trader's live card, behind a board-row click. -->
+      <section class="ar-pane" id="spectate-pane" aria-labelledby="spec-h" hidden>
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--blue)">◉</span>
+          <span id="spec-h">Watching</span>
+          <span class="spacer"></span>
+          <button class="ar-btn" id="spectate-close" type="button" style="padding:5px 12px;font-size:11px">Close</button>
+        </div>
+        <div class="pad"><div id="spectate-body"><p class="ar-note">Pick a trader on the board.</p></div></div>
+      </section>
+
+      <!-- Create: signed-in only, rendered by tournament.js. -->
+      <section class="ar-pane" id="create-pane" aria-labelledby="create-h" hidden>
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--violet)">＋</span>
+          <span id="create-h">Run a tournament</span></div>
+        <div class="pad"><div id="create-body"></div></div>
+      </section>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-inner">
+      <a class="nav-logo" href="/"><img src="assets/icon128.png" alt="">PaperTrench</a>
+      <div class="foot-links">
+        <a href="/sprint">Weekly Sprint</a>
+        <a href="/duels">Duels</a>
+        <a href="/clans">Clans</a>
+        <a href="/news">News &amp; patch notes</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://github.com/OnlyTerp/papertrench" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/LEADERBOARD.md" target="_blank" rel="noopener">Leaderboard protocol</a>
+      </div>
+    </div>
+    <nav class="term-dock" aria-label="Paper terminals">
+      <span class="term-lbl">Open a terminal</span>
+      <a href="https://axiom.trade/@usepaper" target="_blank" rel="noopener">Axiom</a>
+      <a href="https://trade.padre.gg/rk/papertrench" target="_blank" rel="noopener">Padre</a>
+      <a href="https://gmgn.ai/r/papertrench" target="_blank" rel="noopener">GMGN</a>
+      <a href="https://lute.gg/@papertrench" target="_blank" rel="noopener">Lute</a>
+    </nav>
+    <div class="foot-social">
+      <a class="foot-btn discord" href="https://discord.gg/papertrench" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.198.3728.2924a.077.077 0 01-.0066.1276 12.1617 12.1617 0 003.8994 1.2019.0775.0775 0 00.0413-.1045C22.9947 19.1152 23.4119 18.4919 23.792 17.8408a.0772.0772 0 00-.0212-.0964 19.8512 19.8512 0 01-3.0004-2.3344.0778.0778 0 00-.0409-.0141c-.0545.0029-.1085.0143-.1562.0334a.0769.0769 0 00-.0304.0204 13.4297 13.4297 0 01-1.8229 1.0261.0749.0749 0 01-.0353.1408 17.7124 17.7124 0 01-4.1685.995.0787.0787 0 01-.0812-.0331 13.9345 13.9345 0 01-.2444-.4603.0768.0768 0 01.0406-.1045 12.5344 12.5344 0 001.891-.9067.077.077 0 00.0403-.102.0804.0804 0 00-.0287-.0342.0782.0782 0 00-.0412-.0108 16.0457 16.0457 0 01-1.8734-.0868.0771.0771 0 01-.0812-.0606 20.7224 20.7224 0 01-.3617-2.2135.0776.0776 0 01.0327-.0734 19.5198 19.5198 0 011.6664-1.0064.0769.0769 0 01.0813.0136 12.3933 12.3933 0 003.8028 1.7394.0772.0772 0 00.084-.0306 12.7242 12.7242 0 002.3574-3.7255.0775.0775 0 00-.0212-.0849A19.6494 19.6494 0 0018.8058 4.5769a.0772.0772 0 00-.0458-.0204 19.8835 19.8835 0 00-4.4427-1.187z"/></svg>
+      </a>
+      <a class="foot-btn x" href="https://x.com/PaperTrench_" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@PaperTrench_
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script src="arena.js"></script>
+<script src="tournament.js"></script>
+<script src="/nav-wallet.js"></script>
+<script src="/nav-toggle.js"></script>
+<script src="/nav-profile.js"></script>
+<!-- Cloudflare Web Analytics --><script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "724df78b5f6d45c6968c0c30b1a332d9"}'></script><!-- End Cloudflare Web Analytics -->
+</body>
+</html>

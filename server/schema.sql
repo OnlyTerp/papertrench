@@ -357,3 +357,101 @@ CREATE TABLE IF NOT EXISTS sprint_winners (
 -- is by user, newest first.
 CREATE INDEX IF NOT EXISTS idx_sprint_winners_user
   ON sprint_winners(user_id, week_id DESC);
+
+-- ── Tournaments ────────────────────────────────────────────────────────────
+-- A fixed-field elimination bracket: everyone starts on the same paper stack,
+-- the clock folds rounds server-side, and the bottom N by tournament PnL are
+-- cut at each boundary until one name is left. Everything a tournament scores
+-- lives in these tables — the main board's records are never read or written
+-- by it, so a tournament can neither borrow a lifetime record nor damage one.
+
+-- One row per tournament. `code` is the shareable id (same unambiguous
+-- alphabet as duel codes — these get read aloud on stream). Clocks are
+-- stored, never derived per-request: `start_ts` is when play begins (either
+-- the creator's scheduled time or the instant the field filled), and each
+-- round's boundary is start_ts + round_no * round_ms — written into
+-- tournament_rounds when it settles, so a settled boundary can never move.
+CREATE TABLE IF NOT EXISTS tournaments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  creator_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'open',  -- open | live | done | cancelled
+  field_size INTEGER NOT NULL,          -- seats; join refuses past this
+  start_stack_sol REAL NOT NULL,        -- the paper stack every entrant begins on
+  round_ms INTEGER NOT NULL,            -- one round's length; boundaries fold from it
+  cut_per_round INTEGER NOT NULL,       -- how many are eliminated at each boundary
+  prize_split_json TEXT NOT NULL,       -- e.g. [50,30,20] — percents, top-down
+  start_when_full INTEGER NOT NULL DEFAULT 0,  -- 1 = start_ts is the fill instant
+  start_ts INTEGER,                     -- NULL until scheduled or filled
+  current_round INTEGER NOT NULL DEFAULT 0,    -- 0 while open; 1..N once live
+  prize_pool_sol REAL,                  -- declared pool, for display; payout is manual
+  final_json TEXT,                      -- frozen final standings + prize awards
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  ended_at INTEGER,
+  winner_user_id INTEGER REFERENCES users(id)  -- the last name standing, once done
+);
+CREATE INDEX IF NOT EXISTS idx_tournaments_status
+  ON tournaments(status, created_at DESC);
+
+-- One row per seat. (tournament_id, user_id) is the whole primary key: a
+-- trader cannot hold two seats in one tournament by any code path, including
+-- a buggy one, because the row cannot exist twice. `alive` is the elimination
+-- flag — the board reads it, the cron flips it, and nothing else does.
+CREATE TABLE IF NOT EXISTS tournament_entrants (
+  tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  joined_at INTEGER NOT NULL,
+  alive INTEGER NOT NULL DEFAULT 1,
+  eliminated_round INTEGER,             -- which boundary cut them, for the UI
+  final_rank INTEGER,                   -- placement once decided
+  PRIMARY KEY (tournament_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_entrants_user
+  ON tournament_entrants(user_id, joined_at DESC);
+
+-- The spectate lane: the latest self-reported state each entrant has pushed.
+-- One row per entrant (upserted, not appended) so the board is a read, not a
+-- scan — and so a fast pusher cannot grow the table without bound. The
+-- numbers here are the extension's own claim, labeled as such on the site;
+-- they decide elimination, which is why the route is authed, rate-limited,
+-- and the equity figure is what is stored — never a client-computed PnL.
+CREATE TABLE IF NOT EXISTS tournament_snapshots (
+  tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  equity_sol REAL NOT NULL,             -- cash + marked positions, in SOL
+  cash_sol REAL,                        -- uninvested paper SOL, when reported
+  positions_json TEXT,                  -- [{mint,symbol,qty,valueSol}] sanitized, capped
+  pushed_at INTEGER NOT NULL,           -- SERVER receive time — client clocks never stored
+  PRIMARY KEY (tournament_id, user_id)
+);
+
+-- One row per settled round boundary. The row IS the claim that the boundary
+-- was processed: INSERT OR IGNORE makes settlement idempotent by construction,
+-- so a retried cron or two racing ticks can never cut the same round twice.
+-- standings_json + standings_hash freeze exactly what the cut was computed
+-- from — the hashed baseline that lets any later dispute be re-checked against
+-- the data that decided it, not against whatever the board says now.
+CREATE TABLE IF NOT EXISTS tournament_rounds (
+  tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
+  round_no INTEGER NOT NULL,
+  start_ts INTEGER NOT NULL,
+  end_ts INTEGER NOT NULL,
+  standings_json TEXT NOT NULL,
+  standings_hash TEXT NOT NULL,
+  settled_at INTEGER NOT NULL,
+  PRIMARY KEY (tournament_id, round_no)
+);
+
+-- Who was cut, at which boundary, and what they were holding when it happened.
+-- Append-only: an elimination is a fact, and facts do not get edited.
+CREATE TABLE IF NOT EXISTS tournament_eliminations (
+  tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  round_no INTEGER NOT NULL,
+  pnl_sol REAL NOT NULL,                -- tournament PnL at the boundary
+  equity_sol REAL NOT NULL,
+  eliminated_at INTEGER NOT NULL,
+  PRIMARY KEY (tournament_id, user_id)
+);

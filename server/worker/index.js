@@ -30,6 +30,7 @@ import indeix from './indeix.js';
 import * as sparkWorker from './spark.js';
 import * as solana from './solana.js';
 import * as replay from '../core/replay.js';
+import * as tournament from '../core/tournament.js';
 // Default-imported for the same CJS-lexer reason as core/chain.js above.
 import xfeed from './xfeed.js';
 
@@ -62,6 +63,16 @@ const PRICING_BACKOFF_MS = 5 * 60 * 1000;
 const MAX_RECORDS_PER_TICK = 50;
 const BOARD_CACHE_SEC = 60;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
+// Tournament routes: creation is rarer than duels, joining is one click, and
+// the snapshot push is the spectate lane — leashed hard enough that a stuck
+// client cannot write-flood D1, loose enough that a 30s push cadence fits.
+const TOURNAMENT_CREATES_PER_HOUR = 5;
+const TOURNAMENT_JOINS_PER_HOUR = 20;
+const TOURNAMENT_SNAPSHOTS_PER_HOUR = 240;
+// Live boards poll at 5–10s; a shorter edge cache than the all-time board's
+// keeps the numbers fresh without turning the route into a per-viewer read.
+const TOURNAMENT_BOARD_CACHE_SEC = 8;
+const TOURNAMENTS_LIST_CAP = 100;
 
 /* ---------------- plumbing ---------------- */
 
@@ -2254,6 +2265,565 @@ async function handleAdminLog(request, env) {
   });
 }
 
+/* ---------------- tournaments ----------------
+ *
+ * A fixed-field elimination bracket on an isolated paper ledger. The worker
+ * side owns three things: who may write (session + rate limit + origin, same
+ * as every other route), where the bytes land (the five tournament tables),
+ * and the cron lane that folds round boundaries. What a boundary MEANS —
+ * who is cut, who is crowned, what the prizes pay — is core/tournament.js.
+ *
+ * The spectate lane is push, not poll: entrants' extensions POST snapshots
+ * and the site reads the latest per entrant. The numbers are self-reported
+ * and labeled that way on the page — but they decide eliminations, so the
+ * route is authed, rate-limited, and stores only what the server derived
+ * (equity in, PnL computed; client clocks and client PnL never stored).
+ */
+
+/** A tournament code — same alphabet as duel codes, read aloud on stream. */
+function tournamentCode() {
+  let code = '';
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  for (const b of bytes) code += CODE_ALPHABET[b % CODE_ALPHABET.length];
+  return code;
+}
+
+/** The tournament row by code, or null. Codes are the public handle; the
+ * numeric id never leaves the database. creator_handle rides along so the
+ * page can offer the cancel control to the right person — the route still
+ * checks creator_id server-side; this is display, not authorization. */
+async function loadTournament(env, code) {
+  const row = await env.DB.prepare(`
+    SELECT t.*, u.handle AS creator_handle
+    FROM tournaments t JOIN users u ON u.id = t.creator_id
+    WHERE t.code = ?`).bind(String(code || '')).first();
+  return row || null;
+}
+
+/** Entrants joined to their user rows, in join order. */
+async function tournamentEntrants(env, tournamentId) {
+  const rows = await env.DB.prepare(`
+    SELECT e.user_id, e.joined_at, e.alive, e.eliminated_round, e.final_rank,
+           u.handle, u.display_name, u.avatar_url
+    FROM tournament_entrants e JOIN users u ON u.id = e.user_id
+    WHERE e.tournament_id = ?
+    ORDER BY e.joined_at ASC`).bind(tournamentId).all();
+  return rows.results || [];
+}
+
+/** Latest snapshot per entrant, as a user_id -> row map. */
+async function tournamentSnapshotMap(env, tournamentId) {
+  const rows = await env.DB.prepare(`
+    SELECT user_id, equity_sol, cash_sol, positions_json, pushed_at
+    FROM tournament_snapshots WHERE tournament_id = ?`).bind(tournamentId).all();
+  const map = new Map();
+  for (const row of rows.results || []) map.set(row.user_id, row);
+  return map;
+}
+
+/** The public tournament card: what list and board responses share. */
+function tournamentCard(row) {
+  return {
+    code: row.code,
+    name: row.name,
+    creatorHandle: row.creator_handle || null,
+    status: row.status,
+    fieldSize: Number(row.field_size),
+    startStackSol: Number(row.start_stack_sol),
+    roundMs: Number(row.round_ms),
+    cutPerRound: Number(row.cut_per_round),
+    prizeSplit: JSON.parse(row.prize_split_json || '[]'),
+    prizePoolSol: row.prize_pool_sol == null ? null : Number(row.prize_pool_sol),
+    startWhenFull: Number(row.start_when_full) === 1,
+    startTs: row.start_ts == null ? null : Number(row.start_ts),
+    currentRound: Number(row.current_round) || 0,
+    createdAt: Number(row.created_at),
+    startedAt: row.started_at == null ? null : Number(row.started_at),
+    endedAt: row.ended_at == null ? null : Number(row.ended_at),
+  };
+}
+
+/**
+ * The board payload: tournament card + ranked standings + settled rounds.
+ * Standings come from core/tournament.standings — PnL derived from pushed
+ * equity, never from a client-supplied figure. Once a tournament is done the
+ * order is the frozen final_rank, not live PnL: a finished board must not
+ * reshuffle under a late snapshot.
+ */
+async function tournamentBoardPayload(env, row) {
+  const entrants = await tournamentEntrants(env, row.id);
+  const snapshots = await tournamentSnapshotMap(env, row.id);
+  let rows = tournament.standings(entrants, snapshots, row.start_stack_sol);
+  if (row.status === tournament.STATUS.DONE || row.status === tournament.STATUS.CANCELLED) {
+    rows = rows.slice().sort((a, b) =>
+      ((a.finalRank == null ? 1e9 : a.finalRank) - (b.finalRank == null ? 1e9 : b.finalRank)) ||
+      (b.pnlSol - a.pnlSol));
+  }
+  const roundRows = await env.DB.prepare(`
+    SELECT round_no, start_ts, end_ts, standings_hash, settled_at
+    FROM tournament_rounds WHERE tournament_id = ? ORDER BY round_no ASC`)
+    .bind(row.id).all();
+  const elimRows = await env.DB.prepare(`
+    SELECT x.user_id, x.round_no, x.pnl_sol, x.equity_sol, x.eliminated_at, u.handle
+    FROM tournament_eliminations x JOIN users u ON u.id = x.user_id
+    WHERE x.tournament_id = ? ORDER BY x.round_no ASC, x.pnl_sol DESC`)
+    .bind(row.id).all();
+  const card = tournamentCard(row);
+  card.entrantCount = entrants.length;
+  card.aliveCount = entrants.filter((e) => Number(e.alive) === 1).length;
+  const final = row.final_json ? JSON.parse(row.final_json) : null;
+  return {
+    ok: true,
+    tournament: card,
+    standings: rows,
+    rounds: (roundRows.results || []).map((r) => ({
+      roundNo: Number(r.round_no),
+      startTs: Number(r.start_ts),
+      endTs: Number(r.end_ts),
+      standingsHash: r.standings_hash,
+      settledAt: Number(r.settled_at),
+    })),
+    eliminations: (elimRows.results || []).map((r) => ({
+      userId: r.user_id, handle: r.handle, roundNo: Number(r.round_no),
+      pnlSol: Number(r.pnl_sol), equitySol: Number(r.equity_sol),
+      eliminatedAt: Number(r.eliminated_at),
+    })),
+    final,
+    serverTime: Date.now(),
+  };
+}
+
+async function handleTournamentCreate(request, env) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  if (!(await allowRate(env, 'tournament-create:' + user.id, TOURNAMENT_CREATES_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
+  let body = {};
+  try { body = await request.json(); } catch {}
+
+  const problem = tournament.nameProblem(body.name);
+  if (problem) return json({ ok: false, reason: problem }, 400);
+
+  const fieldSize = tournament.clampField(body.fieldSize);
+  const roundMs = tournament.clampRoundMs(body.roundHours != null
+    ? Number(body.roundHours) * 3600000 : body.roundMs);
+  const cutPerRound = Math.min(
+    tournament.clampCut(body.cutPerRound), fieldSize - 1);
+  const startStackSol = tournament.clampStack(body.startStackSol);
+  const prizeSplit = tournament.cleanPrizeSplit(body.prizeSplit);
+  const prizePoolSol = Number.isFinite(Number(body.prizePoolSol)) && Number(body.prizePoolSol) > 0
+    ? Number(body.prizePoolSol) : null;
+
+  // Two ways to start: at a scheduled instant, or the moment the last seat
+  // fills. A scheduled time in the past is not an error — it means "now",
+  // and the cron's next tick starts it.
+  const requestedStart = Number(body.startTs);
+  const startWhenFull = !(Number.isFinite(requestedStart) && requestedStart > 0);
+  const startTs = startWhenFull ? null : Math.trunc(requestedStart);
+
+  const now = Date.now();
+  const code = tournamentCode();
+  await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO tournaments
+        (code, name, creator_id, status, field_size, start_stack_sol, round_ms,
+         cut_per_round, prize_split_json, prize_pool_sol, start_when_full, start_ts, created_at)
+      VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(code, tournament.cleanName(body.name), user.id, fieldSize, startStackSol,
+        roundMs, cutPerRound, JSON.stringify(prizeSplit), prizePoolSol,
+        startWhenFull ? 1 : 0, startTs, now),
+    // The creator holds seat one — same statement batch, so a tournament can
+    // never exist with its creator outside it.
+    env.DB.prepare(`
+      INSERT INTO tournament_entrants (tournament_id, user_id, joined_at)
+      SELECT id, ?, ? FROM tournaments WHERE code = ?`)
+      .bind(user.id, now, code),
+  ]);
+  return json({
+    ok: true, code,
+    url: env.SITE_ORIGIN + '/tournament?id=' + code,
+  });
+}
+
+async function handleTournamentJoin(request, env, code) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  if (!(await allowRate(env, 'tournament-join:' + user.id, TOURNAMENT_JOINS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  if (row.status !== tournament.STATUS.OPEN) {
+    return json({ ok: false, reason: 'not-open' }, 409);
+  }
+
+  const now = Date.now();
+  // The seat claim is one atomic statement: the INSERT only exists while the
+  // tournament is open AND under its field size, so two racers for the last
+  // seat cannot both land — the loser's subquery counts a full field and
+  // inserts nothing. The PK makes a double-join a no-op rather than an error.
+  const claim = await env.DB.prepare(`
+    INSERT OR IGNORE INTO tournament_entrants (tournament_id, user_id, joined_at)
+    SELECT ?, ?, ?
+    WHERE EXISTS (
+      SELECT 1 FROM tournaments t
+      WHERE t.id = ? AND t.status = 'open'
+        AND (SELECT COUNT(*) FROM tournament_entrants e
+             WHERE e.tournament_id = t.id) < t.field_size)`)
+    .bind(row.id, user.id, now, row.id).run();
+  if (!claim.meta || claim.meta.changes !== 1) {
+    const existing = await env.DB.prepare(
+      'SELECT 1 AS x FROM tournament_entrants WHERE tournament_id = ? AND user_id = ?')
+      .bind(row.id, user.id).first();
+    if (existing) return json({ ok: true, code: row.code, already: true });
+    const count = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM tournament_entrants WHERE tournament_id = ?')
+      .bind(row.id).first();
+    const reason = row.status !== tournament.STATUS.OPEN ? 'not-open'
+      : (count && Number(count.n) >= Number(row.field_size)) ? 'full' : 'not-open';
+    return json({ ok: false, reason }, 409);
+  }
+
+  // A fill-start tournament begins the instant the last seat lands — the
+  // field asked for "when full" and it is full. The guarded UPDATE means a
+  // cron that noticed the same thing one tick earlier cannot be overwritten.
+  if (Number(row.start_when_full) === 1) {
+    const count = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM tournament_entrants WHERE tournament_id = ?')
+      .bind(row.id).first();
+    if (count && Number(count.n) >= Number(row.field_size)) {
+      const started = await env.DB.prepare(`
+        UPDATE tournaments SET status = 'live', start_ts = ?, started_at = ?, current_round = 1
+        WHERE id = ? AND status = 'open'`)
+        .bind(now, now, row.id).run();
+      if (started.meta && started.meta.changes === 1) {
+        return json({ ok: true, code: row.code, started: true });
+      }
+    }
+  }
+  return json({ ok: true, code: row.code });
+}
+
+async function handleTournamentLeave(request, env, code) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  // Leaving is an open-tournament act only. Once play starts your seat is a
+  // fact of the bracket: you stop pushing snapshots and the boundary cuts
+  // you — there is no mid-tournament delete that would rewrite round history.
+  if (row.status !== tournament.STATUS.OPEN) {
+    return json({ ok: false, reason: 'not-open' }, 409);
+  }
+  const statements = [
+    env.DB.prepare(
+      'DELETE FROM tournament_entrants WHERE tournament_id = ? AND user_id = ?')
+      .bind(row.id, user.id),
+  ];
+  // The creator leaving empties the bracket's reason to exist: cancel it in
+  // the same batch rather than stranding a tournament nobody is hosting.
+  if (Number(row.creator_id) === Number(user.id)) {
+    statements.push(env.DB.prepare(`
+      UPDATE tournaments SET status = 'cancelled', ended_at = ?
+      WHERE id = ? AND status = 'open'`).bind(Date.now(), row.id));
+  }
+  await env.DB.batch(statements);
+  return json({ ok: true, code: row.code });
+}
+
+async function handleTournamentCancel(request, env, code) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  if (Number(row.creator_id) !== Number(user.id)) {
+    return json({ ok: false, reason: 'not-creator' }, 403);
+  }
+  // Only an unstarted tournament can be cancelled — a live one has eliminations
+  // owed to it and must play out (or be left to settle), never be unpublished.
+  const res = await env.DB.prepare(`
+    UPDATE tournaments SET status = 'cancelled', ended_at = ?
+    WHERE id = ? AND status = 'open'`).bind(Date.now(), row.id).run();
+  if (!res.meta || res.meta.changes !== 1) {
+    return json({ ok: false, reason: 'not-open' }, 409);
+  }
+  return json({ ok: true, code: row.code });
+}
+
+/**
+ * POST /api/tournament/:code/snapshot — the extension's spectate push.
+ *
+ * Contract (extension builder implements against this):
+ *   body: { equitySol: number, cashSol?: number,
+ *           positions?: [{ mint, symbol?, qty, valueSol }] }
+ *   auth: the same session as the site (cookie or Bearer token)
+ *   accepted only while the tournament is live AND the caller is an entrant.
+ *   The server stamps pushed_at itself and derives PnL — a client-sent
+ *   timestamp or PnL figure is ignored by construction.
+ */
+async function handleTournamentSnapshot(request, env, code) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  if (!(await allowRate(env, 'tournament-snap:' + user.id, TOURNAMENT_SNAPSHOTS_PER_HOUR))) {
+    return json({ ok: false, reason: 'rate-limited' }, 429);
+  }
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  if (row.status !== tournament.STATUS.LIVE) {
+    return json({ ok: false, reason: 'not-live' }, 409);
+  }
+  const seat = await env.DB.prepare(
+    'SELECT alive FROM tournament_entrants WHERE tournament_id = ? AND user_id = ?')
+    .bind(row.id, user.id).first();
+  if (!seat) return json({ ok: false, reason: 'not-entrant' }, 403);
+  // An eliminated trader's pushes stop mattering: the cut already happened
+  // and their final rank is written. 409 so the client knows to stop pushing.
+  if (Number(seat.alive) !== 1) {
+    return json({ ok: false, reason: 'eliminated' }, 409);
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const cleaned = tournament.cleanSnapshot(body);
+  if (cleaned.problem) return json({ ok: false, reason: cleaned.problem }, 400);
+
+  await env.DB.prepare(`
+    INSERT INTO tournament_snapshots
+      (tournament_id, user_id, equity_sol, cash_sol, positions_json, pushed_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(tournament_id, user_id) DO UPDATE SET
+      equity_sol = excluded.equity_sol,
+      cash_sol = excluded.cash_sol,
+      positions_json = excluded.positions_json,
+      pushed_at = excluded.pushed_at`)
+    .bind(row.id, user.id, cleaned.equitySol, cleaned.cashSol,
+      cleaned.positionsJson, Date.now())
+    .run();
+  return json({ ok: true });
+}
+
+async function handleTournamentBoard(env, code) {
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  return json(await tournamentBoardPayload(env, row));
+}
+
+/** One trader's live card — the spectate view behind a board row click. */
+async function handleTournamentTrader(env, code, handle) {
+  const row = await loadTournament(env, code);
+  if (!row) return json({ ok: false, reason: 'not-found' }, 404);
+  const entrant = await env.DB.prepare(`
+    SELECT e.user_id, e.joined_at, e.alive, e.eliminated_round, e.final_rank,
+           u.handle, u.display_name, u.avatar_url
+    FROM tournament_entrants e JOIN users u ON u.id = e.user_id
+    WHERE e.tournament_id = ? AND u.handle = ? COLLATE NOCASE`)
+    .bind(row.id, String(handle || '')).first();
+  if (!entrant) return json({ ok: false, reason: 'not-entrant' }, 404);
+  const snap = await env.DB.prepare(`
+    SELECT equity_sol, cash_sol, positions_json, pushed_at
+    FROM tournament_snapshots WHERE tournament_id = ? AND user_id = ?`)
+    .bind(row.id, entrant.user_id).first();
+  const snapshots = new Map();
+  if (snap) snapshots.set(entrant.user_id, snap);
+  const standing = tournament.standings([entrant], snapshots, row.start_stack_sol)[0];
+  // Where they sit on the board: rank among everyone, not just their row.
+  // Once the tournament is done the order is the frozen final_rank — the same
+  // rule the board uses — never live PnL, which a stale snapshot would skew.
+  const all = tournament.standings(
+    await tournamentEntrants(env, row.id),
+    await tournamentSnapshotMap(env, row.id),
+    row.start_stack_sol);
+  const rank = (row.status === tournament.STATUS.DONE || row.status === tournament.STATUS.CANCELLED)
+    ? (entrant.final_rank == null ? null : Number(entrant.final_rank))
+    : (all.findIndex((r) => r.userId === entrant.user_id) + 1 || null);
+  return json({
+    ok: true,
+    tournament: tournamentCard(row),
+    trader: standing,
+    rank: rank || null,
+    fieldSize: all.length,
+    serverTime: Date.now(),
+  });
+}
+
+/** The directory: open and live tournaments first, then recently finished. */
+async function handleTournamentsList(env) {
+  const rows = await env.DB.prepare(`
+    SELECT t.*, (SELECT COUNT(*) FROM tournament_entrants e
+                 WHERE e.tournament_id = t.id) AS entrants
+    FROM tournaments t
+    ORDER BY CASE t.status WHEN 'live' THEN 0 WHEN 'open' THEN 1 ELSE 2 END,
+             t.created_at DESC
+    LIMIT ?`).bind(TOURNAMENTS_LIST_CAP).all();
+  return json({
+    ok: true,
+    tournaments: (rows.results || []).map((r) => {
+      const card = tournamentCard(r);
+      card.entrantCount = Number(r.entrants) || 0;
+      return card;
+    }),
+  });
+}
+
+/** The caller's seats across tournaments, newest first. */
+async function handleTournamentMine(request, env) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  const rows = await env.DB.prepare(`
+    SELECT t.*, e.alive, e.final_rank
+    FROM tournament_entrants e JOIN tournaments t ON t.id = e.tournament_id
+    WHERE e.user_id = ? ORDER BY e.joined_at DESC LIMIT 50`)
+    .bind(user.id).all();
+  return json({
+    ok: true,
+    tournaments: (rows.results || []).map((r) => {
+      const card = tournamentCard(r);
+      card.alive = Number(r.alive) === 1;
+      card.finalRank = r.final_rank == null ? null : Number(r.final_rank);
+      return card;
+    }),
+  });
+}
+
+/* ---------------- tournament settlement cron ----------------
+ *
+ * One lane inside the per-minute cron, beside pricing/reckoning/crown. Each
+ * tick: start what is due to start, then settle every boundary that has
+ * passed. Settlement is claimed by INSERT OR IGNORE on tournament_rounds —
+ * the row existing IS the boundary having been processed — so a retried or
+ * doubled tick can never cut the same round twice.
+ */
+
+/** sha-256 of the standings a boundary cut from — the hashed baseline. */
+async function standingsHash(standingsJson) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(standingsJson));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Settle one due round boundary for a live tournament. Returns true when the
+ * tournament may owe ANOTHER boundary (a stalled cron can owe several; the
+ * caller loops until the schedule is caught up or the tournament ends).
+ */
+async function settleTournamentRound(env, row, now) {
+  const roundNo = Number(row.current_round) || 1;
+  const window = tournament.roundWindow(row, roundNo);
+  if (now < window.endTs) return false; // not due — the common case, one read in
+
+  const entrants = await tournamentEntrants(env, row.id);
+  const snapshots = await tournamentSnapshotMap(env, row.id);
+  const rows = tournament.standings(entrants, snapshots, row.start_stack_sol);
+  const plan = tournament.boundaryPlan(rows, row.cut_per_round);
+
+  // Freeze exactly what the decision was made from, then claim the boundary.
+  const standingsJson = JSON.stringify(rows.map((r) => ({
+    u: r.userId, pnl: r.pnlSol, eq: r.equitySol, alive: r.alive ? 1 : 0,
+  })));
+  const hash = await standingsHash(standingsJson);
+  const claim = await env.DB.prepare(`
+    INSERT OR IGNORE INTO tournament_rounds
+      (tournament_id, round_no, start_ts, end_ts, standings_json, standings_hash, settled_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(row.id, roundNo, window.startTs, window.endTs, standingsJson, hash, now)
+    .run();
+  if (!claim.meta || claim.meta.changes !== 1) {
+    // Another tick (or a retry) already settled this boundary. Re-read and let
+    // the loop decide what the NEXT boundary owes — never re-cut a claimed one.
+    return true;
+  }
+
+  const statements = [];
+  if (plan.final) {
+    // The last round crowns rather than cuts: survivors take places 1..N in
+    // standing order, and the prize split pays down it.
+    const elimRows = await env.DB.prepare(`
+      SELECT user_id, round_no, pnl_sol FROM tournament_eliminations
+      WHERE tournament_id = ?`).bind(row.id).all();
+    const placements = tournament.finalPlacements(rows, elimRows.results || []);
+    const split = JSON.parse(row.prize_split_json || '[]');
+    const awards = tournament.prizeAwards(split, placements, row.prize_pool_sol);
+    for (const p of placements) {
+      statements.push(env.DB.prepare(
+        'UPDATE tournament_entrants SET final_rank = ? WHERE tournament_id = ? AND user_id = ?')
+        .bind(p.rank, row.id, p.userId));
+    }
+    const winner = placements.find((p) => p.rank === 1);
+    statements.push(env.DB.prepare(`
+      UPDATE tournaments SET status = 'done', winner_user_id = ?, ended_at = ?, final_json = ?
+      WHERE id = ?`)
+      .bind(winner ? winner.userId : null, now, JSON.stringify({
+        placements, awards,
+        prizePoolSol: row.prize_pool_sol == null ? null : Number(row.prize_pool_sol),
+        settledAt: now,
+      }), row.id));
+  } else {
+    // Cut the bottom of the live order. Their final_rank is fixed now —
+    // the cut group places just below everyone still alive, in PnL order.
+    const aliveCount = rows.filter((r) => r.alive).length;
+    plan.eliminated.forEach((r, i) => {
+      const rank = aliveCount - plan.eliminated.length + i + 1;
+      statements.push(env.DB.prepare(`
+        INSERT OR IGNORE INTO tournament_eliminations
+          (tournament_id, user_id, round_no, pnl_sol, equity_sol, eliminated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(row.id, r.userId, roundNo, r.pnlSol, r.equitySol, now));
+      statements.push(env.DB.prepare(`
+        UPDATE tournament_entrants
+        SET alive = 0, eliminated_round = ?, final_rank = ?
+        WHERE tournament_id = ? AND user_id = ?`)
+        .bind(roundNo, rank, row.id, r.userId));
+    });
+    statements.push(env.DB.prepare(
+      'UPDATE tournaments SET current_round = ? WHERE id = ?')
+      .bind(roundNo + 1, row.id));
+  }
+  await env.DB.batch(statements);
+  return !plan.final;
+}
+
+async function settleTournaments(env, now) {
+  // Start what is due. A scheduled tournament whose start_ts has passed goes
+  // live — unless the field never formed (fewer than two entrants is a queue,
+  // not a bracket), in which case it cancels honestly rather than crowning
+  // the only person who showed up.
+  const due = await env.DB.prepare(`
+    SELECT * FROM tournaments
+    WHERE status = 'open' AND start_ts IS NOT NULL AND start_ts <= ?
+    ORDER BY start_ts ASC LIMIT 20`).bind(now).all();
+  for (const row of due.results || []) {
+    const count = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM tournament_entrants WHERE tournament_id = ?')
+      .bind(row.id).first();
+    if (count && Number(count.n) >= 2) {
+      await env.DB.prepare(`
+        UPDATE tournaments SET status = 'live', started_at = ?, current_round = 1
+        WHERE id = ? AND status = 'open'`).bind(now, row.id).run();
+    } else {
+      await env.DB.prepare(`
+        UPDATE tournaments SET status = 'cancelled', ended_at = ?
+        WHERE id = ? AND status = 'open'`).bind(now, row.id).run();
+    }
+  }
+
+  // Settle due boundaries. A tournament can owe several after a cron stall;
+  // the per-tournament loop catches its schedule up, bounded so one pathological
+  // bracket cannot hold the whole lane.
+  const live = await env.DB.prepare(`
+    SELECT * FROM tournaments WHERE status = 'live' ORDER BY started_at ASC LIMIT 50`).all();
+  for (const row of live.results || []) {
+    let current = row;
+    for (let i = 0; i < 64; i++) {
+      const more = await settleTournamentRound(env, current, now);
+      if (!more) break;
+      current = await env.DB.prepare('SELECT * FROM tournaments WHERE id = ?')
+        .bind(row.id).first();
+      if (!current || current.status !== tournament.STATUS.LIVE) break;
+    }
+  }
+}
+
 /* ---------------- entry ---------------- */
 
 /* ---------------- real-trade replay (Indeix) ---------------- */
@@ -2607,6 +3177,44 @@ export default {
       else if (path === '/api/streamer/roster') {
         response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleStreamerRoster(env));
       }
+      // Tournaments. The board and directory are public reads behind a short
+      // edge cache (live numbers, 8s); everything that writes is session +
+      // rate-limit + origin gated inside its handler.
+      else if (path === '/api/tournaments') {
+        response = await edgeCached(request, ctx, TOURNAMENT_BOARD_CACHE_SEC, () => handleTournamentsList(env));
+      }
+      else if (path === '/api/tournament/create' && request.method === 'POST') {
+        response = await handleTournamentCreate(request, env);
+      }
+      else if (path === '/api/tournament/mine') {
+        response = await handleTournamentMine(request, env);
+      }
+      else if (path.startsWith('/api/tournament/')) {
+        // /api/tournament/:code/{join,leave,cancel,snapshot,board,trader}
+        const parts = path.split('/').filter(Boolean); // ['api','tournament',code,action]
+        const code = decodeURIComponent(parts[2] || '');
+        const action = parts[3] || 'board';
+        if (action === 'join' && request.method === 'POST') {
+          response = await handleTournamentJoin(request, env, code);
+        } else if (action === 'leave' && request.method === 'POST') {
+          response = await handleTournamentLeave(request, env, code);
+        } else if (action === 'cancel' && request.method === 'POST') {
+          response = await handleTournamentCancel(request, env, code);
+        } else if (action === 'snapshot' && request.method === 'POST') {
+          response = await handleTournamentSnapshot(request, env, code);
+        } else if (action === 'board' && request.method === 'GET') {
+          response = await edgeCached(
+            cacheKey(url, { id: code }), ctx, TOURNAMENT_BOARD_CACHE_SEC,
+            () => handleTournamentBoard(env, code));
+        } else if (action === 'trader' && request.method === 'GET') {
+          const handle = (url.searchParams.get('handle') || '').toLowerCase();
+          response = await edgeCached(
+            cacheKey(url, { id: code, handle }), ctx, TOURNAMENT_BOARD_CACHE_SEC,
+            () => handleTournamentTrader(env, code, handle));
+        } else {
+          response = json({ ok: false, reason: 'not-found' }, 404);
+        }
+      }
       else if (path === '/api/quote' && request.method === 'GET') {
         response = await handleQuote(request, env, ctx);
       }
@@ -2699,6 +3307,13 @@ export default {
     ctx.waitUntil(
       settleSprintCrown(env, Date.now())
         .catch((e) => console.error('crown lane error:', e && e.message || e))
+    );
+    // Tournaments: start what is due, settle every boundary that has passed.
+    // Its own lane for the same reason as the others — a settlement fault
+    // must never silence pricing, and vice versa.
+    ctx.waitUntil(
+      settleTournaments(env, Date.now())
+        .catch((e) => console.error('tournament lane error:', e && e.message || e))
     );
   },
 };
