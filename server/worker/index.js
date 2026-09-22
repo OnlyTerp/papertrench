@@ -1862,6 +1862,10 @@ async function handleStreamerAdd(request, env) {
     // already pending or approved is a duplicate, not a server fault.
     return json({ ok: false, reason: 'already-listed' }, 409);
   }
+  // Same audit trail as a review: a direct add is a moderation action, and
+  // the label carries what the log reader cannot get from an application id.
+  await logModeration(env, mod, 'streamer.add', 'streamer', 0,
+    `${added.name} — ${added.channelUrl}`, `direct roster add (${added.platform})`);
   return json({
     ok: true,
     streamer: {
@@ -1949,6 +1953,11 @@ async function handleStreamerReview(request, env) {
     // the partial unique index — a duplicate application, not a server fault.
     return json({ ok: false, reason: 'already-listed' }, 409);
   }
+  // The moderation log is one story: bans, disqualifications, disbands — and
+  // roster decisions. The review path predates the log table, so its calls
+  // were the only moderation actions invisible to /admin-mod's history.
+  await logModeration(env, mod, 'streamer.review', 'streamer', id, null,
+    `queue decision: ${body.status}`);
   return json({ ok: true });
 }
 
