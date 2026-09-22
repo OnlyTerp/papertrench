@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy policy · PaperTrench</title>
-<meta name="description" content="The PaperTrench extension has no telemetry and no analytics - everything stays in your browser's local storage. The website's leaderboard is a separate, optional service that only receives what you submit. This page states both halves precisely.">
+<meta name="description" content="What PaperTrench sends, stores and logs: your trades stay in your browser; the extension asks our price service and public price APIs for quotes; our server keeps short-lived request logs; the website uses cookieless analytics; the leaderboard only receives what you submit.">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" href="/assets/icon96.png" sizes="96x96">
 <link rel="icon" type="image/png" href="/assets/icon192.png" sizes="192x192">
@@ -60,32 +60,49 @@
   <header class="post-hero">
     <div class="wrap-read">
       <div class="post-meta">
-        <time class="feat-date" datetime="2026-08-05">Effective August 5, 2026</time>
+        <time class="feat-date" datetime="2026-09-22">Effective September 22, 2026</time>
       </div>
       <h1 class="post-title">Privacy policy</h1>
-      <p class="post-stand">The extension has no telemetry. The website leaderboard is a separate, optional service. This page states both halves precisely.</p>
+      <p class="post-stand">Your trades stay in your browser. Pricing them takes network requests, some to our own server, which keeps short-lived logs. This page lists all of it.</p>
       <div class="post-rule"></div>
     </div>
   </header>
 
   <div class="wrap-read post-body">
 
-    <p class="post-lede">The short version: the PaperTrench <strong>extension has no telemetry and no analytics</strong> - everything it records lives in your browser's local storage, on your machine, and it never phones home. The <strong>website's leaderboard is a separate, optional service</strong>: it receives your trading record only when you yourself submit it there, signed in with X.</p>
-    <p>One exception, and it is opt-in twice over: if you complete the Leaderboard tab's setup - link an X account <em>and</em> switch on Site sync - the dashboard will then read the public standings so it can show them to you. That request is a plain read of a public page. It sends no account, no cookie and nothing about your trading; it only happens on a dashboard belonging to someone who has opted into the leaderboard; and until you do both of those things, the extension makes no request to our servers at all.</p>
+    <p class="post-lede">The short version: your <strong>paper wallet, trades and journal stay in your browser's local storage</strong>, and the extension never uploads them on its own. To price the coins you trade, the extension asks public price services <strong>and our own price service</strong> for quotes. Our server <strong>logs the requests it receives</strong> and keeps those logs for up to 7 days to find bugs and abuse. The website uses <strong>cookieless Cloudflare Web Analytics</strong>. The leaderboard only receives what you choose to submit there.</p>
 
     <h2>What the extension stores, and where</h2>
-    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> - local storage inside your Chrome profile. Nothing is uploaded by the extension, ever. Using the extension requires no account and no sign-up.</p>
-    <p>If you add an AI API key for the optional coaching feature, it is stored locally and sent only to the endpoint you yourself configured.</p>
+    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> - local storage inside your Chrome profile. The extension does not upload any of it on its own. Using the extension requires no account and no sign-up.</p>
+    <p>API keys you add (AI coach, Forge) are stored locally and sent only to the endpoint you configured.</p>
 
     <h2>Network requests the extension makes</h2>
-    <p>Every network call the extension can make, exhaustively:</p>
+    <p>Every network call the extension can make, exhaustively.</p>
+    <p><strong>Automatically, while you are on a supported trading page:</strong></p>
     <ul>
+      <li><strong>Our price service</strong> (<code>papertrench-api.onerobby.workers.dev</code>, since v3.22) - the extension sends the token addresses on the page and their chain, and gets back quotes. It is used as an independent second price for your fills, and prices the fill itself when no other source can. It sends no account, no cookies, no wallet or trade data - but like any web request it reaches our server from your IP address, and it tells us which tokens were looked up.</li>
       <li><strong>Public price APIs</strong> (Dexscreener, Jupiter) - to price the coins you trade.</li>
-      <li><strong>Public Solana RPC</strong> - for on-chain price anchoring, or a private RPC if you configure one.</li>
-      <li><strong>An AI endpoint you configure</strong> (optional) - coaching prompts go only to the OpenAI-compatible endpoint you typed in, with your own key.</li>
-      <li><strong>X's public oEmbed endpoint</strong> (optional, only when hover preview cards are enabled) - called with <code>dnt=1</code>, no cookies and no login, only for post links you hover on a trading site.</li>
+      <li><strong>Solana RPC</strong> - public endpoints (publicnode, Solana Labs, Tatum) for on-chain prices, or your own RPC if you set one.</li>
+      <li><strong>The venue's own public APIs, on that venue's pages only</strong> - Hyperliquid for perps quotes; Polymarket, Kalshi and Limitless for prediction-market quotes.</li>
     </ul>
-    <p>These requests carry only what the feature needs. None of them carry your journal, your trades, or anything identifying you to us. The extension never contacts the leaderboard server - see the next section for the one way your record can reach it, and it is not the extension sending it.</p>
+    <p><strong>Periodically:</strong></p>
+    <ul>
+      <li><strong>Update check</strong> - a plain request to GitHub's releases API (<code>api.github.com</code>) up to twice a day, so you hear about fixes. On by default; switch off <em>Check for new versions</em> in the dashboard.</li>
+    </ul>
+    <p><strong>Only when you use the feature:</strong></p>
+    <ul>
+      <li><strong>Daily Spark</strong> - fetches the day's puzzle from our server; grading sends the puzzle day, its token address and your moves, with no account attached.</li>
+      <li><strong>Leaderboard tab</strong> - after you link an X account <em>and</em> switch on Site sync, the dashboard reads the public standings from our server. No account or cookie is sent.</li>
+      <li><strong>AI coach and Forge</strong> - prompts go only to the endpoint you configured, with your own key.</li>
+      <li><strong>X's public oEmbed endpoint</strong> (hover preview cards, opt-in) - called with <code>dnt=1</code>, no cookies and no login, only for post links you hover on a trading site.</li>
+    </ul>
+    <p>None of these requests carry your journal, your theses, your balance or your trade history. Your trading record reaches our server only in the ways the leaderboard section below describes.</p>
+
+    <h2>What our server logs</h2>
+    <p>Our API runs on Cloudflare Workers with logging switched on. Each request it receives - price lookups from the extension, Daily Spark, and everything the website sends - is logged with its time, the request URL (for a price lookup, that includes the token addresses and chain), the response, and the metadata Cloudflare attaches to requests, which can include your IP address and approximate location. We use these logs to find and fix bugs and to stop abuse. They are kept for up to 7 days, are not sold or shared, and are not used for advertising.</p>
+
+    <h2>The website</h2>
+    <p>papertrench.com uses <strong>Cloudflare Web Analytics</strong>, which counts page views without cookies or cross-site tracking (it sees things like the page, referrer, browser type and country). Signing in with X sets one session cookie, used only to keep you signed in.</p>
 
     <h2>The leaderboard (optional, website-only)</h2>
     <p>papertrench.com offers an optional leaderboard operated on our own server. Nothing about it is automatic:</p>
@@ -97,17 +114,21 @@
       <li><strong>Deletion is self-serve:</strong> "delete my data" on the leaderboard page removes your account, record, submissions, and sprint history from the server immediately. Your local extension data is never touched by this - it was never on the server's side to begin with.</li>
     </ul>
 
+    <h2>Streamer applications</h2>
+    <p>If you apply to the streamer roster, we store what the form asks for: channel name and URL, platform, Discord handle, audience size bucket, the blurb you agree to publish, your private note to moderators, and how and when to reach you, plus a salted hash of your IP address for abuse triage. Only moderators can read an application. Once approved, only your channel name, channel link and blurb are shown publicly.</p>
+
     <h2>The X-Ray and Instant X features</h2>
     <p>Both are opt-in and off by default. X-Ray builds its account-intel card from data the X page itself already loaded in your browser session; what it keeps is a local digest (account field snapshots, post ids and dates, contract addresses), stored on your machine. Raw post text never leaves the page context, and nothing is sent anywhere. Instant X links keep a muted background viewer tab and route your own clicks into it; they read nothing from your X session and send nothing anywhere. The full technical description is in the public <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/PERMISSIONS.md" target="_blank" rel="noopener">permissions audit</a>.</p>
 
     <h2>What we collect about you</h2>
-    <p>From the extension: nothing - no telemetry, no analytics, no way to receive it. From the website: only what the leaderboard section above describes, only if you choose to use it. We do not sell or share any of it, and there is no advertising or third-party analytics on either.</p>
+    <p>From the extension: the requests listed above, and the server logs they leave behind - never your wallet, journal or trades. From the website: cookieless analytics, the server logs, and what you submit to the leaderboard or the streamer form. We do not sell or share any of it, and there is no advertising.</p>
 
     <h2>Deleting your data</h2>
     <p>Local data is yours and stays local: removing the extension deletes everything it stored, and you can export or reset from the dashboard at any time. Leaderboard data (if you ever submitted) is removed with the "delete my data" control on the leaderboard page.</p>
 
     <h2>Changes to this policy</h2>
-    <p>If a future version ever changes any of the above, this page will say so before that version ships, and the change will be visible in the open-source history like everything else.</p>
+    <p>If a future version changes any of the above, this page will say so before that version ships, and the change will be visible in the open-source history like everything else.</p>
+    <p><strong>September 22, 2026:</strong> added our price service (in use since v3.22.0 on September 10), the update check, Daily Spark, venue APIs, server request logs, the website's cookieless analytics, and streamer applications. The previous version of this page said the extension never contacts our server; that stopped being true with v3.22.0.</p>
 
     <h2>Contact</h2>
     <p>Questions: open an issue on <a href="https://github.com/OnlyTerp/papertrench/issues" target="_blank" rel="noopener">GitHub</a>.</p>
@@ -157,7 +178,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>@papertrench
       </a>
     </div>
-    <div class="foot-note">Paper trading only · not financial advice · the extension has no telemetry and never phones home - the leaderboard only ever receives what you submit.</div>
+    <div class="foot-note">Paper trading only · not financial advice · your trades stay in your browser - the leaderboard only ever receives what you submit.</div>
   </div>
 </footer>
 

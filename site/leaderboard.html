@@ -193,7 +193,7 @@
             Sync asks the extension for your committed chain - it only answers if you enabled
             <strong>Site sync</strong> in the dashboard's Leaderboard tab, and no other site can ask.
             Or export the record as a file there and upload it here. Both paths carry identical
-            evidence. The extension itself never phones home. Five closed, fully re-priced rounds
+            evidence. The extension never uploads your record on its own. Five closed, fully re-priced rounds
             is what moves you from the trench onto a ranked seat.</p>
         </div>
       </section>
@@ -638,7 +638,7 @@
     }
     trenchEl.innerHTML = `<div class="ar-trench">${people.map(trenchCard).join('')}</div>
       <p class="ar-trench-foot">This wall is sign-ins and submissions, not overlay installs.
-        The extension does not phone home. ROI never appears here unless the name also has a ranked seat.</p>`;
+        The extension never uploads your record on its own. ROI never appears here unless the name also has a ranked seat.</p>`;
   })();
 
   /* ---------------- verifier stream ---------------- */
@@ -665,7 +665,7 @@
       const idle = '<li><span class="tag" style="color:var(--dim)">idle</span>' +
         '<span class="what">no submissions yet. The tape starts with the first chain.</span></li>';
       streamEl.innerHTML = idle;
-      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">No fills on the tape yet. Sync a chain and it shows up here. The extension does not phone home.</p>';
+      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">No fills on the tape yet. Sync a chain and it shows up here. The extension never uploads your record on its own.</p>';
       return;
     }
     const TAPE = {

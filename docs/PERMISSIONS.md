@@ -130,22 +130,27 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
 
 ## What PaperTrench never does
 
-- **No telemetry, no analytics, no phoning home.** The extension has no
-  backend of its own and never uploads anything on its own initiative. The
-  only network calls are: public price APIs (Dexscreener, Jupiter), public
-  Solana RPC, `api.hyperliquid.xyz` for perps quotes (from the Hyperliquid
-  page itself, the same host that page already talks to), endpoints you
-  configured yourself, and — only when you enable the opt-in hover preview
-  cards — X's public oEmbed endpoint (`publish.twitter.com/oembed`), called
-  with `dnt=1` (do-not-track), no cookies and no login, only for post links
-  you hover on a trading site, cached so each post is fetched at most once
-  per session.
+- **No uploading your trading data on its own initiative.** Wallet, journal,
+  theses, replays and recordings stay local. The network calls are: our own
+  price service (`papertrench-api.onerobby.workers.dev/api/quote`, since
+  v3.22 — token addresses + chain, no account, no cookies; the server keeps
+  request logs, including Cloudflare's IP/location metadata, for up to 7
+  days), public price APIs (Dexscreener, Jupiter), public Solana RPC, the
+  venue's own API on Hyperliquid, Polymarket, Kalshi and Limitless pages,
+  a GitHub release check (`api.github.com`, up to twice a day, can be
+  switched off), Daily Spark puzzles and grading from our server when you
+  play, the public leaderboard read once you have linked X and enabled Site
+  sync, endpoints you configured yourself, and — only when you enable the
+  opt-in hover preview cards — X's public oEmbed endpoint
+  (`publish.twitter.com/oembed`), called with `dnt=1` (do-not-track), no
+  cookies and no login, only for post links you hover on a trading site,
+  cached so each post is fetched at most once per session.
 - **The leaderboard server is a separate, opt-in thing — and it is in this
   repo.** `server/` is the Arena verifier: it takes a chain you choose to
   submit and recomputes your standing from it, because a leaderboard that
   trusts a number the client displays is not a leaderboard
   (`docs/LEADERBOARD.md`). It is worth stating exactly where the boundary is:
-  - The extension never talks to it. `papertrench.com` can *ask* the extension
+  - The extension never sends your record to it. `papertrench.com` can *ask* the extension
     for your verified record when you click Sync on that page, and only if you
     turn on **Site sync** in settings, which ships off. `externally_connectable`
     restricts who may ask to `papertrench.com` alone; no other origin can.

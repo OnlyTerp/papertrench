@@ -8,7 +8,7 @@ Real prices. Fake money. A record you can actually learn from.
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF9D45.svg?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-1665%20passing-34D399?style=flat-square)](#tests)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6AA9FF?style=flat-square)](#install)
-[![No tracking](https://img.shields.io/badge/telemetry-none-8D97A9?style=flat-square)](#privacy)
+[![Trades stay local](https://img.shields.io/badge/trades-stay%20local-8D97A9?style=flat-square)](#privacy)
 
 </div>
 
@@ -131,10 +131,11 @@ passable as a real one.
 
 ## Privacy
 
-- **No account. No signup. No telemetry.** Nothing is sent anywhere about you.
+- **No account. No signup.** Your wallet, trades and journal are never uploaded unless you submit them to the leaderboard yourself.
 - **A real off switch.** The ⏻ button in the popup turns PaperTrench fully dormant — nothing injected or rendered on any site, live in every open tab — until you turn it back on. Wallet and settings are kept.
-- **Everything is local.** Trades, settings, replays, and recordings live in your browser's own storage.
-- **Network calls are only:** the public Dexscreener and Jupiter price APIs; public Solana RPC endpoints (`solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `solana-mainnet.gateway.tatum.io`) for on-chain pricing; `api.hyperliquid.xyz` for perps quotes, from the Hyperliquid page itself; X's public oEmbed endpoint if you opt into hover tweet previews (no login, `dnt=1`, posts you hover only); and — only if *you* configure it — your own AI endpoint and your own private RPC.
+- **Your trading data is local.** Trades, settings, replays, and recordings live in your browser's own storage.
+- **Network calls:** our own price service (`papertrench-api.onerobby.workers.dev/api/quote`, since v3.22) receives the token addresses you are viewing and their chain, with no account or cookies, as a second price source for fills; the public Dexscreener and Jupiter price APIs; public Solana RPC endpoints (`solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `solana-mainnet.gateway.tatum.io`) for on-chain pricing; the venue's own API on Hyperliquid, Polymarket, Kalshi and Limitless pages; a GitHub release check up to twice a day (can be switched off); Daily Spark puzzles from our server when you play; X's public oEmbed endpoint if you opt into hover tweet previews (no login, `dnt=1`, posts you hover only); and — only if *you* configure it — your own AI endpoint and your own private RPC.
+- **Server logs.** Our API logs the requests it receives (time, URL including token addresses, and Cloudflare's request metadata such as IP address and approximate location) and keeps them for up to 7 days to fix bugs and stop abuse. The website uses cookieless Cloudflare Web Analytics. Full details: [papertrench.com/privacy](https://papertrench.com/privacy).
 - **Recordings never leave your machine.** They're stored in IndexedDB and saved to your downloads folder.
 - **The leaderboard is opt-in and not automatic.** The extension never uploads your record. `papertrench.com` can *ask* the extension for your verified chain when you click Sync there, and only if you turn on **Site sync** in settings (off by default). No other origin can ask. Off, you export a file and carry it yourself.
 
