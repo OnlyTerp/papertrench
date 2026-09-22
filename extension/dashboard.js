@@ -440,7 +440,8 @@ function updateOpenPositionMarks() {
     const node = row.querySelector('[data-pos-pnl]');
     if (!node) return;
     const pnl = E.unrealizedPnlGross(p);
-    // D-08/D-77: open P&L and percentage share the gross basis used by rounds.
+    // D-08/D-77: open P&L and percentage use the gross basis used by rounds.
+    // The old net numerator understated value despite the already-gross %.
     const pct = E.positionPnlPct(p);
     const win = pnl >= 0;
     node.classList.toggle('green', win);
@@ -1081,7 +1082,7 @@ function renderSidebar() {
     </div>
     <div class="kpi">
       <div class="lab">Realized P&amp;L</div>
-      <div class="num ${stats.realizedPnlSol >= 0 ? 'green' : 'red'}">${stats.realizedPnlSol >= 0 ? '+' : ''}${fmt(stats.realizedPnlSol, 3)}</div>
+      <div class="num ${stats.realizedGrossSol >= 0 ? 'green' : 'red'}">${stats.realizedGrossSol >= 0 ? '+' : ''}${fmt(stats.realizedGrossSol, 3)}</div>
       <div class="sub">${stats.trades} fills · ${fmt(stats.feesPaidSol, 3)} SOL fees</div>
     </div>
     <div class="kpi">
@@ -1383,7 +1384,7 @@ function renderOverview(el) {
     <div class="desk-strip" role="group" aria-label="Paper equity and balance">
       <div class="desk-cell"><span class="lab">Paper equity</span><span class="mono desk-strong">${fmt(stats.equitySol)} SOL</span></div>
       <div class="desk-cell"><span class="lab">Vs start</span><span class="mono desk-strong ${stats.equityVsStart >= 0 ? 'green' : 'red'}">${stats.equityVsStart >= 0 ? '+' : ''}${fmt(stats.equityVsStart)} SOL</span></div>
-      <div class="desk-cell"><span class="lab">Realized</span><span class="mono desk-strong ${stats.realizedPnlSol >= 0 ? 'green' : 'red'}">${stats.realizedPnlSol >= 0 ? '+' : ''}${fmt(stats.realizedPnlSol)} SOL</span></div>
+      <div class="desk-cell"><span class="lab">Realized</span><span class="mono desk-strong ${stats.realizedGrossSol >= 0 ? 'green' : 'red'}">${stats.realizedGrossSol >= 0 ? '+' : ''}${fmt(stats.realizedGrossSol)} SOL</span></div>
       <div class="desk-cell"><span class="lab">Unrealized</span><span class="mono desk-strong ${stats.unrealizedSol >= 0 ? 'green' : 'red'}">${stats.unrealizedSol >= 0 ? '+' : ''}${fmt(stats.unrealizedSol)} SOL</span></div>
       <div class="desk-cell"><span class="lab">Open</span><span class="mono desk-strong">${stats.openPositions}</span></div>
     </div>
@@ -1831,7 +1832,8 @@ function renderOpenPositions() {
     const p = state.positions[m];
     const pnl = E.unrealizedPnlGross(p);
     // D-08/D-77: open P&L and percentage use the same gross-invested basis as
-    // closed rounds (engine closeRound: returned/investedSol − 1).
+    // closed rounds (engine closeRound: returned/investedSol − 1). The old
+    // net-of-fee basis made the % jump ~2×feeBps at close without a price move.
     const pct = E.positionPnlPct(p);
     const win = pnl >= 0;
     // D-28: data-pos-row/-pnl/-qty mark the nodes refreshLiveDerived updates
@@ -2000,7 +2002,10 @@ function bindCalendar(el) {
 /* ---------- journal ---------- */
 
 function renderJournal(el) {
-  const rows = (state.journal || []).map((t) => `
+  const rows = (state.journal || []).map((t) => {
+    const pnl = t.side === 'sell' && t.pnlGrossSol != null && Number.isFinite(Number(t.pnlGrossSol))
+      ? Number(t.pnlGrossSol) : t.pnlSol;
+    return `
     <tr>
       <td><span class="${t.side === 'buy' ? 'side-buy' : t.side === 'sell' ? 'side-sell' : 'dim'}">${t.side === 'buy' ? 'BUY' : t.side === 'sell' ? 'SELL' : 'UNKNOWN'}</span></td>
       <td><strong>${esc(t.symbol)}</strong></td>
@@ -2009,11 +2014,12 @@ function renderJournal(el) {
       <td class="num">${mcapLevel(t)}</td>
       <td class="num">${fmt(t.solGross, 4)}</td>
       <td class="num dim">${t.feeSol != null ? fmt(t.feeSol, 4) : (t.solNet != null ? fmt(t.solGross - t.solNet, 4) : '—')}</td>
-      <td class="num ${t.pnlSol === undefined ? 'dim' : t.pnlSol >= 0 ? 'green' : 'red'}" style="font-weight:750">
-        ${t.pnlSol !== undefined ? (t.pnlSol >= 0 ? '+' : '') + fmt(t.pnlSol) : '—'}
+      <td class="num ${pnl === undefined ? 'dim' : pnl >= 0 ? 'green' : 'red'}" style="font-weight:750">
+        ${pnl !== undefined ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
       </td>
       <td class="dim"><span data-rel-ts="${Number(t.ts) || 0}" title="${esc(formatDateTime(t.ts))}">${timeAgo(t.ts)}</span></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   el.innerHTML = `
     <div class="card"><h3>All fills <span class="tag">${(state.journal || []).length}</span>
       <button class="btn-sec" id="journal-export" style="margin-left:auto" ${(state.journal || []).length ? '' : 'disabled'}>Export CSV</button></h3>

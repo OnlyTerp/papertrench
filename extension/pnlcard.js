@@ -230,7 +230,8 @@
     // carry mcap: null; the plain weighted() above counts their qty in the
     // denominator but 0 in the numerator, understating the entry/exit mcap
     // on the card — the exact shape usdTotal/weightedUsd guard against
-    // elsewhere. Each side is all-or-nothing, and the pair is too: if either
+    // elsewhere. A missing fill invalidates that side's average just as it
+    // invalidates its USD total. The pair is all-or-nothing too: if either
     // side is incomplete, both endpoints fall back to prices rather than
     // mixing a price on one side with a market cap on the other.
     const weightedMcap = (list) => {

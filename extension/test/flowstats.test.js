@@ -165,10 +165,10 @@ test('popup realized P&L is equity less the gross unrealized remainder', () => {
     .reduce((sum, open) => sum + E.unrealizedPnlGross(open), 0);
   const expected = E.equitySol(state) - E.anchorStartSol(state, settings) - openGross;
 
-  assert.ok(Math.abs(popup.realizedPnlSol - expected) < 1e-12);
-  assert.ok(Math.abs(popup.realizedPnlSol - exit.trade.pnlGrossSol) < 1e-9,
+  assert.ok(Math.abs(popup.realizedGrossSol - expected) < 1e-12);
+  assert.ok(Math.abs(popup.realizedGrossSol - exit.trade.pnlGrossSol) < 1e-9,
     'with one partial exit, popup realized equals that sell\'s gross-basis P&L');
-  assert.ok(Math.abs(popup.realizedPnlSol - state.stats.realizedPnlSol) > 1e-6,
+  assert.ok(Math.abs(popup.realizedGrossSol - state.stats.realizedPnlSol) > 1e-6,
     'the popup display is not the net-basis accumulator');
   assert.ok(buy.trade.feeSol > 0);
 });

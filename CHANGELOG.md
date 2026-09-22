@@ -19,15 +19,16 @@ details live in the commit messages.
 
 - **The P&L on the card is now what the same-price sale returns.** Unrealized marks and clipped-sell receipts include buy fees in the gross basis, the panel previews proceeds after sell fees, and a slow price retry now says it is waiting. Shared cards also stop mixing a price on one side with a market cap on the other.
 
-Tested: extension 2615/2615, server 387/387, bot 20/20 green (3022 total).
-Twenty source-negative controls: the worker lane, its self-witness ban, its
-Solana-only gate, the retry and its budget; the foreign-tick rate and
+Tested: extension 2618/2618, server 387/387, bot 20/20 green (3025 total).
+Twenty-two source-negative controls: the worker lane, its self-witness ban,
+its Solana-only gate, the retry and its budget; the foreign-tick rate and
 non-overwrite guard, Axiom HOOD routing, preset/prompt re-denomination, limit
 conversion, heartbeat blind-write ban, armed-order and cancel durability,
 the two storage-fake fidelity fixes, gross P&L / sell preview math, position
-marks, the pinned 0.5 SOL panel field, paired share-card units, and retry status.
-Each control broke real source (never a test), went RED with the expected
-failure, then was restored byte-identically by SHA-256 compare and went GREEN.
+marks, the pinned 0.5 SOL panel field, paired share-card units, retry status,
+legacy cost fallback, and cross-surface realized identity. Each control broke
+real source (never a test), went RED as expected, then was restored byte-
+identically by SHA-256 compare and went GREEN.
 
 ## v3.23.4 — 2026-09-13
 

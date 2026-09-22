@@ -716,6 +716,29 @@ test('D-02/D-77: popup realized is derived from equity less gross open P&L', () 
     'the popup display must not read stats.realizedPnlSol');
 });
 
+test('R1: dashboard P&L uses gross realized while leaderboard claims keep the attested net value', () => {
+  const sidebar = fnBlock(dashJs, 'function renderSidebar()');
+  const overview = fnBlock(dashJs, 'function renderOverview(el)');
+  assert.match(sidebar, /stats\.realizedGrossSol/);
+  assert.doesNotMatch(sidebar, /stats\.realizedPnlSol/);
+  assert.match(overview, /stats\.realizedGrossSol/);
+  assert.doesNotMatch(overview, /stats\.realizedPnlSol/);
+
+  const journal = fnBlock(dashJs, 'function renderJournal(el)');
+  assert.match(journal, /t\.side === 'sell' && t\.pnlGrossSol != null[\s\S]{0,100}\? Number\(t\.pnlGrossSol\) : t\.pnlSol/,
+    'the visible sell-row P&L prefers gross while preserving the legacy fallback');
+  const key = fnBlock(dashJs, 'function lbVerifyKey(chain, stats)');
+  const leaderboard = fnBlock(dashJs, 'function renderLeaderboard(el)');
+  const yourRow = fnBlock(dashJs, 'function renderStandingsPlaceholder(identity, stats)');
+  assert.match(key, /stats\.realizedPnlSol/, 'the verify cache remains keyed by the net claim');
+  assert.match(leaderboard, /stats\.realizedPnlSol \/ E\.anchorStartSol\(state, settings\)/,
+    'leaderboard claim ROI remains based on the attested net figure');
+  assert.match(leaderboard, /Claimed realized P&amp;L[\s\S]{0,180}stats\.realizedPnlSol/);
+  assert.match(yourRow, /stats\.realizedPnlSol/, 'the local Your row remains the chain claim');
+  assert.match(dashJs, /AT\.claimMatchesChain\(\s*\{ realizedPnlSol: stats\.realizedPnlSol \}/);
+  assert.match(dashJs, /derivedPnlSol: match\.replayed\.realizedPnlSol/);
+});
+
 /* ---------------- D-03: the chain agrees with honest local state ---------- */
 
 /** Build a verifiable chain from the engine journal (oldest first). */

@@ -477,6 +477,7 @@ function grossOpenCostSol(pos) {
   const invested = Number(pos.investedSol) || 0;
   const cost = Number(pos.costSol) || 0;
   const netInvested = Number(pos.netInvestedSol) || 0;
+  if (!(invested > 0) && cost > 0) return cost;
   if (netInvested > 0) return invested * (cost / netInvested);
   return invested;
 }
@@ -565,14 +566,17 @@ function computeStats(state, settings) {
   // Keep the popup's realized figure on the same gross basis as the paper
   // wallet's equity: equity less the birth anchor and the gross P&L still open.
   const anchor = anchorFor(state, settings);
-  const openGrossPnl = positions.reduce((sum, pos) => sum
-    + (Number(pos.qty) || 0) * (Number(pos.lastPriceNative) || 0) - grossOpenCostSol(pos), 0);
+  const openGrossPnl = positions.reduce((sum, pos) =>
+    sum + (pos && Number(pos.qty) > 0
+      ? (Number(pos.qty) || 0) * (Number(pos.lastPriceNative) || 0) - grossOpenCostSol(pos)
+      : 0), 0);
   const realized = equity - anchor - openGrossPnl;
   const flow = journalFlow(state.journal || [], state.positions || {});
   return {
     equitySol: equity,
     openPositions: positions.length,
-    realizedPnlSol: realized,
+    realizedGrossSol: realized,
+    unrealizedGrossSol: openGrossPnl,
     rounds: rounds.length,
     // D-06 + D-56: birth snapshot → journal-derived birth (legacy wallets)
     // → live setting, all through anchorFor.
@@ -706,8 +710,8 @@ async function load() {
     $('rounds').textContent = stats.rounds;
 
     const pnlEl = $('pnl');
-    pnlEl.textContent = (stats.realizedPnlSol >= 0 ? '+' : '') + fmt(stats.realizedPnlSol, 3);
-    pnlEl.className = 'v ' + (stats.realizedPnlSol >= 0 ? 'green' : 'red');
+    pnlEl.textContent = (stats.realizedGrossSol >= 0 ? '+' : '') + fmt(stats.realizedGrossSol, 3);
+    pnlEl.className = 'v ' + (stats.realizedGrossSol >= 0 ? 'green' : 'red');
 
     fillQuickSettings(settings);
 

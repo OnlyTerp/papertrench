@@ -71,6 +71,21 @@ $('helpBtn').addEventListener('click', () => $('setup').classList.toggle('open')
 
 /* ------------------------------ stats ------------------------------ */
 
+function grossOpenCostSol(pos) {
+  if (!pos) return 0;
+  const invested = Number(pos.investedSol) || 0;
+  const cost = Number(pos.costSol) || 0;
+  const netInvested = Number(pos.netInvestedSol) || 0;
+  if (!(invested > 0) && cost > 0) return cost;
+  if (netInvested > 0) return invested * (cost / netInvested);
+  return invested > 0 ? invested : cost;
+}
+
+function unrealizedPnlGross(pos) {
+  if (!pos) return 0;
+  return (Number(pos.qty) || 0) * (Number(pos.lastPriceNative) || 0) - grossOpenCostSol(pos);
+}
+
 /** D-56: the birth balance re-derived from the fill journal alone — the
  * anchor for LEGACY wallets that predate D-06's state.startSol snapshot
  * (created before v3.9.5). Mirrors engine.derivedBirthSol / popup's
@@ -128,13 +143,17 @@ function computeStats(state, settings) {
   const rounds = state.rounds || [];
   const openValue = positions.reduce((s, p) => s + (p.qty || 0) * (p.lastPriceNative || 0), 0);
   const equity = (state.cashSol || 0) + openValue;
+  const anchor = anchorFor(state, settings);
+  const unrealizedGrossSol = positions.reduce((sum, pos) =>
+    sum + (pos && Number(pos.qty) > 0 ? unrealizedPnlGross(pos) : 0), 0);
   const wins = rounds.filter((r) => r.pnlSol > 0).length;
   return {
     equitySol: equity,
     // D-06 + D-56: birth snapshot → journal-derived birth (legacy wallets)
     // → live setting, all through anchorFor.
-    equityVsStart: equity - anchorFor(state, settings),
-    realizedPnlSol: rounds.reduce((s, r) => s + (r.pnlSol || 0), 0),
+    equityVsStart: equity - anchor,
+    realizedGrossSol: equity - anchor - unrealizedGrossSol,
+    unrealizedGrossSol,
     rounds: rounds.length,
     winRate: rounds.length ? (wins / rounds.length) * 100 : null,
     positions,
@@ -247,8 +266,11 @@ async function render() {
   lastEquity = stats.equitySol;
 
   const realizedEl = $('realized');
-  realizedEl.textContent = (stats.realizedPnlSol >= 0 ? '+' : '') + fmt(stats.realizedPnlSol, 2);
-  realizedEl.style.color = stats.realizedPnlSol >= 0 ? 'var(--green)' : 'var(--red)';
+  realizedEl.textContent = (stats.realizedGrossSol >= 0 ? '+' : '') + fmt(stats.realizedGrossSol, 2);
+  realizedEl.style.color = stats.realizedGrossSol >= 0 ? 'var(--green)' : 'var(--red)';
+  const unrealizedEl = $('unrealized');
+  unrealizedEl.textContent = `${stats.unrealizedGrossSol >= 0 ? '+' : ''}${fmt(stats.unrealizedGrossSol, 2)} SOL unrealized`;
+  unrealizedEl.style.color = stats.unrealizedGrossSol >= 0 ? 'var(--green)' : 'var(--red)';
 
   $('winrate').textContent = stats.winRate === null ? '—' : stats.winRate.toFixed(0) + '%';
   $('rounds').textContent = stats.rounds;
@@ -270,8 +292,9 @@ async function render() {
     posEl.innerHTML = prefs.layout === 'bar' ? '' : '<div class="pos-row none">No open positions</div>';
   } else {
     posEl.innerHTML = shown.map((p) => {
-      const pnl = (p.qty || 0) * (p.lastPriceNative || 0) - (p.costSol || 0);
-      const pctPos = p.costSol > 0 ? (pnl / p.costSol) * 100 : 0;
+      const grossCost = grossOpenCostSol(p);
+      const pnl = (p.qty || 0) * (p.lastPriceNative || 0) - grossCost;
+      const pctPos = grossCost > 0 ? (pnl / grossCost) * 100 : 0;
       const cls = pnl >= 0 ? 'var(--green)' : 'var(--red)';
       return `<div class="pos-row">
         <span class="sym">${escapeHtml(p.symbol || '?')}</span>

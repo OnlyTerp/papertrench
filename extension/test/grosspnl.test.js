@@ -3,10 +3,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 global.window = global.window || {};
 require('../engine.js');
 require('../quote.js');
+const PanelData = require('../panel-data.js');
 const E = global.window.PaperEngine;
 const Q = global.window.PaperQuote;
 
@@ -147,6 +149,92 @@ test('T1: seeded buys and partial sells preserve gross P&L and the existing curv
         'the unchanged equity-curve identity still ends at equity');
     }
   }
+});
+
+function loadGrossCostHelper(file, endMarker) {
+  const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const start = source.indexOf('function grossOpenCostSol(');
+  const end = source.indexOf(endMarker, start);
+  assert.ok(start !== -1 && end > start, `${file} contains its isolated gross-cost helper`);
+  const context = vm.createContext({ console, Math, Number, Object, parseFloat });
+  vm.runInContext(source.slice(start, end), context);
+  return context;
+}
+
+test('R3: legacy open cost never falls to zero when investedSol is absent or zero', () => {
+  const legacyPositions = [
+    { qty: 100, costSol: 1, lastPriceNative: 0.02 },
+    { qty: 100, costSol: 1, investedSol: 0, netInvestedSol: 1, lastPriceNative: 0.02 },
+  ];
+  const popup = loadGrossCostHelper('popup.js', '/* Turbo receipts');
+  const overlay = loadGrossCostHelper('overlay.js', '/* ------------------------------ sparkline');
+
+  for (const pos of legacyPositions) {
+    assert.equal(E.grossOpenCostSol(pos), 1);
+    assert.equal(PanelData.openCostSol(pos), 1);
+    assert.equal(popup.grossOpenCostSol(pos), 1);
+    assert.equal(overlay.grossOpenCostSol(pos), 1);
+    assert.equal(E.unrealizedPnlGross(pos), 1);
+    assert.equal(Q.positionMark(pos, 0.02, null, E.grossOpenCostSol(pos)).pnlSol, 1);
+  }
+});
+
+test('R5: dashboard, popup and stream overlay share realized/open gross identities', () => {
+  const settings = Object.assign(E.defaultSettings(), {
+    balanceStartSol: 10, feeBps: 125, gasSolPerTx: 0.001, tipSolPerTx: 0.0005,
+  });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, {
+    ts: 1_800_000_000_000, mint: 'ClosedBook', symbol: 'CLOSED',
+    solAmount: 1.1, priceNative: 0.01, priceUsd: 1.5,
+  });
+  E.sell(state, settings, {
+    ts: 1_800_000_001_000, mint: 'ClosedBook', qtyFraction: 1,
+    priceNative: 0.012, priceUsd: 1.8,
+  });
+  E.buy(state, settings, {
+    ts: 1_800_000_002_000, mint: 'OpenBook', symbol: 'OPEN',
+    solAmount: 0.8, priceNative: 0.001, priceUsd: 0.15,
+  });
+  E.sell(state, settings, {
+    ts: 1_800_000_003_000, mint: 'OpenBook', qtyFraction: 0.25,
+    priceNative: 0.0011, priceUsd: 0.165,
+  });
+  E.markPosition(state, 'OpenBook', 0.0013, 0.195);
+
+  assert.equal(state.rounds.length, 1, 'the fixture includes one closed round');
+  assert.ok(state.positions.OpenBook.qty > 0, 'the fixture retains a partially sold open bag');
+  const dashboard = E.sessionStats(state, settings);
+  const popup = loadGrossCostHelper('popup.js', '/* Turbo receipts').computeStats(state, settings);
+  const overlay = loadGrossCostHelper('overlay.js', '/* ------------------------------ sparkline').computeStats(state, settings);
+  const anchor = E.anchorStartSol(state, settings);
+  const grossOpen = Object.values(state.positions).reduce(
+    (sum, pos) => sum + E.unrealizedPnlGross(pos), 0);
+  const firstFillDate = new Date(state.journal[state.journal.length - 1].ts);
+  const calendar = E.pnlCalendar(state, firstFillDate.getFullYear(), firstFillDate.getMonth(), {
+    now: firstFillDate.getTime(),
+  });
+  const grossSellTotal = state.journal.filter((trade) => trade.side === 'sell')
+    .reduce((sum, trade) => sum + trade.pnlGrossSol, 0);
+  const identity = E.equitySol(state) - anchor - grossOpen;
+
+  close(calendar.totals.realizedSol, grossSellTotal, 1e-9,
+    'dashboard calendar sums gross partial and closed sell P&L');
+
+  close(dashboard.realizedGrossSol, identity, 1e-9, 'dashboard realized equals the equity identity');
+  close(popup.realizedGrossSol, identity, 1e-9, 'popup realized equals the equity identity');
+  close(overlay.realizedGrossSol, identity, 1e-9, 'overlay realized equals the equity identity');
+  close(dashboard.realizedGrossSol, popup.realizedGrossSol, 1e-12, 'dashboard and popup realized agree');
+  close(popup.realizedGrossSol, overlay.realizedGrossSol, 1e-12, 'popup and overlay realized agree');
+  close(dashboard.unrealizedSol, grossOpen, 1e-12, 'dashboard open P&L is gross');
+  close(popup.unrealizedGrossSol, grossOpen, 1e-12, 'popup gross open P&L matches');
+  close(overlay.unrealizedGrossSol, grossOpen, 1e-12, 'overlay gross open P&L matches');
+  close(dashboard.realizedGrossSol + dashboard.unrealizedSol, E.equitySol(state) - anchor, 1e-9,
+    'dashboard realized plus unrealized equals return on bankroll');
+  close(popup.realizedGrossSol + popup.unrealizedGrossSol, E.equitySol(state) - anchor, 1e-9,
+    'popup realized plus unrealized equals return on bankroll');
+  close(overlay.realizedGrossSol + overlay.unrealizedGrossSol, E.equitySol(state) - anchor, 1e-9,
+    'overlay realized plus unrealized equals return on bankroll');
 });
 
 test('T2: positionMark uses unrealizedPnlGross and the shared gross percentage', () => {

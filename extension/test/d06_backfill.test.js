@@ -188,8 +188,9 @@ test('D-56: overlay carries the derived-anchor layer', () => {
   const src = read('overlay.js');
   assert.match(src, /function derivedAnchor\(/);
   assert.match(src, /function anchorFor\(/);
-  assert.match(src, /equityVsStart: equity - anchorFor\(state, settings\)/);
   assert.match(src, /const anchor = anchorFor\(state, settings\)/);
+  assert.match(src, /equityVsStart: equity - anchor/);
+  assert.match(src, /realizedGrossSol: equity - anchor - unrealizedGrossSol/);
 });
 
 test('D-56: background bridge denominates the chain replay on the derived birth', () => {

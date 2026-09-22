@@ -701,7 +701,9 @@
       baseReserve: o.baseReserve,
       quoteReserve: o.quoteReserve,
       reserves: o.reserves,
-      // The whole clip hits the pool at once, so it walks the curve as one.
+      // The whole clip hits the pool at once, so the whole clip walks the
+      // curve. Fees come from the PROCEEDS below (fees.js's concern), which
+      // is why the gross quantity is the honest curve input here.
       tokensIn: qty,
     });
     if (!(px > 0)) throw new Error('No live price available');
@@ -1345,6 +1347,7 @@
     const invested = Number(pos.investedSol) || 0;
     const cost = Number(pos.costSol) || 0;
     const netInvested = Number(pos.netInvestedSol) || 0;
+    if (!(invested > 0) && cost > 0) return cost;
     if (netInvested > 0) return invested * (cost / netInvested);
     return invested;
   }
@@ -1413,15 +1416,12 @@
     const wins = state.rounds.filter((r) => r.pnlSol > 0).length;
     const losses = state.rounds.filter((r) => r.pnlSol < 0).length;
     const decided = wins + losses;
-    // D-02: realized P&L is the PER-SELL accumulator sell() maintains
-    // (state.stats.realizedPnlSol), which credits partial exits the moment
-    // they happen. The old rounds-only sum reported +0 for a trade that had
-    // banked +2 on a 50% exit, while the calendar and journal — both fed by
-    // per-sell pnlSol — showed the +2: the same trade, three numbers. The
-    // attest chain replay (attest.js replayChain) computes exactly this
-    // per-sell figure, so the leaderboard honesty check agrees by
-    // construction. Legacy/restored states can miss the accumulator; the
-    // journal's sell pnlSol entries are the same definition and back-fill it.
+    // D-02: realizedPnlSol remains the NET per-sell accumulator sell()
+    // maintains and attest.js replayChain uses for leaderboard claims. It
+    // credits partial exits immediately; the old rounds-only sum showed +0
+    // for a half-sold trade with banked profit. Human-facing calendar and
+    // journal rows now prefer pnlGrossSol, while this claim and its legacy
+    // journal fallback retain the original net definition.
     const st = state.stats || {};
     let realized = Number(st.realizedPnlSol);
     if (!Number.isFinite(realized)) {
@@ -1430,16 +1430,20 @@
       );
     }
     const eq = equitySol(state);
+    const anchor = anchorStartSol(state, settings);
+    const openGrossPnl = Object.values(state.positions).reduce((sum, pos) =>
+      sum + (pos && Number(pos.qty) > 0 ? unrealizedPnlGross(pos) : 0), 0);
     return {
       rounds: state.rounds.length,
       wins,
       losses,
       winRate: decided > 0 ? (wins / decided) * 100 : 0,
       realizedPnlSol: realized,
+      realizedGrossSol: eq - anchor - openGrossPnl,
       openPositions: Object.keys(state.positions).length,
-      unrealizedSol: Object.values(state.positions).reduce((s, p) => s + unrealizedPnlGross(p), 0),
+      unrealizedSol: openGrossPnl,
       equitySol: eq,
-      equityVsStart: eq - anchorStartSol(state, settings),
+      equityVsStart: eq - anchor,
       feesPaidSol: Number(st.feesPaidSol) || 0,
       trades: state.journal.length,
       // The journal keeps only the newest fills, so at the cap bought/sold
@@ -2207,8 +2211,9 @@
    * calendar days, never UTC.
    *
    * Daily realized P&L is attributed per SELL (partial exits count on the
-   * day they happen), which matches how those sites treat closes. Buys only
-   * contribute counts and volume; they are not a result until closed.
+   * day they happen), on the gross display basis. The journal's pnlSol stays
+   * net for the equity/attestation identity; older rows fall back to it. Buys
+   * only contribute counts and volume; they are not a result until closed.
    */
 
   /**
@@ -2250,7 +2255,8 @@
       } else if (t.side === 'sell') {
         cell.sells += 1;
         cell.volumeSellSol += Number(t.solGross) || 0;
-        const pnl = Number(t.pnlSol) || 0;
+        const pnl = t.pnlGrossSol != null && Number.isFinite(Number(t.pnlGrossSol))
+          ? Number(t.pnlGrossSol) : (Number(t.pnlSol) || 0);
         cell.realizedSol += pnl;
         const symbol = typeof t.symbol === 'string' && t.symbol ? t.symbol : '?';
         cell.symbols[symbol] = (cell.symbols[symbol] || 0) + pnl;
@@ -2428,6 +2434,8 @@
       };
     }
 
+    // pnlSol remains net-basis for the equity step and attestation; the
+    // display prefers the additive gross field, with a legacy-row fallback.
     const hasGrossPnl = sell.pnlGrossSol != null && Number.isFinite(Number(sell.pnlGrossSol));
     const pnlSol = hasGrossPnl ? Number(sell.pnlGrossSol) : (Number(sell.pnlSol) || 0);
     const returnedSol = Number(sell.solNet) || 0;

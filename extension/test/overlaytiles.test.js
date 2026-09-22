@@ -22,6 +22,7 @@ const js = fs.readFileSync(path.join(ROOT, 'overlay.js'), 'utf8');
 test('overlay: cash and open-value tiles exist in both layouts', () => {
   assert.match(html, /id="cash"/, 'a Cash tile must exist');
   assert.match(html, /id="openval"/, 'an In-positions tile must exist');
+  assert.match(html, /id="unrealized"/, 'the In-positions tile displays gross unrealized P&L');
   assert.match(html, /id="open"/, 'the position-count tile must remain');
 
   // Six tiles in a 3-column grid (was four in 4 columns) — in BOTH the
@@ -39,6 +40,9 @@ test('overlay: the render populates the split from the same numbers', () => {
     'cash tile must read state.cashSol');
   assert.match(js, /\$\('openval'\)\.textContent = fmt\(openValue, 2\)/,
     'open-value tile must read the summed open value');
+  assert.match(js, /stats\.realizedGrossSol/, 'overlay Realized uses the gross equity identity');
+  assert.match(js, /stats\.unrealizedGrossSol/, 'overlay Unrealized uses gross open P&L');
+  assert.match(js, /const grossCost = grossOpenCostSol\(p\)/, 'position rows use the same gross cost helper');
 
   // …using the SAME open-value formula computeStats uses for the equity
   // hero, so cash + in-positions can never disagree with the hero number.
@@ -48,9 +52,10 @@ test('overlay: the render populates the split from the same numbers', () => {
     `the open-value formula must be identical in computeStats and render (found ${uses})`);
 });
 
-test('overlay: equity hero stays the sum the split re-adds to', () => {
-  // computeStats derives equity as cash + open value; the invariant the
-  // tiles rely on. (Exact-formula check, not arithmetic reinvention.)
+test('overlay: realized plus unrealized reconciles to equity against its anchor', () => {
   assert.match(js, /const equity = \(state\.cashSol \|\| 0\) \+ openValue/,
     'equity must be cash + open value');
+  assert.match(js, /realizedGrossSol: equity - anchor - unrealizedGrossSol/,
+    'realized removes the gross open remainder from equity minus birth');
+  assert.match(js, /unrealizedGrossSol,/, 'the same gross open amount is returned for the overlay');
 });

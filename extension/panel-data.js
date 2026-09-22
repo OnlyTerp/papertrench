@@ -27,6 +27,7 @@
     const invested = Number(pos.investedSol) || 0;
     const cost = Number(pos.costSol) || 0;
     const netInvested = Number(pos.netInvestedSol) || 0;
+    if (!(invested > 0) && cost > 0) return cost;
     if (netInvested > 0) return invested * (cost / netInvested);
     return invested;
   }
