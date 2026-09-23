@@ -112,13 +112,15 @@ schema.sql, wrangler.toml
 | `GET /api/sprint/current` | this week's Sprint window and standings |
 | `GET /api/profile?handle=` | one public record: stats, badges, chain head, sprint history |
 | `GET /api/activity` | recent verifier events (rejections anonymised) |
-| `POST /api/submit` | the trust pipeline; also refreshes sprint and duel slices |
+| `POST /api/submit` | the trust pipeline; also refreshes sprint, duel, clan and tournament entries |
 | `POST /api/duel/create` | mint a share-link invite |
 | `POST /api/duel/join` | accept an invite; starts the shared clock |
 | `GET /api/duel?code=` | live duel view, never edge-cached |
 | `GET /api/duel/mine` | the signed-in player's duels |
 | `GET /api/auth/x/start`, `/callback`, `POST /api/auth/logout` | X sign-in |
 | `GET /api/me`, `POST /api/me/delete` | session, and self-serve erasure |
+| `POST /api/sync-token`, `POST /api/sync-token/revoke` | mint a 30-day tournament-sync grant once, or revoke all grants |
+| `GET /api/tournament/mine` | the authenticated caller's tournament seats and next cuts |
 
 ## Running
 

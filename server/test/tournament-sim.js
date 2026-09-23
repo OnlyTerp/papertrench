@@ -102,6 +102,13 @@ test('tournament cuts use verified submissions end to end, not client equity', a
     db.exec('PRAGMA foreign_keys = ON');
     db.exec(fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8'));
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tournament_entries'").get());
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_tokens'").get());
+    const creatorColumn = db.prepare('PRAGMA table_info(tournaments)').all()
+      .find((column) => column.name === 'creator_id');
+    assert.equal(creatorColumn.notnull, 0, 'erasure can detach a creator without dropping a tournament');
+    const tournamentUserFks = db.prepare('PRAGMA foreign_key_list(tournaments)').all();
+    assert.ok(tournamentUserFks.some((fk) => fk.from === 'creator_id' && fk.on_delete === 'SET NULL'));
+    assert.ok(tournamentUserFks.some((fk) => fk.from === 'winner_user_id' && fk.on_delete === 'SET NULL'));
     assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tournament_snapshots'").get(), undefined);
     for (const sql of [
       'ALTER TABLE users ADD COLUMN banned_at INTEGER',
@@ -363,6 +370,60 @@ test('tournament cuts use verified submissions end to end, not client equity', a
     assert.equal(cancelled.status, 200);
     assert.equal((await post('/api/tournament/' + cancelled.body.code + '/cancel', users[4], {})).status, 200);
     assert.equal((await get('/api/tournament/' + cancelled.body.code)).body.tournament.status, 'cancelled');
+
+    const grant = await post('/api/sync-token', users[0], {});
+    assert.equal(grant.status, 200);
+    assert.match(grant.body.token, /^ptsync_[0-9a-f]{64}$/);
+    const tokenBeforeErase = db.prepare('SELECT token_hash FROM sync_tokens WHERE user_id = ?')
+      .get(users[0].id);
+    assert.equal(tokenBeforeErase.token_hash,
+      Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(grant.body.token))),
+        (byte) => byte.toString(16).padStart(2, '0')).join(''));
+    const mineResponse = await worker.fetch(new Request('https://api.test/api/tournament/mine', {
+      headers: { Authorization: 'Bearer ' + grant.body.token },
+    }), env, ctx);
+    assert.equal(mineResponse.status, 200, 'the cookie-free sync token reads its own seats');
+    const mineBody = await mineResponse.json();
+    const finishedSeat = mineBody.tournaments.find((seat) => seat.code === code);
+    assert.equal(finishedSeat.status, 'done');
+    assert.equal(finishedSeat.alive, true);
+    assert.equal(finishedSeat.nextBoundaryTs, null);
+    const liveSeat = mineBody.tournaments.find((seat) => seat.status === 'live' && seat.alive);
+    assert.ok(liveSeat && liveSeat.nextBoundaryTs > 0, 'mine exposes the next boundary for a live seat');
+    assert.ok(db.prepare('SELECT last_used_at FROM sync_tokens WHERE user_id = ?')
+      .get(users[0].id).last_used_at);
+
+    const frozenBeforeErase = db.prepare(`SELECT standings_json, standings_hash FROM tournament_rounds
+      WHERE tournament_id = ? AND round_no = 5`).get(tournamentId);
+    const frozenRows = JSON.parse(frozenBeforeErase.standings_json);
+    assert.ok(frozenRows.every((item) => !Object.hasOwn(item, 'handle')
+      && !Object.hasOwn(item, 'displayName') && !Object.hasOwn(item, 'avatarUrl')),
+    'the hash input freezes user IDs and tournament facts, never identity fields');
+    const erased = await post('/api/me/delete', users[0], {});
+    assert.equal(erased.status, 200);
+    assert.equal(db.prepare('SELECT id FROM users WHERE id = ?').get(users[0].id), undefined);
+    const erasedTournament = db.prepare('SELECT creator_id, winner_user_id FROM tournaments WHERE id = ?').get(tournamentId);
+    assert.equal(erasedTournament.creator_id, null, 'creator identity is detached without removing the bracket');
+    assert.equal(erasedTournament.winner_user_id, null, 'winner identity is detached without changing final JSON');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sync_tokens WHERE user_id = ?').get(users[0].id).n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tournament_entrants WHERE user_id = ?').get(users[0].id).n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tournament_entries WHERE user_id = ?').get(users[0].id).n, 0);
+    const frozenAfterErase = db.prepare(`SELECT standings_json, standings_hash FROM tournament_rounds
+      WHERE tournament_id = ? AND round_no = 5`).get(tournamentId);
+    assert.equal(frozenAfterErase.standings_json, frozenBeforeErase.standings_json,
+      'account erasure does not rewrite frozen hashed standings');
+    assert.equal(frozenAfterErase.standings_hash, frozenBeforeErase.standings_hash);
+    const frozenDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(frozenAfterErase.standings_json))),
+    (byte) => byte.toString(16).padStart(2, '0')).join('');
+    assert.equal(frozenDigest, frozenAfterErase.standings_hash);
+    const erasedBoard = (await get('/api/tournament/' + code + '/board')).body;
+    const deletedTrader = erasedBoard.standings.find((item) => Number(item.userId) === users[0].id);
+    assert.equal(deletedTrader.handle, 'deleted trader');
+    assert.equal(deletedTrader.deleted, true);
+    assert.equal(deletedTrader.finalRank, 1);
+    assert.equal(erasedBoard.final.standings.find((item) => Number(item.userId) === users[0].id).handle,
+      'deleted trader');
   } finally {
     Date.now = realNow;
     db.close();

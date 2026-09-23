@@ -190,10 +190,11 @@
           </div>
           <div id="submit-status" style="margin-top:14px"></div>
           <p class="ar-note" style="margin-top:14px">Sign in with X and you are on the trench.
-            Sync asks the extension for your committed chain - it only answers if you enabled
+            Manual Sync asks the extension for your committed chain - it only answers if you enabled
             <strong>Site sync</strong> in the dashboard's Leaderboard tab, and no other site can ask.
-            Or export the record as a file there and upload it here. Both paths carry identical
-            evidence. The extension never uploads your record on its own. Five closed, fully re-priced rounds
+            Or export the record as a file there and upload it here. Tournament auto-sync is a
+            separate join-time opt-in; without that grant the extension never submits on its own.
+            Both manual paths carry identical evidence. Five closed, fully re-priced rounds
             is what moves you from the trench onto a ranked seat.</p>
         </div>
       </section>
@@ -638,7 +639,7 @@
     }
     trenchEl.innerHTML = `<div class="ar-trench">${people.map(trenchCard).join('')}</div>
       <p class="ar-trench-foot">This wall is sign-ins and submissions, not overlay installs.
-        The extension never uploads your record on its own. ROI never appears here unless the name also has a ranked seat.</p>`;
+        Records appear here only after manual submission or an opted-in tournament sync. ROI never appears here unless the name also has a ranked seat.</p>`;
   })();
 
   /* ---------------- verifier stream ---------------- */
@@ -665,7 +666,7 @@
       const idle = '<li><span class="tag" style="color:var(--dim)">idle</span>' +
         '<span class="what">no submissions yet. The tape starts with the first chain.</span></li>';
       streamEl.innerHTML = idle;
-      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">No fills on the tape yet. Sync a chain and it shows up here. The extension never uploads your record on its own.</p>';
+      if (tapeEl) tapeEl.innerHTML = '<p class="ar-note">No fills on the tape yet. Submit a chain manually or opt into tournament sync to show it here.</p>';
       return;
     }
     const TAPE = {
@@ -785,7 +786,7 @@
     document.getElementById('logout-link').addEventListener('click', (e) => { e.preventDefault(); L.logout(); });
     document.getElementById('delete-link').addEventListener('click', async (e) => {
       e.preventDefault();
-      if (!window.confirm('Delete your account, record, duels and sprint history from the leaderboard server? Your local extension data is untouched. This cannot be undone.')) return;
+      if (!window.confirm('Delete your account and server-side records, including tournament seats and sync tokens? Tournament histories keep their hash but show "deleted trader". Local wallet data is untouched. This cannot be undone.')) return;
       await L.api('/api/me/delete', { method: 'POST' });
       window.location.reload();
     });
@@ -853,8 +854,9 @@
           : ''));
       const resetBtn = document.getElementById('reset-record-btn');
       if (resetBtn) resetBtn.addEventListener('click', async () => {
-        if (!window.confirm('Delete your account, record, duels and sprint history from the leaderboard server? Your local extension data is untouched. This cannot be undone.')) return;
+        if (!window.confirm('Delete your account and server-side records, including tournament seats and sync tokens? Tournament histories keep their hash but show "deleted trader". Local wallet data is untouched. This cannot be undone.')) return;
         await L.api('/api/me/delete', { method: 'POST' });
+        await L.bridgeRevokeTournamentSync().catch(() => null);
         window.location.reload();
       });
     }

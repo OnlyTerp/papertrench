@@ -94,26 +94,56 @@ function corsHeaders(request, env) {
   return headers;
 }
 
-/**
- * Strict Origin allowlist predicate for state-changing requests.
- *
- * With a workers.dev deploy the session cookie is SameSite=None, so a browser
- * will attach it to a cross-site POST. The fetch gate applies a narrow,
- * cookie-free Bearer exception only to /api/submit; all cookie-bearing writes
- * retain this check in either deployment topology.
- */
+const SYNC_TOKEN_SCOPE = 'tournament-sync';
+const SYNC_TOKEN_PREFIX = 'ptsync_';
+const SYNC_TOKEN_RE = /^ptsync_[0-9a-f]{64}$/;
+const SYNC_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Strict Origin allowlist predicate for state-changing requests. */
 function requireOrigin(request, env) {
   const origin = request.headers.get('Origin') || '';
   const allowed = [env.SITE_ORIGIN, env.SITE_ORIGIN_ALT].filter(Boolean);
   return allowed.includes(origin);
 }
 
-/** Bearer tokens are explicit, non-ambient credentials; only a cookie-free submit bypasses Origin. */
-function bearerOnlySubmit(request, path) {
+function newSyncToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return SYNC_TOKEN_PREFIX + Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashSyncToken(token) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** Consume only an explicit, cookie-free token scoped to the two sync routes. */
+async function syncTokenUser(request, env, now = Date.now()) {
+  if ((request.headers.get('Cookie') || '').trim()) return null;
   const authorization = request.headers.get('Authorization') || '';
-  return path === '/api/submit' && request.method === 'POST'
-    && authorization.startsWith('Bearer ') && Boolean(authorization.slice(7).trim())
-    && !(request.headers.get('Cookie') || '').trim();
+  const match = /^Bearer ([^\s]+)$/.exec(authorization);
+  const token = match && match[1];
+  if (!token || !SYNC_TOKEN_RE.test(token)) return null;
+  const tokenHash = await hashSyncToken(token);
+  const used = await env.DB.prepare(`
+    UPDATE sync_tokens SET last_used_at = ?
+    WHERE token_hash = ? AND scope = ? AND revoked_at IS NULL AND expires_at > ?
+    RETURNING user_id`).bind(now, tokenHash, SYNC_TOKEN_SCOPE, now).first();
+  if (!used) return null;
+  const user = await env.DB.prepare(`
+    SELECT id, x_id, handle, display_name, avatar_url, session_epoch, banned_at
+    FROM users WHERE id = ?`).bind(used.user_id).first();
+  return user && !user.banned_at ? user : null;
+}
+
+function hasSyncTokenShape(request) {
+  if ((request.headers.get('Cookie') || '').trim()) return false;
+  const match = /^Bearer ([^\s]+)$/.exec(request.headers.get('Authorization') || '');
+  return Boolean(match && SYNC_TOKEN_RE.test(match[1]));
+}
+
+function isSyncTokenRoute(path, method) {
+  return (path === '/api/submit' && method === 'POST')
+    || (path === '/api/tournament/mine' && method === 'GET');
 }
 
 function json(data, status, extra) {
@@ -267,7 +297,7 @@ function resumablePricingProgress(previousRow, chain) {
   return { cursor, verdicts: codes };
 }
 
-async function tournamentEntrySubmitStatements(env, userId, chain, previousRow, now, premise) {
+async function tournamentEntrySubmitStatements(env, userId, chain, previousRow, now, premise, options = {}) {
   const liveTournaments = await env.DB.prepare(`
     SELECT t.id, t.start_ts, t.start_stack_sol
     FROM tournaments t JOIN tournament_entrants e ON e.tournament_id = t.id
@@ -278,7 +308,9 @@ async function tournamentEntrySubmitStatements(env, userId, chain, previousRow, 
     ? chain.slice(0, Number(previousRow.chain_len)) : null;
   const statements = [];
   for (const active of liveTournaments.results || []) {
-    const sourceSubmittedAt = previousVerified ? Number(previousRow.submitted_at) || 0 : 0;
+    const sourceSubmittedAt = previousVerified
+      ? (options.refreshVerifiedAtDuplicate ? now : Number(previousRow.submitted_at) || 0)
+      : 0;
     const entryJson = previousVerified ? JSON.stringify({
       verified: true,
       sourceHead: previousRow.head,
@@ -305,8 +337,8 @@ async function tournamentEntrySubmitStatements(env, userId, chain, previousRow, 
   return statements;
 }
 
-async function handleSubmit(request, env) {
-  const user = await sessionUser(request, env);
+async function handleSubmit(request, env, scopedSyncUser = null) {
+  const user = await sessionUser(request, env) || scopedSyncUser;
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
   const liveEntrant = await env.DB.prepare(`
     SELECT 1 AS x FROM tournament_entrants e
@@ -372,13 +404,22 @@ async function handleSubmit(request, env) {
     return json({ ok: false, reason: result.reason, problems: result.problems || [] }, 422);
   }
   if (duplicate) {
+    const premise = submitPremise(previousRow);
     const duplicateEntries = await tournamentEntrySubmitStatements(
-      env, user.id, payload.chain, previousRow, now, submitPremise(previousRow));
-    if (duplicateEntries.length) await env.DB.batch(duplicateEntries);
+      env, user.id, payload.chain, previousRow, now, premise, { refreshVerifiedAtDuplicate: true });
+    duplicateEntries.push(env.DB.prepare(`
+      UPDATE records SET submitted_at = ? WHERE ${premise.sql}`)
+      .bind(now, ...premise.args(user.id)));
+    const duplicateResults = await env.DB.batch(duplicateEntries);
+    const recordResult = duplicateResults[duplicateResults.length - 1];
+    if (!recordResult.meta || recordResult.meta.changes === 0) {
+      return json({ ok: false, reason: 'conflict:stale-submission' }, 409);
+    }
     return json({
       ok: true,
       status: previousRow.status,
       duplicate: true,
+      submittedAt: now,
       note: 'this exact chain is already on file; verification state unchanged',
       stats: previousRow.stats_json ? JSON.parse(previousRow.stats_json) : result.stats,
       claimMismatch: result.claimMismatch,
@@ -503,6 +544,7 @@ async function handleSubmit(request, env) {
   return json({
     ok: true,
     status: 'pending',
+    submittedAt: now,
     note: 'chain verified and replayed; prices now re-checking against market history',
     stats: result.stats,
     claimMismatch: result.claimMismatch,
@@ -2403,7 +2445,7 @@ function tournamentCode() {
 async function loadTournament(env, code) {
   const row = await env.DB.prepare(`
     SELECT t.*, u.handle AS creator_handle
-    FROM tournaments t JOIN users u ON u.id = t.creator_id
+    FROM tournaments t LEFT JOIN users u ON u.id = t.creator_id
     WHERE t.code = ?`).bind(String(code || '')).first();
   return row || null;
 }
@@ -2587,11 +2629,45 @@ async function tournamentBoardPayload(env, row) {
     FROM tournament_rounds WHERE tournament_id = ? ORDER BY round_no ASC`)
     .bind(row.id).all();
   const settledRows = new Map();
+  const latestFrozenByUser = new Map();
+  const frozenByRound = new Map();
   for (const round of roundRows.results || []) {
     let frozen = [];
     try { frozen = JSON.parse(round.standings_json || '[]'); } catch {}
-    for (const item of frozen) settledRows.set(Number(round.round_no) + ':' + Number(item.userId), item);
+    const roundNo = Number(round.round_no);
+    frozenByRound.set(roundNo, frozen);
+    for (const item of frozen) {
+      const userId = Number(item.userId);
+      if (!Number.isInteger(userId)) continue;
+      settledRows.set(roundNo + ':' + userId, item);
+      latestFrozenByUser.set(userId, {
+        item, roundNo, settledAt: Number(round.settled_at) || 0,
+      });
+    }
   }
+  let final = row.final_json ? JSON.parse(row.final_json) : null;
+  const userIds = new Set([...entrants.map((entrant) => Number(entrant.user_id)), ...latestFrozenByUser.keys()]);
+  for (const key of ['standings', 'placements', 'awards']) {
+    for (const item of Array.isArray(final && final[key]) ? final[key] : []) {
+      if (Number.isInteger(Number(item.userId))) userIds.add(Number(item.userId));
+    }
+  }
+  const ids = [...userIds].filter(Number.isInteger);
+  const userById = new Map();
+  if (ids.length) {
+    const profiles = await env.DB.prepare(`SELECT id, handle, display_name, avatar_url FROM users
+      WHERE id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all();
+    for (const profile of profiles.results || []) userById.set(Number(profile.id), profile);
+  }
+  const identityFor = (userId) => {
+    const profile = userById.get(Number(userId));
+    return {
+      handle: profile ? profile.handle : 'deleted trader',
+      displayName: profile ? profile.display_name : 'deleted trader',
+      avatarUrl: profile ? profile.avatar_url : null,
+      deleted: !profile,
+    };
+  };
 
   let rows = tournament.standings(entrants, entries, row.start_stack_sol);
   rows = rows.map((standing) => {
@@ -2613,15 +2689,75 @@ async function tournamentBoardPayload(env, row) {
     }) : standing;
   });
 
+  const currentUserIds = new Set(rows.map((standing) => Number(standing.userId)));
+  for (const [userId, snapshot] of latestFrozenByUser) {
+    if (currentUserIds.has(userId)) continue;
+    const item = snapshot.item || {};
+    const eliminatedRound = item.eliminatedRound == null ? null : Number(item.eliminatedRound);
+    const finalRank = item.finalRank == null ? null : Number(item.finalRank);
+    const finalSurvivor = row.status === tournament.STATUS.DONE
+      && eliminatedRound == null && finalRank != null;
+    rows.push({
+      ...item,
+      ...identityFor(userId),
+      userId,
+      alive: finalSurvivor,
+      eliminatedRound,
+      finalRank,
+      verified: Boolean(item.verified),
+      recordStatus: 'deleted',
+      submittedAt: item.submittedAt == null ? null : Number(item.submittedAt),
+      rounds: Number(item.rounds) || 0,
+      pnlSol: Number(item.pnlSol) || 0,
+      roiPct: Number(item.roiPct) || 0,
+      pnlOnStackSol: Number(item.pnlOnStackSol) || 0,
+      equityAtStart: item.equityAtStart == null ? null : Number(item.equityAtStart),
+      unpricedOpenPosition: Boolean(item.unpricedOpenPosition),
+      openPositions: Array.isArray(item.openPositions) ? item.openPositions : [],
+      final: Boolean(item.final),
+      provisional: Boolean(item.provisional),
+      forfeited: Boolean(item.forfeited),
+      finality: item.finality || 'forfeited',
+    });
+  }
+
   const elimRows = await env.DB.prepare(`
     SELECT x.user_id, x.round_no, x.pnl_sol, x.equity_sol, x.eliminated_at, u.handle
-    FROM tournament_eliminations x JOIN users u ON u.id = x.user_id
+    FROM tournament_eliminations x LEFT JOIN users u ON u.id = x.user_id
     WHERE x.tournament_id = ? ORDER BY x.round_no ASC, x.pnl_sol DESC`)
     .bind(row.id).all();
+  const eliminations = (elimRows.results || []).map((r) => ({
+    userId: r.user_id, handle: r.handle || 'deleted trader', deleted: !r.handle,
+    roundNo: Number(r.round_no), pnlSol: Number(r.pnl_sol),
+    pnlOnStackSol: Number(r.pnl_sol), equitySol: Number(r.equity_sol),
+    eliminatedAt: Number(r.eliminated_at),
+  }));
+  const eliminatedIds = new Set(eliminations.map((item) => Number(item.userId)));
+  const settledAtByRound = new Map((roundRows.results || []).map((r) => [Number(r.round_no), Number(r.settled_at)]));
+  for (const [userId, snapshot] of latestFrozenByUser) {
+    const item = snapshot.item || {};
+    if (item.eliminatedRound == null || eliminatedIds.has(userId)) continue;
+    eliminations.push({
+      userId, ...identityFor(userId), roundNo: Number(item.eliminatedRound),
+      pnlSol: Number(item.pnlOnStackSol) || 0,
+      pnlOnStackSol: Number(item.pnlOnStackSol) || 0,
+      equitySol: Number(item.equityAtStart) || 0,
+      eliminatedAt: settledAtByRound.get(Number(item.eliminatedRound)) || snapshot.settledAt,
+    });
+  }
   const card = tournamentCard(row);
-  card.entrantCount = entrants.length;
-  card.aliveCount = entrants.filter((e) => Number(e.alive) === 1).length;
-  const final = row.final_json ? JSON.parse(row.final_json) : null;
+  card.entrantCount = Math.max(entrants.length, rows.length);
+  const finalRoundRows = frozenByRound.get(Number(row.current_round)) || [];
+  card.aliveCount = row.status === tournament.STATUS.DONE && finalRoundRows.length
+    ? finalRoundRows.filter((item) => item.eliminatedRound == null).length
+    : entrants.filter((e) => Number(e.alive) === 1).length;
+  if (final && typeof final === 'object') {
+    for (const key of ['standings', 'placements', 'awards']) {
+      if (Array.isArray(final[key])) {
+        final[key] = final[key].map((item) => ({ ...item, ...identityFor(item.userId) }));
+      }
+    }
+  }
   if (row.status === tournament.STATUS.LIVE) {
     rows.sort((a, b) =>
       (Number(b.alive) - Number(a.alive)) ||
@@ -2645,12 +2781,7 @@ async function tournamentBoardPayload(env, row) {
       standingsHash: r.standings_hash,
       settledAt: Number(r.settled_at),
     })),
-    eliminations: (elimRows.results || []).map((r) => ({
-      userId: r.user_id, handle: r.handle, roundNo: Number(r.round_no),
-      pnlSol: Number(r.pnl_sol), pnlOnStackSol: Number(r.pnl_sol),
-      equitySol: Number(r.equity_sol),
-      eliminatedAt: Number(r.eliminated_at),
-    })),
+    eliminations,
     final,
     serverTime: now,
   };
@@ -2857,23 +2988,61 @@ async function handleTournamentsList(env) {
 }
 
 /** The caller's seats across tournaments, newest first. */
-async function handleTournamentMine(request, env) {
-  const user = await sessionUser(request, env);
+async function handleTournamentMine(request, env, scopedSyncUser = null) {
+  const user = await sessionUser(request, env) || scopedSyncUser;
   if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
   const rows = await env.DB.prepare(`
-    SELECT t.*, e.alive, e.final_rank
+    SELECT t.*, e.alive, e.final_rank, e.joined_at,
+           r.status AS record_status, r.submitted_at AS record_submitted_at,
+           te.submitted_at AS entry_submitted_at
     FROM tournament_entrants e JOIN tournaments t ON t.id = e.tournament_id
+    LEFT JOIN records r ON r.user_id = e.user_id
+    LEFT JOIN tournament_entries te
+      ON te.tournament_id = e.tournament_id AND te.user_id = e.user_id
     WHERE e.user_id = ? ORDER BY e.joined_at DESC LIMIT 50`)
     .bind(user.id).all();
+  const now = Date.now();
   return json({
     ok: true,
+    serverTime: now,
     tournaments: (rows.results || []).map((r) => {
       const card = tournamentCard(r);
+      card.id = Number(r.id);
       card.alive = Number(r.alive) === 1;
       card.finalRank = r.final_rank == null ? null : Number(r.final_rank);
+      card.recordStatus = r.record_status || 'pending';
+      card.lastSubmittedAt = r.record_submitted_at == null ? null : Number(r.record_submitted_at);
+      card.entrySubmittedAt = r.entry_submitted_at == null ? null : Number(r.entry_submitted_at);
+      card.nextBoundaryTs = r.status === tournament.STATUS.LIVE && card.alive && r.start_ts != null
+        ? tournament.roundWindow(r, Number(r.current_round) || 1).endTs
+        : null;
       return card;
     }),
   });
+}
+
+async function handleSyncTokenCreate(request, env) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  const now = Date.now();
+  const token = newSyncToken();
+  const tokenHash = await hashSyncToken(token);
+  await env.DB.prepare(`
+    INSERT INTO sync_tokens (user_id, token_hash, scope, created_at, expires_at, revoked_at, last_used_at)
+    VALUES (?, ?, ?, ?, ?, NULL, NULL)`)
+    .bind(user.id, tokenHash, SYNC_TOKEN_SCOPE, now, now + SYNC_TOKEN_TTL_MS).run();
+  return json({ ok: true, token, createdAt: now, expiresAt: now + SYNC_TOKEN_TTL_MS }, 200,
+    { 'Cache-Control': 'no-store' });
+}
+
+async function handleSyncTokenRevoke(request, env) {
+  const user = await sessionUser(request, env);
+  if (!user) return json({ ok: false, reason: 'not-signed-in' }, 401);
+  const now = Date.now();
+  const result = await env.DB.prepare(`
+    UPDATE sync_tokens SET revoked_at = ?
+    WHERE user_id = ? AND revoked_at IS NULL`).bind(now, user.id).run();
+  return json({ ok: true, revoked: Number(result.meta && result.meta.changes) || 0 });
 }
 
 /* ---------------- tournament settlement cron ----------------
@@ -2912,13 +3081,27 @@ async function settleTournamentRound(env, row, now, sharedBudget) {
     env, row, entrants, window.endTs, true, getCandles);
   const rows = tournament.standings(entrants, entries, row.start_stack_sol, { settled: true });
   const plan = tournament.boundaryPlan(rows, row.cut_per_round);
-  const frozenStandings = rows.map((standing) => ({
+  const eliminatedRanks = new Map(plan.eliminated.map((standing, index) => [
+    Number(standing.userId), rows.length - plan.eliminated.length + index + 1,
+  ]));
+  const elimRows = plan.final
+    ? await env.DB.prepare(`SELECT user_id, round_no, pnl_sol FROM tournament_eliminations
+        WHERE tournament_id = ?`).bind(row.id).all()
+    : { results: [] };
+  const finalRanks = plan.final
+    ? new Map(tournament.finalPlacements(rows, elimRows.results || [])
+      .map((placement) => [Number(placement.userId), Number(placement.rank)]))
+    : null;
+  const frozenStandings = rows.map((standing, index) => ({
     userId: standing.userId,
-    handle: standing.handle,
-    displayName: standing.displayName,
-    avatarUrl: standing.avatarUrl,
+    rank: index + 1,
+    joinedAt: standing.joinedAt,
     alive: standing.alive ? 1 : 0,
+    eliminatedRound: eliminatedRanks.has(Number(standing.userId)) ? roundNo : standing.eliminatedRound,
+    finalRank: finalRanks ? (finalRanks.get(Number(standing.userId)) ?? null)
+      : (eliminatedRanks.get(Number(standing.userId)) ?? null),
     verified: standing.verified,
+    recordStatus: standing.recordStatus,
     final: standing.final,
     finality: standing.finality,
     forfeited: standing.forfeited,
@@ -2928,6 +3111,7 @@ async function settleTournamentRound(env, row, now, sharedBudget) {
     pnlOnStackSol: standing.pnlOnStackSol,
     equityAtStart: standing.equityAtStart,
     unpricedOpenPosition: standing.unpricedOpenPosition,
+    openPositions: standing.openPositions,
     submittedAt: standing.submittedAt,
   }));
   const standingsJson = JSON.stringify(frozenStandings);
@@ -2947,9 +3131,6 @@ async function settleTournamentRound(env, row, now, sharedBudget) {
   if (plan.final) {
     // The last round crowns rather than cuts: survivors take places 1..N in
     // standing order, and the prize split pays down it.
-    const elimRows = await env.DB.prepare(`
-      SELECT user_id, round_no, pnl_sol FROM tournament_eliminations
-      WHERE tournament_id = ?`).bind(row.id).all();
     const placements = tournament.finalPlacements(rows, elimRows.results || []);
     const split = JSON.parse(row.prize_split_json || '[]');
     const awards = tournament.prizeAwards(split, placements, row.prize_pool_sol);
@@ -3262,20 +3443,26 @@ export default {
     // The OAuth callback is a top-level navigation from x.com and carries no
     // Origin; everything else that changes state must prove where it came from.
     //
-    // The one exemption is Daily Spark grading. It is the only POST a shipped
-    // page makes from an origin this gate can never allowlist: the extension
-    // dashboard, whose chrome-extension://<id> origin differs per install and
-    // per unpacked dev copy — so before this exemption the extension's grade
-    // button was a guaranteed 403 'bad-origin' and the feature never worked.
-    // Opening it is sound because the gate's threat (a foreign site riding
-    // the visitor's session cookie) does not exist on that route: grading
-    // reads no session, writes no user state, and is a pure function of the
-    // day's pinned chart. SPARK_GRADES_PER_HOUR bounds it instead.
-    // /api/submit also accepts a cookie-free Bearer request: a bearer token is
-    // explicit, non-ambient auth, while any Cookie keeps the Origin gate in force.
-    if (request.method === 'POST' && path !== '/api/spark/grade'
-      && !bearerOnlySubmit(request, path) && !requireOrigin(request, env)) {
-      const denied = json({ ok: false, reason: 'bad-origin' }, 403);
+    // Daily Spark is origin-exempt because it is a stateless, rate-limited
+    // grading function. A valid scoped sync Bearer is explicitly supplied by
+    // the extension (not an ambient credential) and has no Cookie, so the
+    // cross-site-cookie threat does not apply on /api/submit or /mine. A site
+    // session Bearer is not this grant and never bypasses the Origin gate.
+    let syncUser = null;
+    try {
+      if (isSyncTokenRoute(path, request.method)) syncUser = await syncTokenUser(request, env);
+    } catch (_) {
+      const failure = json({ ok: false, reason: 'server-error' }, 500);
+      for (const [key, value] of Object.entries(cors)) failure.headers.set(key, value);
+      return failure;
+    }
+    const originGatedRequest = (request.method === 'POST' && path !== '/api/spark/grade')
+      || (request.method === 'GET' && path === '/api/tournament/mine');
+    if (originGatedRequest && !syncUser && !requireOrigin(request, env)) {
+      const expiredSyncToken = isSyncTokenRoute(path, request.method) && hasSyncTokenShape(request);
+      const denied = expiredSyncToken
+        ? json({ ok: false, reason: 'invalid-sync-token' }, 401)
+        : json({ ok: false, reason: 'bad-origin' }, 403);
       for (const [key, value] of Object.entries(cors)) denied.headers.set(key, value);
       return denied;
     }
@@ -3303,9 +3490,15 @@ export default {
           })
           : json({ signedIn: false });
       }
+      else if (path === '/api/sync-token' && request.method === 'POST') {
+        response = await handleSyncTokenCreate(request, env);
+      }
+      else if (path === '/api/sync-token/revoke' && request.method === 'POST') {
+        response = await handleSyncTokenRevoke(request, env);
+      }
       else if (path === '/api/me/delete' && request.method === 'POST') {
-        // Self-serve erasure: the privacy story requires leaving to be as
-        // easy as joining. Removes the account and everything derived.
+        // Self-serve erasure removes the account and mutable derived rows.
+        // Settled tournament hashes remain ID-only, never frozen handles.
         const user = await sessionUser(request, env);
         if (!user) response = json({ ok: false, reason: 'not-signed-in' }, 401);
         else {
@@ -3317,6 +3510,16 @@ export default {
             await removeMember(env, membership.clan_id, user.id, membership.founder_id);
           }
           await env.DB.batch([
+            env.DB.prepare('DELETE FROM sync_tokens WHERE user_id = ?').bind(user.id),
+            env.DB.prepare('DELETE FROM tournament_entries WHERE user_id = ?').bind(user.id),
+            env.DB.prepare('DELETE FROM tournament_entrants WHERE user_id = ?').bind(user.id),
+            env.DB.prepare('DELETE FROM tournament_eliminations WHERE user_id = ?').bind(user.id),
+            env.DB.prepare('DELETE FROM sprint_winners WHERE user_id = ?').bind(user.id),
+            env.DB.prepare('UPDATE tournaments SET creator_id = NULL, winner_user_id = NULL WHERE creator_id = ? OR winner_user_id = ?')
+              .bind(user.id, user.id),
+            env.DB.prepare(`DELETE FROM moderation_log
+              WHERE actor_id = ? OR (target_kind = 'user' AND target_id = ?)`)
+              .bind(user.id, user.id),
             env.DB.prepare('DELETE FROM chain_segments WHERE user_id = ?').bind(user.id),
             env.DB.prepare('DELETE FROM clan_entries WHERE user_id = ?').bind(user.id),
             env.DB.prepare('DELETE FROM sprint_entries WHERE user_id = ?').bind(user.id),
@@ -3333,7 +3536,7 @@ export default {
           response = await logout(request, env);
         }
       }
-      else if (path === '/api/submit' && request.method === 'POST') response = await handleSubmit(request, env);
+      else if (path === '/api/submit' && request.method === 'POST') response = await handleSubmit(request, env, syncUser);
       else if (path === '/api/leaderboard') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleLeaderboard(env));
       else if (path === '/api/trench') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleTrench(env));
       else if (path === '/api/sprint/current') response = await edgeCached(request, ctx, BOARD_CACHE_SEC, () => handleSprint(env));
@@ -3399,8 +3602,8 @@ export default {
       else if (path === '/api/tournament/create' && request.method === 'POST') {
         response = await handleTournamentCreate(request, env);
       }
-      else if (path === '/api/tournament/mine') {
-        response = await handleTournamentMine(request, env);
+      else if (path === '/api/tournament/mine' && request.method === 'GET') {
+        response = await handleTournamentMine(request, env, syncUser);
       }
       else if (path.startsWith('/api/tournament/')) {
         // /api/tournament/:code/{join,leave,cancel,board,trader}

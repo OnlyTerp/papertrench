@@ -4,23 +4,22 @@
  * from a page needs the extension's id, and unpacked installs get a
  * machine-specific one no site can know. This relay closes that gap from
  * the other direction — the extension already runs on every https page by
- * host permission, so a tiny script on our own site can carry the SAME two
- * bridge requests the externally_connectable path serves, plus one inbound
- * fact the page volunteers: "this browser just signed in as @handle".
+ * host permission, so a tiny script on our own site can carry the existing
+ * bridge requests plus the scoped tournament-sync grant/revoke hand-off and
+ * one inbound fact the page volunteers: "this browser just signed in as @handle".
  *
  * That inbound fact is what turns the dashboard's gray "not verified yet"
- * chip green the moment you sign in on papertrench.com (field report:
- * clicking sign-in "only takes me to the website" — the loop never closed).
- * It is DISPLAY-ONLY: the extension still never phones the server, and the
- * leaderboard goes by the site's word, not the chip.
+ * chip green the moment you sign in on papertrench.com. The identity echo is
+ * display-only; the separate token messages carry only the join-time
+ * tournament-sync consent the user explicitly grants.
  *
  * Trust boundary: page messages are untrusted input, even on our own site
  * (any script the page runs can postMessage). Everything is validated —
  * same-window source, same-origin, handle shaped like a real X handle —
  * and the background re-checks the SENDER url against the bridge-origin
  * allowlist, so no other page this extension runs on can replay these
- * message types. The record request stays behind the off-by-default
- * "Site sync" toggle exactly as it does on the external path.
+ * message types. Record reads still require the off-by-default Site sync
+ * toggle; tournament grants are a separate, explicit join-time consent.
  */
 (() => {
   'use strict';
@@ -44,10 +43,17 @@
 
     if (data.type === 'pt_site_bridge' && typeof data.nonce === 'string') {
       const op = data.request && data.request.type;
-      // Closed set: the relay carries exactly what the external bridge
-      // serves, nothing else can be smuggled through it.
-      if (op !== 'pt_bridge_ping' && op !== 'pt_bridge_get_record') return;
-      chrome.runtime.sendMessage({ type: op, viaSiteRelay: true })
+      // Closed set: only the two manual Site-sync requests and the explicit
+      // tournament-token grant/revoke hand-off cross this relay.
+      if (op !== 'pt_bridge_ping' && op !== 'pt_bridge_get_record'
+        && op !== 'pt_tournament_sync_grant' && op !== 'pt_tournament_sync_revoke') return;
+      const message = { type: op, viaSiteRelay: true };
+      if (op === 'pt_tournament_sync_grant') {
+        const token = data.request && data.request.token;
+        if (typeof token !== 'string' || !/^ptsync_[0-9a-f]{64}$/.test(token)) return;
+        message.token = token;
+      }
+      chrome.runtime.sendMessage(message)
         .catch(() => null)
         .then((reply) => {
           window.postMessage(
@@ -92,7 +98,8 @@
     });
   }
 
-  // Tell the page a relay exists, so its Sync button can distinguish
-  // "extension not installed" from "reply still in flight".
+  // Expose presence on the shared DOM too: the page can distinguish no
+  // extension from a relay that failed to answer without guessing.
+  try { document.documentElement.dataset.ptSiteBridge = 'ready'; } catch (_) {}
   window.postMessage({ type: 'pt_site_bridge_ready' }, location.origin);
 })();

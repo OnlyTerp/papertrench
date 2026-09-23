@@ -16,6 +16,8 @@ const RC = window.PTRecordings;
 if (!RC) throw new Error('PTRecordings store missing');
 const AT = window.PTAttest;
 const FG = window.PTForge;
+const TOURNAMENT_SYNC_GRANT_KEY = 'pt_tournament_sync_grant';
+const TOURNAMENT_SYNC_STATE_KEY = 'pt_tournament_sync_state';
 
 /* Forge settings helpers — the provider lists live in forge-core.js so the
  * dashboard, the worker and the tests all read one registry. */
@@ -816,6 +818,8 @@ function watchDashboardStorage() {
   if (!chrome.storage || !chrome.storage.onChanged) return;
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
+    const syncChanged = TOURNAMENT_SYNC_GRANT_KEY in changes || TOURNAMENT_SYNC_STATE_KEY in changes;
+    if (syncChanged) refreshTournamentSyncStatus().catch(() => {});
     const relevant = ['pt_state', 'pt_settings', 'pt_frames', 'pt_turbo_stats', RP.STORAGE_KEY, AT.CHAIN_META_KEY]
       .some((key) => key in changes);
     if (!relevant) return;
@@ -4377,9 +4381,9 @@ function renderLeaderboard(el) {
 }
 function renderStandingsPlaceholder(identity, stats) {
   // Remote standings are never invented here: this card shows YOUR row and
-  // the two hand-off paths to the board at papertrench.com. The extension
-  // still never phones home — export is a local file, and Site sync only
-  // ANSWERS a request the site makes when you click over there.
+  // the hand-off paths to the board at papertrench.com. Export is local, and
+  // manual Site sync only answers a request the site makes after your click.
+  // Tournament auto-sync is a separate join-time grant shown below.
   // D-06: ROI denominates on the wallet's birth balance, never the live
   // setting — the bridge claim and the local display must agree.
   const roiPct = E.anchorStartSol(state, settings) > 0
@@ -4410,19 +4414,22 @@ function renderStandingsPlaceholder(identity, stats) {
       <a class="btn-sec" href="https://papertrench.com/sprint" target="_blank" rel="noopener" style="text-decoration:none">Weekly Sprint ↗</a>
       <a class="btn-sec" href="https://papertrench.com/duels" target="_blank" rel="noopener" style="text-decoration:none">Duels ↗</a>
     </div>
-    <div class="field field-check" style="margin-top:14px"><label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label><small>Lets papertrench.com read your verified record when you click Sync there — nothing is sent anywhere on its own, and no other site can ask. Off means the site tells you to use the exported file instead.</small></div>
+    <div class="field field-check" style="margin-top:14px"><label><input type="checkbox" id="lb-bridge" ${settings.leaderboardBridge === true ? 'checked' : ''}> Site sync</label><small>Lets papertrench.com read your verified record when you click Sync there. It is separate from tournament auto-sync.</small></div>
+    <div class="field" style="margin-top:12px;border:1px solid var(--line2);border-radius:10px;padding:10px">
+      <div id="lb-tournament-sync-status" role="status" aria-live="polite">Tournament sync: checking…</div>
+      <button class="btn-sec" id="lb-tournament-sync-off" type="button" style="margin-top:8px" hidden>Turn off</button>
+      <small style="display:block;margin-top:6px">Tournament sync is a separate join-time opt-in. Turn it off here to remove this device's local grant; revoke server tokens on the tournament page.</small>
+    </div>
     <div class="field field-check" style="margin-top:10px"><label><input type="checkbox" id="update-check" ${settings.updateCheckEnabled === false ? '' : 'checked'}> Check for new versions</label><small>Asks GitHub (api.github.com) if a newer release is out, twice a day, and shows a banner with the download link. Sends nothing but that one request. Unpacked extensions never update themselves, so this is the only way you hear about fixes. Turn it off for full no-phone-home mode.</small></div>`;
 }
 
 /**
  * Fetch and draw the public board.
  *
- * This is the ONLY request the extension makes to papertrench's own server,
- * and it is deliberately fenced: it runs after onboarding is complete, which
- * means the user has linked an identity and switched Site sync on. Before
- * that, privacy.html's "never phones home" holds without an asterisk, and a
- * dashboard opened by someone who never touched the leaderboard makes no
- * request at all.
+ * This public-board read is deliberately fenced: it runs after onboarding is
+ * complete, which means the user has linked an identity and switched manual
+ * Site sync on. Tournament auto-sync is a separate join-time grant and uses
+ * only its scoped token on /api/submit and /api/tournament/mine.
  *
  * Read-only and unauthenticated: no cookies, no token, nothing about this
  * machine in the request beyond what any GET carries.
@@ -4491,6 +4498,31 @@ async function loadLiveBoard(el) {
       </p>`;
 }
 
+async function refreshTournamentSyncStatus(root = document) {
+  const status = root.querySelector('#lb-tournament-sync-status');
+  const turnOff = root.querySelector('#lb-tournament-sync-off');
+  if (!status) return;
+  try {
+    const stored = await chrome.storage.local.get([TOURNAMENT_SYNC_GRANT_KEY, TOURNAMENT_SYNC_STATE_KEY]);
+    const grant = stored && stored[TOURNAMENT_SYNC_GRANT_KEY];
+    const state = stored && stored[TOURNAMENT_SYNC_STATE_KEY] || {};
+    const enabled = Boolean(grant && typeof grant.token === 'string'
+      && /^ptsync_[0-9a-f]{64}$/.test(grant.token));
+    const serverNow = Date.now() + (Number(state.serverTimeOffsetMs) || 0);
+    status.textContent = enabled
+      ? `Tournament sync: on — ${Number(state.lastSubmitAt) > 0
+        ? 'last synced ' + Math.max(0, Math.floor((serverNow - Number(state.lastSubmitAt)) / 60000)) + 'm ago'
+        : 'waiting for first sync'} · ${Number(state.nextBoundaryTs) > 0
+          ? 'next cut in ' + Math.max(0, ((Number(state.nextBoundaryTs) - serverNow) / 3600000)).toFixed(1) + 'h'
+          : 'no live cut'}`
+      : 'Tournament sync: off';
+    if (turnOff) turnOff.hidden = !enabled;
+  } catch (_) {
+    status.textContent = 'Tournament sync: status unavailable';
+    if (turnOff) turnOff.hidden = true;
+  }
+}
+
 /** Verify the chain and show the user exactly what a server would compute. */
 async function bindLeaderboard(el) {
   // Only when the gate is passed — see loadLiveBoard() on why this is fenced.
@@ -4554,6 +4586,21 @@ async function bindLeaderboard(el) {
       if (el.querySelector('.lb-steps')) renderSection('leaderboard');
     });
   }
+
+  const syncTurnOff = el.querySelector('#lb-tournament-sync-off');
+  if (syncTurnOff) {
+    syncTurnOff.addEventListener('click', async () => {
+      syncTurnOff.disabled = true;
+      try {
+        await chrome.storage.local.remove([TOURNAMENT_SYNC_GRANT_KEY, TOURNAMENT_SYNC_STATE_KEY]);
+      } catch (err) {
+        console.error('PaperTrench: tournament sync grant removal failed', err);
+      }
+      await refreshTournamentSyncStatus(el);
+      syncTurnOff.disabled = false;
+    });
+  }
+  refreshTournamentSyncStatus(el).catch(() => {});
 
   const updateCheck = el.querySelector('#update-check');
   if (updateCheck) {

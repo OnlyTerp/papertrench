@@ -76,8 +76,10 @@ function readCookie(request, name) {
  *
  * SameSite=None re-opens the CSRF door that Lax closes, which is why
  * cookie-bearing writes stay behind the Origin allowlist (requireOrigin in
- * worker/index.js). Only a cookie-free Bearer submission is exempt. Setting
- * COOKIE_DOMAIN is what selects the stricter mode.
+ * worker/index.js). The session Bearer fallback is still Origin-gated on
+ * writes; only the separate, scoped tournament-sync token has a cookie-free
+ * exception on its two allowlisted routes. Setting COOKIE_DOMAIN selects the
+ * stricter same-site cookie mode.
  */
 function cookieHeader(name, value, maxAgeSec, env) {
   const domain = env.COOKIE_DOMAIN ? `; Domain=${env.COOKIE_DOMAIN}` : '';

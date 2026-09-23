@@ -102,6 +102,15 @@ To move to `api.papertrench.com` later, no code changes are needed: put the
 zone on Cloudflare, add a `[[routes]]` block, set `COOKIE_DOMAIN`, and change
 the one `API` constant in `site/arena.js`.
 
+**Tournament sync schema** adds the `sync_tokens` table; re-run `schema.sql`
+before deploying the sync-enabled Worker. Account erasure also needs the
+phase-2 nullable `tournaments.creator_id` definition so a creator can erase an
+account without deleting frozen bracket history. Phase 1 tournaments were
+local-only in this workstream; if a D1 already has the phase-1 `tournaments`
+table, `CREATE TABLE IF NOT EXISTS` will not update that constraint, so stop
+before deployment and rebuild/migrate that table first. No remote schema or
+D1 writes were performed for this change.
+
 ## 2. X (Twitter) OAuth app
 
 1. <https://developer.x.com> → create a project + app (free tier is fine —
@@ -173,8 +182,8 @@ done   # every line must read 200
       (watch: `npx wrangler d1 execute papertrench --remote
       --command "SELECT user_id,status FROM records"`)
 - [ ] A second submission with a shorter chain is rejected `chain-shrunk`
-- [ ] "delete my data" removes the account and the board row disappears
-      after the 60s edge cache expires
+- [ ] `/api/me/delete` removes the account, sync tokens, and live tournament
+      seats; settled tournament hashes remain valid and render `deleted trader`
 - [ ] `/api/activity` returns events, and rejection events carry no handle
 - [ ] Create a duel, open the invite link in a second browser profile signed
       in as a different X account, join it — the clock starts on join and
@@ -196,10 +205,11 @@ done   # every line must read 200
 
 ## Costs, honestly
 
-Reads are edge-cached (60s) so board traffic is ~free at any scale. Writes
-are rate-limited (6 submissions/user/hour). The only external dependency is
-GeckoTerminal's free OHLCV API, consumed at ≤25 lookups/minute by the cron
-with permanent candle caching in D1. Expected bill on Workers Free: $0.
+Reads are edge-cached (60s) so board traffic is ~free at any scale. Submits
+are rate-limited to 6/hour normally and 30/hour for alive live-tournament
+entrants. The only pricing dependency is GeckoTerminal's free OHLCV API,
+consumed at ≤25 lookups/minute by the cron with permanent candle caching in D1.
+Expected bill on Workers Free: $0.
 If sustained load ever exceeds the free tier, Workers Paid is $5/mo — that
 is the whole worst case.
 

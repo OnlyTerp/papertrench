@@ -6,6 +6,8 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { appendFill, GENESIS } = require('../core/chain.js');
 
@@ -34,6 +36,12 @@ async function sessionToken() {
   const sig = b64url(await crypto.subtle.sign(
     'HMAC', key, new TextEncoder().encode(body)));
   return body + '.' + sig;
+}
+
+const SYNC_TOKEN = 'ptsync_' + 'a'.repeat(64);
+async function syncTokenHash(token = SYNC_TOKEN) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -157,6 +165,20 @@ function submitRoute(opts) {
   };
 }
 
+function syncTokenRoute(opts = {}) {
+  const base = submitRoute(opts);
+  return (sql, args) => {
+    if (sql.includes('UPDATE sync_tokens SET last_used_at')) {
+      (opts.syncTokenUses || (opts.syncTokenUses = [])).push(args);
+      return opts.syncTokenValid === false ? null : { user_id: USER_ROW.id };
+    }
+    if (sql.includes('UPDATE sync_tokens SET revoked_at')) {
+      return { meta: { changes: opts.revokedCount == null ? 1 : opts.revokedCount } };
+    }
+    return base(sql, args);
+  };
+}
+
 /* ---------------- rate limiting (DEFECT L-08) ---------------- */
 
 test('the rate limiter is one atomic statement, and it actually limits', async () => {
@@ -189,29 +211,121 @@ test('the rate limiter is one atomic statement, and it actually limits', async (
   }
 });
 
-test('only a cookie-free Bearer /api/submit bypasses the Origin gate', async () => {
+test('only a valid cookie-free tournament-sync token bypasses Origin on its two routes', async () => {
   const worker = await loadWorker();
   const payload = await honestPayload();
-  const bearer = 'Bearer ' + await sessionToken();
-  const request = (path, headers, body) => new Request('https://api.test' + path, {
-    method: 'POST', headers, body: JSON.stringify(body || {}),
+  const sessionBearer = 'Bearer ' + await sessionToken();
+  const syncBearer = 'Bearer ' + SYNC_TOKEN;
+  const request = (path, method, headers, body) => new Request('https://api.test' + path, {
+    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-  const allowed = await worker.fetch(request('/api/submit', {
-    Origin: 'https://extension.example', Authorization: bearer, 'Content-Type': 'application/json',
+  const sessionNoOrigin = await worker.fetch(request('/api/submit', 'POST', {
+    Authorization: sessionBearer, 'Content-Type': 'application/json',
   }, payload), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(sessionNoOrigin.status, 403, 'the session-token Origin exception is removed');
+
+  const tokenOptions = {};
+  const allowedDb = fakeDB(syncTokenRoute(tokenOptions));
+  const allowed = await worker.fetch(request('/api/submit', 'POST', {
+    Authorization: syncBearer, 'Content-Type': 'application/json',
+  }, payload), makeEnv(allowedDb), { waitUntil: () => {} });
   assert.equal(allowed.status, 200);
+  assert.equal(tokenOptions.syncTokenUses.length, 1, 'last_used_at is updated when the scoped token is used');
+  assert.match(tokenOptions.syncTokenUses[0][1], /^[0-9a-f]{64}$/);
+  const tokenUseSql = allowedDb.log.find((entry) => entry.sql.includes('UPDATE sync_tokens SET last_used_at')).sql;
+  assert.match(tokenUseSql, /scope = \? AND revoked_at IS NULL AND expires_at > \?/,
+    'expired, revoked, or wrong-scope rows cannot authenticate');
 
-  const cookieRequest = await worker.fetch(request('/api/submit', {
-    Origin: 'https://extension.example', Authorization: bearer,
+  const cookieDb = syncTokenRoute();
+  const cookieRequest = await worker.fetch(request('/api/submit', 'POST', {
+    Origin: 'https://extension.example', Authorization: syncBearer,
     Cookie: 'pt_session=ambient', 'Content-Type': 'application/json',
-  }, payload), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  }, payload), makeEnv(fakeDB(cookieDb)), { waitUntil: () => {} });
   assert.equal(cookieRequest.status, 403, 'a cookie keeps the CSRF gate active');
+  assert.equal((cookieDb.syncTokenUses || []).length, 0, 'cookie-bearing requests never consume a sync token');
 
-  const otherRoute = await worker.fetch(request('/api/tournament/create', {
-    Origin: 'https://extension.example', Authorization: bearer, 'Content-Type': 'application/json',
-  }, { name: 'Foreign origin' }), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
-  assert.equal(otherRoute.status, 403, 'the exemption is limited to chain submission');
+  const expired = await worker.fetch(request('/api/submit', 'POST', {
+    Authorization: syncBearer, 'Content-Type': 'application/json',
+  }, payload), makeEnv(fakeDB(syncTokenRoute({ syncTokenValid: false }))), { waitUntil: () => {} });
+  assert.equal(expired.status, 401, 'an expired or revoked token fails closed so the extension can drop its grant');
+
+  const otherRoute = await worker.fetch(request('/api/tournament/create', 'POST', {
+    Authorization: syncBearer, 'Content-Type': 'application/json',
+  }, { name: 'Foreign origin' }), makeEnv(fakeDB(syncTokenRoute())), { waitUntil: () => {} });
+  assert.equal(otherRoute.status, 403, 'a sync token cannot bypass Origin on other routes');
+
+  const allowedOriginOtherRoute = await worker.fetch(request('/api/tournament/create', 'POST', {
+    Origin: ORIGIN, Authorization: syncBearer, 'Content-Type': 'application/json',
+  }, { name: 'Scoped token' }), makeEnv(fakeDB(syncTokenRoute())), { waitUntil: () => {} });
+  assert.equal(allowedOriginOtherRoute.status, 401, 'even with Origin, the sync token is not session auth');
+  const syncMe = await worker.fetch(request('/api/me', 'GET', { Authorization: syncBearer }),
+    makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal((await syncMe.json()).signedIn, false, 'sync tokens are ignored by every other route');
+
+  const mintWithoutOrigin = await worker.fetch(request('/api/sync-token', 'POST', {
+    Authorization: sessionBearer, 'Content-Type': 'application/json',
+  }, {}), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(mintWithoutOrigin.status, 403, 'session tokens cannot mint sync grants without an allowed Origin');
+
+  const mineOptions = {};
+  const mineDb = fakeDB(syncTokenRoute(mineOptions));
+  const mine = await worker.fetch(request('/api/tournament/mine', 'GET', {
+    Authorization: syncBearer,
+  }), makeEnv(mineDb), { waitUntil: () => {} });
+  assert.equal(mine.status, 200, 'the cookie-free sync token can read the caller’s seats');
+  assert.equal(mineOptions.syncTokenUses.length, 1, 'mine updates last_used_at too');
+
+  const sessionMine = await worker.fetch(request('/api/tournament/mine', 'GET', {
+    Authorization: sessionBearer,
+  }), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(sessionMine.status, 403, 'session bearer without an allowed Origin is not exempt');
+});
+
+test('sync-token mints only a hash, expires in 30 days, and revokes every active token', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(submitRoute({}));
+  const headers = { Origin: ORIGIN, Authorization: 'Bearer ' + await sessionToken() };
+  const minted = await worker.fetch(new Request('https://api.test/api/sync-token', {
+    method: 'POST', headers,
+  }), makeEnv(db), { waitUntil: () => {} });
+  const body = await minted.json();
+  assert.equal(minted.status, 200);
+  assert.equal(minted.headers.get('Cache-Control'), 'no-store');
+  assert.match(body.token, /^ptsync_[0-9a-f]{64}$/);
+  assert.equal(body.expiresAt - body.createdAt, 30 * 24 * 60 * 60 * 1000);
+  const insert = db.log.find((entry) => entry.sql.includes('INSERT INTO sync_tokens'));
+  assert.ok(insert, 'sync token row is inserted');
+  assert.equal(insert.args[0], USER_ROW.id);
+  assert.equal(insert.args[1], await syncTokenHash(body.token));
+  assert.equal(insert.args[2], 'tournament-sync');
+  assert.ok(!JSON.stringify(db.log).includes(body.token), 'the plaintext never reaches D1');
+
+  const revokedDb = fakeDB(submitRoute({}));
+  const revoked = await worker.fetch(new Request('https://api.test/api/sync-token/revoke', {
+    method: 'POST', headers,
+  }), makeEnv(revokedDb), { waitUntil: () => {} });
+  assert.equal(revoked.status, 200);
+  assert.equal((await revoked.json()).ok, true);
+  const update = revokedDb.log.find((entry) => entry.sql.includes('UPDATE sync_tokens SET revoked_at'));
+  assert.ok(update && update.sql.includes('WHERE user_id = ? AND revoked_at IS NULL'),
+    'revoke is scoped to every active token owned by the session user');
+});
+
+test('site tournament consent uses the scoped token relay and names its failure states', () => {
+  const site = fs.readFileSync(path.join(__dirname, '../../site/tournament.js'), 'utf8');
+  const arena = fs.readFileSync(path.join(__dirname, '../../site/arena.js'), 'utf8');
+  assert.match(site, /L\.api\('\/api\/sync-token'/);
+  assert.match(site, /L\.bridgeGrantTournamentSync\(minted\.body\.token\)/);
+  assert.match(site, /L\.api\('\/api\/sync-token\/revoke'/);
+  for (const message of [
+    'Extension not detected on this browser',
+    'The extension site relay did not answer',
+    'The extension refused the grant',
+    'could not create a sync token',
+  ]) assert.ok(site.includes(message), 'site includes failure state: ' + message);
+  assert.match(arena, /pt_tournament_sync_grant/);
+  assert.match(arena, /pt_tournament_sync_revoke/);
 });
 
 test('handleSubmit upserts a verified tournament entry under the record premise', async () => {
@@ -269,13 +383,16 @@ test('an extend-only submission carries compact prefix verdicts and remains pend
 
 /* ---------------- duplicate submissions (DEFECT L-04) ---------------- */
 
-test('resubmitting the exact stored chain is a no-op, not a verification reset', async () => {
+test('a duplicate verified chain refreshes server submission time for a boundary cut without resetting verification', async () => {
   const worker = await loadWorker();
   const payload = await honestPayload();
+  const oldSubmittedAt = Date.now() - 3600000;
   const db = fakeDB(submitRoute({
+    liveEntrant: true,
+    activeTournaments: [{ id: 42, start_ts: 0, start_stack_sol: 10 }],
     record: {
       head: payload.head, chain_len: payload.chain.length, starting_sol: 10,
-      status: 'verified',
+      status: 'verified', submitted_at: oldSubmittedAt,
       stats_json: JSON.stringify({ score: 42, rankable: true }),
     },
   }));
@@ -285,9 +402,19 @@ test('resubmitting the exact stored chain is a no-op, not a verification reset',
   assert.equal(res.body.ok, true);
   assert.equal(res.body.duplicate, true);
   assert.equal(res.body.status, 'verified',
-    'the earned verdict must survive an impatient double-click');
+    'the earned verdict must survive an impatient or boundary-triggered resubmission');
 
-  assert.equal(db.batches.length, 0, 'a duplicate writes nothing to the record');
+  assert.equal(db.batches.length, 1, 'the accepted receive-time refresh and seat entry share a D1 batch');
+  const writes = db.batches[0];
+  const entry = writes.find((statement) => statement.sql.includes('INSERT INTO tournament_entries'));
+  const record = writes.find((statement) => statement.sql.includes('UPDATE records SET submitted_at'));
+  assert.ok(entry && record, 'the live seat and record receive time both refresh');
+  assert.ok(entry.args[3] > oldSubmittedAt, 'the seat records the boundary submission receive time');
+  assert.ok(record.args[0] > oldSubmittedAt, 'the record finality timestamp advances');
+  assert.match(record.sql, /SELECT count\(\*\) FROM records/,
+    'the duplicate refresh remains guarded by the stored-chain premise');
+  const duplicateEntry = JSON.parse(entry.args[2]);
+  assert.equal(duplicateEntry.sourceSubmittedAt, entry.args[3]);
   const audit = db.log.find((e) => e.sql.includes('INSERT INTO submissions'));
   assert.ok(audit, 'the attempt is still logged');
   assert.equal(audit.args[3], 'duplicate', 'and logged as what it was');

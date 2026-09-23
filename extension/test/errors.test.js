@@ -179,6 +179,17 @@ test('a bearer token is redacted out of the message', () => {
   assert.match(entry.message, /rpc rejected/, 'the diagnostic text survives');
 });
 
+test('a raw tournament-sync token is redacted from messages, context, and stack', () => {
+  reset();
+  const token = 'ptsync_' + 'ab'.repeat(32);
+  const error = new Error('sync refused ' + token);
+  error.stack = 'Error: sync refused ' + token;
+  ERR.record(error, { grant: token });
+  const encoded = JSON.stringify(ERR.snapshot());
+  assert.ok(!encoded.includes(token), 'the plaintext grant never reaches the error ring');
+  assert.match(encoded, /REDACTED_TOKEN/);
+});
+
 test('a private key is redacted — base58, hex and raw byte-array forms', () => {
   reset();
   ERR.record(new Error(`signer blew up with ${FAKE_PRIVKEY}`));

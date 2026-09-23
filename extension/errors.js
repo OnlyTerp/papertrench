@@ -71,6 +71,10 @@
       fn: (m, label) => `${label} [REDACTED_TOKEN]`,
     },
     {
+      re: /\bptsync_[0-9a-f]{64}\b/gi,
+      fn: () => '[REDACTED_TOKEN]',
+    },
+    {
       re: /\b(authorization|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|secret[_-]?key|private[_-]?key|secretkey|privatekey|mnemonic|seed[_-]?phrase)\b(\s*["']?\s*[:=]\s*["']?)([^\s"',;)}\]]{6,})/gi,
       fn: (m, label, sep, _val) => `${label}${sep}[REDACTED_TOKEN]`,
     },

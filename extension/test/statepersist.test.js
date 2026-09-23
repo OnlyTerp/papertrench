@@ -944,6 +944,66 @@ test('restoreWallet: declining confirmation leaves the wallet untouched', async 
   assert.equal(result.loads, 0);
 });
 
+test('tournament sync grants never appear in the debug report or wallet backup', async () => {
+  const token = 'ptsync_' + 'cd'.repeat(32);
+  const popup = fs.readFileSync(path.join(ROOT, 'popup.js'), 'utf8');
+  const debugStart = popup.indexOf('async function shareDebugLogs()');
+  const debugBlock = popup.slice(debugStart, popup.indexOf('\n}', debugStart) + 2);
+  let clipboard = '';
+  const button = { textContent: 'Copy', disabled: false };
+  const debugContext = vm.createContext({
+    document: {}, navigator: { userAgent: 'test', clipboard: { writeText: async (text) => { clipboard = text; } } },
+    Date, JSON, setTimeout: () => 1,
+    chrome: {
+      runtime: { getManifest: () => ({ version: 'test' }), sendMessage: async () => ({
+        ok: true, entries: [{ message: 'sync failed for ' + token, context: { token } }],
+      }) },
+      tabs: { query: async () => [] },
+    },
+  });
+  debugContext.$ = (id) => (id === 'sharelogs' ? button : null);
+  vm.runInContext(debugBlock, debugContext);
+  await debugContext.shareDebugLogs();
+  assert.ok(clipboard.includes('[REDACTED_TOKEN]'));
+  assert.ok(!clipboard.includes(token), 'debug report never copies the token string');
+
+  const backupStart = popup.indexOf('async function backupWallet()');
+  const backupBlock = popup.slice(backupStart, popup.indexOf('\n}', backupStart) + 2);
+  const fingerprintStart = popup.indexOf('function canonicalBackupValue(');
+  const fingerprintEnd = popup.indexOf('\n}', popup.indexOf('function backupFingerprint(', fingerprintStart)) + 2;
+  const backupKeys = popup.match(/^const BACKUP_KEYS = .*;$/m)[0];
+  let backupText = '';
+  let requestedKeys = null;
+  class MockBlob { constructor(parts) { backupText = parts.join(''); } }
+  const anchor = { click() {}, remove() {} };
+  const backupContext = vm.createContext({
+    AT: null, Date, JSON, Object, Array, String, Number, Math,
+    Blob: MockBlob, URL: { createObjectURL: () => 'blob:test', revokeObjectURL: () => {} },
+    document: { createElement: () => anchor, body: { appendChild() {} } },
+    $: () => ({ textContent: '' }), setTimeout: () => 1,
+    chrome: {
+      runtime: { getManifest: () => ({ version: 'test' }) },
+      storage: { local: {
+        get: async (keys) => {
+          requestedKeys = keys;
+          const all = {
+            pt_state: E.defaultState(E.defaultSettings()), pt_settings: E.defaultSettings(),
+            pt_frames: [], pt_replays: [], pt_tournament_sync_grant: { token },
+          };
+          return Object.fromEntries(keys.filter((key) => key in all).map((key) => [key, all[key]]));
+        },
+        set: async () => {},
+      } },
+    },
+  });
+  vm.runInContext(`${backupKeys}\n${popup.slice(fingerprintStart, fingerprintEnd)}\n${backupBlock}`, backupContext);
+  await backupContext.backupWallet();
+  const backup = JSON.parse(backupText);
+  assert.deepEqual(Array.from(requestedKeys), ['pt_state', 'pt_settings', 'pt_frames', 'pt_replays']);
+  assert.ok(!JSON.stringify(backup).includes(token), 'wallet backup never includes the token string');
+  assert.equal(backup.data.pt_tournament_sync_grant, undefined);
+});
+
 /* ---------------- DEFECT D-41: the backup says what it does NOT carry ------
  *
  * IndexedDB screen recordings (tens of MB) are deliberately excluded from

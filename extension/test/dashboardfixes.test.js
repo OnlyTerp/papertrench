@@ -739,6 +739,16 @@ test('R1: dashboard P&L uses gross realized while leaderboard claims keep the at
   assert.match(dashJs, /derivedPnlSol: match\.replayed\.realizedPnlSol/);
 });
 
+test('tournament sync dashboard shows local grant status and a local-only Turn off action', () => {
+  const leaderboard = fnBlock(dashJs, 'function renderStandingsPlaceholder(identity, stats)');
+  assert.match(leaderboard, /id="lb-tournament-sync-status"/);
+  assert.match(dashJs, /Tournament sync: on[\s\S]*?next cut in/);
+  assert.match(dashJs, /id="lb-tournament-sync-off"[\s\S]*?>Turn off/);
+  const bind = fnBlock(dashJs, 'async function bindLeaderboard(');
+  assert.match(bind, /chrome\.storage\.local\.remove\(\[TOURNAMENT_SYNC_GRANT_KEY, TOURNAMENT_SYNC_STATE_KEY\]\)/,
+    'dashboard Turn off deletes the device grant without holding or exposing its token');
+});
+
 /* ---------------- D-03: the chain agrees with honest local state ---------- */
 
 /** Build a verifiable chain from the engine journal (oldest first). */

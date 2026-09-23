@@ -22,8 +22,12 @@ function serviceWorker(opts = {}) {
   let installedListener = null;
   const tabCreates = [];
   const fetchCalls = [];
+  const fetchRequests = [];
   const captureCalls = [];
   const writes = [];
+  const alarms = new Map();
+  const storageChangeListeners = [];
+  let alarmListener = null;
   let writeGate = null;
   function holdNextWrite(predicate = update => Object.hasOwn(update, 'pt_state')) {
     let entered, release;
@@ -57,8 +61,16 @@ function serviceWorker(opts = {}) {
     const captured = structuredClone(update);
     const apply = () => {
       if (opts.failWrites && values.failWrites !== false) { failingCallback(callback); return; }
+      const changes = {};
+      for (const [key, value] of Object.entries(captured)) {
+        changes[key] = {
+          oldValue: Object.hasOwn(values, key) ? structuredClone(values[key]) : undefined,
+          newValue: structuredClone(value),
+        };
+      }
       Object.assign(values, captured);
       writes.push(structuredClone(captured));
+      for (const listener of storageChangeListeners) listener(changes, 'local');
       if (callback) callback();
     };
     const gate = writeGate;
@@ -71,7 +83,15 @@ function serviceWorker(opts = {}) {
     return Promise.resolve();
   };
   const remove = (keys, callback) => {
-    for (const key of Array.isArray(keys) ? keys : [keys]) delete values[key];
+    const changes = {};
+    for (const key of Array.isArray(keys) ? keys : [keys]) {
+      if (!Object.hasOwn(values, key)) continue;
+      changes[key] = { oldValue: structuredClone(values[key]), newValue: undefined };
+      delete values[key];
+    }
+    if (Object.keys(changes).length) {
+      for (const listener of storageChangeListeners) listener(changes, 'local');
+    }
     if (callback) callback();
     return Promise.resolve();
   };
@@ -101,9 +121,13 @@ function serviceWorker(opts = {}) {
     clearTimeout,
     setInterval: () => 1,
     clearInterval: () => {},
-    fetch: async (url) => {
+    fetch: async (url, init = {}) => {
       fetchCalls.push(String(url));
-      if (opts.fetch) return opts.fetch(url);
+      fetchRequests.push({ url: String(url), init: {
+        method: init.method, headers: init.headers && structuredClone(init.headers),
+        credentials: init.credentials, cache: init.cache, body: init.body,
+      } });
+      if (opts.fetch) return opts.fetch(url, init);
       if (String(url).includes('/topics/history?')) {
         return {
           ok: true,
@@ -141,6 +165,7 @@ function serviceWorker(opts = {}) {
       storage: {
         local: { get, set, remove },
         session: { get, set, remove },
+        onChanged: { addListener: (listener) => storageChangeListeners.push(listener) },
       },
       runtime: {
         id: 'papertrench-test',
@@ -180,9 +205,14 @@ function serviceWorker(opts = {}) {
         createDocument: async () => {},
       },
       alarms: {
-        clear: async () => true,
-        create: () => {},
-        onAlarm: { addListener: () => {} },
+        clear: async (name) => alarms.delete(name),
+        create: (name, info) => alarms.set(name, {
+          name, scheduledTime: info && info.when || Date.now() + (Number(info && info.periodInMinutes) || 0) * 60000,
+          periodInMinutes: Number(info && info.periodInMinutes) || 0,
+        }),
+        get: async (name) => alarms.get(name) || null,
+        getAll: async () => [...alarms.values()],
+        onAlarm: { addListener: (listener) => { alarmListener = listener; } },
       },
     },
   };
@@ -196,10 +226,19 @@ function serviceWorker(opts = {}) {
   };
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8'), context, { filename: 'background.js' });
   return {
-    values, fetchCalls, captureCalls, writes, holdNextWrite, tabCreates,
+    values, fetchCalls, fetchRequests, captureCalls, writes, holdNextWrite, alarms, tabCreates,
     get listener() { return messageListener; },
     get external() { return externalListener; },
     get installed() { return installedListener; },
+    get alarmListener() { return alarmListener; },
+    triggerAlarm(name) {
+      const alarm = alarms.get(name);
+      if (!alarm) return false;
+      if (!alarm.periodInMinutes) alarms.delete(name);
+      if (alarmListener) alarmListener({ name, scheduledTime: alarm.scheduledTime });
+      return true;
+    },
+    runTournamentSync: (options) => context.runTournamentSync(options),
     get isAllowedEndpoint() { return context.isAllowedEndpoint; },
     get rpcPool() { return context.PTRpcPool; },
     get ctx() { return context; },
@@ -857,6 +896,152 @@ test('relayed bridge requests honor the origin gate and the Site-sync toggle', a
   const empty = await sendFrom(worker.listener, { type: 'pt_bridge_get_record' }, RELAY_SENDER);
   assert.equal(empty.ok, false);
   assert.equal(empty.reason, 'chain-empty', 'toggle on: the relay reaches the same record path');
+});
+
+test('tournament-sync grant/revoke are accepted only from papertrench.com and reveal no token in status', async () => {
+  const worker = serviceWorker();
+  const token = 'ptsync_' + 'ef'.repeat(32);
+  const denied = await sendFrom(worker.listener, {
+    type: 'pt_tournament_sync_grant', token,
+  }, FOREIGN_SENDER);
+  assert.equal(denied.reason, 'origin-not-allowed');
+  assert.equal(worker.values.pt_tournament_sync_grant, undefined);
+
+  const granted = await sendFrom(worker.listener, {
+    type: 'pt_tournament_sync_grant', token,
+  }, RELAY_SENDER);
+  assert.equal(granted.ok, true);
+  assert.deepEqual(Object.keys(worker.values.pt_tournament_sync_grant).sort(), ['grantedAt', 'token']);
+  assert.equal(worker.values.pt_tournament_sync_grant.token, token);
+  assert.equal(worker.values.pt_settings.leaderboardBridge, undefined,
+    'tournament consent is independent of manual Site sync');
+  assert.ok(worker.alarms.get('pt_tournament_sync'), 'grant schedules the five-minute alarm');
+  const status = await sendFrom(worker.listener, { type: 'pt_bridge_ping' }, RELAY_SENDER);
+  assert.equal(status.tournamentSync.granted, true);
+  assert.ok(!JSON.stringify(status).includes(token), 'the bridge status never returns the plaintext token');
+
+  const foreignRevoke = await sendFrom(worker.listener, { type: 'pt_tournament_sync_revoke' }, FOREIGN_SENDER);
+  assert.equal(foreignRevoke.reason, 'origin-not-allowed');
+  assert.equal(worker.values.pt_tournament_sync_grant.token, token);
+  const revoked = await sendFrom(worker.listener, { type: 'pt_tournament_sync_revoke' }, RELAY_SENDER);
+  assert.equal(revoked.ok, true);
+  assert.equal(worker.values.pt_tournament_sync_grant, undefined);
+  assert.equal(worker.alarms.has('pt_tournament_sync'), false);
+});
+
+test('tournament sync makes zero network calls without a grant', async () => {
+  const worker = serviceWorker();
+  await worker.runTournamentSync({ reason: 'test' });
+  assert.equal(worker.fetchRequests.length, 0, 'no grant means no mine or submit fetch');
+  assert.equal(worker.alarms.has('pt_tournament_sync'), false);
+});
+
+test('auto-sync posts a changed chain head with the shared bridge payload builder', async () => {
+  const submissions = [];
+  const nextBoundaryTs = Date.now() + 60 * 60 * 1000;
+  const worker = serviceWorker({ fetch: async (url, init = {}) => {
+    if (String(url).endsWith('/api/tournament/mine')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, serverTime: Date.now(), tournaments: [{
+        id: 501, status: 'live', alive: true, nextBoundaryTs, lastSubmittedAt: null,
+      }] }) };
+    }
+    if (String(url).endsWith('/api/submit')) {
+      submissions.push(JSON.parse(init.body));
+      return { ok: true, status: 200, json: async () => ({ ok: true, status: 'pending', submittedAt: Date.now() }) };
+    }
+    throw new Error('unexpected tournament sync URL ' + url);
+  } });
+  const token = 'ptsync_' + 'cd'.repeat(32);
+  await send(worker.listener, { type: 'pt_attest_append', trade: bridgeTrade() });
+  worker.values.pt_tournament_sync_grant = { token, grantedAt: Date.now() };
+  await worker.ctx.refreshTournamentSyncAlarms();
+  await worker.runTournamentSync({ reason: 'head-change' });
+
+  assert.equal(worker.fetchRequests.length, 2, 'one mine request precedes one changed-head submit');
+  assert.ok(worker.fetchRequests.every((request) => request.init.credentials === 'omit'),
+    'both sync routes omit cookies');
+  assert.ok(worker.fetchRequests.every((request) => request.init.headers.Authorization === 'Bearer ' + token),
+    'the scoped token is used on both routes');
+  assert.equal(submissions.length, 1);
+  const storedChain = await worker.storage.attestChain();
+  assert.equal(submissions[0].head, storedChain[0].hash);
+  assert.equal(submissions[0].chain.length, 1);
+  assert.equal(worker.values.pt_tournament_sync_state.lastSubmittedHead, storedChain[0].hash);
+  assert.equal(worker.alarms.get('pt_tournament_sync').periodInMinutes, 5);
+  const boundaryAlarms = [...worker.alarms.keys()].filter((name) => name.startsWith('pt_tournament_cut_'));
+  assert.equal(boundaryAlarms.length, 3, 'the cut has +30s, +3m and +8m alarms');
+});
+
+test('boundary alarm forces an unchanged-chain submit at the cut', async () => {
+  const boundaryTs = Date.now() + 20000;
+  let serverTime = Date.now();
+  let lastSubmittedAt = null;
+  const submissions = [];
+  const token = 'ptsync_' + '12'.repeat(32);
+  const worker = serviceWorker({ fetch: async (url, init = {}) => {
+    if (String(url).endsWith('/api/tournament/mine')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, serverTime, tournaments: [{
+        id: 501, status: 'live', alive: true, nextBoundaryTs: boundaryTs, lastSubmittedAt,
+      }] }) };
+    }
+    if (String(url).endsWith('/api/submit')) {
+      const body = JSON.parse(init.body);
+      submissions.push(body.head);
+      lastSubmittedAt = serverTime;
+      return { ok: true, status: 200, json: async () => ({ ok: true, submittedAt: serverTime }) };
+    }
+    throw new Error('unexpected tournament sync URL ' + url);
+  } });
+  await send(worker.listener, { type: 'pt_attest_append', trade: bridgeTrade() });
+  worker.values.pt_tournament_sync_grant = { token, grantedAt: Date.now() };
+  await worker.ctx.refreshTournamentSyncAlarms();
+  await worker.runTournamentSync({ reason: 'head-change' });
+  assert.equal(submissions.length, 1, 'the first changed head is accepted before the boundary');
+
+  serverTime = boundaryTs + 30000;
+  lastSubmittedAt = boundaryTs - 1000;
+  const boundaryAlarm = [...worker.alarms.keys()].find((name) => name.endsWith('_30000'));
+  assert.ok(boundaryAlarm, 'the +30s alarm is scheduled');
+  worker.triggerAlarm(boundaryAlarm);
+  const deadline = Date.now() + 3000;
+  while (submissions.length < 2 && Date.now() < deadline) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(submissions.length, 2, 'the boundary alarm submits the unchanged chain again');
+  assert.equal(submissions[1], submissions[0]);
+});
+
+test('429 waits for a later alarm and 401 drops the scoped grant', async () => {
+  const token = 'ptsync_' + '34'.repeat(32);
+  let status = 429;
+  let submitCount = 0;
+  const boundaryTs = Date.now() + 60000;
+  const worker = serviceWorker({ fetch: async (url, init = {}) => {
+    if (String(url).endsWith('/api/tournament/mine')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, serverTime: Date.now(), tournaments: [{
+        id: 501, status: 'live', alive: true, nextBoundaryTs: boundaryTs, lastSubmittedAt: null,
+      }] }) };
+    }
+    if (String(url).endsWith('/api/submit')) {
+      submitCount += 1;
+      return { ok: status === 200, status, json: async () => status === 429
+        ? { ok: false, reason: 'rate-limited' } : { ok: true, submittedAt: Date.now() } };
+    }
+    throw new Error('unexpected tournament sync URL ' + url);
+  } });
+  await send(worker.listener, { type: 'pt_attest_append', trade: bridgeTrade() });
+  worker.values.pt_tournament_sync_grant = { token, grantedAt: Date.now() };
+  await worker.ctx.refreshTournamentSyncAlarms();
+  await worker.runTournamentSync({ reason: 'head-change' });
+  assert.equal(submitCount, 1, 'a 429 does not trigger an immediate retry');
+  assert.equal(worker.values.pt_tournament_sync_state.lastSubmittedHead, null,
+    'a rejected request does not advance the accepted head');
+  assert.ok([...worker.alarms.keys()].some((name) => name.endsWith('_180000')),
+    'the +3-minute retry remains scheduled');
+  const mineWorker = serviceWorker({ fetch: async () => ({ ok: false, status: 401, json: async () => ({}) }) });
+  mineWorker.values.pt_tournament_sync_grant = { token, grantedAt: Date.now() };
+  await mineWorker.ctx.refreshTournamentSyncAlarms();
+  await mineWorker.runTournamentSync({ reason: 'expired-token' });
+  assert.equal(mineWorker.values.pt_tournament_sync_grant, undefined, '401 drops the local grant');
+  assert.equal(mineWorker.alarms.has('pt_tournament_sync'), false, '401 stops the periodic alarm');
 });
 
 function replacement(worker, state = { seq: 0, cashSol: 25, positions: {}, journal: [], rounds: [] }) {

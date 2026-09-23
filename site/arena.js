@@ -337,7 +337,12 @@
    * users, with a message that sent them off to reinstall a working
    * extension. The reply still arrived moments later; nobody was listening.
    */
-  const BRIDGE_TIMEOUT_MS = { pt_bridge_ping: 1500, pt_bridge_get_record: 12000 };
+  const BRIDGE_TIMEOUT_MS = {
+    pt_bridge_ping: 1500,
+    pt_bridge_get_record: 12000,
+    pt_tournament_sync_grant: 4000,
+    pt_tournament_sync_revoke: 4000,
+  };
   const bridgeTimeout = (message) =>
     (message && BRIDGE_TIMEOUT_MS[message.type]) || 2500;
 
@@ -394,6 +399,8 @@
 
   const bridgePing = () => bridgeSend({ type: 'pt_bridge_ping' });
   const bridgeGetRecord = () => bridgeSend({ type: 'pt_bridge_get_record' });
+  const bridgeGrantTournamentSync = (token) => bridgeSend({ type: 'pt_tournament_sync_grant', token });
+  const bridgeRevokeTournamentSync = () => bridgeSend({ type: 'pt_tournament_sync_revoke' });
 
   /**
    * Tell the extension (when present) who this browser is signed in as, so
@@ -562,7 +569,7 @@
     clanTag, crest, pips, clanLabel,
     CHIP, chipFor,
     api, getOrThrow, me, signIn, logout, submit,
-    bridgePing, bridgeGetRecord,
+    bridgePing, bridgeGetRecord, bridgeGrantTournamentSync, bridgeRevokeTournamentSync,
     readSnapshot, writeSnapshot, deltaCell,
     skeleton, empty, errorState,
     scoreTerms, formulaHtml, badgeChips, countUp,

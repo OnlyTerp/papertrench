@@ -229,9 +229,12 @@ fraud, and must not publicly brand a named person a cheat.
 
 ## Getting the record to the server
 
-The record reaches the site two ways, both user-initiated: a JSON export
-from the dashboard, or the site's Sync button asking the extension over
+The record reaches the site manually in two ways: a JSON export from the
+dashboard, or the site's Sync button asking the extension over
 `externally_connectable` — which the extension answers only for
 papertrench.com and only when the dashboard's **Site sync** toggle is on
-(off by default). The extension still never initiates a network call to
-any PaperTrench server.
+(off by default). Tournament entrants have a separate, optional join-time
+auto-sync grant: a 30-day token scoped to the verified-chain submit and the
+caller's tournament-seat read. With that grant only, the extension sends a
+changed chain head every five minutes and after each cut. No grant means no
+tournament mine/submit requests.

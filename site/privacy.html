@@ -70,10 +70,10 @@
 
   <div class="wrap-read post-body">
 
-    <p class="post-lede">The short version: your <strong>paper wallet, trades and journal stay in your browser's local storage</strong>, and the extension never uploads them on its own. To price the coins you trade, the extension asks public price services <strong>and our own price service</strong> for quotes. Our server <strong>logs the requests it receives</strong> and keeps those logs for up to 7 days to find bugs and abuse. The website uses <strong>cookieless Cloudflare Web Analytics</strong>. The leaderboard only receives what you choose to submit there.</p>
+    <p class="post-lede">The short version: your <strong>paper wallet, trades and journal stay in your browser's local storage</strong>. The extension never sends your record by default. If you turn on Tournament sync when joining a tournament, it sends the same verified trade chain to our server while you hold a live seat. To price the coins you trade, the extension asks public price services <strong>and our own price service</strong> for quotes. Our server <strong>logs the requests it receives</strong> and keeps those logs for up to 7 days to find bugs and abuse. The website uses <strong>cookieless Cloudflare Web Analytics</strong>.</p>
 
     <h2>What the extension stores, and where</h2>
-    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> - local storage inside your Chrome profile. The extension does not upload any of it on its own. Using the extension requires no account and no sign-up.</p>
+    <p>Your paper wallet, settings, trade journal, session replays, verification chain, X-Ray ledger, and (if you enable them) capture frames and screen recordings are kept in <code>chrome.storage.local</code> - local storage inside your Chrome profile. Nothing is submitted by default. Tournament sync sends only the verified chain after you explicitly turn it on when joining. Using the extension for paper trading still requires no account and no sign-up.</p>
     <p>API keys you add (AI coach, Forge) are stored locally and sent only to the endpoint you configured.</p>
 
     <h2>Network requests the extension makes</h2>
@@ -92,11 +92,12 @@
     <p><strong>Only when you use the feature:</strong></p>
     <ul>
       <li><strong>Daily Spark</strong> - fetches the day's puzzle from our server; grading sends the puzzle day, its token address and your moves, with no account attached.</li>
+      <li><strong>Tournament sync</strong> - only after you turn it on when joining a tournament. While you hold a live seat, the extension sends your verified trade record to our server every few minutes and after each cut, using a token scoped to sync only. The plaintext is returned once and the server stores only its SHA-256 hash. The token stays in local extension storage, is not in wallet backups or debug reports, and expires after 30 days. The dashboard removes the local grant; the tournament page revokes server tokens and the local grant. Sync requests omit cookies.</li>
       <li><strong>Leaderboard tab</strong> - after you link an X account <em>and</em> switch on Site sync, the dashboard reads the public standings from our server. No account or cookie is sent.</li>
       <li><strong>AI coach and Forge</strong> - prompts go only to the endpoint you configured, with your own key.</li>
       <li><strong>X's public oEmbed endpoint</strong> (hover preview cards, opt-in) - called with <code>dnt=1</code>, no cookies and no login, only for post links you hover on a trading site.</li>
     </ul>
-    <p>None of these requests carry your journal, your theses, your balance or your trade history. Your trading record reaches our server only in the ways the leaderboard section below describes.</p>
+    <p>Price, puzzle and leaderboard-read requests do not carry your journal or trade history. A manual leaderboard submission or opted-in Tournament sync does carry the committed fill chain so the server can verify it; it does not carry journal text, theses, replays or recordings.</p>
 
     <h2>What our server logs</h2>
     <p>Our API runs on Cloudflare Workers with logging switched on. Each request it receives - price lookups from the extension, Daily Spark, and everything the website sends - is logged with its time, the request URL (for a price lookup, that includes the token addresses and chain), the response, and the metadata Cloudflare attaches to requests, which can include your IP address and approximate location. We use these logs to find and fix bugs and to stop abuse. They are kept for up to 7 days, are not sold or shared, and are not used for advertising.</p>
@@ -104,14 +105,15 @@
     <h2>The website</h2>
     <p>papertrench.com uses <strong>Cloudflare Web Analytics</strong>, which counts page views without cookies or cross-site tracking (it sees things like the page, referrer, browser type and country). Signing in with X sets one session cookie, used only to keep you signed in.</p>
 
-    <h2>The leaderboard (optional, website-only)</h2>
-    <p>papertrench.com offers an optional leaderboard operated on our own server. Nothing about it is automatic:</p>
+    <h2>The leaderboard and tournament sync (optional)</h2>
+    <p>papertrench.com offers public standings recomputed from verified chains. Manual leaderboard submission and automatic tournament sync are separate opt-ins:</p>
     <ul>
-      <li><strong>It only receives what you submit.</strong> Your record reaches the server in exactly two ways: you upload the file you exported from the dashboard, or you click <em>Sync</em> on the leaderboard page. Sync asks the extension for your record; the extension answers only if you enabled <em>Site sync</em> in the dashboard (off by default), only for papertrench.com, and it never initiates anything on its own.</li>
-      <li><strong>What a submission contains:</strong> your committed fill chain (token mints, sides, quantities, prices, timestamps, hashes), your declared starting bankroll, and your claimed summary stats. That is the whole payload - no journal text, no theses, no replays, no recordings, no browsing data.</li>
-      <li><strong>Signing in</strong> uses X (Twitter) OAuth. We store your X account id, handle, display name, and avatar URL - nothing else from your X account, and no posting rights are requested.</li>
-      <li><strong>What becomes public:</strong> your handle, avatar, verification status, and the statistics derived from your submitted chain appear on public standings and your public profile page.</li>
-      <li><strong>Deletion is self-serve:</strong> "delete my data" on the leaderboard page removes your account, record, submissions, and sprint history from the server immediately. Your local extension data is never touched by this - it was never on the server's side to begin with.</li>
+      <li><strong>Manual leaderboard submission:</strong> upload the file exported from the dashboard, or click <em>Sync</em> on the leaderboard page. Sync asks the extension for your record; it answers only if you enabled <em>Site sync</em> in the dashboard, only for papertrench.com. This manual path is never initiated by the extension.</li>
+      <li><strong>Tournament sync:</strong> after you choose <em>Turn on auto-sync</em> when joining a tournament, the extension holds a 30-day token scoped only to syncing. While you hold a live seat it asks our server which seats are active and sends the same verified chain every few minutes and after each round boundary. Requests omit cookies. Turn sync off in the dashboard to remove the local grant, or on the tournament page to revoke the server tokens and local grant.</li>
+      <li><strong>What a submission contains:</strong> your committed fill chain (token mints, sides, quantities, prices, timestamps, hashes), your declared starting bankroll, and your claimed summary stats. That is the whole payload — no journal text, theses, replays, recordings or browsing data.</li>
+      <li><strong>Signing in</strong> uses X (Twitter) OAuth. We store your X account id, handle, display name and avatar URL — nothing else from your X account, and no posting rights are requested.</li>
+      <li><strong>What becomes public:</strong> your current handle and avatar, verification status, and statistics derived from submitted chains. Frozen tournament cut records contain user IDs and verified figures, not frozen handles; a deleted account is shown as <em>deleted trader</em> and the settled standings hash remains unchanged.</li>
+      <li><strong>Deletion is self-serve:</strong> “delete my data” on the leaderboard page revokes your sync tokens and removes your account, record, submissions, sprint history, and tournament seats and current entries. Settled tournament hashes remain as ID-only evidence; your local wallet is not changed.</li>
     </ul>
 
     <h2>Streamer applications</h2>
@@ -129,6 +131,7 @@
     <h2>Changes to this policy</h2>
     <p>If a future version changes any of the above, this page will say so before that version ships, and the change will be visible in the open-source history like everything else.</p>
     <p><strong>September 22, 2026:</strong> added our price service (in use since v3.22.0 on September 10), the update check, Daily Spark, venue APIs, server request logs, the website's cookieless analytics, and streamer applications. The previous version of this page said the extension never contacts our server; that stopped being true with v3.22.0.</p>
+    <p><strong>September 23, 2026:</strong> documented Tournament sync, an optional join-time grant that sends the verified chain while you hold a live seat. The manual leaderboard Sync remains separately opt-in.</p>
 
     <h2>Contact</h2>
     <p>Questions: open an issue on <a href="https://github.com/OnlyTerp/papertrench/issues" target="_blank" rel="noopener">GitHub</a>.</p>

@@ -15,6 +15,21 @@ CREATE TABLE IF NOT EXISTS users (
   last_login_at INTEGER NOT NULL
 );
 
+-- Scoped extension credentials are stored as a SHA-256 digest only. The
+-- plaintext token is returned once at mint time and cannot authenticate any
+-- route outside tournament synchronization.
+CREATE TABLE IF NOT EXISTS sync_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL CHECK(scope = 'tournament-sync'),
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  last_used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_sync_tokens_user ON sync_tokens(user_id, created_at DESC);
+
 -- One ranked record per identity (LEADERBOARD.md rule 4). The stored head is
 -- the anti-replacement anchor: the next submission must extend it.
 CREATE TABLE IF NOT EXISTS records (
@@ -374,7 +389,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  creator_id INTEGER NOT NULL REFERENCES users(id),
+  creator_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'open',  -- open | live | done | cancelled
   field_size INTEGER NOT NULL,          -- seats; join refuses past this
   start_stack_sol REAL NOT NULL,        -- the paper stack every entrant begins on
@@ -389,7 +404,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   ended_at INTEGER,
-  winner_user_id INTEGER REFERENCES users(id)  -- the last name standing, once done
+  winner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL  -- anonymized on account erasure
 );
 CREATE INDEX IF NOT EXISTS idx_tournaments_status
   ON tournaments(status, created_at DESC);

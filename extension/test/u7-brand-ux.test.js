@@ -1,12 +1,11 @@
 /* U7 — brand mark, settings grouping, and the leaderboard onboarding gate.
  *
- * The gate tests are the load-bearing ones. This change introduces the FIRST
- * request the extension makes to papertrench's own server, against a privacy
- * page that says in two places that the extension "never phones home". What
- * keeps that true is the fence: the board is fetched only after the user has
- * linked an identity and switched Site sync on. A refactor that renders the
- * live card one step early, or calls the fetch from boot, breaks a published
- * promise rather than a layout — so it is asserted here rather than trusted.
+ * The public-board request remains fenced until the user has linked an
+ * identity and enabled manual Site sync. Tournament auto-sync is a separate
+ * join-time grant and its two scoped API routes are covered by its own tests.
+ * A refactor that renders the public live card early or calls its fetch from
+ * boot breaks the privacy boundary, so the fence is asserted rather than
+ * trusted.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -60,10 +60,9 @@ $('sharelogs').addEventListener('click', shareDebugLogs);
  * ring and the active tab's content-script ring — separate worlds, separate
  * buffers), plus enough environment to reproduce: version, site, and the
  * live chip diagnostics that carry hideReason for every quick-buy chip.
- * Everything was redacted AT RECORD TIME (errors.js strips keys, tokens and
- * addresses before storage), so this report is safe by construction, not by
- * an export-time scrub that could miss a new field. Nothing is transmitted
- * anywhere: the user IS the transport. */
+ * Errors are redacted at record time, and the finished JSON gets a final
+ * tournament-token scrub before it reaches the clipboard. Nothing is
+ * transmitted anywhere: the user IS the transport. */
 async function shareDebugLogs() {
   const btn = $('sharelogs');
   const original = btn.textContent;
@@ -108,7 +107,8 @@ async function shareDebugLogs() {
         } catch (_) { /* no content script on this tab */ }
       }
     } catch (_) { /* tabs query denied: report still carries the worker half */ }
-    const text = JSON.stringify(report, null, 1);
+    const text = JSON.stringify(report, null, 1)
+      .replace(/\bptsync_[0-9a-f]{64}\b/gi, '[REDACTED_TOKEN]');
     await navigator.clipboard.writeText(text);
     const n = report.errors.background.length + report.errors.content.length;
     btn.textContent = `✓ Copied (${n} error${n === 1 ? '' : 's'}) — paste in Discord`;
@@ -942,6 +942,7 @@ function escapeHtml(s) {
  * snapshot carries every storage key, versioned so future formats can be
  * migrated on import.
  */
+// Explicit wallet allowlist: scoped server-sync grants/state never leave local storage.
 const BACKUP_KEYS = ['pt_state', 'pt_settings', 'pt_frames', 'pt_replays'];
 
 async function backupWallet() {

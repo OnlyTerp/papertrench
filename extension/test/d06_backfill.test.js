@@ -196,8 +196,10 @@ test('D-56: overlay carries the derived-anchor layer', () => {
 test('D-56: background bridge denominates the chain replay on the derived birth', () => {
   const src = read('background.js');
   assert.match(src, /function derivedBirthAnchor\(state\)/);
-  // bridgeRecord: snapshot → derived → setting, in that order.
-  assert.match(src, /const start = \(Number\(state\.startSol\) \|\| 0\) > 0[\s\S]{0,200}?derivedBirthAnchor\(state\) > 0[\s\S]{0,200}?derivedBirthAnchor\(state\)[\s\S]{0,200}?settings\.balanceStartSol/s);
+  // The shared Site-sync/auto-sync payload builder uses snapshot → derived → setting.
+  assert.match(src, /const start = \(Number\(state\.startSol\) \|\| 0\) > 0[\s\S]{0,200}?derivedBirthAnchor\(state\) > 0[\s\S]{0,200}?derivedBirthAnchor\(state\)[\s\S]{0,200}?activeSettings\.balanceStartSol/s);
+  assert.match(src, /async function bridgeRecord\(\)[\s\S]{0,180}?return buildSubmissionPayload\(settings\)/,
+    'manual Site sync reuses the shared chain payload builder');
 });
 
 test('D-56: content.js + dashboard.js persist the backfill on first load', () => {

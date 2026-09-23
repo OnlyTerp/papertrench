@@ -3149,16 +3149,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
+      case 'pt_tournament_sync_grant': {
+        if (!senderOnBridgeOrigin(sender)) { sendResponse({ ok: false, reason: 'origin-not-allowed' }); break; }
+        sendResponse(await grantTournamentSync(message.token));
+        break;
+      }
+
+      case 'pt_tournament_sync_revoke': {
+        if (!senderOnBridgeOrigin(sender)) { sendResponse({ ok: false, reason: 'origin-not-allowed' }); break; }
+        sendResponse(await clearLocalTournamentSync());
+        break;
+      }
+
       case 'pt_bridge_ping': {
         if (!senderOnBridgeOrigin(sender)) { sendResponse({ ok: false, reason: 'origin-not-allowed' }); break; }
-        // The wallet rides on the ping so the site can show a balance without
-        // a second round trip — and ONLY when Site sync is on, which is the
-        // same consent gate the record itself sits behind. With it off this
-        // stays exactly what it was: a yes/no about the extension existing.
+        // The wallet rides on the ping only when the separate manual Site-sync
+        // toggle is on. Tournament sync reports presence/timing only — never
+        // the token — and is independently gated by the join-time grant.
         sendResponse({
           ok: true,
           bridgeEnabled: settings.leaderboardBridge === true,
           wallet: settings.leaderboardBridge === true ? await bridgeWallet() : null,
+          tournamentSync: await tournamentSyncStatus(),
         });
         break;
       }
@@ -3734,9 +3746,11 @@ async function reinjectOpenTabs(reason) {
 
 chrome.runtime.onStartup.addListener(() => {
   refreshFrameInterval().catch(() => {});
+  refreshTournamentSyncAlarms().catch(() => {});
 });
 chrome.runtime.onInstalled.addListener((details) => {
   refreshFrameInterval().catch(() => {});
+  refreshTournamentSyncAlarms().catch(() => {});
   // F-14: move a legacy in-state chain out at update time, not lazily on the
   // next fill — deterministic for the install, free for every later wake.
   attestSerial(ensureAttestMigratedLocked).catch(() => {});
@@ -3851,6 +3865,10 @@ if (chrome.alarms && typeof chrome.alarms.onAlarm === 'object' && chrome.alarms.
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm && alarm.name === 'pt_update_check') runUpdateCheck().catch(() => {});
     if (alarm && alarm.name === 'pt_pending_buy_sweep') sweepPendingBuys().catch(() => {});
+    if (alarm && (alarm.name === TOURNAMENT_SYNC_ALARM
+      || String(alarm.name || '').startsWith(TOURNAMENT_BOUNDARY_PREFIX))) {
+      handleTournamentSyncAlarm(alarm).catch(() => {});
+    }
   });
 }
 
@@ -3881,14 +3899,12 @@ async function sweepPendingBuys() {
 }
 
 /* -------------------- site bridge (leaderboard sync) --------------------
- * The extension's ONLY external surface, and it is answer-only: the site
- * (allow-listed in manifest.json's externally_connectable) asks, on a user
- * click over there, and this listener replies. Nothing here initiates a
- * connection, fetches, or pushes — the no-phone-home doctrine survives the
- * leaderboard. Gate: the dashboard's "Site sync" toggle
- * (settings.leaderboardBridge), off by default. The payload is the same
- * buildSubmission() JSON the manual export produces, so both hand-off paths
- * are byte-equivalent evidence. */
+ * The external surface is limited to papertrench.com in manifest.json and is
+ * re-checked by senderOnBridgeOrigin. Manual Site sync remains answer-only
+ * behind settings.leaderboardBridge. Tournament auto-sync is a separate
+ * explicit join-time grant: it stores a scoped token locally, then schedules
+ * only /api/tournament/mine and /api/submit while that grant exists. Both
+ * paths use the same buildSubmissionPayload/AT.buildSubmission chain payload. */
 
 const BRIDGE_ORIGINS = new Set(['https://papertrench.com', 'https://www.papertrench.com']);
 
@@ -3986,9 +4002,8 @@ async function bridgeWallet() {
     marked: open === 0 || held > 0,
   };
 }
-async function bridgeRecord() {
-  const settings = await getSettings();
-  if (!settings.leaderboardBridge) return { ok: false, reason: 'bridge-disabled' };
+async function buildSubmissionPayload(settings = null) {
+  const activeSettings = settings || await getSettings();
   const { chain } = await AT.readChainStore(attestGet);
   if (!chain.length) return { ok: false, reason: 'chain-empty' };
   // D-06: the chain replay denominates on the wallet's birth balance — the
@@ -4001,33 +4016,401 @@ async function bridgeRecord() {
   // Re-derive the birth from the journal (same identity as
   // engine.derivedBirthSol: equity − open P&L − Σ per-fill steps) and trust
   // it before the setting. The derivation is stable across fills, so the
-  // bridge and the local display agree even before a tab persists the
-  // backfill.
+  // bridge and local replay use the same denominator.
   const state = (await getState()) || {};
   const start = (Number(state.startSol) || 0) > 0
     ? Number(state.startSol)
     : (derivedBirthAnchor(state) > 0
       ? derivedBirthAnchor(state)
-      : (Number(settings.balanceStartSol) || 0));
-  // The claim mirrors the chain-derived replay on purpose: the server ranks
-  // on its own replay anyway, and a bridge claim that disagreed with the
-  // chain would only flag honest users whose local display drifted.
+      : (Number(activeSettings.balanceStartSol) || 0));
   const replayed = AT.replayChain(chain, start);
+  const payload = AT.buildSubmission({
+    chain,
+    identity: activeSettings.leaderboardIdentity || null,
+    startingBalanceSol: start,
+    stats: {
+      equitySol: replayed.cashSol,
+      realizedPnlSol: replayed.realizedPnlSol,
+      rounds: replayed.rounds,
+      wins: replayed.wins,
+      losses: replayed.losses,
+    },
+  });
+  return { ok: true, payload, head: payload.head };
+}
+
+async function bridgeRecord() {
+  const settings = await getSettings();
+  if (!settings.leaderboardBridge) return { ok: false, reason: 'bridge-disabled' };
+  return buildSubmissionPayload(settings);
+}
+
+const TOURNAMENT_SYNC_GRANT_KEY = 'pt_tournament_sync_grant';
+const TOURNAMENT_SYNC_STATE_KEY = 'pt_tournament_sync_state';
+const TOURNAMENT_SYNC_ALARM = 'pt_tournament_sync';
+const TOURNAMENT_SYNC_PERIOD_MINUTES = 5;
+const TOURNAMENT_SYNC_GRACE_MS = 15 * 60 * 1000;
+const TOURNAMENT_BOUNDARY_OFFSETS = [30_000, 3 * 60_000, 8 * 60_000];
+const TOURNAMENT_BOUNDARY_PREFIX = 'pt_tournament_cut_';
+const TOURNAMENT_SYNC_TOKEN_RE = /^ptsync_[0-9a-f]{64}$/;
+let tournamentSyncQueue = Promise.resolve();
+
+function emptyTournamentSyncState() {
   return {
-    ok: true,
-    payload: AT.buildSubmission({
-      chain,
-      identity: settings.leaderboardIdentity || null,
-      startingBalanceSol: start,
-      stats: {
-        equitySol: replayed.cashSol,
-        realizedPnlSol: replayed.realizedPnlSol,
-        rounds: replayed.rounds,
-        wins: replayed.wins,
-        losses: replayed.losses,
-      },
-    }),
+    lastSubmittedHead: null,
+    lastSubmitAt: null,
+    lastResult: null,
+    nextBoundaryTs: null,
+    serverTimeOffsetMs: 0,
+    boundaries: {},
   };
+}
+
+function normalizeTournamentSyncState(value) {
+  const state = value && typeof value === 'object' ? value : {};
+  return {
+    lastSubmittedHead: typeof state.lastSubmittedHead === 'string' ? state.lastSubmittedHead : null,
+    lastSubmitAt: Number(state.lastSubmitAt) || null,
+    lastResult: state.lastResult && typeof state.lastResult === 'object' ? state.lastResult : null,
+    nextBoundaryTs: Number(state.nextBoundaryTs) || null,
+    serverTimeOffsetMs: Number(state.serverTimeOffsetMs) || 0,
+    boundaries: state.boundaries && typeof state.boundaries === 'object' ? state.boundaries : {},
+  };
+}
+
+function boundaryKey(tournamentId, boundaryTs) {
+  return String(Number(tournamentId)) + ':' + String(Number(boundaryTs));
+}
+
+function boundaryAlarmName(tournamentId, boundaryTs, offsetMs) {
+  return `${TOURNAMENT_BOUNDARY_PREFIX}${Number(tournamentId)}_${Number(boundaryTs)}_${Number(offsetMs)}`;
+}
+
+function parseBoundaryAlarmName(name) {
+  const match = new RegExp('^' + TOURNAMENT_BOUNDARY_PREFIX + '(\\d+)_(\\d+)_(\\d+)$').exec(String(name || ''));
+  return match ? { tournamentId: Number(match[1]), boundaryTs: Number(match[2]), offsetMs: Number(match[3]) } : null;
+}
+
+async function syncStorageGet() {
+  return chrome.storage.local.get([TOURNAMENT_SYNC_GRANT_KEY, TOURNAMENT_SYNC_STATE_KEY]);
+}
+
+async function saveTournamentSyncState(state) {
+  await chrome.storage.local.set({ [TOURNAMENT_SYNC_STATE_KEY]: state });
+}
+
+async function getAlarm(name) {
+  try {
+    if (!chrome.alarms || typeof chrome.alarms.get !== 'function') return null;
+    return await chrome.alarms.get(name) || null;
+  } catch (_) { return null; }
+}
+
+function createAlarm(name, info) {
+  try {
+    const result = chrome.alarms && chrome.alarms.create(name, info);
+    if (result && typeof result.catch === 'function') result.catch(() => {});
+  } catch (_) { /* alarms are opportunistic; the next grant/startup retries */ }
+}
+
+async function clearAlarm(name) {
+  try { if (chrome.alarms && typeof chrome.alarms.clear === 'function') await chrome.alarms.clear(name); } catch (_) {}
+}
+
+async function clearTournamentSyncAlarms(state) {
+  await clearAlarm(TOURNAMENT_SYNC_ALARM);
+  const all = await new Promise((resolve) => {
+    try {
+      if (!chrome.alarms || typeof chrome.alarms.getAll !== 'function') { resolve([]); return; }
+      const result = chrome.alarms.getAll((alarms) => resolve(alarms || []));
+      if (result && typeof result.then === 'function') result.then((alarms) => resolve(alarms || []), () => resolve([]));
+    } catch (_) { resolve([]); }
+  });
+  for (const alarm of all) {
+    if (alarm && String(alarm.name || '').startsWith(TOURNAMENT_BOUNDARY_PREFIX)) {
+      await clearAlarm(alarm.name);
+    }
+  }
+  for (const key of Object.keys((state && state.boundaries) || {})) {
+    const [tournamentId, boundaryTs] = key.split(':').map(Number);
+    for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+      await clearAlarm(boundaryAlarmName(tournamentId, boundaryTs, offset));
+    }
+  }
+}
+
+async function refreshTournamentSyncAlarms() {
+  const stored = await syncStorageGet();
+  const state = normalizeTournamentSyncState(stored[TOURNAMENT_SYNC_STATE_KEY]);
+  const grant = stored[TOURNAMENT_SYNC_GRANT_KEY];
+  if (!grant || !TOURNAMENT_SYNC_TOKEN_RE.test(String(grant.token || ''))) {
+    await clearTournamentSyncAlarms(state);
+    return false;
+  }
+  createAlarm(TOURNAMENT_SYNC_ALARM, { periodInMinutes: TOURNAMENT_SYNC_PERIOD_MINUTES });
+  for (const key of Object.keys(state.boundaries)) {
+    const [tournamentId, boundaryTs] = key.split(':').map(Number);
+    const progress = state.boundaries[key] || {};
+    for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+      if (!(progress.attemptedOffsets || []).includes(offset)) {
+        const name = boundaryAlarmName(tournamentId, boundaryTs, offset);
+        if (!(await getAlarm(name))) {
+          const when = Math.max(Date.now() + 1000, boundaryTs + offset - state.serverTimeOffsetMs);
+          createAlarm(name, { when });
+        }
+      }
+    }
+  }
+  return true;
+}
+
+async function scheduleTournamentBoundaryAlarms(seats, state, serverNow) {
+  const activeKeys = new Set();
+  let overdueScheduled = false;
+  for (const seat of seats) {
+    const tournamentId = Number(seat.id);
+    const boundaryTs = Number(seat.nextBoundaryTs);
+    if (!(tournamentId > 0) || !(boundaryTs > 0)) continue;
+    const key = boundaryKey(tournamentId, boundaryTs);
+    activeKeys.add(key);
+    if (Number(seat.lastSubmittedAt) >= boundaryTs) {
+      for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+        await clearAlarm(boundaryAlarmName(tournamentId, boundaryTs, offset));
+      }
+      delete state.boundaries[key];
+      continue;
+    }
+    const progress = state.boundaries[key] || { attemptedOffsets: [] };
+    progress.attemptedOffsets = Array.isArray(progress.attemptedOffsets)
+      ? progress.attemptedOffsets : [];
+    state.boundaries[key] = progress;
+    for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+      if (progress.attemptedOffsets.includes(offset)) continue;
+      const name = boundaryAlarmName(tournamentId, boundaryTs, offset);
+      if (await getAlarm(name)) continue;
+      const scheduledTime = boundaryTs + offset - state.serverTimeOffsetMs;
+      let when = scheduledTime;
+      if (scheduledTime <= Date.now() + 1000) {
+        if (overdueScheduled || serverNow >= boundaryTs + TOURNAMENT_SYNC_GRACE_MS) continue;
+        when = Date.now() + 1000;
+        overdueScheduled = true;
+      }
+      createAlarm(name, { when });
+    }
+  }
+  for (const key of Object.keys(state.boundaries)) {
+    if (activeKeys.has(key)) continue;
+    const [tournamentId, boundaryTs] = key.split(':').map(Number);
+    for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+      await clearAlarm(boundaryAlarmName(tournamentId, boundaryTs, offset));
+    }
+    delete state.boundaries[key];
+  }
+}
+
+async function removeTournamentSyncGrant(reason) {
+  const stored = await syncStorageGet();
+  const state = normalizeTournamentSyncState(stored[TOURNAMENT_SYNC_STATE_KEY]);
+  if (reason) state.lastResult = { ok: false, reason, at: Date.now() };
+  await saveTournamentSyncState(state);
+  await chrome.storage.local.remove(TOURNAMENT_SYNC_GRANT_KEY);
+  await clearTournamentSyncAlarms(state);
+}
+
+async function grantTournamentSync(token) {
+  if (typeof token !== 'string' || !TOURNAMENT_SYNC_TOKEN_RE.test(token)) {
+    return { ok: false, reason: 'invalid-token' };
+  }
+  const now = Date.now();
+  try {
+    await chrome.storage.local.set({
+      [TOURNAMENT_SYNC_GRANT_KEY]: { token, grantedAt: now },
+      [TOURNAMENT_SYNC_STATE_KEY]: emptyTournamentSyncState(),
+    });
+    createAlarm(TOURNAMENT_SYNC_ALARM, { periodInMinutes: TOURNAMENT_SYNC_PERIOD_MINUTES });
+    // A user just opted in; catch up the verified chain now instead of making
+    // them wait for the first five-minute alarm.
+    runTournamentSync({ reason: 'grant' }).catch(() => {});
+    return { ok: true };
+  } catch (_) {
+    return { ok: false, reason: 'storage-failed' };
+  }
+}
+
+async function tournamentSyncStatus() {
+  const stored = await syncStorageGet();
+  const grant = stored[TOURNAMENT_SYNC_GRANT_KEY];
+  return {
+    granted: Boolean(grant && TOURNAMENT_SYNC_TOKEN_RE.test(String(grant.token || ''))),
+    grantedAt: Number(grant && grant.grantedAt) || null,
+  };
+}
+
+function runTournamentSync(options = {}) {
+  const run = tournamentSyncQueue.catch(() => {}).then(() => runTournamentSyncOnce(options));
+  tournamentSyncQueue = run.catch(() => {});
+  return run;
+}
+
+async function runTournamentSyncOnce(options = {}) {
+  const stored = await syncStorageGet();
+  const grant = stored[TOURNAMENT_SYNC_GRANT_KEY];
+  if (!grant || !TOURNAMENT_SYNC_TOKEN_RE.test(String(grant.token || ''))) return { ok: false, reason: 'no-grant' };
+  const state = normalizeTournamentSyncState(stored[TOURNAMENT_SYNC_STATE_KEY]);
+  const authHeaders = { Authorization: 'Bearer ' + grant.token, Accept: 'application/json' };
+  let mineResponse;
+  try {
+    mineResponse = await fetch(LB_API + '/api/tournament/mine', {
+      method: 'GET', headers: authHeaders, credentials: 'omit', cache: 'no-store',
+    });
+  } catch (_) {
+    state.lastResult = { ok: false, reason: 'mine-network', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  if (mineResponse.status === 401) {
+    await removeTournamentSyncGrant('unauthorized');
+    return { ok: false, reason: 'unauthorized' };
+  }
+  if (mineResponse.status === 429) {
+    state.lastResult = { ok: false, reason: 'rate-limited', status: 429, at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  if (!mineResponse.ok) {
+    state.lastResult = { ok: false, reason: 'mine-http-' + mineResponse.status, at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const mine = await mineResponse.json().catch(() => null);
+  if (!mine || mine.ok !== true || !Array.isArray(mine.tournaments)) {
+    state.lastResult = { ok: false, reason: 'mine-shape', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const serverNow = Number(mine.serverTime) || Date.now();
+  state.serverTimeOffsetMs = serverNow - Date.now();
+  const liveSeats = mine.tournaments.filter((seat) => seat && seat.status === 'live' && seat.alive === true);
+  const boundaries = liveSeats.map((seat) => Number(seat.nextBoundaryTs)).filter((ts) => ts > 0);
+  state.nextBoundaryTs = boundaries.length ? Math.min(...boundaries) : null;
+  await scheduleTournamentBoundaryAlarms(liveSeats, state, serverNow);
+  if (!liveSeats.length) {
+    state.lastResult = { ok: true, reason: 'no-live-seat', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const activeGrant = await chrome.storage.local.get([TOURNAMENT_SYNC_GRANT_KEY]);
+  if (!activeGrant[TOURNAMENT_SYNC_GRANT_KEY]
+    || activeGrant[TOURNAMENT_SYNC_GRANT_KEY].token !== grant.token) {
+    return { ok: false, reason: 'grant-revoked' };
+  }
+
+  const payloadResult = await buildSubmissionPayload();
+  if (!payloadResult.ok) {
+    state.lastResult = { ok: true, reason: payloadResult.reason || 'no-chain', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const boundary = options.boundary || null;
+  const boundarySeat = boundary && liveSeats.find((seat) => Number(seat.id) === Number(boundary.tournamentId)
+    && Number(seat.nextBoundaryTs) === Number(boundary.boundaryTs));
+  const boundaryDue = Boolean(boundarySeat
+    && serverNow >= Number(boundary.boundaryTs)
+    && serverNow < Number(boundary.boundaryTs) + TOURNAMENT_SYNC_GRACE_MS
+    && Number(boundarySeat.lastSubmittedAt || 0) < Number(boundary.boundaryTs));
+  const headChanged = payloadResult.head !== state.lastSubmittedHead;
+  if (!headChanged && !boundaryDue) {
+    state.lastResult = { ok: true, reason: 'unchanged', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const latestGrant = await chrome.storage.local.get([TOURNAMENT_SYNC_GRANT_KEY]);
+  if (!latestGrant[TOURNAMENT_SYNC_GRANT_KEY]
+    || latestGrant[TOURNAMENT_SYNC_GRANT_KEY].token !== grant.token) {
+    return { ok: false, reason: 'grant-revoked' };
+  }
+
+  let submitResponse;
+  try {
+    submitResponse = await fetch(LB_API + '/api/submit', {
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      credentials: 'omit', cache: 'no-store', body: JSON.stringify(payloadResult.payload),
+    });
+  } catch (_) {
+    state.lastResult = { ok: false, reason: 'submit-network', at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  if (submitResponse.status === 401) {
+    await removeTournamentSyncGrant('unauthorized');
+    return { ok: false, reason: 'unauthorized' };
+  }
+  if (submitResponse.status === 429) {
+    state.lastResult = { ok: false, reason: 'rate-limited', status: 429, at: Date.now() };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  const result = await submitResponse.json().catch(() => null);
+  if (!submitResponse.ok || !result || result.ok !== true) {
+    state.lastResult = {
+      ok: false, reason: (result && result.reason) || 'submit-http-' + submitResponse.status,
+      status: submitResponse.status, at: Date.now(),
+    };
+    await saveTournamentSyncState(state);
+    return state.lastResult;
+  }
+  state.lastSubmittedHead = payloadResult.head;
+  state.lastSubmitAt = Number(result.submittedAt) || serverNow;
+  state.lastResult = {
+    ok: true, status: submitResponse.status, duplicate: Boolean(result.duplicate), at: Date.now(),
+  };
+  for (const seat of liveSeats) {
+    const boundaryTs = Number(seat.nextBoundaryTs);
+    if (boundaryTs > 0 && boundaryTs <= serverNow) {
+      const key = boundaryKey(seat.id, boundaryTs);
+      for (const offset of TOURNAMENT_BOUNDARY_OFFSETS) {
+        await clearAlarm(boundaryAlarmName(seat.id, boundaryTs, offset));
+      }
+      delete state.boundaries[key];
+    }
+  }
+  await saveTournamentSyncState(state);
+  return state.lastResult;
+}
+
+async function handleTournamentSyncAlarm(alarm) {
+  if (!alarm || typeof alarm.name !== 'string') return;
+  if (alarm.name === TOURNAMENT_SYNC_ALARM) {
+    runTournamentSync({ reason: 'periodic' }).catch(() => {});
+    return;
+  }
+  const boundary = parseBoundaryAlarmName(alarm.name);
+  if (!boundary) return;
+  const stored = await syncStorageGet();
+  const state = normalizeTournamentSyncState(stored[TOURNAMENT_SYNC_STATE_KEY]);
+  const key = boundaryKey(boundary.tournamentId, boundary.boundaryTs);
+  const progress = state.boundaries[key] || { attemptedOffsets: [] };
+  progress.attemptedOffsets = Array.isArray(progress.attemptedOffsets) ? progress.attemptedOffsets : [];
+  if (!progress.attemptedOffsets.includes(boundary.offsetMs)) progress.attemptedOffsets.push(boundary.offsetMs);
+  state.boundaries[key] = progress;
+  await saveTournamentSyncState(state);
+  runTournamentSync({ reason: 'boundary', boundary }).catch(() => {});
+}
+
+async function clearLocalTournamentSync() {
+  const stored = await syncStorageGet();
+  const state = normalizeTournamentSyncState(stored[TOURNAMENT_SYNC_STATE_KEY]);
+  await chrome.storage.local.remove([TOURNAMENT_SYNC_GRANT_KEY, TOURNAMENT_SYNC_STATE_KEY]);
+  await clearTournamentSyncAlarms(state);
+  return { ok: true };
+}
+
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes[TOURNAMENT_SYNC_GRANT_KEY]) return;
+    refreshTournamentSyncAlarms().catch(() => {});
+  });
 }
 
 if (chrome.runtime.onMessageExternal) {
@@ -4044,9 +4427,16 @@ if (chrome.runtime.onMessageExternal) {
         // the toggle state, nothing else.
         case 'pt_bridge_ping': {
           const settings = await getSettings();
-          sendResponse({ ok: true, bridgeEnabled: settings.leaderboardBridge === true });
+          sendResponse({ ok: true, bridgeEnabled: settings.leaderboardBridge === true,
+            tournamentSync: await tournamentSyncStatus() });
           break;
         }
+        case 'pt_tournament_sync_grant':
+          sendResponse(await grantTournamentSync(message.token));
+          break;
+        case 'pt_tournament_sync_revoke':
+          sendResponse(await clearLocalTournamentSync());
+          break;
         case 'pt_bridge_get_record':
           sendResponse(await bridgeRecord());
           break;

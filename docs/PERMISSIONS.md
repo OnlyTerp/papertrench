@@ -11,7 +11,7 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
 | `offscreen` | Optional screen recording uses an offscreen document for `getDisplayMedia` — MV3 service workers cannot record directly. Only created when you start a recording. |
 | `tabs` | Two uses: capturing a snapshot frame of the trading tab (only the tab that traded, only when frames are enabled), and broadcasting settings/recording status to open trading tabs. |
 | `activeTab` | Popup interactions with the current tab (overlay toggle). |
-| `alarms` | Two named wakes, nothing else. **(1) `pt_update_check`** — twice a day the service worker asks GitHub's releases API whether a newer build exists, so the dashboard and panel can show an update banner (unpacked installs never auto-update; without this users traded for days on stale builds). Sends nothing but that one GET; fully disable-able via Settings → "Check for new versions". **(2) `pt_pending_buy_sweep`** — once a day, releases SOL locked by armed limit buys whose 24h TTL expired on coins whose tab never reopened. No polling of any market, venue, or third party happens on either wake. |
+| `alarms` | Named wakes only. **(1) `pt_update_check`** — every six hours the service worker asks GitHub's releases API whether a newer build exists; disable-able in Settings. **(2) `pt_pending_buy_sweep`** — twice a day, releases SOL locked by expired armed limit buys. **(3) `pt_tournament_sync`** — every five minutes only while a join-time tournament-sync grant exists; it calls `/api/tournament/mine` and submits only a changed chain head. One-shot cut alarms fire at +30s, +3m and +8m inside the 15-minute grace, and are cleared after acceptance or revocation. With no grant there are zero tournament mine/submit requests. |
 | `scripting` | Two uses. **(1) Opt-in Instant Links.** The "Instant links on Discord / Telegram / every site" toggles (all off by default) register the small link-interceptor bundle on those sites at runtime. Nothing is ever registered while the toggles are off, and turning one off unregisters it. Runtime registration is why the manifest's own content scripts can STAY narrow (the O-09 property) while the user can still opt sites in. **(2) Recovery after an update.** Chrome does not re-inject content scripts into tabs that were already open when an extension updates or reloads, which leaves those tabs running a disconnected copy — the overlay is gone until the user happens to reload the page. On install/update PaperTrench therefore re-runs *the manifest's own* content scripts, in tabs the manifest *already* matches, and only where the resident copy proves it is dead. This use registers nothing persistent, adds no host, reaches no site the manifest does not already list, and touches only the ISOLATED-world entries; it restores what Chrome dropped rather than extending where we run. |
 | `sidePanel` | Shows the docked PaperTrench desk (panel.html) next to whatever tab you're on: your active round, discipline streaks, and the After feed (what a coin did after you exited). Opened only by your click on "Open desk (side panel)" in the popup or from the panel's own dashboard link; reads the same local `chrome.storage` as the popup — no new hosts, no network calls, no content scripts. |
 
@@ -60,18 +60,14 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
   frontend host is free to change or rate-limit on its own schedule, and one
   Hyperliquid host is one thing to reason about instead of two.
 - **papertrench.com / www.papertrench.com (site relay).** One small content
-  script (`site-bridge.js`) loads on our own website, and nowhere else, to
-  close the account-linking loop: after you sign in with X on
-  papertrench.com, the page hands your handle to the extension so the
-  dashboard's "Linked account" chip can go green — the direction that keeps
-  the extension from ever calling a server itself. The same script relays
-  the leaderboard's two existing Sync requests (install ping and, only when
-  the off-by-default "Site sync" toggle is on, the signed record export),
-  because unpacked installs have machine-specific ids the site cannot
-  message directly. The relayed request set is closed and enforced by test:
-  nothing else crosses, in either direction, and the background re-checks
-  the sender's origin so no other site the extension runs on can use these
-  message types.
+  script (`site-bridge.js`) runs only on our website. It relays the existing
+  manual Site-sync requests, and the explicit tournament-sync grant/revoke
+  hand-off, because unpacked installs have machine-specific IDs the site
+  cannot message directly. The page may grant a 30-day token only after the
+  user opts in on a tournament; the token is stored in `chrome.storage.local`,
+  never synced, exported or placed in the debug report. The closed relay op
+  set and same-origin checks are tested, and the background re-checks every
+  sender URL so no other site can grant or revoke sync.
 - **Forge (v3.0.0).** The banner generator runs inside the dex upload boxes
   on sites already listed above and adds NO new host or API permission: it
   reads the page's own size hints and sets a file on the page's existing
@@ -130,34 +126,27 @@ Kept current for Chrome Web Store review and for anyone auditing the source.
 
 ## What PaperTrench never does
 
-- **No uploading your trading data on its own initiative.** Wallet, journal,
-  theses, replays and recordings stay local. The network calls are: our own
-  price service (`papertrench-api.onerobby.workers.dev/api/quote`, since
-  v3.22 — token addresses + chain, no account, no cookies; the server keeps
-  request logs, including Cloudflare's IP/location metadata, for up to 7
-  days), public price APIs (Dexscreener, Jupiter), public Solana RPC, the
-  venue's own API on Hyperliquid, Polymarket, Kalshi and Limitless pages,
-  a GitHub release check (`api.github.com`, up to twice a day, can be
-  switched off), Daily Spark puzzles and grading from our server when you
-  play, the public leaderboard read once you have linked X and enabled Site
-  sync, endpoints you configured yourself, and — only when you enable the
-  opt-in hover preview cards — X's public oEmbed endpoint
-  (`publish.twitter.com/oembed`), called with `dnt=1` (do-not-track), no
-  cookies and no login, only for post links you hover on a trading site,
-  cached so each post is fetched at most once per session.
-- **The leaderboard server is a separate, opt-in thing — and it is in this
-  repo.** `server/` is the Arena verifier: it takes a chain you choose to
-  submit and recomputes your standing from it, because a leaderboard that
-  trusts a number the client displays is not a leaderboard
-  (`docs/LEADERBOARD.md`). It is worth stating exactly where the boundary is:
-  - The extension never sends your record to it. `papertrench.com` can *ask* the extension
-    for your verified record when you click Sync on that page, and only if you
-    turn on **Site sync** in settings, which ships off. `externally_connectable`
-    restricts who may ask to `papertrench.com` alone; no other origin can.
-    With it off, the hand-off is a file you export and carry yourself.
+- **No unrequested trading-data uploads.** Wallet, journal, theses, replays
+  and recordings stay local by default. Network calls include our quote service
+  (`papertrench-api.onerobby.workers.dev/api/quote`, token addresses + chain,
+  no account/cookies; server request logs may include URL/IP metadata and are
+  kept for up to 7 days); public price APIs and Solana RPC; venue APIs on their
+  own pages; opt-out GitHub release checks; Daily Spark when played; configured
+  AI/private-RPC endpoints; and opted-in X oEmbed previews.
+- **The leaderboard server is optional and verified.** `server/` recomputes
+  standings from submitted chains, never a client amount (`docs/LEADERBOARD.md`).
+  - Manual Sync asks the extension for the chain only after **Site sync** is
+    enabled and the user clicks on papertrench.com; otherwise export a file.
+  - Tournament auto-sync is a separate join-time consent. With a live seat,
+    the extension sends the verified chain every five minutes and after cuts,
+    using a 30-day token scoped to `/api/submit` and `/api/tournament/mine`.
+    The token is local-only, omitted from backup/debug exports, and revoked on
+    the tournament page or when the account is erased. No other origin can ask.
   - Signing in is X OAuth, and the account holds a public handle, a display
     name and an avatar URL — there is no password and no email to breach.
-  - `POST /api/me/delete` erases the account and everything derived from it.
+  - `POST /api/me/delete` erases the account, sync tokens, active tournament
+    seats/entries and mutable history. Settled hashes keep IDs-only facts and
+    render an erased participant as `deleted trader`.
   - Everything the server does with a submitted chain is in `server/core/`,
     runs under `node --test`, and decides nothing the extension has not
     already committed to.

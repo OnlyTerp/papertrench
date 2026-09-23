@@ -307,23 +307,25 @@
     </div>`;
 
   function boardRow(item, index, youHandle, bubbleFrom) {
-    const isYou = youHandle && String(item.handle).toLowerCase() === youHandle.toLowerCase();
+    const deleted = item.deleted === true;
+    const isYou = !deleted && youHandle && String(item.handle).toLowerCase() === youHandle.toLowerCase();
     const bubble = item.alive && bubbleFrom != null && index >= bubbleFrom;
-    return `<a class="ar-row${isYou ? ' is-you' : ''}${bubble ? ' on-the-bubble' : ''}"
-       style="animation-delay:${Math.min(index * 26, 320)}ms"
-       href="/tournament?id=${encodeURIComponent(CODE)}&watch=${encodeURIComponent(item.handle)}"
-       data-handle="${esc(item.handle)}">
+    const tag = deleted ? 'div' : 'a';
+    const link = deleted ? 'aria-label="Deleted trader"' :
+      `href="/tournament?id=${encodeURIComponent(CODE)}&watch=${encodeURIComponent(item.handle)}" data-handle="${esc(item.handle)}"`;
+    return `<${tag} class="ar-row${isYou ? ' is-you' : ''}${bubble ? ' on-the-bubble' : ''}${deleted ? ' deleted-trader' : ''}"
+       style="animation-delay:${Math.min(index * 26, 320)}ms" ${link}>
       <span class="pos">${item.finalRank != null ? '#' + item.finalRank : '#' + (index + 1)}</span>
       <span class="ar-who">
-        ${face(item)}
-        <span class="ar-handle">@${esc(item.handle)}</span>
+        ${deleted ? '<span class="ar-face" aria-hidden="true">—</span>' : face(item)}
+        <span class="ar-handle">${deleted ? 'deleted trader' : '@' + esc(item.handle)}</span>
         ${isYou ? '<span class="ar-you-tag">YOU</span>' : ''}
       </span>
       <span>${seatChip(item)}</span>
       <span class="val ${dirClass(item.pnlOnStackSol)} ar-c-eq">${esc(signed(item.pnlOnStackSol, 2))}</span>
       <span class="val ${dirClass(item.roiPct)} ar-c-roi">${esc(signed(item.roiPct, 1, '%'))}</span>
       <span class="val dim ar-c-push">${item.submittedAt ? esc(ago(item.submittedAt)) : '—'}</span>
-    </a>`;
+    </${tag}>`;
   }
 
   function renderBoard(body, youHandle) {
@@ -355,7 +357,8 @@
         : 'Opens ' + new Date(t.startTs).toUTCString().slice(5, 22) + ' UTC — ' + fmt(t.entrantCount, 0) + ' of ' + fmt(t.fieldSize, 0) + ' seats taken.');
     } else if (t.status === 'done') {
       const winner = rows.find((r) => r.finalRank === 1);
-      idleClock(winner ? 'Final — @' + winner.handle + ' took it.' : 'This tournament has finished.');
+      idleClock(winner ? 'Final — ' + (winner.deleted ? 'deleted trader' : '@' + winner.handle) + ' took it.'
+        : 'This tournament has finished.');
     } else {
       idleClock('This tournament was cancelled before it started.');
     }
@@ -392,7 +395,8 @@
     elimEl.innerHTML = list.slice().reverse().map((e) =>
       `<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:var(--rail)">
         <span class="ar-chip cut" style="flex:none">R${esc(e.roundNo)}</span>
-        <a href="/profile?handle=${encodeURIComponent(e.handle)}" style="font-weight:700">@${esc(e.handle)}</a>
+        ${e.deleted ? '<span style="font-weight:700">deleted trader</span>'
+          : `<a href="/profile?handle=${encodeURIComponent(e.handle)}" style="font-weight:700">@${esc(e.handle)}</a>`}
         <span class="ar-note" style="margin-left:auto">${esc(signed(e.pnlOnStackSol, 2))} ◎ on stack · ${esc(ago(e.eliminatedAt))}</span>
       </div>`).join('');
   }
@@ -409,6 +413,162 @@
         </div>
         <code style="display:block;overflow-wrap:anywhere;font-size:10px">${esc(round.standingsHash)}</code>
       </div>`).join('');
+  }
+
+  /* ------------------------------------------------ tournament sync consent --- */
+
+  let tournamentSyncGranted = null;
+  let tournamentSyncStatusAt = 0;
+
+  async function readTournamentSyncGrant(force = false) {
+    if (!force && tournamentSyncGranted !== null && Date.now() - tournamentSyncStatusAt < 30000) {
+      return tournamentSyncGranted;
+    }
+    const ping = await L.bridgePing().catch(() => null);
+    tournamentSyncGranted = Boolean(ping && ping.tournamentSync && ping.tournamentSync.granted);
+    tournamentSyncStatusAt = Date.now();
+    return tournamentSyncGranted;
+  }
+
+  async function manualTournamentSync(statusEl, button) {
+    if (button) button.disabled = true;
+    if (statusEl) statusEl.textContent = 'Asking the extension for the committed chain…';
+    try {
+      const ping = await L.bridgePing();
+      if (!ping) {
+        const relayPresent = document.documentElement.dataset.ptSiteBridge === 'ready';
+        if (statusEl) statusEl.textContent = relayPresent
+          ? 'The extension site relay did not answer. No record was sent.'
+          : 'Extension not detected on this browser. No record was sent.';
+        return;
+      }
+      if (!ping.bridgeEnabled) {
+        if (statusEl) statusEl.textContent = 'Manual Sync needs Site sync enabled in the dashboard. Auto-sync is a separate opt-in.';
+        return;
+      }
+      const record = await L.bridgeGetRecord();
+      if (!record || !record.ok) {
+        if (statusEl) statusEl.textContent = 'The extension did not provide a record: ' + ((record && record.reason) || 'relay unavailable') + '.';
+        return;
+      }
+      if (statusEl) statusEl.textContent = 'Submitting ' + record.payload.chain.length + ' committed fills…';
+      const result = await L.submit(record.payload);
+      if (result.body && result.body.ok) {
+        if (statusEl) statusEl.textContent = 'Sync accepted. Verification is queued; the board will refresh with the server result.';
+      } else if (statusEl) {
+        statusEl.textContent = result.status === 401 ? 'Your sign-in expired. Sign in again before syncing.'
+          : result.status === 429 ? 'Submission rate limited. Try again after the next window.'
+            : 'Sync refused: ' + ((result.body && result.body.reason) || 'server unavailable') + '.';
+      }
+    } catch (_) {
+      if (statusEl) statusEl.textContent = 'The relay or server is unavailable. No result was assumed.';
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function turnOnTournamentSync(statusEl, button) {
+    if (button) button.disabled = true;
+    if (statusEl) statusEl.textContent = 'Checking for the extension…';
+    try {
+      const ping = await L.bridgePing();
+      if (!ping) {
+        const relayPresent = document.documentElement.dataset.ptSiteBridge === 'ready';
+        if (statusEl) statusEl.textContent = relayPresent
+          ? 'The extension site relay did not answer. No token was created.'
+          : 'Extension not detected on this browser. No token was created.';
+        return false;
+      }
+      if (ping.tournamentSync && ping.tournamentSync.granted) {
+        tournamentSyncGranted = true;
+        tournamentSyncStatusAt = Date.now();
+        if (statusEl) statusEl.textContent = 'Tournament sync is already on in this extension.';
+        return true;
+      }
+      if (statusEl) statusEl.textContent = 'Creating a 30-day tournament-sync token…';
+      const minted = await L.api('/api/sync-token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      if (minted.status !== 200 || !minted.body || !/^ptsync_[0-9a-f]{64}$/.test(minted.body.token || '')) {
+        if (statusEl) statusEl.textContent = minted.status === 401
+          ? 'Your sign-in expired. Sign in again to enable tournament sync.'
+          : 'The server could not create a sync token' + (minted.body && minted.body.reason ? ': ' + minted.body.reason : '.') ;
+        return false;
+      }
+      const grant = await L.bridgeGrantTournamentSync(minted.body.token);
+      if (!grant || grant.ok !== true) {
+        // Do not strand a server token when the local extension refused the
+        // hand-off. Revocation is scoped to this account and the page never stores the token.
+        await L.api('/api/sync-token/revoke', { method: 'POST' }).catch(() => null);
+        if (statusEl) statusEl.textContent = grant
+          ? 'The extension refused the grant: ' + (grant.reason || 'unknown reason') + '. The server token was revoked.'
+          : 'The site relay did not answer. The server token was revoked; install or reopen the extension and try again.';
+        return false;
+      }
+      tournamentSyncGranted = true;
+      tournamentSyncStatusAt = Date.now();
+      if (statusEl) statusEl.textContent = 'Tournament sync is on. The extension now holds a scoped token that expires in 30 days.';
+      return true;
+    } catch (_) {
+      if (statusEl) statusEl.textContent = 'Could not enable tournament sync because the server or relay is unreachable.';
+      return false;
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function stopTournamentSync(statusEl, button) {
+    if (button) button.disabled = true;
+    let serverRevoked = false;
+    let relayCleared = false;
+    try {
+      const result = await L.api('/api/sync-token/revoke', { method: 'POST' });
+      serverRevoked = result.status === 200 && result.body && result.body.ok === true;
+    } catch (_) {}
+    try {
+      const result = await L.bridgeRevokeTournamentSync();
+      relayCleared = Boolean(result && result.ok);
+    } catch (_) {}
+    tournamentSyncGranted = false;
+    tournamentSyncStatusAt = Date.now();
+    if (statusEl) statusEl.textContent = serverRevoked
+      ? (relayCleared ? 'Tournament sync is off; server tokens and the local grant were revoked.'
+        : 'Server tokens were revoked. The extension relay was unavailable; its next 401 will clear the local grant.')
+      : (relayCleared ? 'The local grant was cleared, but the server could not confirm revocation.'
+        : 'Could not confirm revocation. Reconnect to papertrench.com and try again.');
+    if (button) button.disabled = false;
+  }
+
+  function openTournamentSyncConsent() {
+    if (document.getElementById('tournament-sync-consent')) return;
+    const sheet = document.createElement('div');
+    sheet.id = 'tournament-sync-consent';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-labelledby', 'tournament-sync-consent-title');
+    sheet.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:20px';
+    sheet.innerHTML = `<div style="max-width:520px;width:100%;padding:22px;border:1px solid var(--line2);border-radius:16px;background:var(--surface);box-shadow:0 20px 80px rgba(0,0,0,.5)">
+      <h2 id="tournament-sync-consent-title" style="margin:0 0 12px">Tournament auto-sync</h2>
+      <p class="ar-note" style="line-height:1.6">Keep your verified record synced while you're in this tournament? The extension sends your trade record — the same one the leaderboard verifies — every few minutes and right after each cut. Without it you must press Sync after every cut, or you're ranked as forfeited for that cut.</p>
+      <p class="ar-note" id="tournament-sync-consent-status" aria-live="polite"></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <button class="ar-btn primary" id="tournament-sync-enable">Turn on auto-sync</button>
+        <button class="ar-btn" id="tournament-sync-manual">Sync now</button>
+        <button class="ar-btn" id="tournament-sync-dismiss">Not now</button>
+      </div>
+    </div>`;
+    document.body.appendChild(sheet);
+    const status = sheet.querySelector('#tournament-sync-consent-status');
+    sheet.querySelector('#tournament-sync-enable').addEventListener('click', async (event) => {
+      const ok = await turnOnTournamentSync(status, event.currentTarget);
+      if (ok) {
+        sheet.remove();
+        refresh().catch(() => {});
+      }
+    });
+    sheet.querySelector('#tournament-sync-manual').addEventListener('click', (event) =>
+      manualTournamentSync(status, event.currentTarget));
+    sheet.querySelector('#tournament-sync-dismiss').addEventListener('click', () => sheet.remove());
   }
 
   /* --------------------------------------------------------- your seat --- */
@@ -458,11 +618,30 @@
       const canLeave = t.status === 'open';
       const canCancel = canLeave && t.creatorHandle &&
         String(t.creatorHandle).toLowerCase() === String(session.handle).toLowerCase();
+      const seatActions = mine.alive || tournamentSyncGranted ? `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+          ${mine.alive ? '<button class="ar-btn" id="tournament-sync-now">Sync now</button>' : ''}
+          ${tournamentSyncGranted || mine.alive
+            ? `<button class="ar-btn" id="tournament-sync-toggle">${tournamentSyncGranted ? 'Stop auto-sync' : 'Turn on auto-sync'}</button>`
+            : ''}
+        </div>
+        <p class="ar-note" id="tournament-sync-status" aria-live="polite" style="margin-top:8px">
+          ${tournamentSyncGranted ? 'Tournament sync is on.' : 'Tournament sync is off unless you turn it on.'}</p>` : '';
       youEl.innerHTML = head + `<p class="ar-note" style="margin-top:12px">${esc(state)}</p>
+        ${seatActions}
         ${canLeave ? '<button class="ar-btn" id="leave-btn" style="margin-top:12px">Leave tournament</button>' : ''}
         ${canCancel ? '<button class="ar-btn" id="cancel-btn" style="margin-top:10px">Cancel tournament</button>' : ''}`;
       if (canLeave) $('leave-btn').addEventListener('click', () => seatAction('leave'));
       if (canCancel) $('cancel-btn').addEventListener('click', () => seatAction('cancel'));
+      const syncNowButton = $('tournament-sync-now');
+      if (syncNowButton) syncNowButton.addEventListener('click', () =>
+        manualTournamentSync($('tournament-sync-status'), syncNowButton));
+      const syncToggle = $('tournament-sync-toggle');
+      if (syncToggle) syncToggle.addEventListener('click', () => {
+        if (tournamentSyncGranted) stopTournamentSync($('tournament-sync-status'), syncToggle)
+          .then(() => refresh());
+        else openTournamentSyncConsent();
+      });
       return;
     }
 
@@ -491,7 +670,8 @@
       result = { status: 0, body: null };
     }
     if (result.status === 200 && result.body && result.body.ok) {
-      refresh();
+      await refresh();
+      if (action === 'join') openTournamentSyncConsent();
       return;
     }
     if (btn) btn.disabled = false;
@@ -577,6 +757,7 @@
     try {
       body = await L.getOrThrow('/api/tournament/' + encodeURIComponent(CODE) + '/board');
     } catch { body = null; }
+    if (sessionCache && sessionCache.signedIn) await readTournamentSyncGrant();
     if (!body || !body.tournament) {
       boardEl.innerHTML = L.errorState(
         'The tournament server is unreachable, so this bracket is not shown. Nothing here is cached, carried over, or guessed.');
