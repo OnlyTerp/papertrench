@@ -21,8 +21,10 @@ details live in the commit messages.
 
 - **New coins stop drowning in dead free-RPC calls.** The free Solana endpoints refuse the batch read that prices brand-new pairs — one demands a paid plan, another blocks it outright — and the extension kept asking, hundreds of refusals an hour, filling every debug report. It now stops asking an endpoint that refuses by policy, gives a new coin at most three tries on the free pool, and waits for the pool to recover instead of hammering it. A click on a coin nobody has indexed yet can now fill from our own price service instead of sitting armed forever. Debug reports fold the pool's refusals into one status line, so the errors that matter are visible again.
 
-Tested: extension 2624/2624, server 387/387, bot 20/20 green (3031 total).
-Twenty-nine source-negative controls: the worker lane, its self-witness ban,
+- **Padre shows your paper fills on its chart again.** On today's Padre the chart never handed its candles to PaperTrench after it loaded, so there was no level to anchor to — no buy marker and no dashed average-fill line, silently, on v3.23.4 too. The chart now re-sends its data once PaperTrench is listening, so your buys and sells land as markers at the fill and the average line sits where you actually got in.
+
+Tested: extension 2631/2631, server 387/387, bot 20/20 green (3038 total).
+Thirty-three source-negative controls: the worker lane, its self-witness ban,
 its Solana-only gate, the retry and its budget; the foreign-tick rate and
 non-overwrite guard, Axiom HOOD routing, preset/prompt re-denomination, limit
 conversion, heartbeat blind-write ban, armed-order and cancel durability,
@@ -30,7 +32,7 @@ the two storage-fake fidelity fixes, gross P&L / sell preview math, position
 marks, the pinned 0.5 SOL panel field, paired share-card units, retry status,
 legacy cost fallback, and cross-surface realized identity; F-65 A1 Tatum
 exclusion, A2 prewatch attempt cap and pool-wide defer, A3 rolling status and
-personal-RPC error logging, and B1 per-token diagnostic and classification.
+personal-RPC error logging, B1 per-token diagnostic and classification, C-29 Padre feed reset/address-anchor/render retries, and C-30 latest-line footer status.
 Each control broke real source (never a test), went RED as expected, then was
 restored byte-identically by SHA-256 compare and went GREEN.
 

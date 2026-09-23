@@ -33,6 +33,10 @@
     {
       "title": "New coins stop drowning in dead free-RPC calls.",
       "text": "The free Solana endpoints refuse the batch read that prices brand-new pairs — one demands a paid plan, another blocks it outright — and the extension kept asking, hundreds of refusals an hour, filling every debug report. It now stops asking an endpoint that refuses by policy, gives a new coin at most three tries on the free pool, and waits for the pool to recover instead of hammering it. A click on a coin nobody has indexed yet can now fill from our own price service instead of sitting armed forever. Debug reports fold the pool's refusals into one status line, so the errors that matter are visible again."
+    },
+    {
+      "title": "Padre shows your paper fills on its chart again.",
+      "text": "On today's Padre the chart never handed its candles to PaperTrench after it loaded, so there was no level to anchor to — no buy marker and no dashed average-fill line, silently, on v3.23.4 too. The chart now re-sends its data once PaperTrench is listening, so your buys and sells land as markers at the fill and the average line sits where you actually got in."
     }
   ]
 }
