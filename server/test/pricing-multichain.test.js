@@ -21,8 +21,8 @@
  * - core/pricing.js: `const chain = chainOf(link);` ->
  *   `const chain = link.chain || 'solana';` makes "unhashed v1 chain labels
  *   cannot redirect a legacy Solana fill" fail.
- * - core/pricing.js: `const fillLow = price * sol.low;` ->
- *   `const fillLow = price;` makes "Solana verification keeps its original
+ * - core/pricing.js: `high: tokHigh * (1 + tol) / solLow` ->
+ *   `high: tokHigh * (1 + tol)` makes "Solana verification keeps its original
  *   verdict bytes" fail by accepting its overpriced fill.
  * - core/pricing.js: `if (!tok || !sol || !(tok.low > 0) || !(sol.low > 0)) return 'no-data';`
  *   -> the same guard returning 'ok' makes both missing-leg cases fail.
@@ -35,7 +35,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 const { makeGetCandles, SOL_USD_POOL } = require('../worker/candles.js');
-const { priceChain } = require('../core/pricing.js');
+const { priceChain, compactVerdicts, expandVerdicts } = require('../core/pricing.js');
 const { priceRecord } = require('../core/submission.js');
 const { appendFill, fillPreimage, sha256, verifyChain, GENESIS } = require('../core/chain.js');
 
@@ -234,6 +234,47 @@ test('malformed EVM history pauses instead of caching a market-data absence', as
   malformed = false;
   const recovered = await priceRecord(payload, h.getCandles, paused);
   assert.equal(recovered.verdict.status, 'verified');
+});
+
+test('compact repricing carries verified prefix verdicts and resumes only the new suffix', async () => {
+  const chain = [];
+  let previous = GENESIS;
+  for (let index = 0; index < 4; index++) {
+    const link = await appendFill(previous, {
+      id: 'incremental-' + index, sessionId: 'incremental', mint: EVM, chain: 'bnb',
+      side: 'buy', qty: 100, priceNative: 0.01, solGross: 1, solNet: 1,
+      ts: MINUTE + index * 60000 + 1000,
+    });
+    link.seq = index;
+    chain.push(link);
+    previous = link.hash;
+  }
+  const requested = [];
+  const getCandles = async (_mint, minute) => {
+    requested.push(minute);
+    return { tokenUsd: { low: 1, high: 1 }, solUsd: { low: 100, high: 100 } };
+  };
+  const prior = await priceRecord({ chain: chain.slice(0, 2) }, getCandles, null, { maxLookups: 2 });
+  assert.equal(prior.done, true);
+  const codes = compactVerdicts(prior.verdicts);
+  assert.equal(codes.length, 2);
+  assert.deepEqual(expandVerdicts(codes, chain), prior.verdicts);
+
+  requested.length = 0;
+  const paused = await priceRecord({ chain }, getCandles,
+    { cursor: 2, verdicts: codes }, { maxLookups: 1 });
+  assert.equal(paused.done, false);
+  assert.equal(paused.cursor, 3);
+  assert.deepEqual(paused.verdicts.slice(0, 2), prior.verdicts);
+  assert.deepEqual(requested, [Math.floor(Number(chain[2].ts) / 60000) * 60000],
+    'the unchanged prefix is not looked up again');
+
+  requested.length = 0;
+  const done = await priceRecord({ chain }, getCandles,
+    { cursor: paused.cursor, verdicts: compactVerdicts(paused.verdicts) }, { maxLookups: 1 });
+  assert.equal(done.done, true);
+  assert.deepEqual(done.verdicts.slice(0, 2), prior.verdicts);
+  assert.deepEqual(requested, [Math.floor(Number(chain[3].ts) / 60000) * 60000]);
 });
 
 test('unknown committed chains spend nothing and cannot borrow a market', async (t) => {

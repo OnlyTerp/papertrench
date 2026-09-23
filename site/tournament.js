@@ -9,11 +9,10 @@
  *                          spectate card behind any row click.
  *
  * The honesty rules carry over verbatim from arena.js: every number came
- * from the server or it is not rendered. Tournament numbers are
- * SELF-REPORTED snapshots — the page says so, in the board footer and on
- * every spectate card, and never borrows the verified chip vocabulary for
- * them. Unreachable says unreachable; a bracket that has not started says
- * so rather than counting down to an assumed start.
+ * from the server or it is not rendered. Tournament P&L is recomputed from
+ * server-stored chains whose fills passed independent re-pricing; the live
+ * board is provisional until a boundary settles. Unreachable says unreachable;
+ * a bracket that has not started says so rather than counting down to a guess.
  */
 (() => {
   'use strict';
@@ -35,6 +34,8 @@
   const dirStatusEl = $('dir-status');
   const elimPane = $('elim-pane');
   const elimEl = $('elim-list');
+  const roundsPane = $('rounds-pane');
+  const roundsEl = $('rounds-list');
   const specPane = $('spectate-pane');
   const specBody = $('spectate-body');
   const createPane = $('create-pane');
@@ -145,14 +146,26 @@
   }
 
   function seatChip(row) {
-    if (!row.alive) {
-      return '<span class="ar-chip cut" title="Eliminated at the round ' +
-        esc(row.eliminatedRound) + ' boundary">Cut R' + esc(row.eliminatedRound) + '</span>';
-    }
-    if (!row.hasSnapshot) {
-      return '<span class="ar-chip waiting" title="No snapshot pushed yet — standing at the starting stack">No data</span>';
-    }
-    return '<span class="ar-chip alive">In</span>';
+    const cut = !row.alive
+      ? '<span class="ar-chip cut" title="Eliminated at the round ' +
+        esc(row.eliminatedRound) + ' boundary">Cut R' + esc(row.eliminatedRound) + '</span>'
+      : '<span class="ar-chip alive">In</span>';
+    const finality = row.finality === 'final' ? 'final'
+      : row.finality === 'forfeited' ? 'forfeited' : 'provisional';
+    const label = finality === 'final' ? 'Final'
+      : finality === 'forfeited' ? 'Forfeited' : 'Provisional';
+    const title = finality === 'forfeited'
+      ? (row.verified
+        ? 'No post-boundary verified chain; the provisional entry only breaks non-final ties'
+        : 'No post-boundary verified chain is available')
+      : row.verified ? label + ' verified-chain entry'
+        : label + ' — no verified submission is available';
+    const unpriced = row.unpricedOpenPosition
+      ? '<span class="ar-chip waiting" title="An open position had no independent candle at the bell; it was valued at gross cost">Unpriced open position</span>'
+      : '';
+    return cut + '<span class="ar-chip ' + (finality === 'final' ? 'verified'
+      : finality === 'forfeited' ? 'rejected' : 'waiting') + '" title="' + esc(title) + '">' +
+      label + '</span>' + unpriced;
   }
 
   /* --------------------------------------------------------- directory --- */
@@ -288,10 +301,9 @@
       <span>Pos</span>
       <span>Trader</span>
       <span>State</span>
-      <span class="r ar-c-eq" title="Cash + marked positions, self-reported">Equity ◎</span>
-      <span class="r" title="Tournament P&L — equity minus the start stack">P&amp;L ◎</span>
+      <span class="r ar-c-eq" title="ROI scaled to the tournament's common starting stack">P&amp;L on stack ◎</span>
       <span class="r ar-c-roi">ROI</span>
-      <span class="r ar-c-push" title="When the extension last pushed">Push</span>
+      <span class="r ar-c-push" title="When this verified chain was submitted">Verified</span>
     </div>`;
 
   function boardRow(item, index, youHandle, bubbleFrom) {
@@ -308,10 +320,9 @@
         ${isYou ? '<span class="ar-you-tag">YOU</span>' : ''}
       </span>
       <span>${seatChip(item)}</span>
-      <span class="val dim ar-c-eq">${item.hasSnapshot ? esc(fmt(item.equitySol, 2)) : '—'}</span>
-      <span class="val ${dirClass(item.pnlSol)}">${esc(signed(item.pnlSol, 2))}</span>
+      <span class="val ${dirClass(item.pnlOnStackSol)} ar-c-eq">${esc(signed(item.pnlOnStackSol, 2))}</span>
       <span class="val ${dirClass(item.roiPct)} ar-c-roi">${esc(signed(item.roiPct, 1, '%'))}</span>
-      <span class="val dim ar-c-push">${item.pushedAt ? esc(ago(item.pushedAt)) : '—'}</span>
+      <span class="val dim ar-c-push">${item.submittedAt ? esc(ago(item.submittedAt)) : '—'}</span>
     </a>`;
   }
 
@@ -336,8 +347,8 @@
       const isFinal = alive <= t.cutPerRound;
       startClock(start, end, isFinal ? 'until the final settles' : 'until the next cut');
       caption(isFinal
-        ? 'The final round — this order at the boundary is the result.'
-        : 'Round ' + t.currentRound + ' · bottom ' + t.cutPerRound + ' cut at the boundary.');
+        ? 'Final round · standings remain provisional until the 15-minute verified-chain grace closes.'
+        : 'Round ' + t.currentRound + ' · bottom ' + t.cutPerRound + ' cut 15 minutes after the boundary.');
     } else if (t.status === 'open') {
       idleClock(t.startWhenFull
         ? 'Starts the instant the last seat fills — ' + fmt(t.entrantCount, 0) + ' of ' + fmt(t.fieldSize, 0) + ' in.'
@@ -363,9 +374,15 @@
       : null;
 
     boardEl.innerHTML = THEAD + rows.map((r, i) => boardRow(r, i, youHandle, bubbleFrom)).join('');
-    boardStatusEl.textContent =
-      fmt(alive.length, 0) + ' still in · ' + fmt(rows.length - alive.length, 0) + ' cut' +
-      (t.status === 'done' ? ' · final' : '');
+    const finalCount = rows.filter((r) => r.finality === 'final').length;
+    const forfeitedCount = rows.filter((r) => r.finality === 'forfeited').length;
+    const provisionalCount = rows.filter((r) => r.finality === 'provisional').length;
+    const evidence = t.status === 'live' ? fmt(provisionalCount, 0) + ' provisional'
+      : (finalCount || forfeitedCount)
+        ? fmt(finalCount, 0) + ' final · ' + fmt(forfeitedCount, 0) + ' forfeited'
+        : 'no settled cut';
+    boardStatusEl.textContent = fmt(alive.length, 0) + ' still in · '
+      + fmt(rows.length - alive.length, 0) + ' cut · ' + evidence;
   }
 
   function renderEliminations(body) {
@@ -376,7 +393,21 @@
       `<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:var(--rail)">
         <span class="ar-chip cut" style="flex:none">R${esc(e.roundNo)}</span>
         <a href="/profile?handle=${encodeURIComponent(e.handle)}" style="font-weight:700">@${esc(e.handle)}</a>
-        <span class="ar-note" style="margin-left:auto">${esc(signed(e.pnlSol, 2))} ◎ · ${esc(ago(e.eliminatedAt))}</span>
+        <span class="ar-note" style="margin-left:auto">${esc(signed(e.pnlOnStackSol, 2))} ◎ on stack · ${esc(ago(e.eliminatedAt))}</span>
+      </div>`).join('');
+  }
+
+  function renderRounds(body) {
+    const rounds = Array.isArray(body.rounds) ? body.rounds : [];
+    if (!rounds.length) { roundsPane.hidden = true; return; }
+    roundsPane.hidden = false;
+    roundsEl.innerHTML = rounds.map((round) => `
+      <div style="padding:10px 0;border-bottom:var(--rail)">
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+          <span class="ar-chip waiting">Round ${esc(round.roundNo)}</span>
+          <span class="ar-note">Settled ${esc(ago(round.settledAt))}</span>
+        </div>
+        <code style="display:block;overflow-wrap:anywhere;font-size:10px">${esc(round.standingsHash)}</code>
       </div>`).join('');
   }
 
@@ -416,7 +447,11 @@
       } else if (!mine.alive) {
         state = 'Cut at the round ' + mine.eliminatedRound + ' boundary — final rank #' + (mine.finalRank || '—') + '.';
       } else if (t.status === 'live') {
-        state = 'You are in — ' + signed(mine.pnlSol, 2) + ' ◎ on the tournament ledger. Your extension pushes snapshots while you trade.';
+        state = mine.verified
+          ? 'Provisional — ' + signed(mine.pnlOnStackSol, 2) + ' ◎ on the tournament stack (' +
+            signed(mine.roiPct, 1, '%') + ' ROI).'
+          : 'Provisional — waiting for your first fully verified chain submission.';
+        if (mine.unpricedOpenPosition) state += ' An open position had no candle at the last mark and is valued at gross cost.';
       } else {
         state = 'Seat held. The bracket has not started yet.';
       }
@@ -493,8 +528,7 @@
       return;
     }
     const tr = body.trader;
-    const t = body.tournament;
-    const positions = Array.isArray(tr.positions) ? tr.positions : [];
+    const positions = Array.isArray(tr.openPositions) ? tr.openPositions : [];
     specBody.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
         ${face(tr, 'ar-face')}
@@ -505,22 +539,23 @@
         <span style="margin-left:auto">${seatChip(tr)}</span>
       </div>
       <div class="ar-stats">
-        <div class="ar-stat"><div class="num">${tr.hasSnapshot ? esc(fmt(tr.equitySol, 2)) : '—'}</div><div class="lbl">Equity ◎</div></div>
-        <div class="ar-stat"><div class="num ${dirClass(tr.pnlSol)}">${esc(signed(tr.pnlSol, 2))}</div><div class="lbl">P&amp;L ◎</div></div>
+        <div class="ar-stat"><div class="num ${dirClass(tr.pnlOnStackSol)}">${esc(signed(tr.pnlOnStackSol, 2))}</div><div class="lbl">P&amp;L on stack ◎</div></div>
+        <div class="ar-stat"><div class="num ${dirClass(tr.roiPct)}">${esc(signed(tr.roiPct, 1, '%'))}</div><div class="lbl">ROI</div></div>
         <div class="ar-stat"><div class="num">${body.rank ? '#' + esc(body.rank) : '—'}</div><div class="lbl">of ${esc(fmt(body.fieldSize, 0))}</div></div>
       </div>
+      ${tr.unpricedOpenPosition ? '<p class="ar-note" style="margin-top:10px">Unpriced open position — valued at gross cost at this bell.</p>' : ''}
       <div class="ar-spec-pos" style="margin-top:14px">
         <div class="prow phead"><span>Position</span><span class="r">Qty</span><span class="r">Value ◎</span></div>
         ${positions.length ? positions.map((p) => `
-          <div class="prow"><span>${esc(p.symbol || p.mint.slice(0, 8) + '…')}</span>
+          <div class="prow"><span>${esc(String(p.mint || '').slice(0, 8) + '…')}${p.unpriced ? ' · unpriced' : ''}</span>
             <span class="r">${esc(fmt(p.qty, 2))}</span>
             <span class="r">${esc(fmt(p.valueSol, 3))}</span></div>`).join('')
         : '<p class="ar-note" style="padding:8px 0">' +
-          (tr.hasSnapshot ? 'All cash — no open positions reported.' : 'No snapshot yet — standing at the start stack.') + '</p>'}
+          (tr.verified ? 'No open positions in the latest verified entry.' : 'No verified entry is available yet.') + '</p>'}
       </div>
-      <p class="ar-note" style="margin-top:12px">Self-reported by @${esc(tr.handle)}'s extension
-        ${tr.pushedAt ? '· last push ' + esc(ago(tr.pushedAt)) : ''}. Tournament numbers are
-        reported, not verified — the reprice pipeline does not run inside a bracket.</p>`;
+      <p class="ar-note" style="margin-top:12px">Computed from @${esc(tr.handle)}\'s server-verified chain
+        ${tr.submittedAt ? '· submitted ' + esc(ago(tr.submittedAt)) : ''}. Open positions use independent
+        candle ranges at the displayed mark time.</p>`;
   }
 
   function startSpectate(handle) {
@@ -554,6 +589,7 @@
     const youHandle = sessionCache && sessionCache.signedIn ? sessionCache.handle : null;
     renderBoard(body, youHandle);
     renderEliminations(body);
+    renderRounds(body);
     renderYou(sessionCache, body);
   }
 

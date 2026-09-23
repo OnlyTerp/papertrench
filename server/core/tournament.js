@@ -1,11 +1,9 @@
 /* PaperTrench server — elimination tournaments.
  *
- * A tournament is a fixed-field race on an ISOLATED paper ledger: every
- * entrant starts on the same stack, the server folds round boundaries off
- * stored timestamps, and at each boundary the bottom N by tournament PnL are
- * eliminated until one name remains. Nothing here reads or writes the main
- * board's records — a tournament cannot borrow a lifetime record, and a bad
- * tournament cannot damage one.
+ * A tournament is a fixed-field race through windows of the same verified
+ * chain used by the other boards. The common stack scales displayed P&L; each
+ * cut ranks window ROI, and no client equity claim enters the result. The
+ * worker reads records and chain segments but never mutates the main record.
  *
  * This module is pure: no D1, no fetch, no clock but the `now` it is handed.
  * The worker decides where bytes go; this decides what the numbers mean.
@@ -13,25 +11,26 @@
  * ---------------------------------------------------------------------------
  * THE RULES THAT KEEP IT HONEST
  *
- * 1. PnL IS DERIVED, NEVER SUBMITTED. The extension pushes an equity figure
- *    (cash + marked positions); tournament PnL is equity minus the fixed
- *    start stack, computed here. A client that sends "pnl: 999" finds the
- *    field ignored — the only number that ranks is the one the server
- *    derived from the equity claim.
+ * 1. PnL IS DERIVED, NEVER SUBMITTED. Each entry is a windowEntry over a
+ *    server-stored chain whose fills all passed independent re-pricing. A
+ *    client equity or PnL claim never reaches the standings.
  *
- * 2. NO SNAPSHOT IS A NUMBER, NOT AN EXCUSE. An entrant who never pushes
- *    stands at exactly their start stack — PnL 0 — which is what the ledger
- *    can prove. The board labels them "no data yet" rather than printing a
- *    fabricated position list, but they rank like anyone else: a tournament
- *    that let silence dodge the cut would make not-playing the optimal
- *    strategy.
+ * 2. OPEN BAGS ARE MARKED AT THE BELL. Positions opened inside the window
+ *    and still open at its end use the token and SOL/USD candle ranges for
+ *    that boundary minute. Missing candles mean gross cost and an explicit
+ *    unpriced flag, never a client mark or an invented price.
  *
- * 3. BOUNDARIES SETTLE ONCE. The worker writes a tournament_rounds row with
+ * 3. FINAL MEANS POST-CLOSE AND VERIFIED. A cut waits through its grace
+ *    period. Only a verified chain submitted at or after the boundary is
+ *    final for that cut; everyone else ranks below final entries by their
+ *    latest verified provisional return and is marked forfeited.
+ *
+ * 4. BOUNDARIES SETTLE ONCE. The worker writes a tournament_rounds row with
  *    the standings it cut from plus their hash, keyed (tournament_id,
  *    round_no) — a retried cron cannot re-cut a settled boundary, and the
  *    frozen standings are the evidence for every elimination.
  *
- * 4. THE LAST ROUND CROWNS, IT DOES NOT CUT. When the survivors number no
+ * 5. THE LAST ROUND CROWNS, IT DOES NOT CUT. When the survivors number no
  *    more than the cut, eliminating them would leave nobody to win. That
  *    round is the final: it settles by ranking instead of cutting, and the
  *    prize split pays down that order.
@@ -40,6 +39,9 @@
 'use strict';
 
 const { blockedContent } = require('./clan.js');
+const { windowEntry } = require('./window.js');
+const { walkCommitted } = require('./ranking.js');
+const { minuteOf, nativePriceRangeFromCandles } = require('./pricing.js');
 
 /* ------------------------------ parameters ------------------------------ */
 
@@ -65,6 +67,7 @@ const NAME_MAX = 60;
 const PRIZE_SPLIT_DEFAULT = [50, 30, 20];
 
 const STATUS = { OPEN: 'open', LIVE: 'live', DONE: 'done', CANCELLED: 'cancelled' };
+const SETTLE_GRACE_MS = 15 * 60 * 1000;
 
 /* ------------------------------ validation ------------------------------ */
 
@@ -128,99 +131,151 @@ function boundaryDue(tournament, roundNo, now) {
   return Math.trunc(Number(now) || 0) >= roundWindow(tournament, roundNo).endTs;
 }
 
+/** Settlement waits for the post-boundary verified-chain grace window. */
+function settlementDue(tournament, roundNo, now) {
+  return Math.trunc(Number(now) || 0)
+    >= roundWindow(tournament, roundNo).endTs + SETTLE_GRACE_MS;
+}
+
+/** Only a verified chain received on or after the boundary can be final. */
+function finalForBoundary(status, submittedAt, boundaryTs) {
+  return status === 'verified' && Number(submittedAt) >= Number(boundaryTs);
+}
+
+/** The closed-round window result plus its open, in-window bags at a bell. */
+function entryForWindow(links, startingSol, window, startStackSol) {
+  const endTs = Number(window && window.endTs) || 0;
+  const startTs = Number(window && window.startTs) || 0;
+  const slice = (Array.isArray(links) ? links : []).filter((link) => Number(link.ts) < endTs);
+  const entry = windowEntry(slice, startingSol, { startTs, endTs });
+  const openPositions = walkCommitted(slice).openPositions
+    .filter((position) => position.openedTs >= startTs)
+    .map((position) => ({ ...position }));
+  return {
+    ...entry,
+    basePnlSol: entry.pnlSol,
+    startStackSol: Number(startStackSol) || 0,
+    windowStartTs: startTs,
+    windowEndTs: endTs,
+    openPositions,
+  };
+}
+
+/**
+ * Apply the tournament's one open-position rule at a boundary: use the
+ * independent token/SOL candle range's midpoint; if either candle is absent
+ * or unavailable, keep gross remaining cost as value (zero open P&L) and flag it.
+ */
+async function markOpenAtBell(entry, boundaryTs, startStackSol, getCandles) {
+  const source = entry || {};
+  const at = Math.trunc(Number(boundaryTs) || 0);
+  const minuteTs = minuteOf(at);
+  const candlesByKey = new Map();
+  const marked = [];
+  let openPnlSol = 0;
+  let unpricedOpenPosition = false;
+  let lookupFailed = false;
+
+  for (const position of Array.isArray(source.openPositions) ? source.openPositions : []) {
+    const mint = String(position.mint || '');
+    const chain = String(position.chain || 'solana');
+    const qty = Math.max(0, Number(position.qty) || 0);
+    const costSol = Math.max(0, Number(position.costSol) || 0);
+    const key = chain + '|' + mint + '|' + minuteTs;
+    if (!candlesByKey.has(key)) {
+      let candles = null;
+      if (!lookupFailed && typeof getCandles === 'function') {
+        try { candles = await getCandles(mint, minuteTs, chain); }
+        catch { lookupFailed = true; }
+      }
+      candlesByKey.set(key, candles);
+    }
+    const range = nativePriceRangeFromCandles(candlesByKey.get(key));
+    if (!range || !(qty > 0) || !mint) {
+      unpricedOpenPosition = true;
+      marked.push({
+        ...position, valueSol: costSol, pnlSol: 0,
+        priceNative: null, unpriced: true,
+      });
+      continue;
+    }
+    const priceNative = (range.low + range.high) / 2;
+    const valueSol = qty * priceNative;
+    const pnlSol = valueSol - costSol;
+    openPnlSol += pnlSol;
+    marked.push({ ...position, valueSol, pnlSol, priceNative, unpriced: false });
+  }
+
+  const basePnlSol = Number(source.basePnlSol ?? source.pnlSol) || 0;
+  const pnlSol = basePnlSol + openPnlSol;
+  const equityAtStart = Number(source.equityAtStart) || 0;
+  const roiPct = equityAtStart > 0 ? (pnlSol / equityAtStart) * 100 : 0;
+  const stack = Number(startStackSol ?? source.startStackSol) || 0;
+  return {
+    ...source,
+    pnlSol,
+    roiPct,
+    pnlOnStackSol: (roiPct / 100) * stack,
+    openPnlSol,
+    openPositions: marked,
+    unpricedOpenPosition,
+    markTs: at,
+  };
+}
+
 /* ------------------------------ standings ------------------------------- */
 
 /**
- * Rank entrants by tournament PnL, descending.
- *
- * `entrants`: rows with {user_id, handle, display_name, avatar_url, alive,
- *   eliminated_round, final_rank, joined_at}
- * `snapshots`: map user_id -> {equity_sol, cash_sol, positions_json, pushed_at}
- *
- * The order IS the elimination order, so it must be total and stable:
- * PnL desc, then the earlier join (seniority survives — a tie cannot be
- * resolved by re-joining), then handle, so two reads never disagree.
+ * Rank verified tournament entries. `entries` maps user_id to
+ * { verified, final, submittedAt, entry }; no client amount participates.
+ * At a settled cut final records rank before forfeits, then ROI breaks ties
+ * within each group. Seniority and handle make the order total and stable.
  */
-function standings(entrants, snapshots, startStackSol) {
+function standings(entrants, entries, startStackSol, options) {
   const stack = Number(startStackSol) || 0;
-  const rows = (Array.isArray(entrants) ? entrants : []).map((e) => {
-    const snap = snapshots && snapshots.get ? snapshots.get(e.user_id) : null;
-    const hasSnapshot = Boolean(snap) && Number.isFinite(Number(snap.equity_sol));
-    const equity = hasSnapshot ? Number(snap.equity_sol) : stack;
+  const settled = Boolean(options && options.settled);
+  const rows = (Array.isArray(entrants) ? entrants : []).map((entrant) => {
+    const source = entries && entries.get ? entries.get(entrant.user_id) : null;
+    const entry = source && source.verified !== false && source.entry ? source.entry : null;
+    const final = settled && Boolean(source && source.final);
+    const finality = settled
+      ? (final ? 'final' : 'forfeited')
+      : (source && source.finality === 'forfeited' ? 'forfeited' : 'provisional');
+    const roiPct = entry && Number.isFinite(Number(entry.roiPct)) ? Number(entry.roiPct) : 0;
+    const pnlOnStackSol = (roiPct / 100) * stack;
     return {
-      userId: e.user_id,
-      handle: e.handle,
-      displayName: e.display_name,
-      avatarUrl: e.avatar_url,
-      alive: Number(e.alive) === 1,
-      eliminatedRound: e.eliminated_round == null ? null : Number(e.eliminated_round),
-      finalRank: e.final_rank == null ? null : Number(e.final_rank),
-      joinedAt: Number(e.joined_at) || 0,
-      hasSnapshot,
-      equitySol: equity,
-      cashSol: snap && Number.isFinite(Number(snap.cash_sol)) ? Number(snap.cash_sol) : null,
-      pnlSol: equity - stack,
-      roiPct: stack > 0 ? ((equity - stack) / stack) * 100 : 0,
-      positions: snap ? parsePositions(snap.positions_json) : [],
-      pushedAt: snap ? Number(snap.pushed_at) || null : null,
+      userId: entrant.user_id,
+      handle: entrant.handle,
+      displayName: entrant.display_name,
+      avatarUrl: entrant.avatar_url,
+      alive: Number(entrant.alive) === 1,
+      eliminatedRound: entrant.eliminated_round == null ? null : Number(entrant.eliminated_round),
+      finalRank: entrant.final_rank == null ? null : Number(entrant.final_rank),
+      joinedAt: Number(entrant.joined_at) || 0,
+      verified: Boolean(entry),
+      recordStatus: source && source.recordStatus || (entry ? 'verified' : 'pending'),
+      submittedAt: source && Number(source.submittedAt) || null,
+      rounds: entry ? Number(entry.rounds) || 0 : 0,
+      pnlSol: entry ? Number(entry.pnlSol) || 0 : 0,
+      roiPct,
+      pnlOnStackSol,
+      equityAtStart: entry ? Number(entry.equityAtStart) || 0 : null,
+      unpricedOpenPosition: Boolean(entry && entry.unpricedOpenPosition),
+      openPositions: entry && Array.isArray(entry.openPositions) ? entry.openPositions : [],
+      final,
+      provisional: finality === 'provisional',
+      forfeited: finality === 'forfeited',
+      finality,
     };
   });
-  rows.sort((a, b) =>
-    (b.pnlSol - a.pnlSol) ||
-    (a.joinedAt - b.joinedAt) ||
-    String(a.handle || '').localeCompare(String(b.handle || '')));
+  rows.sort((a, b) => {
+    if (settled && a.final !== b.final) return a.final ? -1 : 1;
+    if (!settled && a.alive !== b.alive) return a.alive ? -1 : 1;
+    return (b.roiPct - a.roiPct) ||
+      (a.joinedAt - b.joinedAt) ||
+      String(a.handle || '').localeCompare(String(b.handle || ''));
+  });
   return rows;
-}
-
-/** Positions as stored, back into an array — capped and shaped, never trusted. */
-function parsePositions(raw) {
-  if (!raw) return [];
-  let list;
-  try { list = JSON.parse(raw); } catch { return []; }
-  if (!Array.isArray(list)) return [];
-  return list.slice(0, MAX_POSITIONS).map((p) => ({
-    mint: String(p && p.mint || '').slice(0, 64),
-    symbol: String(p && p.symbol || '').slice(0, 24),
-    qty: Number(p && p.qty) || 0,
-    valueSol: Number(p && p.valueSol) || 0,
-  })).filter((p) => p.mint);
-}
-
-/* ------------------------------ snapshots ------------------------------- */
-
-const MAX_POSITIONS = 50;
-const MAX_EQUITY_SOL = 1e9; // a bound, not a target — above this the claim is noise
-
-/**
- * Validate and sanitize one pushed snapshot. Returns { equitySol, cashSol,
- * positionsJson } or { problem }. The client's own PnL, timestamps, and rank
- * claims are dropped on the floor here — the server derives all three.
- */
-function cleanSnapshot(body) {
-  if (!body || typeof body !== 'object') return { problem: 'bad-body' };
-  const equity = Number(body.equitySol);
-  if (!Number.isFinite(equity) || equity < 0 || equity > MAX_EQUITY_SOL) {
-    return { problem: 'bad-equity' };
-  }
-  const cash = Number(body.cashSol);
-  const positions = Array.isArray(body.positions) ? body.positions.slice(0, MAX_POSITIONS) : [];
-  const cleaned = [];
-  for (const p of positions) {
-    if (!p || typeof p !== 'object') continue;
-    const mint = String(p.mint || '').slice(0, 64);
-    if (!mint) continue;
-    cleaned.push({
-      mint,
-      symbol: String(p.symbol || '').slice(0, 24),
-      qty: Math.max(0, Number(p.qty) || 0),
-      valueSol: Math.max(0, Number(p.valueSol) || 0),
-    });
-  }
-  return {
-    equitySol: equity,
-    cashSol: Number.isFinite(cash) && cash >= 0 ? cash : null,
-    positionsJson: JSON.stringify(cleaned),
-  };
 }
 
 /* ------------------------------ settlement ------------------------------ */
@@ -288,11 +343,11 @@ module.exports = {
   ROUND_MIN_MS, ROUND_MAX_MS, ROUND_DEFAULT_MS,
   CUT_MIN, CUT_DEFAULT,
   STACK_MIN, STACK_MAX, STACK_DEFAULT,
-  NAME_MIN, NAME_MAX, PRIZE_SPLIT_DEFAULT, MAX_POSITIONS,
-  STATUS,
+  NAME_MIN, NAME_MAX, PRIZE_SPLIT_DEFAULT,
+  STATUS, SETTLE_GRACE_MS,
   clampField, clampRoundMs, clampCut, clampStack,
   nameProblem, cleanName, cleanPrizeSplit,
-  roundWindow, boundaryDue,
-  standings, parsePositions, cleanSnapshot,
+  roundWindow, boundaryDue, settlementDue, finalForBoundary,
+  entryForWindow, markOpenAtBell, standings,
   boundaryPlan, finalPlacements, prizeAwards,
 };

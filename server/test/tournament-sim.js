@@ -1,22 +1,21 @@
-/* Tournament simulation — drives the REAL worker (fetch + scheduled) against
- * a real SQLite database (node:sqlite) with the production schema applied.
- *
- * 25 fake traders, compressed rounds: create → join → live board → boundary
- * eliminates bottom 5 → snapshots flow → next boundary → … → final standings.
- * Every assertion is on observable API output or DB state, never internals.
- *
- * Run: node test/tournament-sim.js   (throwaway verification, not a suite test)
- */
+/* Drive tournament cuts through the real Worker and a local SQLite D1 shim. */
 'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
+const { appendFill, GENESIS } = require('../core/chain.js');
+const { recordStats } = require('../core/ranking.js');
+const { windowEntry } = require('../core/window.js');
+const tournament = require('../core/tournament.js');
 
 const SECRET = 'sim-secret';
 const ORIGIN = 'https://papertrench.com';
 const MIN = 60000;
-
-/* ---------------- D1 shim over node:sqlite ---------------- */
+const HOUR = 60 * MIN;
+const STARTING_SOL = 10;
 
 function d1(db) {
   const prepare = (sql) => {
@@ -25,9 +24,8 @@ function d1(db) {
       sql,
       bind(...args) { bound = args; return stmt; },
       async run() {
-        const s = db.prepare(sql);
-        const r = s.run(...bound);
-        return { meta: { changes: Number(r.changes), last_rowid: Number(r.lastInsertRowid) } };
+        const result = db.prepare(sql).run(...bound);
+        return { meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
       },
       async first() { return db.prepare(sql).get(...bound) || null; },
       async all() { return { results: db.prepare(sql).all(...bound) }; },
@@ -36,292 +34,337 @@ function d1(db) {
   };
   return {
     prepare,
-    async batch(stmts) {
-      const out = [];
+    async batch(statements) {
+      const results = [];
       db.exec('BEGIN');
       try {
-        for (const s of stmts) out.push(await s.run());
+        for (const statement of statements) results.push(await statement.run());
         db.exec('COMMIT');
-      } catch (e) { db.exec('ROLLBACK'); throw e; }
-      return out;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+      return results;
     },
   };
 }
 
-/* ---------------- harness ---------------- */
-
 function b64url(bytes) {
-  let s = '';
-  for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  let out = '';
+  for (const byte of new Uint8Array(bytes)) out += String.fromCharCode(byte);
+  return btoa(out).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-async function sessionToken(uid, epoch) {
-  const body = b64url(new TextEncoder().encode(
-    JSON.stringify({ uid, epoch, exp: Date.now() + 3600000 })));
+async function sessionToken(uid) {
+  const body = b64url(new TextEncoder().encode(JSON.stringify({
+    uid, epoch: 0, exp: Date.now() + 30 * 86400000,
+  })));
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SECRET),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
-  return body + '.' + sig;
+  const signature = b64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
+  return body + '.' + signature;
 }
 
-let failures = 0;
-function check(name, cond, detail) {
-  if (cond) { console.log('  PASS', name); }
-  else { failures++; console.log('  FAIL', name, detail == null ? '' : '— ' + detail); }
+async function append(chain, fill) {
+  const previous = chain.length ? chain[chain.length - 1].hash : GENESIS;
+  const link = await appendFill(previous, fill);
+  link.seq = chain.length;
+  chain.push(link);
+  return link;
 }
 
-async function main() {
+function payloadFor(chain) {
+  const stats = recordStats(chain, STARTING_SOL);
+  return {
+    version: 1,
+    submittedAt: Date.now(),
+    identity: { handle: 'verified-trader', verified: true },
+    claim: {
+      equitySol: 900000000,
+      realizedPnlSol: stats.realizedPnlSol,
+      rounds: stats.rounds,
+      wins: stats.wins,
+      losses: stats.losses,
+      startingBalanceSol: STARTING_SOL,
+    },
+    chain,
+    head: chain[chain.length - 1].hash,
+    equitySol: 900000000,
+  };
+}
+
+test('tournament cuts use verified submissions end to end, not client equity', async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
   const db = new DatabaseSync(':memory:');
-  db.exec(fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8'));
-  // The moderation columns live in DEPLOY.md ALTERs, not schema.sql — apply
-  // them the way production did, because sessionUser selects banned_at.
-  for (const sql of [
-    'ALTER TABLE users ADD COLUMN banned_at INTEGER',
-    'ALTER TABLE users ADD COLUMN banned_reason TEXT',
-    'ALTER TABLE users ADD COLUMN banned_by INTEGER',
-    'ALTER TABLE records ADD COLUMN dq_at INTEGER',
-    'ALTER TABLE records ADD COLUMN dq_reason TEXT',
-    'ALTER TABLE records ADD COLUMN dq_by INTEGER',
-    'ALTER TABLE clans ADD COLUMN disbanded_at INTEGER',
-    'ALTER TABLE clans ADD COLUMN disbanded_reason TEXT',
-  ]) db.exec(sql);
+  try {
+    db.exec('PRAGMA foreign_keys = ON');
+    db.exec(fs.readFileSync(path.join(__dirname, '..', 'schema.sql'), 'utf8'));
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tournament_entries'").get());
+    assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tournament_snapshots'").get(), undefined);
+    for (const sql of [
+      'ALTER TABLE users ADD COLUMN banned_at INTEGER',
+      'ALTER TABLE users ADD COLUMN banned_reason TEXT',
+      'ALTER TABLE users ADD COLUMN banned_by INTEGER',
+      'ALTER TABLE records ADD COLUMN dq_at INTEGER',
+      'ALTER TABLE records ADD COLUMN dq_reason TEXT',
+      'ALTER TABLE records ADD COLUMN dq_by INTEGER',
+      'ALTER TABLE clans ADD COLUMN disbanded_at INTEGER',
+      'ALTER TABLE clans ADD COLUMN disbanded_reason TEXT',
+    ]) db.exec(sql);
 
-  const DB = d1(db);
+    const DB = d1(db);
+    const env = { DB, SESSION_SECRET: SECRET, SITE_ORIGIN: ORIGIN, SITE_ORIGIN_ALT: '' };
+    globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+    const worker = (await import('../worker/index.js')).default;
+    const ctx = { pending: [], waitUntil(promise) { this.pending.push(promise); } };
+    const tick = async () => {
+      ctx.pending = [];
+      await worker.scheduled({}, env, ctx);
+      await Promise.all(ctx.pending);
+    };
+    const get = async (endpoint, user) => {
+      const headers = user ? { Authorization: 'Bearer ' + user.token } : {};
+      const response = await worker.fetch(new Request('https://api.test' + endpoint, { headers }), env, ctx);
+      return { status: response.status, body: await response.json() };
+    };
+    const post = async (endpoint, user, body) => {
+      const headers = { Origin: ORIGIN, 'Content-Type': 'application/json' };
+      if (user) headers.Authorization = 'Bearer ' + user.token;
+      const response = await worker.fetch(new Request('https://api.test' + endpoint, {
+        method: 'POST', headers, body: JSON.stringify(body || {}),
+      }), env, ctx);
+      return { status: response.status, body: await response.json() };
+    };
 
-  const env = { DB, SESSION_SECRET: SECRET, SITE_ORIGIN: ORIGIN, SITE_ORIGIN_ALT: '' };
-  globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
-  const worker = (await import('../worker/index.js')).default;
-  const ctx = { waitUntil: (p) => { ctx.pending = p; } };
-
-  // 25 users.
-  const users = [];
-  const now0 = Date.now();
-  for (let i = 1; i <= 25; i++) {
-    db.prepare(`INSERT INTO users (x_id, handle, display_name, avatar_url, session_epoch, created_at, last_login_at)
-      VALUES (?, ?, ?, '', 0, ?, ?)`).run('x' + i, 'trader' + i, 'Trader ' + i, now0, now0);
-    users.push({ id: i, handle: 'trader' + i, token: await sessionToken(i, 0) });
-  }
-
-  const get = async (p, token) => {
-    const res = await worker.fetch(new Request('https://api.test' + p, {
-      headers: token ? { Authorization: 'Bearer ' + token } : {},
-    }), env, ctx);
-    return { status: res.status, body: await res.json() };
-  };
-  const post = async (p, token, payload) => {
-    const res = await worker.fetch(new Request('https://api.test' + p, {
-      method: 'POST',
-      headers: { Origin: ORIGIN, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    }), env, ctx);
-    return { status: res.status, body: await res.json() };
-  };
-  const tick = async () => { await worker.scheduled({}, env, ctx); await ctx.pending; };
-
-  /* ---- create ---- */
-  console.log('\n== create ==');
-  const created = await post('/api/tournament/create', users[0].token, {
-    name: 'Simulated Trench Open', fieldSize: 25, startStackSol: 10,
-    roundHours: 24, cutPerRound: 5, prizePoolSol: 100,
-    startTs: Date.now() + 365 * 86400000, // far future; we compress by editing start_ts
-  });
-  check('create returns ok+code', created.status === 200 && created.body.ok && /^[A-Z2-9]{6}$/.test(created.body.code), JSON.stringify(created.body));
-  const CODE = created.body.code;
-
-  const noAuth = await post('/api/tournament/create', null, { name: 'Nope' });
-  check('create without session refused', noAuth.status === 401);
-  const badOrigin = await worker.fetch(new Request('https://api.test/api/tournament/create', {
-    method: 'POST', headers: { Origin: 'https://evil.example', Authorization: 'Bearer ' + users[1].token },
-    body: '{}',
-  }), env, ctx);
-  check('create with foreign origin refused', badOrigin.status === 403);
-
-  /* ---- join ---- */
-  console.log('\n== join ==');
-  for (let i = 1; i < 25; i++) {
-    const r = await post('/api/tournament/' + CODE + '/join', users[i].token);
-    if (!r.body.ok) { check('join trader' + (i + 1), false, JSON.stringify(r.body)); }
-  }
-  let board = (await get('/api/tournament/' + CODE + '/board')).body;
-  check('25 seats filled', board.tournament.entrantCount === 25, String(board.tournament.entrantCount));
-  check('still open until start', board.tournament.status === 'open');
-
-  // 26th seat must refuse.
-  db.prepare(`INSERT INTO users (x_id, handle, session_epoch, created_at, last_login_at) VALUES ('x26','trader26',0,?,?)`).run(now0, now0);
-  const t26 = await sessionToken(26, 0);
-  const full = await post('/api/tournament/' + CODE + '/join', t26);
-  check('26th entrant refused (full)', full.status === 409 && full.body.reason === 'full', JSON.stringify(full.body));
-  const rejoin = await post('/api/tournament/' + CODE + '/join', users[5].token);
-  check('double join is idempotent', rejoin.status === 200 && rejoin.body.ok && rejoin.body.already === true);
-
-  /* ---- start (compress: pull start_ts to now) ---- */
-  console.log('\n== start ==');
-  db.prepare('UPDATE tournaments SET start_ts = ? WHERE code = ?').run(Date.now() - 1000, CODE);
-  await tick();
-  board = (await get('/api/tournament/' + CODE + '/board')).body;
-  check('tournament live after boundary tick', board.tournament.status === 'live' && board.tournament.currentRound === 1,
-    board.tournament.status + ' r' + board.tournament.currentRound);
-  check('all 25 alive, no snapshots → PnL 0', board.standings.length === 25 &&
-    board.standings.every((r) => r.alive && r.pnlSol === 0 && !r.hasSnapshot));
-
-  const lateJoin = await post('/api/tournament/' + CODE + '/join', t26);
-  check('join after start refused', lateJoin.status === 409 && lateJoin.body.reason === 'not-open');
-
-  /* ---- rounds ---- */
-  // Deterministic PnL per trader per round: trader i pushes equity that keeps
-  // them ranked i (trader1 strongest). Each round the bottom 5 must be cut.
-  const equityFor = (i, round) => 10 + (25 - i) * 0.5 + round * 0.01; // trader index 0..24
-  const expectedAlive = [25, 20, 15, 10, 5];
-  const expectedCut = [5, 5, 5, 5];
-
-  for (let round = 1; round <= 4; round++) {
-    console.log('\n== round ' + round + ' ==');
-    // Alive traders push snapshots (skip trader24 in round 1 to cover no-data).
-    const aliveRows = db.prepare(
-      'SELECT user_id FROM tournament_entrants WHERE tournament_id = (SELECT id FROM tournaments WHERE code = ?) AND alive = 1')
-      .all(CODE).map((r) => r.user_id);
-    for (const uid of aliveRows) {
-      const i = uid - 1;
-      if (round === 1 && uid === 25) continue; // trader25 never pushes
-      const r = await post('/api/tournament/' + CODE + '/snapshot', users[i].token, {
-        equitySol: equityFor(i, round),
-        cashSol: 5,
-        positions: [{ mint: 'MINT' + i, symbol: 'TK' + i, qty: 100, valueSol: equityFor(i, round) - 5 }],
-        pnlSol: 9999, // must be ignored — server derives
-      });
-      if (!r.body.ok) check('snapshot trader' + uid + ' r' + round, false, JSON.stringify(r.body));
+    const users = [];
+    for (let id = 1; id <= 25; id++) {
+      db.prepare(`INSERT INTO users
+        (x_id, handle, display_name, avatar_url, session_epoch, created_at, last_login_at)
+        VALUES (?, ?, ?, '', 0, ?, ?)`)
+        .run('x' + id, 'trader' + id, 'Trader ' + id, now, now);
+      users.push({ id, handle: 'trader' + id, token: await sessionToken(id) });
     }
-    // A pushed snapshot's PnL is derived, not the client's 9999.
-    board = (await get('/api/tournament/' + CODE + '/board')).body;
-    const t1 = board.standings.find((r) => r.handle === 'trader1');
-    check('client-supplied pnl ignored, derived instead',
-      Math.abs(t1.pnlSol - (equityFor(0, round) - 10)) < 1e-9, String(t1.pnlSol));
 
-    // Advance past the boundary and tick.
-    db.prepare('UPDATE tournaments SET start_ts = ? WHERE code = ?')
-      .run(Date.now() - round * 24 * 3600000 - 1000, CODE);
-    await tick();
-
-    board = (await get('/api/tournament/' + CODE + '/board')).body;
-    const alive = board.standings.filter((r) => r.alive).length;
-    if (round <= 4 && expectedAlive[round] !== undefined) {
-      check('round ' + round + ' cut leaves ' + expectedAlive[round], alive === expectedAlive[round],
-        'alive=' + alive);
-    }
-    const elims = board.eliminations.filter((e) => e.roundNo === round);
-    if (round <= 3) {
-      check('round ' + round + ' eliminated exactly 5', elims.length === 5, String(elims.length));
-      const cutHandles = elims.map((e) => e.handle).sort();
-      const expectHandles = [25, 24, 23, 22, 21].map((n) => 'trader' + (n - (round - 1) * 5)).sort();
-      check('round ' + round + ' cut the bottom five', JSON.stringify(cutHandles) === JSON.stringify(expectHandles),
-        cutHandles.join(',') + ' vs ' + expectHandles.join(','));
-    }
-    // Idempotence: a second tick must not re-cut.
-    await tick();
-    const again = (await get('/api/tournament/' + CODE + '/board')).body;
-    check('round ' + round + ' settlement is idempotent',
-      again.eliminations.filter((e) => e.roundNo === round).length === elims.length &&
-      again.standings.filter((r) => r.alive).length === alive);
-  }
-
-  /* ---- final ---- */
-  console.log('\n== final ==');
-  // 5 alive: trader1..trader5. Push final-round equities, cross the boundary.
-  for (let uid = 1; uid <= 5; uid++) {
-    await post('/api/tournament/' + CODE + '/snapshot', users[uid - 1].token, {
-      equitySol: 10 + (6 - uid) * 2, cashSol: 10, positions: [],
+    const created = await post('/api/tournament/create', users[0], {
+      name: 'Verified Trench Open', fieldSize: 25, startStackSol: 10,
+      roundHours: 1, cutPerRound: 5, prizePoolSol: 100,
     });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.ok, true);
+    const code = created.body.code;
+    for (let index = 1; index < users.length; index++) {
+      const joined = await post('/api/tournament/' + code + '/join', users[index], {});
+      assert.equal(joined.status, 200);
+      assert.equal(joined.body.ok, true);
+    }
+
+    const tournamentRow = db.prepare('SELECT * FROM tournaments WHERE code = ?').get(code);
+    assert.equal(tournamentRow.status, 'live');
+    const tournamentId = tournamentRow.id;
+    const startTs = Number(tournamentRow.start_ts);
+    const chains = new Map(users.map((user) => [user.id, []]));
+    const cacheCandle = db.prepare(`
+      INSERT INTO candle_cache (mint, minute_ts, candles_json, fetched_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(mint, minute_ts) DO UPDATE SET
+        candles_json = excluded.candles_json, fetched_at = excluded.fetched_at`);
+    function putCandle(mint, ts, priceNative, missing) {
+      const minute = Math.floor(ts / MIN) * MIN;
+      const token = missing ? null : JSON.stringify({ low: priceNative * 100, high: priceNative * 100 });
+      cacheCandle.run(mint, minute, token, now);
+      cacheCandle.run('__SOL_USD__', minute, JSON.stringify({ low: 100, high: 100 }), now);
+    }
+
+    const initial = await get('/api/tournament/' + code + '/board');
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.standings.length, 25);
+    assert.ok(initial.body.standings.every((standing) =>
+      standing.pnlOnStackSol === 0 && standing.finality === 'provisional' && !standing.verified));
+
+    const removedSnapshot = await post('/api/tournament/' + code + '/snapshot', users[0], {
+      equitySol: 900000000,
+    });
+    assert.equal(removedSnapshot.status, 404, 'client equity has no tournament write route');
+
+    async function appendRound(userId, roundNo) {
+      const chain = chains.get(userId);
+      const window = tournament.roundWindow({ start_ts: startTs, round_ms: HOUR }, roundNo);
+      const equityAtStart = windowEntry(chain, STARTING_SOL, window).equityAtStart;
+      const roi = (13 - userId) * 0.005;
+      const cost = 2;
+      const proceeds = cost + equityAtStart * roi;
+      const qty = 0.1;
+      const mint = 'Mint' + userId;
+      const sessionId = 'session-' + userId + '-' + roundNo;
+      const buyTs = window.startTs + 20 * MIN;
+      const sellTs = window.startTs + 21 * MIN;
+      const buyPrice = cost / qty;
+      const sellPrice = proceeds / qty;
+      putCandle(mint, buyTs, buyPrice, false);
+      putCandle(mint, sellTs, sellPrice, userId === 24 && roundNo === 1);
+      await append(chain, {
+        id: 'buy-' + userId + '-' + roundNo, sessionId, mint, chain: 'solana',
+        side: 'buy', qty, priceNative: buyPrice,
+        solGross: cost, solNet: cost, ts: buyTs,
+      });
+      await append(chain, {
+        id: 'sell-' + userId + '-' + roundNo, sessionId, mint, chain: 'solana',
+        side: 'sell', qty, priceNative: sellPrice,
+        solGross: proceeds, solNet: proceeds, ts: sellTs,
+      });
+    }
+
+    async function submitChain(userId) {
+      const response = await post('/api/submit', users[userId - 1], payloadFor(chains.get(userId)));
+      assert.equal(response.status, 200, 'submit trader' + userId + ': ' + JSON.stringify(response.body));
+      assert.equal(response.body.ok, true);
+      assert.equal(response.body.status, 'pending');
+      return response.body;
+    }
+
+    const expectedAlive = [20, 15, 10, 5, 5];
+    for (let roundNo = 1; roundNo <= 5; roundNo++) {
+      const alive = db.prepare(`SELECT user_id FROM tournament_entrants
+        WHERE tournament_id = ? AND alive = 1 ORDER BY user_id`).all(tournamentId)
+        .map((row) => Number(row.user_id));
+      assert.equal(alive.length, roundNo === 1 ? 25 : expectedAlive[roundNo - 2]);
+      const window = tournament.roundWindow({ start_ts: startTs, round_ms: HOUR }, roundNo);
+      now = Math.max(now, window.startTs + 22 * MIN);
+
+      const previousLengths = new Map();
+      for (const userId of alive) {
+        const previous = db.prepare('SELECT chain_len FROM records WHERE user_id = ?').get(userId);
+        previousLengths.set(userId, previous ? Number(previous.chain_len) : 0);
+        await appendRound(userId, roundNo);
+      }
+
+      if (roundNo === 2) {
+        const userId = 1;
+        const replacement = [];
+        const ts = window.startTs + 10 * MIN;
+        const mint = 'ReplacementMint';
+        const qty = 0.1;
+        await append(replacement, {
+          id: 'replacement-buy', sessionId: 'replacement', mint, chain: 'solana',
+          side: 'buy', qty, priceNative: 20, solGross: 2, solNet: 2, ts,
+        });
+        await append(replacement, {
+          id: 'replacement-sell', sessionId: 'replacement', mint, chain: 'solana',
+          side: 'sell', qty, priceNative: 20, solGross: 2, solNet: 2, ts: ts + MIN,
+        });
+        const rejected = await post('/api/submit', users[userId - 1], payloadFor(replacement));
+        assert.equal(rejected.status, 422);
+        assert.equal(rejected.body.reason, 'chain-replaced');
+      }
+
+      const preBoundary = roundNo === 1 ? new Set([21, 22, 23, 25]) : new Set();
+      for (const userId of alive.filter((id) => preBoundary.has(id))) {
+        now = window.endTs - MIN;
+        await submitChain(userId);
+      }
+      for (const userId of alive.filter((id) => !preBoundary.has(id))) {
+        now = window.endTs + MIN;
+        await submitChain(userId);
+        if (roundNo === 2 && userId === 1) {
+          const record = db.prepare(`SELECT status, chain_len, pricing_progress_json
+            FROM records WHERE user_id = ?`).get(userId);
+          const progress = JSON.parse(record.pricing_progress_json);
+          assert.equal(record.status, 'pending', 'an extended chain stays pending during suffix pricing');
+          assert.equal(progress.cursor, previousLengths.get(userId));
+          assert.equal(progress.verdicts.length, previousLengths.get(userId));
+        }
+      }
+
+      now = window.endTs + 5 * MIN;
+      await tick();
+      const beforeGrace = db.prepare('SELECT COUNT(*) AS n FROM tournament_rounds WHERE tournament_id = ?')
+        .get(tournamentId).n;
+      assert.equal(beforeGrace, roundNo - 1, 'the boundary cannot settle before its 15-minute grace');
+      for (const userId of alive) {
+        const record = db.prepare('SELECT status, chain_len, pricing_progress_json FROM records WHERE user_id = ?')
+          .get(userId);
+        if (roundNo === 1 && userId === 24) {
+          assert.equal(record.status, 'partial', 'a missing candle is not a verified final chain');
+        } else {
+          assert.equal(record.status, 'verified');
+          const progress = JSON.parse(record.pricing_progress_json);
+          assert.equal(progress.cursor, Number(record.chain_len));
+          assert.equal(progress.verdicts.length, Number(record.chain_len));
+        }
+      }
+
+      now = window.endTs + tournament.SETTLE_GRACE_MS;
+      await tick();
+      const board = (await get('/api/tournament/' + code + '/board')).body;
+      assert.equal(board.rounds.length, roundNo);
+      assert.match(board.rounds[roundNo - 1].standingsHash, /^[0-9a-f]{64}$/);
+      if (roundNo === 1) {
+        assert.equal(board.tournament.aliveCount, 20);
+        assert.deepEqual(board.eliminations.filter((item) => item.roundNo === 1)
+          .map((item) => Number(item.userId)).sort((a, b) => a - b), [21, 22, 23, 24, 25]);
+        const frozen = JSON.parse(db.prepare(`SELECT standings_json FROM tournament_rounds
+          WHERE tournament_id = ? AND round_no = 1`).get(tournamentId).standings_json);
+        assert.equal(frozen.filter((item) => item.finality === 'final').length, 20);
+        assert.equal(frozen.find((item) => item.userId === 25).finality, 'forfeited',
+          'a verified pre-boundary submission is not final');
+        assert.equal(frozen.find((item) => item.userId === 24).finality, 'forfeited',
+          'a post-boundary partial record is not final');
+        const winnerOfCut = board.standings.find((item) => item.handle === 'trader1');
+        assert.equal(winnerOfCut.finality, 'provisional', 'the next live window starts provisional');
+        assert.ok(Math.abs(winnerOfCut.pnlOnStackSol - winnerOfCut.roiPct / 100 * 10) < 1e-9);
+        assert.ok(winnerOfCut.pnlOnStackSol < 10, 'the forged client equity did not enter the board');
+      } else if (roundNo < 5) {
+        assert.equal(board.tournament.aliveCount, expectedAlive[roundNo - 1]);
+      } else {
+        assert.equal(board.tournament.status, 'done');
+        assert.equal(board.standings[0].handle, 'trader1');
+        assert.equal(board.standings[0].finalRank, 1);
+        assert.equal(board.standings[0].finality, 'final');
+        assert.deepEqual(board.standings.map((standing) => standing.finalRank).sort((a, b) => a - b),
+          Array.from({ length: 25 }, (_, index) => index + 1));
+        assert.equal(board.final.awards.length, 3);
+        assert.equal(board.final.awards[0].amountSol, 50);
+        assert.equal(board.final.awards[1].amountSol, 30);
+        assert.equal(board.final.awards[2].amountSol, 20);
+      }
+
+      await tick();
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tournament_rounds WHERE tournament_id = ?')
+        .get(tournamentId).n, roundNo, 'a settled boundary is not cut twice');
+    }
+
+    const trader = await get('/api/tournament/' + code + '/trader?handle=trader1');
+    assert.equal(trader.status, 200);
+    assert.equal(trader.body.rank, 1);
+    assert.equal(trader.body.trader.finality, 'final');
+    const directory = await get('/api/tournaments');
+    assert.ok(directory.body.tournaments.some((item) => item.code === code && item.status === 'done'));
+
+    const second = await post('/api/tournament/create', users[0], {
+      name: 'Fill-Up Bracket', fieldSize: 4, startStackSol: 10,
+      roundHours: 1, cutPerRound: 1,
+    });
+    assert.equal(second.status, 200);
+    const code2 = second.body.code;
+    await post('/api/tournament/' + code2 + '/join', users[1], {});
+    assert.equal((await post('/api/tournament/' + code2 + '/leave', users[1], {})).status, 200);
+    const join2 = await post('/api/tournament/' + code2 + '/join', users[1], {});
+    const join3 = await post('/api/tournament/' + code2 + '/join', users[2], {});
+    const join4 = await post('/api/tournament/' + code2 + '/join', users[3], {});
+    assert.equal(join2.body.ok && join3.body.ok && join4.body.started, true);
+    assert.equal((await get('/api/tournament/' + code2)).body.tournament.status, 'live');
+    assert.equal((await post('/api/tournament/' + code2 + '/leave', users[1], {})).status, 409);
+
+    const cancelled = await post('/api/tournament/create', users[4], {
+      name: 'Cancelled Bracket', fieldSize: 8, startStackSol: 10,
+      roundHours: 1, cutPerRound: 2,
+    });
+    assert.equal(cancelled.status, 200);
+    assert.equal((await post('/api/tournament/' + cancelled.body.code + '/cancel', users[4], {})).status, 200);
+    assert.equal((await get('/api/tournament/' + cancelled.body.code)).body.tournament.status, 'cancelled');
+  } finally {
+    Date.now = realNow;
+    db.close();
   }
-  db.prepare('UPDATE tournaments SET start_ts = ? WHERE code = ?')
-    .run(Date.now() - 5 * 24 * 3600000 - 1000, CODE);
-  await tick();
-  board = (await get('/api/tournament/' + CODE + '/board')).body;
-  check('tournament done', board.tournament.status === 'done', board.tournament.status);
-  check('winner is trader1', board.standings[0].handle === 'trader1' && board.standings[0].finalRank === 1,
-    JSON.stringify(board.standings[0]));
-  check('final ranks are a permutation 1..25',
-    JSON.stringify(board.standings.map((r) => r.finalRank).sort((a, b) => a - b)) ===
-    JSON.stringify(Array.from({ length: 25 }, (_, i) => i + 1)),
-    board.standings.map((r) => r.handle + ':' + r.finalRank).join(','));
-  check('prize awards 50/30/20 of 100 to top 3',
-    board.final && board.final.awards.length === 3 &&
-    board.final.awards[0].amountSol === 50 && board.final.awards[1].amountSol === 30 &&
-    board.final.awards[2].amountSol === 20, JSON.stringify(board.final && board.final.awards));
-  check('rounds ledger has 5 settled boundaries with hashes',
-    board.rounds.length === 5 && board.rounds.every((r) => /^[0-9a-f]{64}$/.test(r.standingsHash)),
-    String(board.rounds.length));
-
-  // Eliminated trader's snapshot push is refused.
-  const deadPush = await post('/api/tournament/' + CODE + '/snapshot', users[24].token, { equitySol: 50 });
-  check('eliminated/done push refused', deadPush.status === 409, JSON.stringify(deadPush.body));
-
-  // Trader live view.
-  const trader = await get('/api/tournament/' + CODE + '/trader?handle=trader2');
-  check('trader view returns rank + positions', trader.status === 200 && trader.body.trader.handle === 'trader2' && trader.body.rank === 2,
-    JSON.stringify({ status: trader.status, rank: trader.body.rank }));
-
-  // Directory lists it as done.
-  const dir = await get('/api/tournaments');
-  check('directory lists the finished tournament', dir.status === 200 &&
-    dir.body.tournaments.some((t) => t.code === CODE && t.status === 'done'));
-
-  /* ---- second bracket: start-when-full, leave, cancel, mine ---- */
-  console.log('\n== start-when-full / leave / cancel ==');
-  const c2 = await post('/api/tournament/create', users[0].token, {
-    name: 'Fill-Up Bracket', fieldSize: 4, startStackSol: 10,
-    roundHours: 24, cutPerRound: 1, // no startTs → starts when full
-  });
-  check('second create ok', c2.status === 200 && c2.body.ok, JSON.stringify(c2.body));
-  const CODE2 = c2.body.code;
-
-  // mine lists the creator's seat before anyone else joins.
-  const mine = await get('/api/tournament/mine', users[0].token);
-  check('/mine lists both seats for creator', mine.status === 200 &&
-    mine.body.tournaments.some((t) => t.code === CODE) &&
-    mine.body.tournaments.some((t) => t.code === CODE2), JSON.stringify(mine.body));
-
-  // A non-creator can leave an open bracket; the seat is freed.
-  await post('/api/tournament/' + CODE2 + '/join', users[1].token);
-  const leave = await post('/api/tournament/' + CODE2 + '/leave', users[1].token);
-  check('leave an open bracket works', leave.status === 200 && leave.body.ok, JSON.stringify(leave.body));
-  let b2 = (await get('/api/tournament/' + CODE2 + '/board')).body;
-  check('seat freed after leave', b2.tournament.entrantCount === 1, String(b2.tournament.entrantCount));
-
-  // Fill it: creator + 3 more = 4 seats → starts the moment the last lands.
-  await post('/api/tournament/' + CODE2 + '/join', users[1].token);
-  await post('/api/tournament/' + CODE2 + '/join', users[2].token);
-  const last = await post('/api/tournament/' + CODE2 + '/join', users[3].token);
-  check('last join reports started', last.body.ok && last.body.started === true, JSON.stringify(last.body));
-  b2 = (await get('/api/tournament/' + CODE2 + '/board')).body;
-  check('start-when-full went live on the fill', b2.tournament.status === 'live' && b2.tournament.currentRound === 1,
-    b2.tournament.status);
-  const leaveLive = await post('/api/tournament/' + CODE2 + '/leave', users[1].token);
-  check('leaving a live bracket refused', leaveLive.status === 409, JSON.stringify(leaveLive.body));
-
-  // Third bracket: creator cancels while open.
-  const c3 = await post('/api/tournament/create', users[4].token, {
-    name: 'Cancelled Bracket', fieldSize: 8, startStackSol: 10, roundHours: 24, cutPerRound: 2,
-  });
-  const CODE3 = c3.body.code;
-  const notCreator = await post('/api/tournament/' + CODE3 + '/cancel', users[5].token);
-  check('non-creator cannot cancel', notCreator.status === 403, JSON.stringify(notCreator.body));
-  const cancel = await post('/api/tournament/' + CODE3 + '/cancel', users[4].token);
-  check('creator cancels an open bracket', cancel.status === 200 && cancel.body.ok, JSON.stringify(cancel.body));
-  const joinCancelled = await post('/api/tournament/' + CODE3 + '/join', users[6].token);
-  check('joining a cancelled bracket refused', joinCancelled.status === 409, JSON.stringify(joinCancelled.body));
-
-  /* ---- negative control: prove the sim can fail ---- */
-  console.log('\n== negative control ==');
-  db.prepare(`UPDATE tournament_entrants SET final_rank = 99 WHERE user_id = 2`).run();
-  const broken = (await get('/api/tournament/' + CODE + '/board')).body;
-  const isBroken = JSON.stringify(broken.standings.map((r) => r.finalRank).sort((a, b) => a - b)) !==
-    JSON.stringify(Array.from({ length: 25 }, (_, i) => i + 1));
-  check('sim detects a corrupted final_rank', isBroken);
-  db.prepare(`UPDATE tournament_entrants SET final_rank = 2 WHERE user_id = 2`).run();
-
-  console.log('\n' + (failures ? failures + ' FAILURES' : 'ALL GREEN'));
-  process.exit(failures ? 1 : 0);
-}
-
-main().catch((e) => { console.error('SIM CRASH:', e); process.exit(2); });
+});

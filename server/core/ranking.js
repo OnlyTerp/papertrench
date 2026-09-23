@@ -14,6 +14,8 @@
  */
 'use strict';
 
+const { chainOf } = require('./chain.js');
+
 /** Re-entry into a mint this soon after closing it at a loss reads as
  * revenge — the chase pattern mastery.js flags locally. */
 const REVENGE_WINDOW_MS = 10 * 60 * 1000;
@@ -102,6 +104,7 @@ function walkCommitted(links) {
     return byMint.get(link.mint) || null;
   };
   const adopt = (link, held) => {
+    held.chain = chainOf(link);
     const sid = sessionOf(link);
     if (sid && bySession.get(sid) !== held) {
       held.sessions.push(sid);
@@ -169,8 +172,18 @@ function walkCommitted(links) {
   }
 
   let openCost = 0;
-  for (const held of open) openCost += held.cost;
-  return { rounds, openCost, cashDelta };
+  const openPositions = [];
+  for (const held of open) {
+    openCost += held.cost;
+    openPositions.push({
+      mint: held.mints[held.mints.length - 1] || null,
+      chain: held.chain || 'solana',
+      qty: held.qty,
+      costSol: held.cost,
+      openedTs: held.openedTs,
+    });
+  }
+  return { rounds, openCost, cashDelta, openPositions };
 }
 
 /**

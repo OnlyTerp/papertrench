@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaperTrench — Tournaments</title>
-<meta name="description" content="Fixed-field elimination tournaments on an isolated paper ledger. Everyone starts on the same stack, the bottom of the board is cut each round, and the last trader standing takes the pot.">
+<meta name="description" content="Fixed-field elimination tournaments scored from server-verified chain windows. Everyone gets the same stack-scaled ROI, with final cuts based on verified submissions and independent candle marks.">
 <meta property="og:title" content="PaperTrench — Tournaments">
 <meta property="og:description" content="Same stack, same clock, no excuses. Bottom five cut every round until one name is left.">
 <meta property="og:image" content="https://papertrench.com/assets/video-poster.jpg">
@@ -19,19 +19,16 @@
 <style>
 /* tournament.html — page-scoped only.
  *
- * arena.css owns the Arena vocabulary; this file adds only what is true of
- * this page: a seven-column standings grid (no verification chip — tournament
- * numbers are self-reported snapshots, labeled as such, never dressed as
- * verified), the spectate card, and the directory list. */
+ * arena.css owns the Arena vocabulary; this file adds the verified-chain
+ * tournament standings, finality/unpriced chips, spectate card, and directory. */
 
-/* Standings: pos, trader, state, equity, P&L, ROI, last push. Doubled
- * selectors outrank arena.css's ten-column default at every width, same
- * trick sprint.html uses — gap and padding still come from arena.css. */
+/* Standings: position, trader, entry state, stack-scaled P&L, ROI, verified at.
+ * Doubled selectors outrank arena.css's ten-column default at every width. */
 .ar-tourn .ar-thead,
 .ar-tourn .ar-row {
   grid-template-columns:
-    46px minmax(140px, 1.5fr) 92px minmax(72px, 0.8fr)
-    minmax(72px, 0.8fr) 64px 74px;
+    46px minmax(140px, 1.5fr) minmax(145px, 1.2fr)
+    minmax(88px, 0.8fr) 64px 74px;
 }
 
 /* Tournament state chips reuse the chip vocabulary but are their own set:
@@ -121,19 +118,15 @@
   .ar-tourn .ar-thead,
   .ar-tourn .ar-row {
     grid-template-columns:
-      42px minmax(120px, 1.4fr) 90px minmax(70px, 0.8fr)
-      minmax(70px, 0.8fr) 60px 70px;
+      42px minmax(120px, 1.4fr) minmax(130px, 1.2fr)
+      minmax(82px, 0.8fr) 60px 70px;
   }
 }
 
 @media (max-width: 720px) {
-  /* Equity and last-push go. Position, trader, state, P&L and ROI stay —
-   * the state chip is never the dropped column: a row whose bracket state
-   * is invisible reads as alive, and that is the misreading this page is
-   * not allowed to let a phone cause. */
+  /* The state chip remains visible so a forfeited row cannot read as active. */
   .ar-tourn .ar-thead,
-  .ar-tourn .ar-row { grid-template-columns: 32px minmax(0, 1fr) 86px 66px 52px; }
-  .ar-tourn .ar-c-eq,
+  .ar-tourn .ar-row { grid-template-columns: 32px minmax(0, 1fr) minmax(92px, 1.2fr) 70px 52px; }
   .ar-tourn .ar-c-push { display: none; }
   .ar-tourn .ar-row .pos { font-size: 13px; }
   .ar-tourn .ar-row .val { font-size: 12px; }
@@ -143,8 +136,9 @@
 
 @media (max-width: 480px) {
   .ar-tourn .ar-thead,
-  .ar-tourn .ar-row { grid-template-columns: 26px minmax(0, 1fr) 80px 56px; }
-  .ar-tourn .ar-c-roi { display: none; }
+  .ar-tourn .ar-row { grid-template-columns: 26px minmax(0, 1fr) minmax(88px, 1.2fr) 56px; }
+  .ar-tourn .ar-c-roi,
+  .ar-tourn .ar-c-push { display: none; }
   .ar-tourn .ar-face { width: 24px; height: 24px; font-size: 9.5px; }
   .ar-tourn .ar-who { gap: 7px; }
   .ar-tourn .ar-chip { font-size: 8.5px; padding: 3px 6px; letter-spacing: 0.7px; }
@@ -186,12 +180,12 @@
   <div class="wrap">
     <div class="ar-hero-grid">
       <div>
-        <span class="ar-eyebrow"><span class="dot"></span>Elimination bracket · isolated paper ledger</span>
+        <span class="ar-eyebrow"><span class="dot"></span>Verified PnL · elimination bracket</span>
         <h1 class="ar-title"><span class="line">Same stack, same clock,</span><span class="line accent">last trader standing.</span></h1>
-        <p class="ar-lede">Everyone enters on the same paper stack and the tournament ledger
-          counts from zero — your main-board record is never touched. At each round boundary
-          the <strong>bottom of the board is cut</strong>, and the bracket runs until one name
-          is left. Click any trader to watch their positions move in near-real time.</p>
+        <p class="ar-lede">Everyone's P&amp;L is measured against the same stack. The server scores
+          the verified fill chain through each tournament window; your main-board record is not
+          modified. At each boundary the <strong>bottom of the board is cut</strong>, and the
+          bracket runs until one name is left. Click any trader to see their verified window entry.</p>
 
         <div class="ar-spec" role="list" aria-label="Tournament parameters">
           <div role="listitem"><div class="k">Stack</div><div class="v" id="spec-stack">—</div></div>
@@ -272,14 +266,19 @@
         <div class="ar-tourn" id="board"></div>
         <div class="pad" style="border-top:var(--edge)">
           <p class="ar-note" id="board-status" aria-live="polite">Loading the bracket.</p>
-          <p class="ar-note" style="margin-top:10px">Tournament numbers are
-            <strong>self-reported live snapshots</strong> pushed by each entrant's extension —
-            equity in, P&amp;L derived server-side. They are labeled as reported, not verified:
-            the all-time board's replay-and-reprice pipeline does not run inside a tournament.
-            A row marked <span class="ar-chip waiting" style="font-size:8px">No data</span> has
-            pushed nothing yet and stands at its starting stack — silence is a number, not an
-            excuse.</p>
+          <p class="ar-note" style="margin-top:10px">Tournament P&amp;L comes from each entrant's
+            server-stored chain after independent fill re-pricing — client equity figures never
+            enter the standings. Live rows are provisional until the boundary settles. At the
+            bell, open positions use the independent token and SOL/USD candle ranges; a missing
+            candle values that position at gross cost and marks it unpriced. A row without a
+            verified entry has no ranked result yet, not a guessed one.</p>
         </div>
+      </section>
+
+      <section class="ar-pane" id="rounds-pane" aria-labelledby="rounds-h" hidden>
+        <div class="ar-pane-head"><span class="glyph" style="color:var(--blue)">#</span>
+          <span id="rounds-h">Settled boundaries</span></div>
+        <div class="pad"><div id="rounds-list"></div></div>
       </section>
 
       <!-- Elimination log: who fell, at which boundary. -->
@@ -295,11 +294,10 @@
         <div class="pad">
           <ol style="list-style:none;counter-reset:s;display:grid;gap:14px">
             <li style="counter-increment:s">
-              <b style="font-size:13px">One ledger, started even.</b>
-              <p class="ar-note">Every entrant begins on the same paper stack — 10&nbsp;◎ by
-                default — on a ledger that exists only inside the tournament. Your all-time
-                record is never read and never touched: a bad bracket can't hurt it, and a
-                lifetime record can't be donated to a bracket.</p>
+              <b style="font-size:13px">One verified chain, the same stack.</b>
+              <p class="ar-note">The server reads each entrant's existing verified chain and scores
+                only rounds inside the tournament window. ROI is scaled to the same starting stack
+                for display; no separate book is created and the main-board record is not modified.</p>
             </li>
             <li>
               <b style="font-size:13px">The clock is the server's.</b>
@@ -310,17 +308,17 @@
             </li>
             <li>
               <b style="font-size:13px">The bottom five fall, every round.</b>
-              <p class="ar-note">Ranking is tournament P&amp;L — pushed equity minus the start
-                stack, computed server-side. Never pushed a snapshot? You stand at your stack:
-                silence is a number, not a hiding place. When the survivors number no more than
-                the cut, that round is the final — it crowns instead of cutting.</p>
+              <p class="ar-note">Ranking uses ROI from the same server-verified windowEntry as the
+                other boards; the displayed P&amp;L scales that ROI to the common tournament stack.
+                A cut waits 15 minutes for a post-boundary verified chain. No verified final entry
+                is a forfeit, ranked below every final entry. When the survivors number no more
+                than the cut, that round crowns instead of cutting.</p>
             </li>
             <li>
               <b style="font-size:13px">Spectating is data, not video.</b>
-              <p class="ar-note">Click any trader on the board and their live card polls every
-                few seconds: equity, cash, positions, last push. It's the extension's own
-                report, labeled as such — the honest version of "watch them trade" that a
-                paper ledger can actually serve.</p>
+              <p class="ar-note">Click any trader on the board to see their verified window
+                return and open positions. Open bags are marked from independent candles at the
+                current bell; if a candle is missing, the row says so and uses gross cost.</p>
             </li>
           </ol>
         </div>

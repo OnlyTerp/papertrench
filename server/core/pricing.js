@@ -31,6 +31,56 @@ function minuteOf(ts) {
   return Math.floor(ts / 60000) * 60000;
 }
 
+/** The native-price interval consistent with the USD and SOL/USD candle ranges. */
+function nativePriceRangeFromCandles(candles, tolerance) {
+  const tok = candles && candles.tokenUsd;
+  const sol = candles && candles.solUsd;
+  if (!tok || !sol) return null;
+  const tokLow = Number(tok.low), tokHigh = Number(tok.high);
+  const solLow = Number(sol.low), solHigh = Number(sol.high);
+  if (!(tokLow > 0) || !(tokHigh >= tokLow) || !(solLow > 0) || !(solHigh >= solLow)) return null;
+  const tol = Number(tolerance) > 0 ? Number(tolerance) : DEFAULT_TOLERANCE;
+  const range = {
+    low: tokLow * (1 - tol) / solHigh,
+    high: tokHigh * (1 + tol) / solLow,
+  };
+  return Number.isFinite(range.low) && Number.isFinite(range.high) && range.high >= range.low
+    ? range : null;
+}
+
+const VERDICT_CODES = { ok: 'o', 'no-data': 'n', implausible: 'i' };
+const CODE_VERDICTS = { o: 'ok', n: 'no-data', i: 'implausible' };
+
+/** Per-fill verdicts fit in one byte each while preserving resumable prefixes. */
+function compactVerdicts(verdicts) {
+  if (!Array.isArray(verdicts)) return null;
+  let codes = '';
+  for (const item of verdicts) {
+    const verdict = item && item.verdict;
+    if (!Object.hasOwn(VERDICT_CODES, verdict)) return null;
+    codes += VERDICT_CODES[verdict];
+  }
+  return codes;
+}
+
+/** Restore compact or pre-existing object verdicts against the stored chain. */
+function expandVerdicts(encoded, links) {
+  const chain = Array.isArray(links) ? links : [];
+  if (Array.isArray(encoded)) {
+    return encoded.every((item, index) => item && Number(item.index) === index
+      && Object.hasOwn(VERDICT_CODES, item.verdict)) ? encoded : null;
+  }
+  if (typeof encoded !== 'string' || encoded.length > chain.length) return null;
+  const out = [];
+  for (let index = 0; index < encoded.length; index++) {
+    const code = encoded[index];
+    if (!Object.hasOwn(CODE_VERDICTS, code)) return null;
+    const verdict = CODE_VERDICTS[code];
+    out.push({ index, id: chain[index] && chain[index].id, verdict });
+  }
+  return out;
+}
+
 /**
  * Judge one fill against its minute's candles.
  *
@@ -38,19 +88,11 @@ function minuteOf(ts) {
  * Returns 'ok' | 'implausible' | 'no-data'.
  */
 function judgeFill(fill, candles, tolerance) {
-  const tol = Number(tolerance) > 0 ? Number(tolerance) : DEFAULT_TOLERANCE;
   const price = Number(fill.priceNative) || 0;
   if (!(price > 0)) return 'implausible';
-  const tok = candles && candles.tokenUsd;
-  const sol = candles && candles.solUsd;
-  if (!tok || !sol || !(tok.low > 0) || !(sol.low > 0)) return 'no-data';
-
-  // The fill's implied USD range across the minute's SOL/USD range.
-  const fillLow = price * sol.low;
-  const fillHigh = price * sol.high;
-  const tokLow = tok.low * (1 - tol);
-  const tokHigh = tok.high * (1 + tol);
-  return fillLow <= tokHigh && fillHigh >= tokLow ? 'ok' : 'implausible';
+  const range = nativePriceRangeFromCandles(candles, tolerance);
+  if (!range) return 'no-data';
+  return price >= range.low && price <= range.high ? 'ok' : 'implausible';
 }
 
 /**
@@ -148,4 +190,8 @@ function recordVerdict(verdicts, opts) {
   };
 }
 
-module.exports = { DEFAULT_TOLERANCE, minuteOf, judgeFill, priceChain, recordVerdict };
+module.exports = {
+  DEFAULT_TOLERANCE, minuteOf, nativePriceRangeFromCandles,
+  compactVerdicts, expandVerdicts,
+  judgeFill, priceChain, recordVerdict,
+};

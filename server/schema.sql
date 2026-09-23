@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS records (
   badges_json TEXT,                   -- achievements.awarded output, recomputed
                                       -- at submit and again after re-pricing
   pricing_json TEXT,                  -- pricing.recordVerdict output once done
-  pricing_progress_json TEXT,         -- resumable priceRecord cursor state
+  pricing_progress_json TEXT,         -- cursor + compact per-fill verdict codes; retained when done
   submitted_at INTEGER NOT NULL,
   verified_at INTEGER
 );
@@ -359,11 +359,10 @@ CREATE INDEX IF NOT EXISTS idx_sprint_winners_user
   ON sprint_winners(user_id, week_id DESC);
 
 -- ── Tournaments ────────────────────────────────────────────────────────────
--- A fixed-field elimination bracket: everyone starts on the same paper stack,
--- the clock folds rounds server-side, and the bottom N by tournament PnL are
--- cut at each boundary until one name is left. Everything a tournament scores
--- lives in these tables — the main board's records are never read or written
--- by it, so a tournament can neither borrow a lifetime record nor damage one.
+-- A fixed-field elimination bracket over the same server-verified fill chains
+-- used by the other boards. The common stack scales each window ROI for display;
+-- these tables store only tournament seats and settled cut facts, never a
+-- second ledger or client-reported equity.
 
 -- One row per tournament. `code` is the shareable id (same unambiguous
 -- alphabet as duel codes — these get read aloud on stream). Clocks are
@@ -411,21 +410,19 @@ CREATE TABLE IF NOT EXISTS tournament_entrants (
 CREATE INDEX IF NOT EXISTS idx_tournament_entrants_user
   ON tournament_entrants(user_id, joined_at DESC);
 
--- The spectate lane: the latest self-reported state each entrant has pushed.
--- One row per entrant (upserted, not appended) so the board is a read, not a
--- scan — and so a fast pusher cannot grow the table without bound. The
--- numbers here are the extension's own claim, labeled as such on the site;
--- they decide elimination, which is why the route is authed, rate-limited,
--- and the equity figure is what is stored — never a client-computed PnL.
-CREATE TABLE IF NOT EXISTS tournament_snapshots (
+-- One current row per tournament seat. `entry_json` preserves the last
+-- server-verified window entry while a new suffix is pending; `submitted_at`
+-- is the SERVER receive time of the latest submit. A new seat may have a
+-- placeholder until its first fully verified submission.
+CREATE TABLE IF NOT EXISTS tournament_entries (
   tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
   user_id INTEGER NOT NULL REFERENCES users(id),
-  equity_sol REAL NOT NULL,             -- cash + marked positions, in SOL
-  cash_sol REAL,                        -- uninvested paper SOL, when reported
-  positions_json TEXT,                  -- [{mint,symbol,qty,valueSol}] sanitized, capped
-  pushed_at INTEGER NOT NULL,           -- SERVER receive time — client clocks never stored
+  entry_json TEXT NOT NULL,
+  submitted_at INTEGER NOT NULL,
   PRIMARY KEY (tournament_id, user_id)
 );
+CREATE INDEX IF NOT EXISTS idx_tournament_entries_user
+  ON tournament_entries(user_id, submitted_at DESC);
 
 -- One row per settled round boundary. The row IS the claim that the boundary
 -- was processed: INSERT OR IGNORE makes settlement idempotent by construction,
@@ -450,8 +447,8 @@ CREATE TABLE IF NOT EXISTS tournament_eliminations (
   tournament_id INTEGER NOT NULL REFERENCES tournaments(id),
   user_id INTEGER NOT NULL REFERENCES users(id),
   round_no INTEGER NOT NULL,
-  pnl_sol REAL NOT NULL,                -- tournament PnL at the boundary
-  equity_sol REAL NOT NULL,
+  pnl_sol REAL NOT NULL,                -- ROI scaled to the common tournament stack
+  equity_sol REAL NOT NULL,             -- start_stack_sol + pnl_sol
   eliminated_at INTEGER NOT NULL,
   PRIMARY KEY (tournament_id, user_id)
 );

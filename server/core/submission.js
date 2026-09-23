@@ -19,7 +19,7 @@
 
 const { verifyChain, replayChain } = require('./chain.js');
 const { recordStats, minCashDuringReplay, committedAmount } = require('./ranking.js');
-const { priceChain, recordVerdict } = require('./pricing.js');
+const { priceChain, recordVerdict, expandVerdicts } = require('./pricing.js');
 
 const MAX_CHAIN_LINKS = 50000;
 const MAX_STARTING_SOL = 100000;
@@ -170,15 +170,20 @@ async function fastChecks(payload, previous) {
  */
 async function priceRecord(payload, getCandles, progress, opts) {
   const options = opts || {};
-  const prior = progress && Array.isArray(progress.verdicts) ? progress : { cursor: 0, verdicts: [] };
-  const run = await priceChain(payload.chain, getCandles, {
-    startAt: prior.cursor,
+  const list = Array.isArray(payload && payload.chain) ? payload.chain : [];
+  const cursor = Math.trunc(Number(progress && progress.cursor) || 0);
+  const restored = progress && expandVerdicts(progress.verdicts, list);
+  const priorVerdicts = restored && restored.length === cursor && cursor <= list.length
+    ? restored : [];
+  const startAt = priorVerdicts.length ? cursor : 0;
+  const run = await priceChain(list, getCandles, {
+    startAt,
     maxLookups: options.maxLookups,
     tolerance: options.tolerance,
   });
   // priceChain judges from startAt onward, so the slices never overlap.
-  const merged = prior.verdicts.concat(run.verdicts);
-  const done = merged.length === payload.chain.length;
+  const merged = priorVerdicts.concat(run.verdicts);
+  const done = merged.length === list.length;
   const result = {
     done,
     cursor: run.cursor,

@@ -74,10 +74,10 @@ function readCookie(request, name) {
  * silently drop the session on every fetch and sign-in would appear to work
  * and then not — so there it must be None.
  *
- * SameSite=None re-opens the CSRF door that Lax closes, which is why every
- * state-changing route independently enforces the Origin allowlist
- * (requireOrigin in worker/index.js). Setting COOKIE_DOMAIN is what selects
- * the stricter mode.
+ * SameSite=None re-opens the CSRF door that Lax closes, which is why
+ * cookie-bearing writes stay behind the Origin allowlist (requireOrigin in
+ * worker/index.js). Only a cookie-free Bearer submission is exempt. Setting
+ * COOKIE_DOMAIN is what selects the stricter mode.
  */
 function cookieHeader(name, value, maxAgeSec, env) {
   const domain = env.COOKIE_DOMAIN ? `; Domain=${env.COOKIE_DOMAIN}` : '';
@@ -97,8 +97,9 @@ function cookieHeader(name, value, maxAgeSec, env) {
  * account" — live field report). The callback therefore also hands the token
  * to the page in its redirect FRAGMENT (never reaches a server or a log,
  * stripped from the URL on arrival) and the page sends it back as a header,
- * which no cookie policy can drop. A bearer header is also CSRF-inert; the
- * Origin allowlist on state-changing routes stays for both transports.
+ * which no cookie policy can drop. A bearer header is non-ambient; only a
+ * cookie-free /api/submit may bypass Origin. Cookie-bearing and other writes
+ * remain Origin-gated.
  */
 function bearerToken(request) {
   const header = request.headers.get('Authorization') || '';

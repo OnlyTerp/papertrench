@@ -70,7 +70,10 @@ function fakeDB(route) {
     prepare: statement,
     batch: async (statements) => {
       batches.push(statements.map((s) => ({ sql: s.sql, args: s.args })));
-      return statements.map(() => ({ meta: { changes: 1 } }));
+      return statements.map((s) => {
+        const out = route(s.sql, s.args);
+        return out && out.meta ? out : { meta: { changes: 1 } };
+      });
     },
   };
 }
@@ -141,6 +144,12 @@ function submitRoute(opts) {
   return (sql) => {
     if (sql.includes('FROM users WHERE id')) return USER_ROW;
     if (sql.includes('INSERT INTO rate_limits')) return { count: options.rateCount || 1 };
+    if (sql.includes('SELECT 1 AS x FROM tournament_entrants')) {
+      return options.liveEntrant ? { x: 1 } : null;
+    }
+    if (sql.includes('SELECT t.id, t.start_ts, t.start_stack_sol')) {
+      return options.activeTournaments || [];
+    }
     if (sql.includes('FROM records WHERE user_id')) return options.record || null;
     if (sql.includes('FROM duels')) return [];
     if (sql.includes('FROM clan_members')) return null;
@@ -164,15 +173,98 @@ test('the rate limiter is one atomic statement, and it actually limits', async (
   const allowed = await postSubmit(worker, makeEnv(under), await honestPayload());
   assert.equal(allowed.status, 200);
 
+  // A live tournament entrant may submit above the ordinary six-per-hour cap.
+  const entrant = fakeDB(submitRoute({ rateCount: 7, liveEntrant: true }));
+  const entrantAllowed = await postSubmit(worker, makeEnv(entrant), await honestPayload());
+  assert.equal(entrantAllowed.status, 200);
+
   // The atomicity claim, asserted structurally: counting must be ONE upsert
   // with RETURNING — the old SELECT-then-UPDATE pair is what let N parallel
   // requests all read the same count and all pass.
-  for (const db of [over, under]) {
+  for (const db of [over, under, entrant]) {
     const rateOps = db.log.filter((e) => e.sql.includes('rate_limits'));
     assert.equal(rateOps.length, 1, 'exactly one statement may touch the counter');
     assert.ok(rateOps[0].sql.includes('ON CONFLICT'), 'increment and insert are one statement');
     assert.ok(rateOps[0].sql.includes('RETURNING'), 'the decision reads the count the write produced');
   }
+});
+
+test('only a cookie-free Bearer /api/submit bypasses the Origin gate', async () => {
+  const worker = await loadWorker();
+  const payload = await honestPayload();
+  const bearer = 'Bearer ' + await sessionToken();
+  const request = (path, headers, body) => new Request('https://api.test' + path, {
+    method: 'POST', headers, body: JSON.stringify(body || {}),
+  });
+
+  const allowed = await worker.fetch(request('/api/submit', {
+    Origin: 'https://extension.example', Authorization: bearer, 'Content-Type': 'application/json',
+  }, payload), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(allowed.status, 200);
+
+  const cookieRequest = await worker.fetch(request('/api/submit', {
+    Origin: 'https://extension.example', Authorization: bearer,
+    Cookie: 'pt_session=ambient', 'Content-Type': 'application/json',
+  }, payload), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(cookieRequest.status, 403, 'a cookie keeps the CSRF gate active');
+
+  const otherRoute = await worker.fetch(request('/api/tournament/create', {
+    Origin: 'https://extension.example', Authorization: bearer, 'Content-Type': 'application/json',
+  }, { name: 'Foreign origin' }), makeEnv(fakeDB(submitRoute({}))), { waitUntil: () => {} });
+  assert.equal(otherRoute.status, 403, 'the exemption is limited to chain submission');
+});
+
+test('handleSubmit upserts a verified tournament entry under the record premise', async () => {
+  const worker = await loadWorker();
+  const db = fakeDB(submitRoute({
+    liveEntrant: true,
+    activeTournaments: [{ id: 42, start_ts: 0, start_stack_sol: 10 }],
+  }));
+  const response = await postSubmit(worker, makeEnv(db), await honestPayload());
+  assert.equal(response.status, 200);
+  const writes = db.batches[0];
+  const entryIndex = writes.findIndex((statement) => statement.sql.includes('INSERT INTO tournament_entries'));
+  const recordIndex = writes.findIndex((statement) => statement.sql.includes('INSERT INTO records'));
+  assert.ok(entryIndex >= 0, 'the active seat gets an entry row in this submission batch');
+  assert.ok(entryIndex < recordIndex, 'entry upsert is guarded before the record premise tripwire');
+  const entry = writes[entryIndex];
+  assert.match(entry.sql, /SELECT count\(\*\) FROM records/);
+  assert.match(entry.sql, /e\.alive = 1 AND t\.status = 'live'/);
+  const seeded = JSON.parse(entry.args[2]);
+  assert.equal(seeded.verified, false, 'unpriced client claims are not tournament entries');
+  assert.equal('equitySol' in seeded, false);
+  assert.ok(entry.args[3] > 0, 'submitted_at is the server receive time');
+});
+
+test('an extend-only submission carries compact prefix verdicts and remains pending', async () => {
+  const worker = await loadWorker();
+  const base = await honestPayload();
+  const oldCodes = 'oo';
+  const tail = await appendFill(base.head, {
+    id: 'suffix', sessionId: 's', mint: 'M2', side: 'buy',
+    qty: 100, priceNative: 0.001, solGross: 0.1, solNet: 0.1, ts: 30 * MIN,
+  });
+  tail.seq = base.chain.length;
+  const chain = [...base.chain, tail];
+  const payload = {
+    ...base, chain, head: tail.hash,
+    claim: { ...base.claim, realizedPnlSol: 0.98 },
+  };
+  const db = fakeDB(submitRoute({ record: {
+    head: base.head, chain_len: base.chain.length, starting_sol: 10,
+    status: 'verified', stats_json: JSON.stringify({ score: 1 }),
+    submitted_at: Date.now() - 1000,
+    pricing_progress_json: JSON.stringify({ cursor: base.chain.length, verdicts: oldCodes }),
+  } }));
+
+  const response = await postSubmit(worker, makeEnv(db), payload);
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, 'pending');
+  const record = db.batches[0].find((statement) => statement.sql.includes('INSERT INTO records'));
+  const progress = JSON.parse(record.args[7]);
+  assert.equal(progress.cursor, base.chain.length, 'pricing resumes after the unchanged prefix');
+  assert.equal(progress.verdicts, oldCodes, 'per-fill prefix verdicts are retained compactly');
+  assert.match(record.sql, /status = 'pending'/);
 });
 
 /* ---------------- duplicate submissions (DEFECT L-04) ---------------- */
@@ -321,12 +413,13 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
   let stallWrite = null;
   let picked7 = false;
   const db = fakeDB((sql, args) => {
-    if (sql.includes("status = 'pending'")) {
+    if (sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')) {
       // The drain now loops until the queue is empty or the run budget is
       // gone, so this fake must model depletion: one pick, then nothing.
       if (picked7) return null;
       picked7 = true;
-      return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
+      return { user_id: 7, head: chain[chain.length - 1].hash, chain_len: chain.length,
+        starting_sol: 10, submitted_at: 1, pricing_progress_json: null };
     }
     if (sql.includes('FROM chain_segments')) {
       return [{ links_json: JSON.stringify(chain) }];
@@ -350,7 +443,7 @@ test('a record whose candle lookups fail backs off instead of pinning the queue'
 
   // And the queue query itself must skip records that are backing off —
   // that filter is what turns the recorded stall into liveness.
-  const pick = db.log.find((e) => e.sql.includes("status = 'pending'")).sql;
+  const pick = db.log.find((e) => e.sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')).sql;
   assert.ok(pick.includes('stalledUntil'), 'the picker must honour the backoff');
 });
 
@@ -369,10 +462,12 @@ test('one cron tick drains every pending record the candle budget allows', async
   const verified = [];
   let picks = 0;
   const db = fakeDB((sql, args) => {
-    if (sql.includes("status = 'pending'")) {
+    if (sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')) {
       picks++;
-      if (picks === 1) return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
-      if (picks === 2) return { user_id: 8, starting_sol: 10, pricing_progress_json: null };
+      if (picks === 1) return { user_id: 7, head: chainA.at(-1).hash, chain_len: chainA.length,
+        starting_sol: 10, submitted_at: 1, pricing_progress_json: null };
+      if (picks === 2) return { user_id: 8, head: chainB.at(-1).hash, chain_len: chainB.length,
+        starting_sol: 10, submitted_at: 2, pricing_progress_json: null };
       return null;
     }
     if (sql.includes('FROM chain_segments')) {
@@ -386,7 +481,7 @@ test('one cron tick drains every pending record the candle budget allows', async
       return { candles_json: JSON.stringify({ low: 1, high: 1000 }), fetched_at: Date.now() };
     }
     if (sql.includes('UPDATE records SET status')) {
-      verified.push(args[4]);
+      verified.push(args[5]);
       return { meta: { changes: 1 } };
     }
     return null;
@@ -414,10 +509,12 @@ test('a record whose candles fail no longer eats the whole cron tick', async () 
   const verified = [];
   let picks = 0;
   const db = fakeDB((sql, args) => {
-    if (sql.includes("status = 'pending'")) {
+    if (sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')) {
       picks++;
-      if (picks === 1) return { user_id: 7, starting_sol: 10, pricing_progress_json: null };
-      if (picks === 2) return { user_id: 8, starting_sol: 10, pricing_progress_json: null };
+      if (picks === 1) return { user_id: 7, head: chainA.at(-1).hash, chain_len: chainA.length,
+        starting_sol: 10, submitted_at: 1, pricing_progress_json: null };
+      if (picks === 2) return { user_id: 8, head: chainB.at(-1).hash, chain_len: chainB.length,
+        starting_sol: 10, submitted_at: 2, pricing_progress_json: null };
       return null;
     }
     if (sql.includes('FROM chain_segments')) {
@@ -433,7 +530,7 @@ test('a record whose candles fail no longer eats the whole cron tick', async () 
       return { meta: { changes: 1 } };
     }
     if (sql.includes('UPDATE records SET status')) {
-      verified.push(args[4]);
+      verified.push(args[5]);
       return { meta: { changes: 1 } };
     }
     return null;
@@ -480,9 +577,15 @@ test('a run budget spent across records pauses the tick without blaming a record
   };
   try {
     const db = fakeDB((sql, args) => {
-      if (sql.includes("status = 'pending'")) {
+      if (sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')) {
         picks++;
-        if (picks <= 7) return { user_id: 100 + picks, starting_sol: 10, pricing_progress_json: null };
+        if (picks <= 7) {
+          const userId = 100 + picks;
+          const chain = chains.get(userId);
+          return { user_id: userId, head: chain[chain.length - 1].hash,
+            chain_len: chain.length, starting_sol: 10, submitted_at: picks,
+            pricing_progress_json: null };
+        }
         return null;
       }
       if (sql.includes('FROM chain_segments')) {
@@ -497,7 +600,7 @@ test('a run budget spent across records pauses the tick without blaming a record
         return { meta: { changes: 1 } };
       }
       if (sql.includes('UPDATE records SET status')) {
-        verified.push(args[4]);
+        verified.push(args[5]);
         return { meta: { changes: 1 } };
       }
       return null;
@@ -1190,17 +1293,20 @@ test('a corrupted pricing-progress row stalls in place instead of starving the q
   const waited = [];
   let seenQueue = false;
   const db = fakeDB((sql) => {
-    if (sql.includes('SELECT user_id, starting_sol, pricing_progress_json')) {
+    if (sql.includes('SELECT user_id, head, chain_len, starting_sol, submitted_at, pricing_progress_json')) {
       // First head-of-queue row: corrupt progress blob. A real chain is
       // required so the drain reaches the parse at all (empty chains stall
       // on a different, earlier branch). After the stall is written, the
       // backoff filter in the WHERE clause removes this row from the head
       // query — the fake models that by returning nothing afterwards.
-      if (!seenQueue) { seenQueue = true; return { user_id: 1, starting_sol: 10, pricing_progress_json: '{not json' }; }
+      if (!seenQueue) { seenQueue = true; return {
+        user_id: 1, head: GENESIS, chain_len: 1, starting_sol: 10, submitted_at: 1,
+        pricing_progress_json: '{not json',
+      }; }
       return null; // queue empty: the tick is done
     }
     if (sql.includes('FROM chain_segments')) {
-      return [{ links_json: JSON.stringify([GENESIS]) }];
+      return [{ links_json: JSON.stringify([{ hash: GENESIS }]) }];
     }
     return null; // second SELECT: queue empty, the tick is done
   });
@@ -1213,7 +1319,7 @@ test('a corrupted pricing-progress row stalls in place instead of starving the q
   assert.ok(/corrupt-progress/.test(upd[0].args[0]),
     'the row itself records why it stalled: ' + upd[0].args[0]);
   // The queue MOVED: the drain came back for a second row instead of dying.
-  const selects = db.log.filter((e) => /SELECT user_id, starting_sol/.test(e.sql));
+  const selects = db.log.filter((e) => /SELECT user_id, head, chain_len, starting_sol/.test(e.sql));
   assert.ok(selects.length >= 2, 'the drain returned for the next row');
 });
 
