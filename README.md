@@ -2,7 +2,7 @@
 
 <img src="docs/assets/banner.svg" alt="PaperTrench" width="100%">
 
-**Paper-trade tokens across 20 supported chains on the sites you already use.**
+**Paper-trade memecoins on Solana, Robinhood Chain, BNB Chain, Ethereum and Base — on the sites you already use.**
 Real prices. Fake money. A record you can actually learn from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF9D45.svg?style=flat-square)](LICENSE)
@@ -28,7 +28,7 @@ Real prices. Fake money. A record you can actually learn from.
 
 PaperTrench is a Chrome extension that overlays a paper-trading terminal on 15 supported sites: **Axiom, Padre, Photon (TinyAstro), GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Hyperliquid, Lute, Kalshi, Polymarket, and Limitless**. You trade the real chart, at the real live price, with money that isn't real — then review exactly what you did and why.
 
-Pricing supports 20 chains: **Solana, BNB Smart Chain (BNB/BSC), Ethereum, Robinhood Chain, Base, Monad, Hyperliquid, Arbitrum, Avalanche, Optimism, Polygon, Sui, TON, TRON, Unichain, Sonic, Cronos, PulseChain, Abstract, and HyperEVM.** BNB and BSC are aliases for the same chain.
+Trading is verified on **Solana, Robinhood Chain, BNB Chain (BSC), Ethereum and Base** — the chains where every fill gets an independent second price check. Dexscreener and Birdeye pages on other chains may show the panel and a price, but fills there are not verified yet.
 
 It exists because the usual way people learn this market is to lose money finding out that they chase, oversize, and round-trip their winners. This tells you that in an afternoon instead.
 
