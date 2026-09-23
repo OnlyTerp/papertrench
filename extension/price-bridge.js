@@ -69,6 +69,7 @@
   // chart symbols carry the token symbol or mint rather than the pair address,
   // so we match against every identifier we know.
   const currentSymbolNeedles = [];
+  const currentSymbolAddressNeedles = [];
   const currentSymbolInfo = { mint: null, pairAddress: null, symbol: null };
 
   function chartSymbolMatches(chart) {
@@ -94,10 +95,13 @@
 
   function setCurrentSymbolNeedles(payload) {
     const next = [];
+    const nextAddresses = [];
     for (const key of ['pairAddress', 'mint', 'symbol']) {
       const v = payload && payload[key];
       if (typeof v === 'string' && v.length >= 2) {
-        next.push(String(v).toUpperCase());
+        const normalized = String(v).toUpperCase();
+        next.push(normalized);
+        if (key !== 'symbol') nextAddresses.push(normalized);
       }
       // Canonical intake: a checksummed resolver mint and a lowercase page
       // feed meet on one key (EVM lowercased; base58 untouched; the symbol
@@ -106,34 +110,20 @@
     }
     const changed = next.length !== currentSymbolNeedles.length
       || !next.every((n) => currentSymbolNeedles.indexOf(n) >= 0);
+    const sameAddress = currentSymbolAddressNeedles.some((n) => nextAddresses.indexOf(n) >= 0);
     currentSymbolNeedles.length = 0;
+    currentSymbolAddressNeedles.length = 0;
     for (const n of next) currentSymbolNeedles.push(n);
-    // A new token means the old bar close is no longer a valid axis hint —
-    // and the export dedupe must forget the old token's close, or the first
-    // poll on the new token can be swallowed as "unchanged" (DEFECT F-19).
-    //
-    // D-65: the GMGN candle close is NOT cleared here any more. It used to
-    // be, on the same "the needles changed" signal — but that signal fires
-    // for two different events, and only one of them is a new token:
-    //
-    //   a real switch      A -> B, nothing in common. Stale, must go.
-    //   identity sharpening  [PAIR] -> [PAIR, MINT, SYMBOL], as the resolver
-    //                      learns what it is looking at. Same token.
-    //
-    // The second is the normal life of a FRESH LAUNCH, whose identity
-    // resolves late and in pieces, and each sharpening wiped the axis anchor
-    // that both GMGN line lanes need. GMGN fetches its mcap candles once per
-    // chart mount, so nothing ever put the anchor back and the average lines
-    // could not be computed for the rest of the session.
-    //
-    // Clearing on a genuine switch is racy too: the new token's candles
-    // routinely land BEFORE its paper-axis does, so the clear destroyed a
-    // close that had just been captured for the token we were moving to.
-    //
-    // Both go away by tagging the close with the token it was observed for
-    // (gmgnLastCandleCloseKey) and checking that at USE time instead —
-    // staleness is then a fact about the data, not a guess about ordering.
-    if (changed) { lastBarClose = 0; lastBarTimeSec = 0; lastExportedClose = 0; barCloseLedger.clear(); }
+    for (const n of nextAddresses) currentSymbolAddressNeedles.push(n);
+    // Resolver identity can gain a pair address and ticker after the initial
+    // mint. Keep that token's chart anchor; only a non-overlapping address
+    // identity is a reason to discard the previous token's close.
+    if (changed && !sameAddress) {
+      lastBarClose = 0;
+      lastBarTimeSec = 0;
+      lastExportedClose = 0;
+      barCloseLedger.clear();
+    }
   }
   // GMGN runs a private TradingView widget inside a same-origin blob iframe.
   // Its live React chart manager exposes `getActiveChart().createOrderLine()`.
@@ -2648,12 +2638,16 @@
     // from the chart's own scales, so there is nothing for the host to
     // delete and a lost frame self-heals on the next one.
     if (best && perpsMarksPresent) {
-      return syncBubbleLayer(best);
+      const drawn = syncBubbleLayer(best);
+      reportFallbackRenderStatus();
+      return drawn;
     }
     const bestIsLineTools = best && (chartIsLineTools(best)
       || (typeof best.createExecutionShape !== 'function' && typeof best.createShape === 'function'));
     if (bestIsLineTools) {
-      return syncBubbleLayer(best);
+      const drawn = syncBubbleLayer(best);
+      reportFallbackRenderStatus();
+      return drawn;
     }
     if (bubbleLayer.host) clearBubbleLayer();
     let drewAll = charts.length > 0;
@@ -2690,7 +2684,12 @@
     // The first pass on an unprobed standalone build lands here: the spawn
     // above threw, which is the moment the capability was learned. Reroute
     // to bubbles NOW instead of waiting a sweep tick.
-    if (!drewAll && best && chartIsLineTools(best)) return syncBubbleLayer(best);
+    if (!drewAll && best && chartIsLineTools(best)) {
+      const drawn = syncBubbleLayer(best);
+      reportFallbackRenderStatus();
+      return drawn;
+    }
+    reportFallbackRenderStatus();
     return drewAll;
   }
 
@@ -2698,6 +2697,7 @@
     for (const handle of fallbackShapeHandles.values()) removeShapeHandle(handle);
     fallbackShapeHandles.clear();
     clearBubbleLayer();
+    lastFallbackRenderSignature = '';
   }
 
   /* ---------------- DOM bubble layer (line-tools charts) ----------------
@@ -2721,6 +2721,25 @@
    */
   const BUBBLE_PX = 20;
   const bubbleLayer = { host: null, nodes: new Map(), chart: null, frame: null, frameQueued: false };
+  let lastFallbackRenderSignature = '';
+
+  function reportFallbackRenderStatus() {
+    if (!shapeFallbackActive || !paperMarks.length) return;
+    const shapesDrawn = fallbackShapeHandles.size;
+    const bubblesDrawn = bubbleLayer.nodes.size;
+    const signature = `${paperMarks.length}:${shapesDrawn}:${bubblesDrawn}`;
+    if (signature === lastFallbackRenderSignature) return;
+    lastFallbackRenderSignature = signature;
+    emit('paper-marker-status', {
+      action: 'render',
+      ok: shapesDrawn + bubblesDrawn >= paperMarks.length,
+      count: paperMarks.length,
+      marksHooked: padreMarksHooked,
+      shapeFallback: shapeFallbackActive,
+      shapesDrawn,
+      bubblesDrawn,
+    });
+  }
 
   function bubbleInternals(chart) {
     try {
@@ -3283,6 +3302,16 @@
     return refreshed;
   }
 
+  function refreshPadreBars(widget) {
+    if (!hostIsPadre || !widget || typeof widget.activeChart !== 'function') return false;
+    try {
+      const chart = widget.activeChart();
+      if (!chart || typeof chart.resetData !== 'function') return false;
+      chart.resetData();
+      return true;
+    } catch (_) { return false; }
+  }
+
   function patchPadreWidget() {
     const widgets = findTradingViewWidgets();
     lastWidgetScanFound = widgets.length > 0;
@@ -3294,6 +3323,7 @@
     let bars = false;
     let marks = false;
     let newlyPatched = false;
+    let barsNewlyPatched = false;
     for (const widget of widgets) {
       const datafeed = getPadreDatafeed(widget);
       if (!datafeed) continue;
@@ -3301,7 +3331,8 @@
       const marksWerePatched = Boolean(datafeed.getMarks && datafeed.getMarks[PATCHED]);
       const b = patchPadreBars(datafeed);
       const m = patchPadreMarks(datafeed);
-      newlyPatched = newlyPatched || (!barsWerePatched && b) || (!marksWerePatched && m);
+      barsNewlyPatched = barsNewlyPatched || (!barsWerePatched && b);
+      newlyPatched = newlyPatched || barsNewlyPatched || (!marksWerePatched && m);
       bars = bars || b;
       marks = marks || m;
     }
@@ -3327,6 +3358,7 @@
         // route markers/lines natively regardless of the site's id.
         nativeCapable: true,
       });
+      if (bars && (barsNewlyPatched || changedWidget)) refreshPadreBars(widget);
       // A paper fill may have arrived while the widget was still loading.
       // Refresh once the native marks hook becomes available.
       if (marks && paperMarks.length) setTimeout(refreshPadreMarks, 0);
@@ -3402,6 +3434,9 @@
       // The page's resolved token identity: ticks, exports and drawing are
       // only taken from the chart whose symbol contains one of these needles.
       setCurrentSymbolNeedles(payload);
+      if (hostIsPadre && padreBarsHooked && !(lastBarClose > 0)) {
+        refreshPadreBars(findTradingViewWidget());
+      }
       // DEFECT C-19: answer with a capability snapshot. Widget discovery is
       // site-agnostic, so sites outside the hardcoded native set (Photon,
       // BullX, DexScreener...) route markers natively the moment a usable
@@ -3597,9 +3632,11 @@
       // (journal replay after a render handoff, a storage echo) refreshes
       // nothing and must never mint a second bubble.
       if (paperMarkLevels.has(mark.id)) {
+        const fallbackDrawn = fallbackShapeHandles.size + bubbleLayer.nodes.size >= paperMarks.length;
         emit('paper-marker-status', {
-          action: 'add', ok: true, id: mark.id, count: paperMarks.length,
-          duplicate: true, bubblesDrawn: bubbleLayer.nodes.size,
+          action: 'add', ok: shapeFallbackActive ? fallbackDrawn : true, id: mark.id, count: paperMarks.length,
+          duplicate: true, shapeFallback: shapeFallbackActive,
+          shapesDrawn: fallbackShapeHandles.size, bubblesDrawn: bubbleLayer.nodes.size,
         });
         return;
       }
@@ -3638,17 +3675,15 @@
       patchPadreWidget();
       const refreshed = refreshPadreMarks();
       ensureMarksRender();
+      const fallbackDrawn = fallbackShapeHandles.size + bubbleLayer.nodes.size >= paperMarks.length;
       emit('paper-marker-status', {
         action: 'add',
-        // Shapes owning rendering IS ok — on a no-getMarks datafeed (fomo)
-        // they are the only fill path there will ever be.
-        ok: (padreMarksHooked && refreshed) || shapeFallbackActive,
+        ok: shapeFallbackActive ? fallbackDrawn : ((padreMarksHooked && refreshed) || fallbackDrawn),
         id: mark.id,
         count: paperMarks.length,
         marksHooked: padreMarksHooked,
         shapeFallback: shapeFallbackActive,
         shapesDrawn: fallbackShapeHandles.size,
-        // F-39: fills that render as DOM bubbles (line-tools charts).
         bubblesDrawn: bubbleLayer.nodes.size,
       });
     }

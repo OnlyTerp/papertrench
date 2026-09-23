@@ -59,8 +59,9 @@ test('scrub: denylist redacts operator wallet/username, case-insensitively', () 
 
 test('scrub: query-param secrets go by key name, values-by-shape survive', () => {
   const s = makeScrubber([]);
-  const out = s.scrubUrl('https://api.site.com/v1/token?address=So1111&access_token=secretval&chain=solana');
+  const out = s.scrubUrl('https://api.site.com/v1/token?address=So1111&access_token=secretval&api-key=provider-key-value&chain=solana');
   assert.match(out, /access_token=«redacted»/);
+  assert.match(out, /api-key=«redacted»/);
   assert.match(out, /address=So1111/); // address param preserved
   assert.match(out, /chain=solana/);
 });

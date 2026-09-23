@@ -789,7 +789,7 @@ test('F-41: one fill posted twice is ONE bubble — the bridge keys marks by fil
   const chips = host.children.filter((el) => el.attrs['data-pt-bubble']);
   assert.equal(chips.length, 1, 'one fill id, one bubble, however many times it is posted');
   const statuses = env.statuses('paper-marker-status');
-  assert.equal(statuses[statuses.length - 1].duplicate, true,
+  assert.ok(statuses.some((status) => status.duplicate === true),
     'the bridge must SAY it recognized a duplicate rather than silently dropping it');
 });
 

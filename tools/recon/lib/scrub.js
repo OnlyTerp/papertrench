@@ -28,7 +28,7 @@ const SECRET_HEADERS = new Set([
 // `token`/`tokenAddress` holds the token's MINT, which is subject matter, not a
 // secret. Real auth tokens are caught by the specific *_token keys below AND by
 // value shape (JWT/bearer/sk) regardless of key name.
-const SECRET_KEY_RE = /^(.*[-_.])?(auth|authorization|access_token|auth_token|bearer_token|refresh_token|id_token|secret|password|passwd|pwd|apikey|api_key|access_key|private_key|privatekey|session|sessionid|sid|jwt|bearer|signature|csrf|xsrf|cookie|credential|otp|mnemonic|seed|seed_phrase|privkey)([-_.].*)?$/i;
+const SECRET_KEY_RE = /^(.*[-_.])?(auth|authorization|access_token|auth_token|bearer_token|refresh_token|id_token|secret|password|passwd|pwd|apikey|api_key|api-key|access_key|private_key|privatekey|session|sessionid|sid|jwt|bearer|signature|csrf|xsrf|cookie|credential|otp|mnemonic|seed|seed_phrase|privkey)([-_.].*)?$/i;
 
 // Value-shaped secrets that can appear anywhere in a string.
 const ADDR_SHAPE_RE = /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/; // token mint / EVM address — NOT a secret

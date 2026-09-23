@@ -7211,7 +7211,7 @@
     // telemetry (marks/lines/bars status) is engineering truth, so it lives
     // in the live dot's tooltip and the devtools dataset, not on screen.
     const shapesOwn = lastMarkerStatus && lastMarkerStatus.shapeFallback;
-    const lineOk = (lastLineStatus && lastLineStatus.ok) || padreHookStatus.linesReady;
+    const lineOk = Boolean(lastLineStatus && lastLineStatus.ok);
     const lineReason = lastLineStatus && !lastLineStatus.ok && lastLineStatus.reason;
     els.footSite.textContent = `${site.name}${feed}${rug}`;
     const detail = [

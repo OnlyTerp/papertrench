@@ -1491,6 +1491,12 @@ C-02/03/04/11 instead. Potentially the single highest-leverage marker fix.
 **C-27 · S5 · Label pill width = charcount × 6.2 — overflows onto the site's price scale** — `chart-markers.js:456-458` · confirmed · **fixed v2.0.0** (rail rows/chips are HTML sized by the layout engine — no width estimate exists)
 **C-28 · S5 · Tooltip width same charcount estimate on a proportional font + emoji** — `chart-markers.js:498,490` · confirmed · **fixed v2.0.0** (tooltips replaced by always-visible row text; no estimated box remains)
 
+**C-29 · S2 · Padre can report its TradingView bars hook before the active series has a fresh close** — `price-bridge.js:96-138, 1261-1299, 3305-3450` · trade.padre.gg · reproduced; original A/B subscribe-call order not captured
+The v3.23.4 and RC A/B captures repeatedly showed `barsHooked:true`, `no-level:no-basis:no-close`, and zero marker shapes/bubbles. A fresh default-1 runtime probe likewise saw the hook before any `padre-chart-bar` tick; calling the active chart's `resetData()` without changing resolution produced four bar callbacks. The bridge previously treated method replacement as sufficient and did not refresh the active series. Padre also sends a mint-only identity before resolving the pair; the old changed-needles branch discarded a close even when the next identity shared that same address. The bridge now refreshes the chart after hooking and on an unanchored Padre identity, preserves the close when address identities overlap, and reports fallback marker status again when the retry sweep actually draws. The A/B traces do not timestamp the original subscribe call relative to the hook, so that internal ordering remains unverified. C-05's refusal to guess an axis remains intact.
+
+**C-30 · S2 · Padre footer can say `lines: ok` while the latest line attempt is rejected** — `content.js:7214-7215` · trade.padre.gg · confirmed · fixed
+`lineOk` ORed the current `paper-lines-status.ok` with `padreHookStatus.linesReady`. The RC A/B run recorded `ok:false, reason:no-level:no-basis:no-close` while the footer dataset and tooltip reported `lines:ok`. The footer now follows only the latest line status.
+
 **Cross-cutting (closed v2.0.0):** `syncAveragePriceLines()` now re-posts on accepted
 price ticks (throttled: 2 s cadence, immediate on a >0.5 % move) and immediately on an
 axis-basis change, in addition to resolve/adopt/settings/buy/sell/reset — the C-01/C-06

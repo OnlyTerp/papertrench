@@ -33,6 +33,7 @@ const E = global.window.PaperEngine;
 const AT = require('../attest.js');
 
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+const PADRE_LIVE_FEED = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'padre-live-feed.json'), 'utf8'));
 
 /**
  * Boot the real content.js with a fake clock, stub network, and a real
@@ -199,7 +200,8 @@ function runOverlay(priceSeries, opts) {
           chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
           baseToken: { address: BONK, symbol: 'BONK', name: 'Bonk' },
           quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
-          priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 }, marketCap: 1e8,
+          priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 },
+          marketCap: Number(options.anchorMcap) > 0 ? Number(options.anchorMcap) : 1e8,
         },
       };
       return Promise.resolve({ ok: true, status: 200, json: async () => body });
@@ -1304,6 +1306,28 @@ test('C-06: a chart unit toggle re-posts the spec immediately with the new axis 
     'the re-posted spec must carry the NEW axis basis');
 });
 
+test('C-29: sanitized Padre OHLCV fixture learns market-cap basis and re-posts its level', async () => {
+  const close = Number(PADRE_LIVE_FEED.bar.close);
+  const anchorMcap = close / 1.1;
+  const anchorPrice = 0.001;
+  const ov = runOverlay([anchorPrice], { anchorMcap });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'a position exists so the average line is live');
+  await ov.advance(600);
+  ov.posted.length = 0;
+
+  ov.dispatchBridge('tick', {
+    source: 'padre-chart-bar',
+    candidates: [{ value: close, unit: 'unknown', key: 'padreChartClose' }],
+    mcap: close, mint: BONK, symbol: 'BONK',
+  });
+  const spec = ov.posted.filter((message) => message.type === 'paper-lines').at(-1)?.payload;
+  assert.ok(spec, 'the current Padre bar must produce an average-line spec');
+  assert.equal(spec.axisBasis, 'mcap');
+  assert.ok(Math.abs(spec.currentPriceNative / (anchorPrice * 1.1) - 1) < 1e-6,
+    'the resolver anchor and Padre bar close must agree on the mcap axis');
+});
+
 /* ==================== chart-truth: routing & unit honesty ==================== */
 
 test('C-19: native routing is capability-based with a bounded SVG grace fallback', () => {
@@ -1323,6 +1347,16 @@ test('C-19: native routing is capability-based with a bounded SVG grace fallback
     'the bridge must answer paper-axis with a capability snapshot');
   assert.match(bridgeSrc, /nativeCapable: true/,
     'widget discovery must advertise the capability');
+});
+
+test('C-30: footer line readiness follows the latest paper-lines-status only', () => {
+  const content = contentSrc();
+  const start = content.indexOf('const lineOk =');
+  const end = content.indexOf('const lineReason', start);
+  const projection = content.slice(start, end);
+  assert.match(projection, /const lineOk = Boolean\(lastLineStatus && lastLineStatus\.ok\);/);
+  assert.doesNotMatch(projection, /padreHookStatus\.linesReady/,
+    'a stale hook-ready flag must not override the latest rejected line status');
 });
 
 test('C-09/C-16: no USD price means no fabricated mcap — the fill ships its SOL price instead', () => {

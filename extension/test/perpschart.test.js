@@ -215,8 +215,8 @@ test('perps fills render as OUR OWN dom bubbles, not host chart objects', () => 
     bridgeSrc.indexOf('function clearShapeFallback()'),
   );
   assert.ok(fn, 'drawShapeFallback must exist');
-  assert.match(fn, /if \(best && perpsMarksPresent\) \{\s*\n\s*return syncBubbleLayer\(best\);/,
-    'a perps fill must go to the bubble layer');
+  assert.match(fn, /if \(best && perpsMarksPresent\) \{\s*\n\s*const drawn = syncBubbleLayer\(best\);\s*\n\s*reportFallbackRenderStatus\(\);\s*\n\s*return drawn;/,
+    'a perps fill must go to the bubble layer and report its render count');
   // And it must decide that BEFORE the execution-shape path.
   const body = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   assert.ok(body.indexOf('perpsMarksPresent') < body.indexOf('createExecutionShape'),

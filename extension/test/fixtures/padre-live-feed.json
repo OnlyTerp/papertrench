@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1.0.0",
+  "source": "sanitized Padre TradingView subscribeBars runtime observation",
+  "resolution": "1",
+  "identity": {
+    "pairAddressLength": 44,
+    "mintLength": 44,
+    "symbol": "BONK"
+  },
+  "symbolInfo": {
+    "tickerPrefix": "PADRE::",
+    "namePrefix": "PADRE::",
+    "description": "BONK/SOL",
+    "tickerKeys": [
+      "name",
+      "description",
+      "data_status",
+      "delay",
+      "exchange",
+      "format",
+      "has_daily",
+      "has_intraday",
+      "has_seconds",
+      "has_weekly_and_monthly",
+      "listed_exchange",
+      "minmov",
+      "pricescale",
+      "session",
+      "timezone",
+      "type",
+      "ticker"
+    ]
+  },
+  "bar": {
+    "open": 325000000,
+    "high": 326000000,
+    "close": 325500000,
+    "low": 324000000,
+    "volume": 12345.67,
+    "time": 1790131373000
+  }
+}

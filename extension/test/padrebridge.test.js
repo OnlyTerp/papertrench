@@ -13,6 +13,15 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.join(__dirname, '..');
+const PADRE_LIVE_FEED = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'padre-live-feed.json'), 'utf8'));
+const padreLivePair = 'P'.repeat(PADRE_LIVE_FEED.identity.pairAddressLength);
+const padreLiveMint = 'M'.repeat(PADRE_LIVE_FEED.identity.mintLength);
+const padreLiveSymbolInfo = {
+  ticker: PADRE_LIVE_FEED.symbolInfo.tickerPrefix + padreLivePair,
+  name: PADRE_LIVE_FEED.symbolInfo.namePrefix + padreLivePair,
+  description: PADRE_LIVE_FEED.symbolInfo.description,
+};
+const padreLiveIdentity = { pairAddress: padreLivePair, mint: padreLiveMint, symbol: PADRE_LIVE_FEED.identity.symbol };
 const PADRE_UPDATE_FRAME = Uint8Array.from(Buffer.from(
   'kwVVgqR0eXBlpnVwZGF0ZaZ1cGRhdGWCpGFkZHOQp3VwZGF0ZXORg6x0b2tlbkFkZHJlc3PZLEZRVGtncTZHa1l6a3JRRjNCMWNyaGZ2WUdrbjJ1THlNRTI4eFNIYnBwdW1wqGZkdkluVXNky0CoROThzofUqnByaWNlSW5Vc2TLPsoPC1Fz3To=',
   'base64',
@@ -60,7 +69,9 @@ function runBridge(opts = {}) {
   let realtimeCallback = null;
   let clearMarksCount = 0;
   let refreshMarksCount = 0;
+  let resetDataCalls = 0;
   const orderLines = [];
+  const executionShapes = [];
   const NativeDataView = DataView;
 
   class TestDate extends Date {
@@ -126,6 +137,16 @@ function runBridge(opts = {}) {
     return line;
   }
 
+  function makeExecutionShape() {
+    const shape = { removed: false, values: {} };
+    for (const method of ['setText', 'setTextColor', 'setArrowColor', 'setDirection', 'setTime', 'setPrice']) {
+      shape[method] = function (value) { this.values[method] = value; return this; };
+    }
+    shape.remove = function () { this.removed = true; return this; };
+    executionShapes.push(shape);
+    return shape;
+  }
+
   const datafeed = {
     subscribeBars(symbolInfo, resolution, callback) {
       realtimeCallback = callback;
@@ -137,8 +158,10 @@ function runBridge(opts = {}) {
   const chart = {
     clearMarks() { clearMarksCount += 1; },
     refreshMarks() { refreshMarksCount += 1; },
+    resetData() { resetDataCalls++; },
     createOrderLine: makeOrderLine,
   };
+  if (opts.executionShapes) chart.createExecutionShape = makeExecutionShape;
 
   function FakeWebSocket() {
     this.listeners = {};
@@ -243,11 +266,14 @@ function runBridge(opts = {}) {
     clearMarksCount: () => clearMarksCount,
     refreshMarksCount: () => refreshMarksCount,
     orderLines,
+    executionShapes,
+    resetDataCalls: () => resetDataCalls,
     win,
     Blob: TestBlob,
     dataViewCalls: () => dataViewCalls,
     pendingBlobs,
     advanceNow(ms) { clock += ms; },
+    runIntervals() { for (const fn of timers.slice()) fn(); },
     send(type, payload) {
       listeners.message({
         source: win,
@@ -258,6 +284,31 @@ function runBridge(opts = {}) {
     openSocket() { return new win.WebSocket('wss://backend.padre.gg/_multiplex?desc=/trenches'); },
   };
 }
+
+test('Padre refreshes the active chart after installing its first live-bar hook', () => {
+  const env = runBridge();
+  assert.equal(env.resetDataCalls(), 1, 'a newly hooked Padre feed refreshes its active chart once');
+  assert.ok(env.emitted.some((message) => message.type === 'padre-hook-status' && message.payload?.barsHooked),
+    'hook status remains available for the content script');
+});
+
+test('Padre data refresh is not applied to other TradingView sites', () => {
+  const env = runBridge({ href: 'https://gmgn.ai/sol/token/Mint1' });
+  assert.equal(env.resetDataCalls(), 0);
+});
+
+test('Padre refreshes its unanchored feed as token identity resolves', () => {
+  const env = runBridge();
+  env.send('paper-axis', { mint: padreLiveMint });
+  assert.equal(env.resetDataCalls(), 2, 'the initial identity triggers a refresh after the bars hook');
+
+  env.send('paper-axis', padreLiveIdentity);
+  assert.equal(env.resetDataCalls(), 3, 'the resolved pair identity triggers another refresh until a close exists');
+  env.datafeed.subscribeBars(padreLiveSymbolInfo, PADRE_LIVE_FEED.resolution, () => {}, 'resolved-pair', () => {});
+  env.realtime()(PADRE_LIVE_FEED.bar);
+  assert.ok(env.emitted.some((message) => message.type === 'tick' && message.payload?.source === 'padre-chart-bar'),
+    'the refreshed current-pair subscription delivers the Padre close');
+});
 
 test('Padre decoded TradingView bars emit an immediate PaperTrench tick', () => {
   const env = runBridge();
@@ -275,6 +326,74 @@ test('Padre decoded TradingView bars emit an immediate PaperTrench tick', () => 
   assert.equal(message.payload.candidates[0].value, bar.close);
   assert.equal(message.payload.mcap, bar.close,
     'the unknown chart close is offered as mcap so quote validation can identify chart mode');
+});
+
+test('Padre captured OHLCV feed preserves its axis close through identity sharpening and draws fills', () => {
+  const env = runBridge({ executionShapes: true });
+  let delivered = null;
+  const pairOnly = { pairAddress: padreLivePair };
+
+  env.send('paper-axis', pairOnly);
+  env.datafeed.subscribeBars(padreLiveSymbolInfo, PADRE_LIVE_FEED.resolution,
+    (bar) => { delivered = bar; }, 'padre-live', () => {});
+  env.realtime()(PADRE_LIVE_FEED.bar);
+  assert.deepEqual(Object.keys(delivered), ['open', 'high', 'close', 'low', 'volume', 'time']);
+  assert.equal(env.emitted.find((message) => message.type === 'tick' && message.payload?.source === 'padre-chart-bar')?.payload.mcap,
+    PADRE_LIVE_FEED.bar.close);
+
+  env.send('paper-axis', padreLiveIdentity);
+  env.send('paper-lines', {
+    enabled: true,
+    axisBasis: null,
+    avgBuyUsd: 0.0000036,
+    avgSellUsd: 0.0000038,
+    avgBuyNative: 0.00000003,
+    avgSellNative: 0.000000032,
+    currentPriceUsd: 0.00000372,
+    currentPriceNative: 0.000000031,
+  });
+  let lineStatus = env.emitted.filter((message) => message.type === 'paper-lines-status').at(-1)?.payload;
+  assert.equal(lineStatus.ok, true, 'mint-to-pair identity sharpening must preserve the valid close');
+  assert.equal(lineStatus.buyVisible, true, 'the close lets the bridge place the average fill line');
+  assert.equal(lineStatus.sellVisible, true, 'the same axis anchor places the average exit line');
+  assert.equal(env.orderLines.length, 2);
+  assert.ok(env.orderLines[0].values.setPrice > 0);
+
+  env.send('paper-marker', {
+    fillId: 'fixture-buy', ts: PADRE_LIVE_FEED.bar.time, side: 'buy',
+    priceNative: 0.000000031, priceUsd: 0.00000372, mcap: PADRE_LIVE_FEED.bar.close,
+    solAmount: 0.1, symbol: PADRE_LIVE_FEED.identity.symbol,
+  });
+  env.send('paper-marker', {
+    fillId: 'fixture-sell', ts: PADRE_LIVE_FEED.bar.time + 1000, side: 'sell',
+    priceNative: 0.000000032, priceUsd: 0.00000384, mcap: PADRE_LIVE_FEED.bar.close,
+    solAmount: 0.025, symbol: PADRE_LIVE_FEED.identity.symbol,
+  });
+  const markerStatus = env.emitted.filter((message) => message.type === 'paper-marker-status').at(-1)?.payload;
+  assert.equal(markerStatus.shapesDrawn, 2, 'the buy and partial exit use the execution-shape fallback');
+  assert.equal(markerStatus.bubblesDrawn, 0);
+  assert.equal(env.executionShapes.length, 2);
+});
+
+test('Padre marker status reports the fallback redraw after its first bar close', () => {
+  const env = runBridge({ executionShapes: true });
+  env.send('paper-axis', padreLiveIdentity);
+  env.datafeed.subscribeBars(padreLiveSymbolInfo, PADRE_LIVE_FEED.resolution, () => {}, 'padre-live', () => {});
+  env.send('paper-marker', {
+    fillId: 'late-anchor', ts: PADRE_LIVE_FEED.bar.time, side: 'buy',
+    priceNative: 0.000000031, priceUsd: 0.00000372, mcap: PADRE_LIVE_FEED.bar.close,
+    solAmount: 0.1, symbol: PADRE_LIVE_FEED.identity.symbol,
+  });
+  let statuses = env.emitted.filter((message) => message.type === 'paper-marker-status').map((message) => message.payload);
+  assert.equal(statuses.at(-1).shapesDrawn, 0, 'the initial mark waits honestly for a chart close');
+  assert.equal(statuses.at(-1).ok, false, 'fallback mode alone is not a rendered marker');
+
+  env.realtime()(PADRE_LIVE_FEED.bar);
+  env.runIntervals();
+  statuses = env.emitted.filter((message) => message.type === 'paper-marker-status').map((message) => message.payload);
+  const rendered = statuses.find((status) => status.action === 'render' && status.shapesDrawn >= 1);
+  assert.ok(rendered, 'the retry reports the newly drawn execution shape');
+  assert.equal(rendered.ok, true);
 });
 
 test('Padre MessagePack frames emit mint-tagged USD ticks without an unverified cap', () => {
