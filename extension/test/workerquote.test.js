@@ -130,7 +130,12 @@ function boot(options = {}) {
     lastPriceAt: options.lastPriceAt === undefined ? NOW - 200 : options.lastPriceAt,
     lastPageTickAt: options.lastPageTickAt === undefined ? NOW - 4_000 : options.lastPageTickAt,
     pageQuoteSeq: 0, pageQuoteWaiters: new Set(), site: { id: 'axiom' },
-    window: { PTErrors: { record: (message, details) => diagnostics.push({ message, details }) } },
+    window: { PTErrors: {
+      record: (message, details) => diagnostics.push({ message, details }),
+      recordDiagnostic: (message, details) => diagnostics.push({
+        message, details: { ...details, severity: 'diagnostic' },
+      }),
+    } },
     armedBuy: null, rekeyLiveState: () => {}, sendPadreMarker: () => {},
   };
   const context = vm.createContext(sandbox);
@@ -270,7 +275,7 @@ test('D-71 E2: failure preserves diagnostics and caches the attempt across repea
   const originalDiagnostic = [{
     message: 'host supply for ' + MINT + ' lacks corroborating USD price and live market cap',
     details: {
-      scope: 'content', kind: 'host-facts-supply-uncorroborated', source: 'axiom', url: missing.url,
+      scope: 'content', kind: 'host-facts-supply-uncorroborated', severity: 'diagnostic', source: 'axiom', url: missing.url,
       values: { priceUsd: null, mcap: null, supply: 1_000_000, decimals: 4 },
       missing: { priceUsd: true, mcap: true },
     },
@@ -284,14 +289,14 @@ test('D-71 E2: failure preserves diagnostics and caches the attempt across repea
   assert.equal(env.token.hostSupplyUi, undefined);
   assert.equal(env.token.hostSupplyWitness, undefined);
   assert.equal(env.worker.fetchCalls.length, 1, 'failure is cached per mint, not per fact payload');
+  assert.equal(env.diagnostics.length, 1, 'a changed missing-price/mcap shape is still the same token/session diagnostic');
   assert.deepEqual(plain(env.diagnostics[0]), originalDiagnostic[0]);
-  assert.deepEqual(plain(env.diagnostics[1].details.missing), { priceUsd: true, mcap: false });
 });
 
-test('uncorroborated-supply diagnostics dedupe by shape, not by tick values', async () => {
+test('uncorroborated-supply diagnostics emit once per token page session', async () => {
   // September debug reports carried the same "lacks corroborating USD
-  // price" fact x243: the dedupe keyed on tick VALUES, so every tick was
-  // a new episode and exports ballooned to 145 KB of one repeated fact.
+  // price" fact x243: varying values or missing-field shapes must not create
+  // another diagnostic for the same token in this page session.
   const env = boot({ token: pendingToken() });
   for (let i = 0; i < 10; i++) {
     env.host.handleHostFacts(facts({ supply: 1000000 + i * 7, mcap: null, priceUsd: null }));

@@ -48,8 +48,9 @@ function loadContentHarness() {
         ' doSell: (fraction) => doSell(fraction),',
         ' reconcile: (measured) => reconcileHostSupply(measured),',
         ' prewatch: (candidate) => prewatchPending(candidate),',
+        ' noteUncorroborated: (mint, facts) => noteUncorroboratedHostSupply(mint, facts),',
         ' requote: () => requote(),',
-        ' resetPrewatch: () => { prewatchedAddress = null; prewatchAttempts = 0; prewatchLastTryAt = 0; prewatchBackoffFor = null; }',
+        ' resetPrewatch: () => { prewatchedAddress = null; prewatchAttempts = 0; prewatchLastTryAt = 0; prewatchBackoffFor = null; keylessPrewatchStates.clear(); }',
         ' };',
         '\n})();\n',
       ].join(''));
@@ -409,34 +410,29 @@ test('pending content ignores screener facts not tied to the page address', asyn
   }
 });
 
-test('uncorroborated host supply emits a bounded diagnostic', async () => {
+test('uncorroborated host supply is one diagnostic per token per page session', async () => {
   const loader = loadContentHarness();
   try {
     const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
     await settleOverlay(ov);
     const api = ov.win.__hostFactsTest;
     const records = [];
-    ov.win.PTErrors = { record: (message, details) => records.push({ message, details }) };
-    const facts = {
-      mint: MINT, addresses: [PAIR, MINT], supply: 1000000000, decimals: 9,
-      priceUsd: null, mcap: null, source: 'axiom', url: 'https://api6.axiom.trade/pair-info',
+    const capture = (message, details) => records.push({ message, details });
+    ov.win.PTErrors = {
+      record: capture,
+      recordDiagnostic: (message, details) => capture(message, { ...details, severity: 'diagnostic' }),
     };
-    ov.dispatchBridge('facts', facts);
-    ov.dispatchBridge('facts', facts);
+    for (let i = 0; i < 500; i += 1) {
+      api.noteUncorroborated(MINT, {
+        mint: MINT, addresses: [PAIR, MINT], supply: 1000000000, decimals: 9,
+        priceUsd: i % 2 ? null : 2 + i, mcap: i % 3 ? null : 100 + i,
+        source: i % 2 ? 'axiom' : 'gmgn', url: 'https://api6.axiom.trade/pair-info',
+      });
+    }
     assert.equal(api.getToken().hostSupplyUi, undefined);
-    assert.equal(records.length, 1);
+    assert.equal(records.length, 1, 'price/mcap/source changes cannot create another row for this token');
     assert.equal(records[0].details.kind, 'host-facts-supply-uncorroborated');
-    assert.equal(records[0].details.missing.priceUsd, true);
-    assert.equal(records[0].details.missing.mcap, true);
-
-    ov.dispatchBridge('facts', {
-      ...facts,
-      source: 'gmgn',
-      mcap: 100,
-    });
-    assert.equal(records.length, 2);
-    assert.equal(records[1].details.missing.priceUsd, true);
-    assert.equal(records[1].details.missing.mcap, false);
+    assert.equal(records[0].details.severity, 'diagnostic');
   } finally {
     loader.restore();
   }

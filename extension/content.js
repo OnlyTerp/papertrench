@@ -23,12 +23,73 @@
     // which must not be treated as a real token record.
     return (reply && typeof reply === 'object' && !reply.error) ? reply : null;
   }
+  const KEYLESS_PREWATCH_MAX_ATTEMPTS = 3;
+  const KEYLESS_PREWATCH_BASE_MS = 2000;
+  const KEYLESS_PREWATCH_MAX_MS = 30_000;
+  const KEYLESS_PREWATCH_DEFER_MS = 2000;
+  const keylessPrewatchStates = new Map();
+
+  function keylessPrewatchState(key) {
+    if (!keylessPrewatchStates.has(key)) {
+      if (keylessPrewatchStates.size >= 256) keylessPrewatchStates.delete(keylessPrewatchStates.keys().next().value);
+      keylessPrewatchStates.set(key, { attempts: 0, lastTryAt: 0, nextAt: 0, inFlight: false });
+    }
+    return keylessPrewatchStates.get(key);
+  }
+
+  function syncKeylessPrewatchDebug(key, probe) {
+    prewatchBackoffFor = key;
+    prewatchAttempts = probe.attempts;
+    prewatchLastTryAt = probe.lastTryAt;
+  }
+
+  function onchainPrewatch(ids, options) {
+    const payload = { type: 'pt_onchain_prewatch', pool: ids.pool || null, mint: ids.mint || null };
+    if (settings && String(settings.rpcUrl || '').trim()) {
+      return sendMessage(payload).then(okOrNull).catch(() => null);
+    }
+    const key = (token && (token.srcAddress || token.mint)) || ids.pool || ids.mint;
+    if (!key) return Promise.resolve(null);
+    const probe = keylessPrewatchState(key);
+    const now = Date.now();
+    if (probe.inFlight || probe.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
+      || (probe.nextAt > now && !(options && options.priority))) {
+      syncKeylessPrewatchDebug(key, probe);
+      return Promise.resolve({ deferred: true, reason: 'prewatch-budget' });
+    }
+    probe.inFlight = true;
+    probe.attempts += 1;
+    probe.lastTryAt = now;
+    syncKeylessPrewatchDebug(key, probe);
+    const finish = (reply, failed) => {
+      probe.inFlight = false;
+      const at = Date.now();
+      if (reply && reply.deferred) {
+        probe.attempts = Math.max(0, probe.attempts - 1);
+        probe.nextAt = at + KEYLESS_PREWATCH_DEFER_MS;
+      } else if (!failed && reply && reply.mint) {
+        probe.attempts = 0;
+        probe.lastTryAt = 0;
+        probe.nextAt = 0;
+      } else {
+        probe.nextAt = at + Math.min(
+          KEYLESS_PREWATCH_BASE_MS * Math.pow(2, Math.max(0, probe.attempts - 1)),
+          KEYLESS_PREWATCH_MAX_MS,
+        );
+      }
+      syncKeylessPrewatchDebug(key, probe);
+      return reply;
+    };
+    return sendMessage(payload).then((reply) => finish(okOrNull(reply), false))
+      .catch(() => finish(null, true));
+  }
+
   const R = {
     resolve: (address, opts) => sendMessage({ type: 'pt_resolve', address, maxAgeMs: opts && opts.maxAgeMs, chain: opts && opts.chain }).then(okOrNull),
     refresh: (token) => sendMessage({ type: 'pt_refresh', token }).then(okOrNull),
     solUsd: () => sendMessage({ type: 'pt_sol_usd' }).then((r) => (typeof r === 'number' && r > 0 ? r : 0)).catch(() => 0),
     onchainWatch: (mint, pool) => sendMessage({ type: 'pt_onchain_watch', mint, pool }).then(okOrNull),
-    onchainPrewatch: (ids) => sendMessage({ type: 'pt_onchain_prewatch', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
+    onchainPrewatch,
     onchainIdentify: (ids) => sendMessage({ type: 'pt_onchain_identify', pool: ids.pool || null, mint: ids.mint || null }).then(okOrNull),
     rugCheck: (mint) => sendMessage({ type: 'pt_rug_check', mint }).then(okOrNull),
     onchainUnwatch: (mint) => sendMessage({ type: 'pt_onchain_unwatch', mint }).catch(() => null),
@@ -573,6 +634,7 @@
   window.addEventListener('message', onBridgeMessage);
 
   const hostSupplyRefusals = new Set();
+  const hostSupplyUncorroborated = new Set();
   const hostSupplyRefusalCounts = new Map();
   // Independent-quote attempts per mint, with the last try stamped: a
   // transient miss (worker 503, empty quote for a coin that indexes a
@@ -583,9 +645,15 @@
 
   function recordHostFactsDiagnostic(message, kind, details) {
     const EL = window.PTErrors;
-    if (!EL || typeof EL.record !== 'function') return;
+    if (!EL) return;
     try {
-      EL.record(message, { scope: 'content', kind, ...(details || {}) });
+      const context = { scope: 'content', kind, ...(details || {}) };
+      if (kind === 'host-facts-supply-uncorroborated'
+        && typeof EL.recordDiagnostic === 'function') {
+        EL.recordDiagnostic(message, context);
+      } else if (typeof EL.record === 'function') {
+        EL.record(message, context);
+      }
     } catch (_) { /* diagnostics must never affect the trading path */ }
   }
 
@@ -603,11 +671,19 @@
   }
 
   function recordHostSupplyDiagnostic(mint, facts, message, kind, details) {
-    const key = hostSupplyEvidenceKey(mint, facts, kind, details);
-    if (hostSupplyRefusals.has(key)) return;
+    const uncorroborated = kind === 'host-facts-supply-uncorroborated';
+    const pageToken = String((token && (token.srcAddress || token.mint)) || mint || '');
+    const key = uncorroborated
+      ? [pageToken, kind].join('|')
+      : hostSupplyEvidenceKey(mint, facts, kind, details);
+    const seen = uncorroborated ? hostSupplyUncorroborated : hostSupplyRefusals;
+    if (seen.has(key)) return;
     const count = hostSupplyRefusalCounts.get(mint) || 0;
-    if (count >= 8) return;
-    hostSupplyRefusals.add(key);
+    if (!uncorroborated && count >= 8) return;
+    if (uncorroborated && hostSupplyUncorroborated.size >= 256) {
+      hostSupplyUncorroborated.delete(hostSupplyUncorroborated.values().next().value);
+    }
+    seen.add(key);
     hostSupplyRefusalCounts.set(mint, count + 1);
     recordHostFactsDiagnostic(message, kind, {
       source: facts && facts.source,
@@ -1080,6 +1156,11 @@
   const PREWATCH_MAX_MS = 30_000;
 
   function prewatchBackoffMs(address) {
+    if (!String(settings && settings.rpcUrl || '').trim()) {
+      const key = (token && (token.srcAddress || token.mint)) || address;
+      const budget = keylessPrewatchStates.get(key);
+      return budget ? Math.max(0, budget.nextAt - Date.now()) : 0;
+    }
     if (prewatchBackoffFor !== address) return 0; // new address: no inherited delay
     if (!prewatchAttempts) return 0;
     const wait = Math.min(PREWATCH_BASE_MS * Math.pow(2, prewatchAttempts - 1), PREWATCH_MAX_MS);
@@ -1103,27 +1184,31 @@
    */
   function prewatchPending(candidate) {
     if (!candidate || prewatchedAddress === candidate.address || !chainIsSolana(candidate.chain)) return;
-    // Backoff gate (D-60 companion): a probe that failed moments ago is not
-    // re-paid on every detect tick. The backoff is keyed to the address —
-    // a different address is never delayed by a previous coin's failures.
-    //
-    // LIVE-MARKET EXCEPTION (Discord 2026-08-28, 4…/Gio): a coin whose
-    // mcap ticks are FRESH is provably trading — the page's own feed says
-    // so — so a failed probe must not bench its only on-chain price source
-    // on the anti-storm timer. The backoff exists to stop a retry STORM on
-    // a coin that cannot be priced; a live market is the opposite case.
-    // While mcap ticks flow, probe immediately: the chain read is the only
-    // thing that can turn those mcap ticks into a fillable price.
-    const backoff = prewatchBackoffMs(candidate.address);
-    const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
-    if (backoff > 0 && !liveMarket) return;
-    prewatchBackoffFor = candidate.address;
+    const personalRpc = Boolean(String(settings && settings.rpcUrl || '').trim());
+    const budgetKey = (token && (token.srcAddress || token.mint)) || candidate.address;
+    if (personalRpc) {
+      // Preserve the configured-endpoint path, including its live-market
+      // exception and existing retry cadence.
+      const backoff = prewatchBackoffMs(candidate.address);
+      const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
+      if (backoff > 0 && !liveMarket) return;
+      prewatchBackoffFor = candidate.address;
+      prewatchLastTryAt = Date.now();
+    } else {
+      const budget = keylessPrewatchState(budgetKey);
+      if (budget.inFlight || budget.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
+        || budget.nextAt > Date.now()) return;
+      syncKeylessPrewatchDebug(budgetKey, budget);
+    }
     prewatchedAddress = candidate.address;
-    prewatchLastTryAt = Date.now();
     const ids = candidate.kind === 'pair'
       ? { pool: candidate.address }
       : { mint: candidate.address };
     R.onchainPrewatch(ids).then((found) => {
+      if (found && found.deferred) {
+        if (prewatchedAddress === candidate.address) prewatchedAddress = null;
+        return; // a pool-health deferral is not a prewatch attempt
+      }
       // D-60: a probe that answered NOTHING must not latch. The chain read
       // can fail for reasons that have nothing to do with this coin — a
       // throttled public RPC, a dropped socket, a slot the endpoint had not
@@ -1135,14 +1220,17 @@
       // loop probe again on its next pass.
       if (!found || !found.mint) {
         if (prewatchedAddress === candidate.address) prewatchedAddress = null;
-        // Re-arm the backoff from THIS failure: without this stamp the gate
-        // only muzzles the loop INSIDE a window — the moment it expires,
-        // every detect tick re-probes again (the D-60S test caught it).
-        prewatchLastTryAt = Date.now();
-        prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
+        if (personalRpc) {
+          // The configured endpoint keeps its existing retry policy.
+          prewatchLastTryAt = Date.now();
+          prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
+        } else {
+          syncKeylessPrewatchDebug(budgetKey, keylessPrewatchState(budgetKey));
+        }
         return;
       }
-      prewatchAttempts = 0; // a positive probe restores the fast cadence
+      if (personalRpc) prewatchAttempts = 0;
+      else syncKeylessPrewatchDebug(budgetKey, keylessPrewatchState(budgetKey));
       if (!token || !token.pending) return;
       if (token.srcAddress !== candidate.address && token.mint !== candidate.address) return;
 
@@ -1205,10 +1293,10 @@
     }).catch(() => {
       // Same rule as the empty answer above: a thrown probe is a failure of
       // the READ, never proof about the coin. Release the latch so the next
-      // detect pass can try again instead of stranding the token — under the
-      // exponential backoff, not the old 800ms hammer.
+      // detect pass can try again instead of stranding the token.
       if (prewatchedAddress === candidate.address) prewatchedAddress = null;
-      prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
+      if (personalRpc) prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
+      else syncKeylessPrewatchDebug(budgetKey, keylessPrewatchState(budgetKey));
     });
   }
 
@@ -3826,9 +3914,9 @@
       // The chain is the authority on price; asking it is never wrong here.
       let found = null;
       if (chainIsSolana(chain)) {
-        found = await R.onchainPrewatch({ pool: addr }).catch(() => null);
+        found = await R.onchainPrewatch({ pool: addr }, { priority: true }).catch(() => null);
         if (!found || !(Number(found.priceNative) > 0)) {
-          found = await R.onchainPrewatch({ mint: addr }).catch(() => null);
+          found = await R.onchainPrewatch({ mint: addr }, { priority: true }).catch(() => null);
         }
       }
       if (found && found.mint && Number(found.priceNative) > 0) {
@@ -3843,6 +3931,28 @@
           priceSource: 'chain',
           resolvedAt: Date.now(),
         };
+      }
+    }
+    if (!data || !(Number(data.priceNative) > 0)) {
+      // A pending launch can remain unidentified by the public resolvers and
+      // refused by the keyless chain pool. The independent worker is still a
+      // fill lane for the click; it must not leave the intent armed forever.
+      if (chainIsSolana(chain) && typeof R.workerQuote === 'function') {
+        const worker = await bounded(R.workerQuote(addr, 'solana'), WITNESS_BUDGET_MS, null);
+        const workerNative = worker ? await workerNativeFromUsd(worker) : null;
+        if (workerNative > 0) {
+          data = {
+            mint: (worker && worker.mint) || addr,
+            pairAddress: null,
+            symbol: null,
+            name: null,
+            priceNative: workerNative,
+            priceUsd: Number(worker.priceUsd) > 0 ? Number(worker.priceUsd) : null,
+            mcap: Number(worker.mcapUsd) > 0 ? Number(worker.mcapUsd) : null,
+            priceSource: 'action-worker',
+            resolvedAt: Date.now(),
+          };
+        }
       }
     }
     if (!data || !(Number(data.priceNative) > 0)) return null;
@@ -7647,10 +7757,10 @@
     // pool carries the price), then the mint (the pump-curve derivation
     // path — a curve account signals itself).
     let ids = kind === 'pair' ? { pool: addr } : { mint: addr };
-    let found = await R.onchainPrewatch(ids).catch(() => null);
+    let found = await R.onchainPrewatch(ids, { priority: true }).catch(() => null);
     if (!found || !(Number(found.priceNative) > 0)) {
       ids = kind === 'pair' ? { mint: addr } : { pool: addr };
-      found = await R.onchainPrewatch(ids).catch(() => null);
+      found = await R.onchainPrewatch(ids, { priority: true }).catch(() => null);
     }
     if (!found || !found.mint || !(Number(found.priceNative) > 0)) return null;
     return {
@@ -7937,7 +8047,7 @@
     // address as the key, exactly the honest legacy behavior.
     if (address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)) {
       try {
-        const found = await R.onchainPrewatch({ mint: address, pool: address }).catch(() => null);
+        const found = await R.onchainPrewatch({ mint: address, pool: address }, { priority: true }).catch(() => null);
         // Cross-family answers are never adopted: the Solana chain cannot
         // name an EVM coin, whatever shape the answer wears.
         if (found && found.mint && !sameMint(found.mint, data.mint)

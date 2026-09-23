@@ -1931,6 +1931,15 @@ failure re-arms at 2s, each subsequent failure doubles (cap 6), any success or
 a different pending address resets to zero. Over the 90s window where the old
 loop fired hundreds of probes, the new law allows at most six.
 
+**F-65 · S1 · Keyless RPC policy refusals become a retry and debug-log storm**
+`extension/rpc-pool.js` (method rotation/status), `onchain-feed.js` (keyless refusals), `content.js` (per-page prewatch budget and host-fact diagnostics) · keyless Solana users on residential/public-endpoint IPs · 142 Discord debug reports from 2026-09-13 through 2026-09-22, all v3.23.4.
+
+In those 142 reports, `getMultipleAccounts` errors from Tatum appeared in 136 (8,683 occurrences), publicnode 403s in 124, and "rpc pool cooling down" in 133. The on-chain feed was live in only 2 of 127 Axiom token-page reports. The 34 reports since 2026-09-19 alone contain 1,621 prewatch-to-Tatum errors, 371 watch-to-Tatum errors, 303 watch cooling-down entries, and 221 prewatch cooling-down entries. `host-facts-supply-uncorroborated` appeared in 129/142 reports, including 743 occurrences in the last 34.
+
+Tatum documents `getMultipleAccounts` as a paid-plan method and publicnode returns 403 `Request blocked` for this client shape (`onchain-feed.js` 887–890; `rpc-pool.js` 20–83). In keyless mode Tatum must not receive that method; prewatch shares a three-attempt, per-token backoff budget and waits while every eligible endpoint is benched, throttled, or method-blocked. A personal `rpcUrl` keeps its existing route and retry behavior. Expected keyless 403/429/cooling-down states roll into one status row with endpoint/method refusals, bench-until, and last-success age; personal endpoint failures remain errors. The uncorroborated host-supply note is a once-per-token page-session diagnostic; the rare refused-supply note is unchanged.
+
+The existing `maybeNoteSlowPool()` notice writer still has no production caller, so its configured 12-attempt/50%-failure threshold cannot fire automatically. No new UI was added; this remains a wiring gap to decide separately.
+
 **D-57 · S1 · An armed stop or take-profit was only ever judged on a price CHANGE — a level armed after the last move never fired on a flat or rugging tape**
 `content.js` (handlePageTick, startPriceLoop) · every trader running a stop or
 TP, worst on exactly the coins a stop exists for · confirmed by test

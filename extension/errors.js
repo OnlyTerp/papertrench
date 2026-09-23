@@ -253,6 +253,8 @@
   /** key -> absolute seq of the entry holding it. Bounded by CAPACITY because
    *  eviction deletes the outgoing key. */
   const index = new Map();
+  /** status kind -> absolute seq of its single rolling status entry. */
+  const statusIndex = new Map();
 
   function now() {
     try {
@@ -309,6 +311,9 @@
       const slot = seq % CAPACITY;
       const evicted = buf[slot];
       if (evicted && index.get(evicted.key) === evicted.seq) index.delete(evicted.key);
+      if (evicted && evicted.statusKind && statusIndex.get(evicted.statusKind) === evicted.seq) {
+        statusIndex.delete(evicted.statusKind);
+      }
 
       const entry = {
         seq,
@@ -328,6 +333,57 @@
       // A recorder that throws from inside a catch block is worse than none.
       return null;
     }
+  }
+
+  function recordDiagnostic(err, context) {
+    try {
+      const ctx = context && typeof context === 'object' && !Array.isArray(context)
+        ? Object.assign({}, context, { severity: 'diagnostic' })
+        : { severity: 'diagnostic', detail: context == null ? null : context };
+      return record(err, ctx);
+    } catch (_) { return null; }
+  }
+
+  /** Update one durable-in-session status slot without consuming ring capacity. */
+  function recordStatus(kind, context) {
+    try {
+      const statusKind = redact(String(kind || 'status')).slice(0, 64) || 'status';
+      const ts = now();
+      const raw = context && typeof context === 'object' && !Array.isArray(context)
+        ? Object.assign({}, context)
+        : { detail: context == null ? null : context };
+      raw.kind = statusKind;
+      raw.severity = 'status';
+      const ctx = cleanContext(raw, 0, new Set());
+      const key = `status:${statusKind}`;
+      const at = statusIndex.get(statusKind);
+      if (at !== undefined) {
+        const existing = buf[at % CAPACITY];
+        if (existing && existing.seq === at && existing.statusKind === statusKind) {
+          existing.lastTs = ts;
+          existing.message = `${statusKind} status`;
+          existing.context = ctx;
+          existing.count += 1;
+          return existing;
+        }
+        statusIndex.delete(statusKind);
+      }
+
+      const slot = seq % CAPACITY;
+      const evicted = buf[slot];
+      if (evicted && index.get(evicted.key) === evicted.seq) index.delete(evicted.key);
+      if (evicted && evicted.statusKind && statusIndex.get(evicted.statusKind) === evicted.seq) {
+        statusIndex.delete(evicted.statusKind);
+      }
+      const entry = {
+        seq, key, statusKind, ts, lastTs: ts,
+        message: `${statusKind} status`, stack: '', context: ctx, count: 1,
+      };
+      buf[slot] = entry;
+      statusIndex.set(statusKind, seq);
+      seq += 1;
+      return entry;
+    } catch (_) { return null; }
   }
 
   /**
@@ -361,6 +417,7 @@
     try {
       for (let i = 0; i < CAPACITY; i += 1) buf[i] = null;
       index.clear();
+      statusIndex.clear();
       seq = 0;
       return true;
     } catch (_) {
@@ -381,6 +438,8 @@
 
   const api = {
     record,
+    recordDiagnostic,
+    recordStatus,
     snapshot,
     clear,
     size,

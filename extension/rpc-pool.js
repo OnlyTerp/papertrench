@@ -93,8 +93,9 @@
   // MANY. (part of F-63)
   let probeCursor = 0;
 
-  const health = new Map(); // id -> { failures, benchedUntil, latencyMs, samples }
+  const health = new Map(); // id -> endpoint health and method refusal evidence
   let userEndpoint = null;
+  let keylessStatusPublished = false;
 
   /* Health persists across service-worker restarts. MV3 kills the worker
    * constantly, and an in-memory map made every wake re-learn which
@@ -112,7 +113,15 @@
         healthSaveTimer = null;
         const out = {};
         for (const [id, s] of health) {
-          out[id] = { latencyMs: s.latencyMs, failures: s.failures, samples: s.samples || 0, methodBlocks: s.methodBlocks || {} };
+          out[id] = {
+            latencyMs: s.latencyMs,
+            failures: s.failures,
+            samples: s.samples || 0,
+            methodBlocks: s.methodBlocks || {},
+            refusalCounts: s.refusalCounts || {},
+            lastSuccessAt: s.lastSuccessAt || 0,
+            lastSuccessByMethod: s.lastSuccessByMethod || {},
+          };
         }
         try { chrome.storage.local.set({ [HEALTH_KEY]: out }); } catch (_) {}
       }, 500);
@@ -136,14 +145,27 @@
           if (s.methodBlocks && typeof s.methodBlocks === 'object') {
             cur.methodBlocks = Object.assign({}, cur.methodBlocks, s.methodBlocks);
           }
+          if (s.refusalCounts && typeof s.refusalCounts === 'object') {
+            cur.refusalCounts = Object.assign({}, cur.refusalCounts, s.refusalCounts);
+          }
+          if (!cur.lastSuccessAt && typeof s.lastSuccessAt === 'number') cur.lastSuccessAt = s.lastSuccessAt;
+          if (s.lastSuccessByMethod && typeof s.lastSuccessByMethod === 'object') {
+            cur.lastSuccessByMethod = Object.assign({}, cur.lastSuccessByMethod, s.lastSuccessByMethod);
+          }
         }
       });
     } catch (_) {}
   })();
 
   function stateFor(id) {
-  if (!health.has(id)) health.set(id, { failures: 0, benchedUntil: 0, throttledUntil: 0, latencyMs: null, samples: 0, methodBlocks: {}, methodEvidence: {}, refusals: {}, demotedUntil: 0, lastFailureAt: 0 });
-  return health.get(id);
+    if (!health.has(id)) health.set(id, {
+      failures: 0, benchedUntil: 0, throttledUntil: 0,
+      latencyMs: null, samples: 0,
+      methodBlocks: {}, methodEvidence: {}, refusals: {}, refusalCounts: {},
+      demotedUntil: 0, lastFailureAt: 0,
+      lastSuccessAt: 0, lastSuccessByMethod: {},
+    });
+    return health.get(id);
   }
 
   /** A user-supplied endpoint always wins over the public pool. */
@@ -160,6 +182,13 @@
 
   function hasUserEndpoint() { return Boolean(userEndpoint); }
 
+  function publicEndpointsFor(method) {
+    if (!userEndpoint && method === 'getMultipleAccounts') {
+      return PUBLIC_ENDPOINTS.filter((endpoint) => endpoint.id !== 'tatum');
+    }
+    return PUBLIC_ENDPOINTS;
+  }
+
   /**
    * Endpoints in preference order: healthiest first, benched ones last.
    *
@@ -173,7 +202,7 @@
     const list = [];
     if (userEndpoint && (!needsWs || userEndpoint.ws)) list.push(userEndpoint);
 
-    const pool = PUBLIC_ENDPOINTS
+    const pool = publicEndpointsFor(method)
       .filter((endpoint) => !needsWs || endpoint.ws)
       .slice()
       .sort((a, b) => {
@@ -216,9 +245,18 @@
 
   function reportSuccess(id, latencyMs, opts) {
     const state = stateFor(id);
+    const now = Date.now();
+    const method = opts && opts.method ? String(opts.method) : null;
     state.failures = 0;
     state.benchedUntil = 0;
-    if (!(opts && opts.transport === 'ws')) state.throttledUntil = 0;
+    if (!(opts && opts.transport === 'ws')) {
+      state.throttledUntil = 0;
+      state.lastSuccessAt = now;
+      if (method) {
+        state.lastSuccessByMethod[method] = now;
+        if (!userEndpoint && state.methodBlocks[method]) delete state.methodBlocks[method];
+      }
+    }
     state.lastFailureAt = 0;
     // A success is proof the endpoint serves — pending method-block evidence
     // was a WAF blip, not policy. Disarm it, and lift the 403 demotion.
@@ -235,6 +273,9 @@
       state.samples = (state.samples || 0) + 1;
     }
     persistHealthSoon();
+    if (keylessStatusPublished && !hasUserEndpoint() && method) {
+      publishKeylessStatus('successful-probe', method, id);
+    }
   }
 
   function reportFailure(id, opts) {
@@ -242,6 +283,9 @@
     const now = Date.now();
     const kind = opts && opts.kind ? opts.kind : 'transient';
     const method = opts && opts.method ? String(opts.method) : null;
+    if ((kind === 'method' || kind === 'throttle') && method) {
+      state.refusalCounts[method] = Math.min(1_000_000, (state.refusalCounts[method] || 0) + 1);
+    }
 
     if (kind === 'method') {
       // Policy refusal, evidence-gated (F-63 refined twice): ONE 403 = a
@@ -273,6 +317,7 @@
         }
       }
       persistHealthSoon();
+      publishKeylessStatus('method-refusal', method, id);
       return;
     }
 
@@ -284,6 +329,7 @@
       // A 429 is not a strike: leave the decay clock untouched.
       state.throttledUntil = now + delay;
       persistHealthSoon();
+      publishKeylessStatus('http-429', method, id);
       return;
     }
 
@@ -298,23 +344,83 @@
     persistHealthSoon();
   }
 
-  /** True when every pool endpoint currently refuses this method (F-63). */
+  /** True when every eligible pool endpoint currently refuses this method. */
   function methodBlockedEverywhere(method) {
     if (!method) return false;
+    const endpoints = publicEndpointsFor(method);
     const now = Date.now();
-    return PUBLIC_ENDPOINTS.every((e) => (stateFor(e.id).methodBlocks[method] || 0) > now);
+    return endpoints.length > 0
+      && endpoints.every((endpoint) => (stateFor(endpoint.id).methodBlocks[method] || 0) > now);
   }
 
-  /** D-65: true when every POOL endpoint carries LIVE refusal memory for this
-   * method (the sliding 10-minute entries). Softer than
-   * methodBlockedEverywhere: it says the batch attempt is currently hopeless
-   * and callers with a cheaper fallback lane should skip straight to it. A
-   * user endpoint is deliberately excluded — it outranks the pool and may
-   * serve the method fine. */
+  /** All eligible public endpoints are benched, throttled, or policy-blocked. */
+  function unavailableEverywhere(method) {
+    if (!method || hasUserEndpoint()) return false;
+    const endpoints = publicEndpointsFor(method);
+    const now = Date.now();
+    return endpoints.length > 0 && endpoints.every((endpoint) => {
+      const state = stateFor(endpoint.id);
+      return state.benchedUntil > now
+        || state.throttledUntil > now
+        || (state.methodBlocks[method] || 0) > now;
+    });
+  }
+
+  /** D-65: true when every eligible POOL endpoint carries LIVE refusal memory
+   * for this method (the sliding 10-minute entries). */
   function refusalMemoryLive(method) {
     if (!method) return false;
+    const endpoints = publicEndpointsFor(method);
     const now = Date.now();
-    return PUBLIC_ENDPOINTS.length > 0 && PUBLIC_ENDPOINTS.every((e) => (stateFor(e.id).refusals[method] || 0) > now);
+    return endpoints.length > 0
+      && endpoints.every((endpoint) => (stateFor(endpoint.id).refusals[method] || 0) > now);
+  }
+
+  function statusSnapshot(method) {
+    const now = Date.now();
+    const endpoints = [];
+    for (const endpoint of publicEndpointsFor(method)) {
+      const state = stateFor(endpoint.id);
+      const methods = method
+        ? [method]
+        : [...new Set([
+          ...Object.keys(state.refusalCounts || {}),
+          ...Object.keys(state.methodBlocks || {}),
+          ...Object.keys(state.lastSuccessByMethod || {}),
+        ])].sort();
+      if (!methods.length) methods.push(null);
+      for (const name of methods) {
+        const lastSuccess = name ? Number(state.lastSuccessByMethod[name]) || 0 : 0;
+        endpoints.push({
+          id: endpoint.id,
+          method: name,
+          refusalCount: name ? Number(state.refusalCounts[name]) || 0 : 0,
+          failures: state.failures,
+          benchedUntil: state.benchedUntil,
+          throttledUntil: state.throttledUntil,
+          blockedUntil: name ? Number(state.methodBlocks[name]) || 0 : 0,
+          refusalMemoryUntil: name ? Number(state.refusals[name]) || 0 : 0,
+          lastSuccessAgeMs: lastSuccess ? Math.max(0, now - lastSuccess) : null,
+          endpointLastSuccessAgeMs: state.lastSuccessAt ? Math.max(0, now - state.lastSuccessAt) : null,
+        });
+      }
+    }
+    return { mode: hasUserEndpoint() ? 'personal' : 'keyless', method: method || null, endpoints };
+  }
+
+  function publishKeylessStatus(reason, method, endpoint) {
+    if (hasUserEndpoint()) return;
+    try {
+      const errors = (typeof self !== 'undefined' && self.PTErrors)
+        || (typeof window !== 'undefined' && window.PTErrors)
+        || null;
+      if (!errors || typeof errors.recordStatus !== 'function') return;
+      const entry = errors.recordStatus('rpc-pool-status', {
+        scope: 'background', reason, method: method || null,
+        endpoint: endpoint || null, pool: statusSnapshot(method),
+      });
+      if (entry) keylessStatusPublished = true;
+    } catch (_) { /* status recording never enters the RPC path */ }
   }
 
   /**
@@ -425,6 +531,9 @@
           reportFailure(endpoint.id, { kind: 'method', method });
           const err = new Error('http 403 ' + method + ' @ ' + endpoint.id);
           err.kind = 'method';
+          err.endpoint = endpoint.id;
+          err.method = method;
+          err.httpStatus = 403;
           // Already classified + reported + logged: the catch below must not
           // reportFailure AGAIN, or one WAF blip arms evidence twice and
           // confirms a 30-minute block from a single 403 (caught by F-63 NC).
@@ -448,12 +557,19 @@
           reportFailure(endpoint.id, { kind: 'throttle', method, retryAfterMs });
           const err = new Error('http 429 ' + method + ' @ ' + endpoint.id);
           err.kind = 'throttle';
+          err.endpoint = endpoint.id;
+          err.method = method;
+          err.httpStatus = 429;
           err.reported = true;
           err.logged = true;
           throw err;
         }
         logAttempt({ endpoint: endpoint.id, method, status: response.status, ms: Date.now() - started });
-        throw new Error('http ' + response.status + ' ' + method + ' @ ' + endpoint.id);
+        const err = new Error('http ' + response.status + ' ' + method + ' @ ' + endpoint.id);
+        err.endpoint = endpoint.id;
+        err.method = method;
+        err.httpStatus = response.status;
+        throw err;
       }
       const json = await response.json();
       if (json.error) {
@@ -466,17 +582,22 @@
           reportFailure(endpoint.id, { kind: 'method', method });
           const err = new Error(msg);
           err.kind = 'method';
+          err.endpoint = endpoint.id;
+          err.method = method;
           // Same double-report guard as the HTTP-403 branch above.
           err.reported = true;
           err.logged = true;
           throw err;
         }
         logAttempt({ endpoint: endpoint.id, method, status: 'rpc-error', ms: Date.now() - started });
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.endpoint = endpoint.id;
+        err.method = method;
+        throw err;
       }
       race && (race.winner = endpoint.id);
       logAttempt({ endpoint: endpoint.id, method, status: 200, ms: Date.now() - started });
-      reportSuccess(endpoint.id, Date.now() - started);
+      reportSuccess(endpoint.id, Date.now() - started, { method });
       return json.result;
     }).catch((error) => {
       // A hedged LOSER was aborted because a sibling already answered —
@@ -508,6 +629,8 @@
       // D-62: stamped so callers can distinguish policy (fallback lanes may
       // engage) from a transient fault (retry is the honest move).
       blocked.kind = 'method';
+      blocked.method = method;
+      publishKeylessStatus('method-blocked', method);
       throw blocked;
     }
     let endpoints = ranked(Object.assign({}, opts, { method }));
@@ -535,6 +658,8 @@
       if (now - lastBenchedProbeAt < BENCHED_PROBE_MS) {
         const down = new Error('rpc pool cooling down');
         down.kind = 'pool-down';
+        down.method = method;
+        publishKeylessStatus('cooling-down', method);
         throw down;
       }
       lastBenchedProbeAt = now;
@@ -599,9 +724,13 @@
     setUserEndpoint, hasUserEndpoint,
     ranked, call, websocketUrls, poolLatency, poolStress,
     reportSuccess, reportFailure, methodBlockedEverywhere, refusalMemoryLive,
+    unavailableEverywhere, statusSnapshot,
     _health: health,
     _attempts: () => attemptLog.slice(),
-    _reset: () => { health.clear(); userEndpoint = null; probeCursor = 0; },
+    _reset: () => {
+      health.clear(); userEndpoint = null; probeCursor = 0;
+      lastBenchedProbeAt = 0; keylessStatusPublished = false; attemptLog.length = 0;
+    },
   };
 
   if (typeof self !== 'undefined') self.PTRpcPool = api;

@@ -66,8 +66,8 @@ test('an all-429 pool attempts every endpoint and returns the HTTP 429 error', a
   });
 
   await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
-  assert.equal(fetchCalls, P.PUBLIC_ENDPOINTS.length,
-    'each all-throttled endpoint should remain eligible for this call');
+  assert.equal(fetchCalls, 2,
+    'keyless getMultipleAccounts may contact publicnode and Solana Labs, never Tatum');
 });
 
 test('Retry-After uses bounded delta-seconds and the two-second default', async () => {
@@ -184,29 +184,27 @@ test('the half-open probe touches exactly one endpoint, then fast-fail resumes',
   });
 
   await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
-  assert.equal(fetchCalls, 3);
+  assert.equal(fetchCalls, 2);
   // The probe window is fresh (no probe sent yet): exactly one endpoint.
   await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
-  assert.equal(fetchCalls, 4, 'half-open probe touches exactly one endpoint (F-09 contract)');
+  assert.equal(fetchCalls, 3, 'half-open probe touches exactly one endpoint (F-09 contract)');
   // Window spent: fast-fail again with no attempts.
   await assert.rejects(() => P.call('getMultipleAccounts', []), /cooling down/);
-  assert.equal(fetchCalls, 4);
+  assert.equal(fetchCalls, 3);
 });
 
-test('method-blocked endpoints are skipped, never re-attempted', async () => {
+test('method-blocked keyless getMultipleAccounts fails fast before any endpoint', async () => {
   let fetchCalls = 0;
   const P = loadPool(async () => {
     fetchCalls += 1;
     return throttleResponse();
   });
 
-  // Confirm policy blocks on two endpoints (two-strike evidence law).
+  // The only eligible keyless batch endpoints are blocked (two-strike evidence law).
   for (const id of ['publicnode', 'solana-labs']) {
     P.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
     P.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
   }
-  // Only tatum remains eligible: one attempt, then the 429 rejects.
-  // Before the fix the walk re-attempted both confirmed-403 endpoints.
-  await assert.rejects(() => P.call('getMultipleAccounts', []), /http 429/);
-  assert.equal(fetchCalls, 1, 'confirmed policy blocks must not be re-attempted');
+  await assert.rejects(() => P.call('getMultipleAccounts', []), /blocked by every endpoint/);
+  assert.equal(fetchCalls, 0, 'Tatum must not be used as a fallback for this keyless method');
 });

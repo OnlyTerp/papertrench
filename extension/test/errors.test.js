@@ -313,6 +313,27 @@ test('a non-Error records a usable message', () => {
   assert.ok(messages.includes('404'));
 });
 
+test('diagnostics keep their level and a status kind updates one ring slot in place', () => {
+  reset();
+  ERR.recordDiagnostic('host supply lacks a united quote', {
+    scope: 'content', kind: 'host-facts-supply-uncorroborated', token: 'MintA',
+  });
+  for (let i = 0; i < 500; i += 1) {
+    ERR.recordStatus('rpc-pool-status', {
+      scope: 'background', reason: 'http-429', method: 'getMultipleAccounts',
+      pool: { endpoints: [{ id: 'publicnode', refusalCount: i + 1, benchedUntil: 123, lastSuccessAgeMs: 456 }] },
+    });
+  }
+  const snap = ERR.snapshot();
+  const diagnostics = snap.filter((entry) => entry.context && entry.context.kind === 'host-facts-supply-uncorroborated');
+  const statuses = snap.filter((entry) => entry.context && entry.context.kind === 'rpc-pool-status');
+  assert.equal(diagnostics.length, 1);
+  assert.equal(diagnostics[0].context.severity, 'diagnostic');
+  assert.equal(statuses.length, 1, '500 status updates occupy one rolling slot');
+  assert.equal(statuses[0].count, 500);
+  assert.equal(statuses[0].context.pool.endpoints[0].refusalCount, 500);
+});
+
 test('a huge message and stack are truncated, not stored whole', () => {
   reset();
   const big = new Error('x'.repeat(50_000));

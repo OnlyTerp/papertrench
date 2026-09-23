@@ -3400,6 +3400,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         try {
           const settings = await getSettings();
           FEED.configure({ rpcUrl: settings.rpcUrl || null });
+          const rpcPool = self.PTRpcPool;
+          if (!String(settings.rpcUrl || '').trim() && rpcPool && typeof rpcPool.unavailableEverywhere === 'function'
+            && rpcPool.unavailableEverywhere('getMultipleAccounts')) {
+            sendResponse({ deferred: true, reason: 'rpc-pool-unavailable' });
+            break;
+          }
           sendResponse(await FEED.prewatch({ pool, mint }));
           // Same: a brand-new-coin click must not toast about the public
           // pool. The fill uses the page price; the pool is not the click.

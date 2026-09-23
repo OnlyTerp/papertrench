@@ -180,6 +180,31 @@ test('a user http endpoint yields a matching websocket url', () => {
   assert.equal(first.url, 'wss://my-node.example.com/rpc');
 });
 
+test('keyless getMultipleAccounts excludes Tatum only for that method', async () => {
+  let P = null;
+  for (const status of [429, 403]) {
+    const seen = [];
+    P = loadPool(async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      seen.push({ url: String(url), method });
+      return { ok: false, status, json: async () => ({}) };
+    });
+
+    await assert.rejects(() => P.call('getMultipleAccounts', []), new RegExp(`http ${status}`));
+    assert.deepEqual(seen.map((hit) => hit.url), [
+      'https://solana-rpc.publicnode.com',
+      'https://api.mainnet-beta.solana.com',
+    ], `keyless ${status} refusals must never route the batch read to Tatum`);
+    assert.ok(seen.every((hit) => hit.method === 'getMultipleAccounts'));
+  }
+  assert.ok(P.ranked({ method: 'getAccountInfo' }).some((endpoint) => endpoint.id === 'tatum'),
+    'other keyless methods retain the shipped endpoint rotation');
+
+  P.setUserEndpoint('https://personal-node.example/rpc');
+  assert.ok(P.ranked({ method: 'getMultipleAccounts' }).some((endpoint) => endpoint.id === 'tatum'),
+    'personal RPC mode leaves the existing public rotation unchanged');
+});
+
 /* ---------------- websocket ranking ---------------- */
 
 test('only endpoints that actually support websockets are offered for streaming', () => {

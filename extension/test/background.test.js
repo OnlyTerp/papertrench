@@ -736,6 +736,34 @@ test('pt_site_identity refuses foreign senders and malformed handles', async () 
     'nothing may be stored on a refused link');
 });
 
+test('A2: keyless prewatch is deferred while every eligible batch endpoint is unavailable', async () => {
+  const worker = serviceWorker();
+  const feed = worker.ctx.PTOnchainFeed;
+  const originalPrewatch = feed.prewatch;
+  let calls = 0;
+  feed.prewatch = async () => { calls += 1; return { mint: MINT, priceNative: 0.1 }; };
+  worker.rpcPool._reset();
+  for (const id of ['publicnode', 'solana-labs']) {
+    worker.rpcPool.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
+    worker.rpcPool.reportFailure(id, { kind: 'method', method: 'getMultipleAccounts' });
+  }
+
+  try {
+    const deferred = await send(worker.listener, { type: 'pt_onchain_prewatch', mint: MINT });
+    assert.equal(deferred && deferred.deferred, true);
+    assert.equal(deferred && deferred.reason, 'rpc-pool-unavailable');
+    assert.equal(calls, 0, 'the feed prewatch must not issue any RPC while GMA is blocked everywhere');
+
+    worker.rpcPool.reportSuccess('publicnode', 50, { method: 'getMultipleAccounts' });
+    const resumed = await send(worker.listener, { type: 'pt_onchain_prewatch', mint: MINT });
+    assert.equal(resumed.priceNative, 0.1);
+    assert.equal(calls, 1, 'a successful GMA probe restores pending prewatch');
+  } finally {
+    feed.prewatch = originalPrewatch;
+    worker.rpcPool._reset();
+  }
+});
+
 /* ---------------- slow-pool notice: solve it for everyone ------------------
  *
  * cojica456 (Balkans): every keyless public endpoint slow from their region;

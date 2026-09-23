@@ -317,7 +317,7 @@ function runFreshLaunch(opts) {
   };
   win.window = win;
 
-  const storage = { pt_settings: global.window.PaperEngine.defaultSettings() };
+  const storage = { pt_settings: { ...global.window.PaperEngine.defaultSettings(), rpcUrl: options.rpcUrl || '' } };
   const sandbox = {
     window: win, self: win, document: doc, location: win.location, console,
     URLSearchParams, URL,
@@ -370,9 +370,11 @@ function runFreshLaunch(opts) {
           if (msg.type === 'pt_sol_usd') return R.solUsd();
           if (msg.type === 'pt_batch_prices') return R.batchPrices(msg.mints);
           if (msg.type === 'pt_onchain_prewatch') {
-            // The chain probe. Tests drive it with options.onchainPrewatch so
-            // they can model a throttled/failing RPC (D-60) as distinct from
-            // "this coin genuinely has no pool".
+            // Model the worker's getMultipleAccounts health gate before any
+            // simulated feed/RPC attempt; a deferred probe spends no RPC call.
+            const unavailable = typeof options.poolUnavailable === 'function'
+              ? options.poolUnavailable(msg) : Boolean(options.poolUnavailable);
+            if (unavailable) return Promise.resolve({ deferred: true, reason: 'rpc-pool-unavailable' });
             prewatchCalls += 1;
             const h = options.onchainPrewatch;
             if (typeof h === 'function') return Promise.resolve(h(msg, prewatchCalls));
@@ -1126,8 +1128,8 @@ test('D-60: the click asks the chain whenever no source priced it', () => {
   const fnEnd = content.indexOf('\n  async function', fnStart + 10);
   const fn = content.slice(fnStart, fnEnd === -1 ? fnStart + 4000 : fnEnd);
 
-  const probeIdx = fn.indexOf("R.onchainPrewatch({ pool: addr })");
-  assert.ok(probeIdx !== -1, 'the click must be able to probe the chain');
+  const probeIdx = fn.indexOf("R.onchainPrewatch({ pool: addr }, { priority: true })");
+  assert.ok(probeIdx !== -1, 'the click must be able to probe the chain within the bounded keyless budget');
 
   // The guard immediately above the probe must not require token.pending.
   // (v3.23.0: one orthogonal gate sits between the price gate and the probe
@@ -1182,12 +1184,37 @@ test('D-60S: a failing prewatch backs off instead of hammering (ark_trades13 sto
   const c3 = await at(1600);
   assert.ok(c3 === first + 1, `the retry must re-arm the doubled backoff; got ${c3 - first}`);
 
-  // And the storm is dead: over a further 90s the probe runs at the
-  // exponential cadence (8s+16s+30s+30s+30s after that = ~5 more), not the
-  // ~112 calls the 800ms loop produced.
+  // In keyless mode the per-mint budget hard-stops at three actual probes;
+  // repeated detect ticks cannot re-arm another batch of endpoint refusals.
   const c4 = await at(90_000);
-  assert.ok(c4 <= 10, `90s of failures must cost <=10 probes, got ${c4}`);
+  assert.ok(c4 <= 3, `90s of keyless failures must cost <=3 probes, got ${c4}`);
 });
+test('A2: keyless prewatch waits out the pool gate, then resumes on a successful probe', async () => {
+  let poolUnavailable = true;
+  const ov = runFreshLaunch({
+    resolved: () => false,
+    poolUnavailable: () => poolUnavailable,
+    onchainPrewatch: (_message, call) => call === 1 ? null : ({
+      mint: NEW_MINT,
+      pool: 'Poo1Fresh1111111111111111111111111111111111',
+      poolKind: 'pump-curve',
+      priceNative: 3.2e-8,
+      decimals: 6,
+    }),
+  });
+  await ov.settle();
+  await ov.advance(10_000, 400);
+  assert.equal(ov.prewatchCalls(), 0,
+    'a pool-wide getMultipleAccounts bench defers prewatch without spending attempts');
+
+  poolUnavailable = false;
+  await ov.advance(10_000, 400);
+  assert.equal(ov.prewatchCalls(), 2,
+    'one transient miss is retried and the successful second probe ends the sequence');
+  assert.ok(!/Fetching|^—$/.test(String(ov.priceText() || '')),
+    'the successful probe resumes the pending token price');
+});
+
 test('LIVE-MARKET: a failing prewatch re-probes immediately while mcap ticks prove the coin trades', async () => {
   // Discord 2026-08-28 (4…/Gio): on Axiom new pairs the price took 1-2
   // minutes to load. The chain probe backed off (2s->30s) after a failed
@@ -1197,6 +1224,7 @@ test('LIVE-MARKET: a failing prewatch re-probes immediately while mcap ticks pro
   // a coin that CANNOT be priced; a live market is the opposite case.
   const ov = runFreshLaunch({
     resolvePrice: null,
+    rpcUrl: 'https://personal-rpc.example', // this configured path keeps its old live-market behavior
     // The chain fails every read — but the page keeps printing mcap ticks.
     onchainPrewatch: () => null,
   });

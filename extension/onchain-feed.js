@@ -30,6 +30,10 @@
    * Never throws: an RPC failure path must not gain a second failure mode. */
   function noteFeedError(error, context) {
     try {
+      const keylessRefusal = POOL && typeof POOL.hasUserEndpoint === 'function'
+        && !POOL.hasUserEndpoint()
+        && error && ['method', 'throttle', 'pool-down'].includes(error.kind);
+      if (keylessRefusal) return; // rpc-pool maintains the single rolling status entry
       const EL = (typeof self !== 'undefined' && self.PTErrors)
         || (typeof window !== 'undefined' && window.PTErrors)
         || null;
