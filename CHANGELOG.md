@@ -19,16 +19,20 @@ details live in the commit messages.
 
 - **The P&L you see is the P&L you get.** The panel's Unrealized P&L left the buy fee out of your cost, so it ran ahead of what a sale actually returned — and the ledger on the same card showed a second, different number. Both now count the buy fee, a new "If you sell now" line shows exactly what selling at this price returns after fees, and partial sells add up to the round's final P&L instead of more. That is the "my interface showed a profit of $50, but after selling I only received $20" report. A click that is waiting on a price now says so instead of looking ignored, and shared cards no longer print the entry as a price and the exit as a market cap.
 
-Tested: extension 2618/2618, server 387/387, bot 20/20 green (3025 total).
-Twenty-two source-negative controls: the worker lane, its self-witness ban,
+- **New coins stop drowning in dead free-RPC calls.** The free Solana endpoints refuse the batch read that prices brand-new pairs — one demands a paid plan, another blocks it outright — and the extension kept asking, hundreds of refusals an hour, filling every debug report. It now stops asking an endpoint that refuses by policy, gives a new coin at most three tries on the free pool, and waits for the pool to recover instead of hammering it. A click on a coin nobody has indexed yet can now fill from our own price service instead of sitting armed forever. Debug reports fold the pool's refusals into one status line, so the errors that matter are visible again.
+
+Tested: extension 2624/2624, server 387/387, bot 20/20 green (3031 total).
+Twenty-nine source-negative controls: the worker lane, its self-witness ban,
 its Solana-only gate, the retry and its budget; the foreign-tick rate and
 non-overwrite guard, Axiom HOOD routing, preset/prompt re-denomination, limit
 conversion, heartbeat blind-write ban, armed-order and cancel durability,
 the two storage-fake fidelity fixes, gross P&L / sell preview math, position
 marks, the pinned 0.5 SOL panel field, paired share-card units, retry status,
-legacy cost fallback, and cross-surface realized identity. Each control broke
-real source (never a test), went RED as expected, then was restored byte-
-identically by SHA-256 compare and went GREEN.
+legacy cost fallback, and cross-surface realized identity; F-65 A1 Tatum
+exclusion, A2 prewatch attempt cap and pool-wide defer, A3 rolling status and
+personal-RPC error logging, and B1 per-token diagnostic and classification.
+Each control broke real source (never a test), went RED as expected, then was
+restored byte-identically by SHA-256 compare and went GREEN.
 
 ## v3.23.4 — 2026-09-13
 

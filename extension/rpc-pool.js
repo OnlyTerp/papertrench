@@ -93,7 +93,7 @@
   // MANY. (part of F-63)
   let probeCursor = 0;
 
-  const health = new Map(); // id -> endpoint health and method refusal evidence
+  const health = new Map(); // id -> { failures, benchedUntil, latencyMs, samples, methodBlocks, refusalCounts, lastSuccessAt }
   let userEndpoint = null;
   let keylessStatusPublished = false;
 
@@ -183,6 +183,7 @@
   function hasUserEndpoint() { return Boolean(userEndpoint); }
 
   function publicEndpointsFor(method) {
+    // Tatum requires a paid plan for batch reads; keep its other free methods.
     if (!userEndpoint && method === 'getMultipleAccounts') {
       return PUBLIC_ENDPOINTS.filter((endpoint) => endpoint.id !== 'tatum');
     }
@@ -344,7 +345,7 @@
     persistHealthSoon();
   }
 
-  /** True when every eligible pool endpoint currently refuses this method. */
+  /** F-63: true when every endpoint still eligible for the method carries a confirmed policy block. */
   function methodBlockedEverywhere(method) {
     if (!method) return false;
     const endpoints = publicEndpointsFor(method);
@@ -366,8 +367,11 @@
     });
   }
 
-  /** D-65: true when every eligible POOL endpoint carries LIVE refusal memory
-   * for this method (the sliding 10-minute entries). */
+  /** D-65: true when every eligible public endpoint carries LIVE refusal
+   * memory for this method (the sliding 10-minute entries). Softer than
+   * methodBlockedEverywhere: callers with a cheaper fallback can skip a batch
+   * every public provider recently refused. A personal endpoint is tried
+   * separately and may still serve the method. */
   function refusalMemoryLive(method) {
     if (!method) return false;
     const endpoints = publicEndpointsFor(method);

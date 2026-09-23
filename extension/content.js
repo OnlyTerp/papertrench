@@ -72,6 +72,8 @@
         probe.lastTryAt = 0;
         probe.nextAt = 0;
       } else {
+        // Re-arm from THIS failure; without the stamp, releasing the latch
+        // would let the next 800ms detect beat start another RPC attempt.
         probe.nextAt = at + Math.min(
           KEYLESS_PREWATCH_BASE_MS * Math.pow(2, Math.max(0, probe.attempts - 1)),
           KEYLESS_PREWATCH_MAX_MS,
@@ -1137,18 +1139,14 @@
 
   /* -------------------- detection -------------------- */
 
-  // One prewatch per pending address; a failed prewatch is not retried — the
-  // resolver's own retry loop stays the fallback path.
+  // One prewatch per pending address at a time; failed probes release the
+  // latch and retry only under the personal-RPC or keyless budget below.
   let prewatchedAddress = null;
-  // D-60 keeps a failed probe from latching, but that release lets the 800ms
-  // detect loop re-probe immediately — and with the keyless pool refusing
-  // heavy reads, the released latch became a retry STORM (ark_trades13
-  // 2026-08-27: 56 background error groups, 'rpc pool cooling down' x243).
-  // Back off per address, exponentially, with a cap: a coin that cannot be
-  // priced on-chain yet stays pending on the page's own feed (or resolves
-  // normally) instead of paying a failed probe twice a second. State is
-  // keyed to the address being probed — a NEW address resets it, so one
-  // coin's storm can never delay the next coin's first (fast) probe.
+  // D-60 releases a failed probe's latch, but that makes an 800ms detect loop
+  // retry immediately unless D-60S re-arms exponential, address-keyed backoff.
+  // ark_trades13 saw 56 background error groups and 'rpc pool cooling down'
+  // x243 when keyless reads were refused. Personal RPC keeps D-60S's 2s->30s
+  // backoff; keyless mode uses the stricter F-65 three-attempt token budget.
   let prewatchAttempts = 0;
   let prewatchLastTryAt = 0;
   let prewatchBackoffFor = null;
@@ -1187,14 +1185,24 @@
     const personalRpc = Boolean(String(settings && settings.rpcUrl || '').trim());
     const budgetKey = (token && (token.srcAddress || token.mint)) || candidate.address;
     if (personalRpc) {
-      // Preserve the configured-endpoint path, including its live-market
-      // exception and existing retry cadence.
+      // Backoff gate (D-60 companion): a probe that failed moments ago is
+      // not re-paid on every detect tick. It is keyed to the address so one
+      // coin's failures never delay a different coin's first probe.
+      //
+      // LIVE-MARKET EXCEPTION (Discord 2026-08-28, 4…/Gio): fresh mcap ticks
+      // prove the market is trading. On a configured endpoint, a failed probe
+      // must not bench the only on-chain source that can turn those ticks into
+      // a fillable price, so a live market retries immediately.
       const backoff = prewatchBackoffMs(candidate.address);
       const liveMarket = Date.now() - lastMcapTickAt <= 15_000;
       if (backoff > 0 && !liveMarket) return;
       prewatchBackoffFor = candidate.address;
       prewatchLastTryAt = Date.now();
     } else {
+      // F-65: keyless mode deliberately drops the live-market bypass because
+      // the free batch pool refuses the read by policy. In the 34 reports
+      // since 9/19, prewatch made 1,621 Tatum calls and logged 221 cooling-down
+      // failures; Tatum appeared in 136/142 reports (8,683 occurrences).
       const budget = keylessPrewatchState(budgetKey);
       if (budget.inFlight || budget.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
         || budget.nextAt > Date.now()) return;
@@ -1221,7 +1229,9 @@
       if (!found || !found.mint) {
         if (prewatchedAddress === candidate.address) prewatchedAddress = null;
         if (personalRpc) {
-          // The configured endpoint keeps its existing retry policy.
+          // Re-arm from THIS failure: without this stamp the gate only
+          // muzzles the loop inside a window; when it expires, each detect
+          // tick probes again (the D-60S test caught it).
           prewatchLastTryAt = Date.now();
           prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
         } else {
@@ -1293,7 +1303,8 @@
     }).catch(() => {
       // Same rule as the empty answer above: a thrown probe is a failure of
       // the READ, never proof about the coin. Release the latch so the next
-      // detect pass can try again instead of stranding the token.
+      // detect pass can try again instead of stranding the token — under the
+      // exponential backoff, not the old 800ms hammer.
       if (prewatchedAddress === candidate.address) prewatchedAddress = null;
       if (personalRpc) prewatchAttempts = Math.min(prewatchAttempts + 1, 6);
       else syncKeylessPrewatchDebug(budgetKey, keylessPrewatchState(budgetKey));

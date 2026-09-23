@@ -375,6 +375,8 @@ function runFreshLaunch(opts) {
             const unavailable = typeof options.poolUnavailable === 'function'
               ? options.poolUnavailable(msg) : Boolean(options.poolUnavailable);
             if (unavailable) return Promise.resolve({ deferred: true, reason: 'rpc-pool-unavailable' });
+            // `onchainPrewatch` models an actual feed answer: null is a refused
+            // or unavailable read, not proof that the coin has no pool.
             prewatchCalls += 1;
             const h = options.onchainPrewatch;
             if (typeof h === 'function') return Promise.resolve(h(msg, prewatchCalls));
