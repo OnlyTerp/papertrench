@@ -23,8 +23,8 @@ details live in the commit messages.
 
 - **Padre shows your paper fills on its chart again.** On today's Padre the chart never handed its candles to PaperTrench after it loaded, so there was no level to anchor to — no buy marker and no dashed average-fill line, silently, on v3.23.4 too. The chart now re-sends its data once PaperTrench is listening, so your buys and sells land as markers at the fill and the average line sits where you actually got in.
 
-Tested: extension 2631/2631, server 387/387, bot 20/20 green (3038 total).
-Thirty-three source-negative controls: the worker lane, its self-witness ban,
+Tested: extension 2634/2634, server 387/387, bot 20/20 green (3041 total).
+Thirty-four source-negative controls: the worker lane, its self-witness ban,
 its Solana-only gate, the retry and its budget; the foreign-tick rate and
 non-overwrite guard, Axiom HOOD routing, preset/prompt re-denomination, limit
 conversion, heartbeat blind-write ban, armed-order and cancel durability,
@@ -32,7 +32,9 @@ the two storage-fake fidelity fixes, gross P&L / sell preview math, position
 marks, the pinned 0.5 SOL panel field, paired share-card units, retry status,
 legacy cost fallback, and cross-surface realized identity; F-65 A1 Tatum
 exclusion, A2 prewatch attempt cap and pool-wide defer, A3 rolling status and
-personal-RPC error logging, B1 per-token diagnostic and classification, C-29 Padre feed reset/address-anchor/render retries, and C-30 latest-line footer status.
+personal-RPC error logging, B1 per-token diagnostic and classification, C-29 Padre feed
+reset/address-anchor/render retries, C-30 latest-line footer status, and
+sale-preview USD P&L sign/value and no-rate omission.
 Each control broke real source (never a test), went RED as expected, then was
 restored byte-identically by SHA-256 compare and went GREEN.
 

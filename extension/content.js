@@ -9129,8 +9129,8 @@
     const sign = preview.pnlGrossSol > 0 ? '+' : '';
     const pctSign = pct > 0 ? '+' : '';
     const solUsd = priceUsd > 0 ? priceUsd / priceNative : null;
-    const proceedsUsd = solUsd !== null ? E.fmtUsd(preview.net * solUsd) : '$—';
-    node.textContent = `If you sell now: ${sign}${E.fmt(preview.pnlGrossSol, 6)} SOL (${pctSign}${pct.toFixed(1)}%) · ${proceedsUsd} after ${E.fmt(preview.fee + preview.flat, 4)} SOL fees`;
+    const pnlUsd = solUsd !== null ? ` · ${E.fmtUsd(preview.pnlGrossSol * solUsd)}` : '';
+    node.textContent = `If you sell now: ${sign}${E.fmt(preview.pnlGrossSol, 6)} SOL (${pctSign}${pct.toFixed(1)}%)${pnlUsd} after ${E.fmt(preview.fee + preview.flat, 4)} SOL fees`;
     node.classList.remove('pt-hidden');
   }
 

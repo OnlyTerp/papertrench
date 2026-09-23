@@ -332,14 +332,14 @@ function runOverlay(priceSeries, opts = {}) {
         });
       }
       const p = priceSeries[Math.min(priceIdx, priceSeries.length - 1)];
-      const body = {
-        pair: {
-          chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
-          baseToken: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk' },
-          quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
-          priceNative: String(p), priceUsd: String(p * 200), liquidity: { usd: 500000 }, marketCap: 1e8,
-        },
+      const pair = {
+        chainId: 'solana', pairAddress: 'PAIR1', dexId: 'raydium',
+        baseToken: { address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk' },
+        quoteToken: { address: 'So11111111111111111111111111111111111111112', symbol: 'SOL' },
+        priceNative: String(p), liquidity: { usd: 500000 }, marketCap: 1e8,
       };
+      if (!opts.noUsdRate) pair.priceUsd = String(p * 200);
+      const body = { pair };
       return Promise.resolve({ ok: true, status: 200, json: async () => body });
     },
     chrome: {
@@ -512,6 +512,25 @@ function runOverlay(priceSeries, opts = {}) {
   };
 }
 
+async function salePreviewScenario(prices, options = {}) {
+  const ov = runOverlay(prices, options);
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the paper position opens');
+  await ov.advance(600);
+  ov.nextPrice();
+  await ov.advance(2500);
+  const pos = Object.values(ov.currentState().positions || {})[0];
+  const settings = E.defaultSettings();
+  const priceNative = prices[1];
+  const solUsd = options.noUsdRate ? null : 200;
+  const preview = E.previewSell(pos, settings, {
+    qtyFraction: 1,
+    priceNative,
+    priceUsd: solUsd === null ? undefined : priceNative * solUsd,
+  });
+  return { ov, preview, text: ov.fieldText('exitpreview'), solUsd };
+}
+
 test('the shipped heartbeat re-quotes repeatedly instead of idling for 10s+', async () => {
   const series = [0.001, 0.0012, 0.0015, 0.0019];
   const ov = runOverlay(series);
@@ -654,6 +673,34 @@ test('T3: panel unrealized and pre-sell ledger agree on the gross basis', async 
   ov.setNetworkDown(true);
   await ov.advance(Q.STALE_AFTER_MS + 200);
   assert.equal(ov.fieldText('exitpreview'), '', 'the sale preview hides once the live quote expires');
+});
+
+test('sell-now USD is gross P&L with a minus sign for a losing position', async () => {
+  const { preview, text, solUsd } = await salePreviewScenario([0.001, 0.0005]);
+  assert.ok(preview.pnlGrossSol < 0, 'the test position is losing');
+  const expectedUsd = E.fmtUsd(preview.pnlGrossSol * solUsd);
+  assert.ok(expectedUsd.startsWith('-$'), 'the P&L amount is formatted as a loss');
+  assert.ok(text.includes(`· ${expectedUsd} after `), `the USD component matches gross P&L (${text})`);
+  assert.notEqual(expectedUsd, E.fmtUsd(preview.net * solUsd), 'USD must not be sell proceeds');
+});
+
+test('sell-now USD is gross P&L with a plus sign for a winning position', async () => {
+  const { preview, text, solUsd } = await salePreviewScenario([0.001, 0.0015]);
+  assert.ok(preview.pnlGrossSol > 0, 'the test position is profitable');
+  const expectedUsd = E.fmtUsd(preview.pnlGrossSol * solUsd);
+  assert.ok(expectedUsd.startsWith('+$'), 'the P&L amount is formatted as a gain');
+  assert.ok(text.includes(`· ${expectedUsd} after `), `the USD component matches gross P&L (${text})`);
+  assert.notEqual(expectedUsd, E.fmtUsd(preview.net * solUsd), 'USD must not be sell proceeds');
+});
+
+test('sell-now preview omits USD when no SOL/USD rate is available', async () => {
+  const { preview, text, solUsd } = await salePreviewScenario([0.001, 0.0005], { noUsdRate: true });
+  assert.equal(solUsd, null);
+  assert.ok(preview.pnlGrossSol < 0, 'the no-rate position still has native P&L');
+  assert.ok(text.startsWith('If you sell now:'), 'the SOL preview remains visible');
+  assert.doesNotMatch(text, /·\s*[+-]?\$/,
+    'unknown USD must omit the whole USD component, not print $— or proceeds');
+  assert.match(text, /after [\d.,]+ SOL fees$/);
 });
 
 test('T5: retry status appears after 700ms and clears on fill and refusal', async () => {
