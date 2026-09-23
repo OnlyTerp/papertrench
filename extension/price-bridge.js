@@ -30,6 +30,7 @@
     try { return location.hostname || new URL(location.href).hostname; } catch (_) { return ''; }
   })();
   const hostIsPadre = /(^|\.)padre\.gg$/.test(bridgeHostname);
+  const hostIsAxiom = /(^|\.)axiom\.trade$/.test(bridgeHostname);
   // Upper bound on frames the generic path will JSON.parse. Parse cost at
   // this size is ~10-20 ms occasionally; the collector walk is separately
   // bounded by NODE_BUDGET, so bigger frames cannot runaway the main thread.
@@ -71,6 +72,7 @@
   const currentSymbolNeedles = [];
   const currentSymbolAddressNeedles = [];
   const currentSymbolInfo = { mint: null, pairAddress: null, symbol: null };
+  let axiomLastBPrice = null;
 
   function chartSymbolMatches(chart) {
     if (!currentSymbolNeedles.length) return true; // nothing resolved yet: permissive
@@ -123,6 +125,7 @@
       lastBarTimeSec = 0;
       lastExportedClose = 0;
       barCloseLedger.clear();
+      axiomLastBPrice = null;
     }
   }
   // GMGN runs a private TradingView widget inside a same-origin blob iframe.
@@ -688,6 +691,93 @@
     };
   }
 
+  const AXIOM_FRESH_B_ROOM_MS = 15_000;
+
+  function isAxiomMarketSocket(url) {
+    if (!hostIsAxiom || typeof url !== 'string') return false;
+    try {
+      const host = new URL(url, location.href).hostname.toLowerCase();
+      return /^cluster(?:\d+|-global\d+(?:-heavy)?)\.axiom\.trade$/.test(host);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function axiomRoomPairMatches(pair) {
+    if (typeof pair !== 'string' || !BASE58_RE.test(pair)) return false;
+    const needle = pair.toUpperCase();
+    return currentSymbolNeedles.indexOf(needle) !== -1
+      && currentSymbolAddressNeedles.indexOf(needle) !== -1
+      && (currentSymbolInfo.pairAddress === pair || currentSymbolInfo.mint === pair);
+  }
+
+  function axiomRoomPolicy(parsed, receivedAt, seq) {
+    if (!parsed || typeof parsed.room !== 'string') return null;
+    const room = parsed.room;
+    const bRoom = /^b-([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
+    const fRoom = /^f:([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
+    const supplyRoom = /^a:([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
+    const ignoredRoom = /^(?:td:|s:|stats-v2:|t:|id:)/.test(room);
+    if (!bRoom && !fRoom && !supplyRoom && !ignoredRoom) return 'ignore';
+
+    let pageIsSolana = false;
+    try {
+      const page = new URL(location.href);
+      pageIsSolana = /^\/(?:meme|t)\/[A-Za-z0-9]+(?:$|[/?#])/.test(page.pathname)
+        && (!page.searchParams.get('chain') || page.searchParams.get('chain') === 'sol');
+    } catch (_) {}
+    if (!pageIsSolana) return 'ignore';
+
+    if (supplyRoom) {
+      return axiomRoomPairMatches(supplyRoom[1]) ? 'facts-only' : 'ignore';
+    }
+    if (ignoredRoom) return 'ignore';
+
+    const pair = bRoom ? bRoom[1] : fRoom[1];
+    if (!axiomRoomPairMatches(pair)) return 'ignore';
+    const at = Number.isFinite(receivedAt) ? receivedAt : Date.now();
+    const base = {
+      candidates: [],
+      mcap: null,
+      mint: currentSymbolInfo.mint || currentSymbolInfo.pairAddress,
+      pairAddress: pair,
+      symbol: currentSymbolInfo.symbol,
+      name: null,
+      source: 'axiom-ws-room',
+    };
+
+    if (bRoom) {
+      if (typeof parsed.content !== 'number' || !Number.isFinite(parsed.content) || parsed.content <= 0) return 'ignore';
+      axiomLastBPrice = { pair, price: parsed.content, at };
+      emit('tick', withFrameEvidence({
+        ...base,
+        candidates: [{ value: parsed.content, unit: 'native', key: 'axiomRoomBPrice' }],
+      }, receivedAt, seq));
+      return 'handled';
+    }
+
+    const content = parsed.content;
+    if (!Array.isArray(content) || content.length !== 17
+      || typeof content[2] !== 'number' || !Number.isFinite(content[2])
+      || typeof content[4] !== 'number' || !Number.isFinite(content[4]) || content[4] <= 0
+      || typeof content[5] !== 'number' || !Number.isFinite(content[5]) || content[5] <= 0) return 'ignore';
+    if (!axiomLastBPrice || axiomLastBPrice.pair !== pair
+      || at < axiomLastBPrice.at || at - axiomLastBPrice.at > AXIOM_FRESH_B_ROOM_MS
+      || Math.abs(content[4] / axiomLastBPrice.price - 1) > 0.005) return 'ignore';
+
+    // Captured Axiom f-room tuples: index 4 is native and 5 is USD. Across
+    // 35 captured frames, index 4 matched the b-room price within 0.5%, and
+    // USD/native matched the independent sol_price room within 0.01% median.
+    emit('tick', withFrameEvidence({
+      ...base,
+      candidates: [
+        { value: content[4], unit: 'native', key: 'axiomRoomFNative' },
+        { value: content[5], unit: 'usd', key: 'axiomRoomFUsd' },
+      ],
+    }, receivedAt, seq));
+    return 'handled';
+  }
+
   function forwardTokenActivity(parsed, receivedAt, seq) {
     if (!parsed || parsed.channel !== 'token_activity' || !Array.isArray(parsed.data)) return false;
     const now = Date.now();
@@ -773,6 +863,13 @@
     }
     if (!parsed || typeof parsed !== 'object') return;
 
+    let axiomRoomAction = null;
+    if (hostIsAxiom && source === 'ws') {
+      if (!isAxiomMarketSocket(url)) return;
+      axiomRoomAction = axiomRoomPolicy(parsed, receivedAt, seq);
+      if (axiomRoomAction === 'handled' || axiomRoomAction === 'ignore') return;
+    }
+
     if (forwardTokenActivity(parsed)) return;
     if (padreBinary) notePadreSupplies(parsed);
 
@@ -853,6 +950,7 @@
       }
     };
     emitFacts();
+    if (axiomRoomAction === 'facts-only') return;
     let emittedTick = false;
     if (records.size) {
       // Watched token first — the GMGN fast-path contract, now generic — then
@@ -967,11 +1065,18 @@
       const socket = protocols === undefined
         ? new OriginalWebSocket(url)
         : new OriginalWebSocket(url, protocols);
+      let socketUrl;
+      if (hostIsAxiom) {
+        try {
+          const parsedUrl = new URL(url, location.href);
+          socketUrl = parsedUrl.origin + parsedUrl.pathname;
+        } catch (_) { socketUrl = ''; }
+      }
       socket.addEventListener('message', (event) => {
         const receivedAt = Date.now();
         const seq = ++webSocketFrameSeq;
         if (typeof event.data === 'string') {
-          forwardJson(event.data, 'ws', undefined, receivedAt, seq);
+          forwardJson(event.data, 'ws', socketUrl, receivedAt, seq);
         } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
           const decoded = decodeMsgpack(new Uint8Array(event.data));
           if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);

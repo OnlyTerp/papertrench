@@ -1,6 +1,6 @@
 /* Native chart integration for the sites that broke in production.
  *
- * Three verified-on-site failure modes are locked down here:
+ * Four verified-on-site failure modes are locked down here:
  *
  *  1. GMGN upgraded its TradingView build to the ASYNC widget API:
  *     createOrderLine() / createExecutionShape() return Promises. The bridge
@@ -14,6 +14,9 @@
  *  3. GMGN's realtime WebSocket announces every trade on `token_activity`
  *     with terse keys (`a` mint, `pu` USD price) that the generic collector
  *     cannot see; the bridge must translate them into mint-tagged USD ticks.
+ *
+ *  4. Axiom's page WebSocket multiplexes native-price rooms through `room` and
+ *     scalar `content`; the bridge must attribute only the visible pair.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -263,8 +266,18 @@ function runBridge(opts = {}) {
     doc.elementFromPoint = (x) => (panelOverChip && x > 400 ? rowDomNodes.hostEl : rowDomNodes.row);
   }
 
-  function FakeWebSocket() {}
-  FakeWebSocket.prototype.addEventListener = () => {};
+  const webSockets = [];
+  function FakeWebSocket(url) {
+    this.url = String(url || '');
+    this.listeners = {};
+    webSockets.push(this);
+  }
+  FakeWebSocket.prototype.addEventListener = function (type, fn) {
+    (this.listeners[type] || (this.listeners[type] = [])).push(fn);
+  };
+  FakeWebSocket.prototype.dispatchMessage = function (data) {
+    for (const fn of this.listeners.message || []) fn({ data });
+  };
   FakeWebSocket.CONNECTING = 0;
   FakeWebSocket.OPEN = 1;
   FakeWebSocket.CLOSING = 2;
@@ -299,6 +312,7 @@ function runBridge(opts = {}) {
   let timeoutSeq = 0;
 
   const href = opts.href || 'https://gmgn.ai/sol/token/Mint1';
+  const parsedHref = new URL(href);
   // Controllable clock: stress tests need to space batches by tens of
   // milliseconds deterministically. Untouched, it follows real time.
   const RealDate = Date;
@@ -312,9 +326,9 @@ function runBridge(opts = {}) {
   const sandbox = {
     window: win,
     document: doc,
-    location: { href, hostname: new URL(href).hostname },
+    location: { href, hostname: parsedHref.hostname, pathname: parsedHref.pathname, search: parsedHref.search },
     console, Date: TestDate, Math, Number, String, Array, Object, Boolean, RegExp,
-    Error, Set, WeakSet, WeakMap, Map, Symbol, JSON, Promise, isFinite,
+    Error, Set, WeakSet, WeakMap, Map, Symbol, JSON, Promise, URL, isFinite,
     MutationObserver: function () { this.observe = () => {}; this.disconnect = () => {}; },
     setInterval(fn) { timers.push(fn); return timers.length; },
     // Functional: the bridge's boot prober clears itself once it succeeds
@@ -335,6 +349,8 @@ function runBridge(opts = {}) {
     orderLines,
     execShapes,
     win,
+    webSockets,
+    openWebSocket: (url) => new win.WebSocket(url || 'wss://cluster-global3.axiom.trade/'),
     timers,
     mountGmgn: () => { gmgnMounted = true; },
     remountGmgn: () => { gmgnChart = makeGmgnChart(); },
@@ -933,6 +949,114 @@ function injectActivityFrame(env, frame, url) {
   xhr.send();
   for (const fn of loadListeners) fn.call(xhr);
 }
+
+const AXIOM_ROOM_FIXTURE = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'axiom-room-frames.json'), 'utf8'
+));
+const AXIOM_ROOM_BONK_PAIR = '5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9';
+const AXIOM_ROOM_BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+function axiomBridgeFor(chain = 'sol') {
+  const env = runBridge({
+    href: `https://axiom.trade/meme/${AXIOM_ROOM_BONK_PAIR}?chain=${chain}`,
+  });
+  env.setNow(1_790_198_624_000);
+  env.send('paper-axis', {
+    pairAddress: AXIOM_ROOM_BONK_PAIR,
+    mint: AXIOM_ROOM_BONK_MINT,
+    symbol: 'BONK',
+  });
+  env.emitted.length = 0;
+  const socket = env.openWebSocket('wss://cluster-global3.axiom.trade/');
+  return { env, socket };
+}
+
+test('Axiom captured b-room price emits a mint/pair-attributed native tick', () => {
+  const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  assert.ok(b, 'the sanitized capture includes a b-room frame');
+  const { env, socket } = axiomBridgeFor();
+  socket.dispatchMessage(JSON.stringify(b));
+
+  const ticks = env.emitted.filter((message) => message.type === 'tick');
+  assert.equal(ticks.length, 1);
+  assert.equal(ticks[0].payload.source, 'axiom-ws-room');
+  assert.equal(ticks[0].payload.mint, AXIOM_ROOM_BONK_MINT);
+  assert.equal(ticks[0].payload.pairAddress, AXIOM_ROOM_BONK_PAIR);
+  assert.deepEqual(JSON.parse(JSON.stringify(ticks[0].payload.candidates)), [{
+    value: b.content, unit: 'native', key: 'axiomRoomBPrice',
+  }]);
+  assert.equal(ticks[0].payload.at, 1_790_198_624_000,
+    'the bridge timestamps the received page frame for the existing freshness gate');
+});
+
+test('Axiom f-room legs use only the captured, b-confirmed tuple positions', () => {
+  const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  const f = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('f:'));
+  const sol = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room === 'sol_price');
+  assert.ok(b && f && sol, 'the sanitized fixture contains b, f and SOL-price rooms');
+  assert.equal(f.content.length, 17, 'f must keep the captured tuple shape');
+  assert.ok(Math.abs(f.content[4] / b.content - 1) <= 0.005,
+    'f native leg agrees with the nearby b-room price within the captured 0.5% lock');
+  assert.ok(Math.abs((f.content[5] / f.content[4]) / sol.content - 1) <= 0.02,
+    'f USD/native legs agree with the captured SOL/USD room');
+
+  const { env, socket } = axiomBridgeFor();
+  socket.dispatchMessage(JSON.stringify(b));
+  env.emitted.length = 0;
+  socket.dispatchMessage(JSON.stringify(f));
+  const tick = env.emitted.find((message) => message.type === 'tick');
+  assert.ok(tick, 'a recent same-pair b frame confirms the f tuple');
+  assert.equal(tick.payload.source, 'axiom-ws-room');
+  assert.equal(tick.payload.pairAddress, AXIOM_ROOM_BONK_PAIR);
+  assert.deepEqual(JSON.parse(JSON.stringify(tick.payload.candidates)), [
+    { value: f.content[4], unit: 'native', key: 'axiomRoomFNative' },
+    { value: f.content[5], unit: 'usd', key: 'axiomRoomFUsd' },
+  ]);
+});
+
+test('Axiom room decoder rejects wrong pairs, non-Solana chains and malformed values', () => {
+  const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  const { env, socket } = axiomBridgeFor();
+  socket.dispatchMessage(JSON.stringify({ ...b, room: 'b-MfDuWeqSHEqTFVYZ7LoexgAK9dxk7cy4DFJWjWMGVWa', content: 0.5 }));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'a different pair never produces a tick for the watched mint');
+  socket.dispatchMessage(JSON.stringify({ ...b, content: String(b.content) }));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'numeric strings are not accepted as room prices');
+  socket.dispatchMessage(JSON.stringify({ ...b, content: 0 }));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'zero prices are rejected');
+  const f = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('f:'));
+  socket.dispatchMessage(JSON.stringify(b));
+  env.emitted.length = 0;
+  socket.dispatchMessage(JSON.stringify({ ...f, content: f.content.slice(0, 16) }));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'an f tuple with a changed layout fails closed');
+
+  for (const chain of ['bnb', 'robinhood', 'hood', 'arc']) {
+    const foreign = axiomBridgeFor(chain);
+    foreign.socket.dispatchMessage(JSON.stringify(b));
+    assert.equal(foreign.env.emitted.filter((message) => message.type === 'tick').length, 0,
+      `Axiom room prices fail closed on ?chain=${chain}`);
+  }
+});
+
+test('Axiom ignores undecoded rooms and stale f tuples', () => {
+  const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  const f = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('f:'));
+  const { env, socket } = axiomBridgeFor();
+  socket.dispatchMessage(JSON.stringify({ room: `td:${AXIOM_ROOM_BONK_PAIR}`, content: f.content }));
+  socket.dispatchMessage(JSON.stringify({ room: `s:${AXIOM_ROOM_BONK_PAIR}`, content: { data: 'opaque' } }));
+  socket.dispatchMessage(JSON.stringify(f));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'trade-history, binary supply, and unconfirmed f rooms are left unused');
+  socket.dispatchMessage(JSON.stringify(b));
+  env.emitted.length = 0;
+  env.advance(16_000);
+  socket.dispatchMessage(JSON.stringify(f));
+  assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'an f tuple without a fresh confirming b price is ignored');
+});
 
 test('GMGN high-volume frames past the size guard still feed the live price', () => {
   // Under high volume GMGN's token_activity batches grow past the 500KB

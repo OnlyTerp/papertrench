@@ -958,6 +958,59 @@ test('pending overlay adopts supply-only facts against its live quote (ark Axiom
   }
 });
 
+test('Axiom room price legs corroborate its supply-only host facts', async () => {
+  const loader = loadContentHarness();
+  const frames = JSON.parse(fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'axiom-room-frames.json'), 'utf8'
+  )).frames;
+  const fFrame = frames.find((frame) => frame.room.startsWith('f:'));
+  try {
+    const ov = loader.runOverlay([0.0001], { url: 'https://axiom.trade/meme/' + PAIR });
+    await settleOverlay(ov);
+    const api = ov.win.__hostFactsTest;
+    const Q = ov.win.PaperQuote;
+    const originalBootstrap = Q.bootstrapTick;
+    const diagnostics = [];
+    ov.win.PTErrors = {
+      record: (message, details) => diagnostics.push({ message, details }),
+      recordDiagnostic: (message, details) => diagnostics.push({ message, details }),
+    };
+    Q.bootstrapTick = (_token, tick) => tick && tick.source === 'axiom-ws-room'
+      ? { accepted: true, reason: 'ok', priceNative: fFrame.content[4],
+        priceUsd: fFrame.content[5], mcap: 307000000, basis: 'native', supplyBasis: null }
+      : originalBootstrap(_token, tick);
+
+    api.pageTick({
+      mint: PAIR,
+      pairAddress: PAIR,
+      candidates: [
+        { value: fFrame.content[4], unit: 'native', key: 'axiomRoomFNative' },
+        { value: fFrame.content[5], unit: 'usd', key: 'axiomRoomFUsd' },
+      ],
+      mcap: null,
+      source: 'axiom-ws-room',
+    });
+    await settleOverlay(ov);
+    Q.bootstrapTick = originalBootstrap;
+    assert.equal(api.getToken().priceSource, 'axiom-ws-room');
+
+    ov.dispatchBridge('facts', {
+      mint: MINT,
+      addresses: [PAIR, MINT],
+      supply: 88888888888888,
+      source: 'axiom-ws-supply',
+    });
+    const token = api.getToken();
+    assert.equal(token.hostSupplyUi, 88888888888888);
+    assert.equal(token.hostSupplyWitness.completedFromLive, true);
+    assert.equal(diagnostics.some((entry) => entry.details
+      && entry.details.kind === 'host-facts-supply-uncorroborated'), false,
+    'the live room price/market-cap legs complete Axiom supply-only facts');
+  } finally {
+    loader.restore();
+  }
+});
+
 /* D-74: a foreign page the resolver never resolved still has to be tradeable.
  * panelUsdRate() reads token.solUsdAtResolve, and only resolver adoption ever
  * wrote it — so a BSC or Robinhood coin priced entirely by the site's own USD

@@ -1,0 +1,34 @@
+{
+  "frames": [
+    {
+      "room": "b-5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9",
+      "content": 3.0443329870952396e-8
+    },
+    {
+      "room": "f:5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9",
+      "content": [
+        null,
+        null,
+        1790198624001,
+        null,
+        3.0442e-8,
+        0.0000034739,
+        0.209939524,
+        23.95724878126,
+        6899741.7795,
+        1133.110077983,
+        3.044150630302669e-8,
+        5,
+        4,
+        0.000025,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "room": "sol_price",
+      "content": 114.105
+    }
+  ]
+}
