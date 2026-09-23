@@ -2,11 +2,11 @@
 
 <img src="docs/assets/banner.svg" alt="PaperTrench" width="100%">
 
-**Paper-trade Solana memecoins on the sites you already use.**
+**Paper-trade tokens across 20 supported chains on the sites you already use.**
 Real prices. Fake money. A record you can actually learn from.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-FF9D45.svg?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1665%20passing-34D399?style=flat-square)](#tests)
+[![Tests](https://github.com/OnlyTerp/papertrench/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/OnlyTerp/papertrench/actions/workflows/test.yml)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6AA9FF?style=flat-square)](#install)
 [![Trades stay local](https://img.shields.io/badge/trades-stay%20local-8D97A9?style=flat-square)](#privacy)
 
@@ -26,7 +26,9 @@ Real prices. Fake money. A record you can actually learn from.
 
 ## What it is
 
-PaperTrench is a Chrome extension that overlays a paper-trading terminal on **Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, and Lute**. You trade the real chart, at the real live price, with money that isn't real — then review exactly what you did and why.
+PaperTrench is a Chrome extension that overlays a paper-trading terminal on 15 supported sites: **Axiom, Padre, Photon (TinyAstro), GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Hyperliquid, Lute, Kalshi, Polymarket, and Limitless**. You trade the real chart, at the real live price, with money that isn't real — then review exactly what you did and why.
+
+Pricing supports 20 chains: **Solana, BNB Smart Chain (BNB/BSC), Ethereum, Robinhood Chain, Base, Monad, Hyperliquid, Arbitrum, Avalanche, Optimism, Polygon, Sui, TON, TRON, Unichain, Sonic, Cronos, PulseChain, Abstract, and HyperEVM.** BNB and BSC are aliases for the same chain.
 
 It exists because the usual way people learn this market is to lose money finding out that they chase, oversize, and round-trip their winners. This tells you that in an afternoon instead.
 
@@ -152,13 +154,13 @@ Broad host permissions are **not** broad content scripts. The overlay is injecte
 ## Tests
 
 ```bash
-cd extension && node --test    # 1665
-cd server   && node --test     #  157
+cd extension && node --test
+cd server   && node --test
+cd bot      && node --test
+bash scripts/preflight.sh
 ```
 
-**1,665 extension tests** covering price resolution, tick validation, portfolio arithmetic, the Padre chart bridge, fresh-launch handling, the positions bar, session replay, the attestation chain, and browser-context loading.
-
-**157 server tests** covering chain verification, re-pricing against market history, ranking, sprint and duel windows, and achievements — the leaderboard verifier in [`server/`](server/), which recomputes standings from submitted chains rather than trusting a submitted number.
+The GitHub Actions badge above tracks [`.github/workflows/test.yml`](.github/workflows/test.yml). That workflow runs the extension and server suites plus the release preflight, which also runs the bot suite. CI is the source of truth for current pass counts, so they are not duplicated here.
 
 The suite is mutation-tested: fixes were verified by reverting them and confirming the tests fail. The one test that hits a live API skips — rather than fails — when offline.
 
@@ -189,11 +191,11 @@ Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/LEADERBOARD.md
 ## Transparency
 
 Development runs against a public, ranked defect register: [`DEFECTS.md`](DEFECTS.md)
-(139 findings from a full four-track code audit, severity-weighted so "a number is
-wrong" outranks everything). The road out of alpha is [`ROADMAP.md`](ROADMAP.md);
-every release checks off entries with a regression test per fix. If you find a bug,
-[the report form](.github/ISSUE_TEMPLATE/bug_report.yml) asks for exactly what we
-need to reproduce it.
+(200 current findings, severity-weighted so "a number is wrong" outranks everything).
+[`ROADMAP.md`](ROADMAP.md) is the historical v2.0 road-out-of-alpha plan; the current
+plan is [`docs/ROADMAP.md`](docs/ROADMAP.md). Every release checks off entries with a
+regression test per fix. If you find a bug, [the report form](.github/ISSUE_TEMPLATE/bug_report.yml)
+asks for exactly what we need to reproduce it.
 
 **Thinking about going from paper to real money?** Read
 [`docs/GRADUATION.md`](docs/GRADUATION.md) first — it is the honest version of

@@ -1,5 +1,7 @@
 # PaperTrench — Road out of Alpha
 
+> Historical v2.0 road-out-of-alpha plan. The current plan is [docs/ROADMAP.md](docs/ROADMAP.md).
+
 > **Status (2026-08-05): SHIPPED as v2.0.0.** All phases executed. 116 of the
 > 139 audited defects fixed with locking regression tests; 4 carry explicit
 > engineering dispositions; the remainder is the enumerated v2.1 polish
