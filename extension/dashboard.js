@@ -970,7 +970,10 @@ function rebindSection(id, el) {
     return;
   }
   if (id === 'leaderboard') { bindLeaderboard(el); return; }
-  if (id === 'settings') bindSettings();
+  if (id === 'settings') {
+    bindSettings();
+    if (window.PTRpcNotice) window.PTRpcNotice.watch('dashboard-rpc-pool-notice');
+  }
   if (id === 'game') bindGame(el);
 }
 
@@ -4828,7 +4831,8 @@ function renderSettings(el) {
           <div class="field field-check"><label><input type="checkbox" id="set-ai-allow-local" ${settings.aiAllowLocalEndpoint ? 'checked' : ''}> Allow local/private AI endpoints</label><small>Enable only if you run a self-hosted (localhost, 127.0.0.1, or LAN) AI server. Off blocks requests to private/internal addresses.</small></div>
           <div class="field"><label for="set-model">AI model</label><input id="set-model" type="text" value="${esc(settings.aiModel || '')}" placeholder="endpoint default"><small>Optional override. Blank uses the endpoint's own default.</small></div>
           <div class="field"><label for="set-key">API key</label><input id="set-key" type="password" value="${esc(settings.aiApiKey || '')}" autocomplete="off" placeholder="optional"><small>Only if your AI server needs a key.</small></div>
-          <div class="field"><label for="set-rpc">Price connection</label><input id="set-rpc" type="text" value="${esc(settings.rpcUrl || '')}" placeholder="blank = built-in keyless public pool"><small>Blank uses the free public pool — fine for most. If new coins feel slow where you live (public endpoints throttle by region), paste a free personal endpoint: two minutes, no card — <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/RPC-SPEEDUP.md" target="_blank" rel="noopener" style="color:var(--orange2)">the 2-minute guide</a>. Your endpoint stays on this machine and is only ever used to read prices.</small></div>
+          <div class="field"><label for="set-rpc">Price connection</label><input id="set-rpc" type="text" value="${esc(settings.rpcUrl || '')}" placeholder="blank = built-in keyless public pool"><small>Blank uses the free public pool. A personal endpoint is optional, stays on this machine, and is used only to read prices.</small></div>
+          <div class="rpc-failure-notice" id="dashboard-rpc-pool-notice" role="status" aria-live="polite" hidden>The free price connection is being refused right now, so brand-new coins can take longer to price. A free personal endpoint fixes it in about two minutes. <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/RPC-SPEEDUP.md" target="_blank" rel="noopener">Read the two-minute guide</a>.</div>
           <div class="field field-check"><label><input type="checkbox" id="set-rec" ${settings.recordingEnabled ? 'checked' : ''}> Record screen while a position is open</label><small>Chrome asks for screen permission once per session.</small></div>
           <div class="field field-check"><label><input type="checkbox" id="set-frames" ${settings.framesEnabled ? 'checked' : ''}> Capture key frames on fills</label></div>
           <div class="field field-check"><label><input type="checkbox" id="set-autorev" ${settings.autoReview ? 'checked' : ''}> Auto-run AI review when a round closes</label></div>

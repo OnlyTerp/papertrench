@@ -1090,4 +1090,5 @@ async function restoreWallet(ev) {
   load();
 }
 
+if (window.PTRpcNotice) window.PTRpcNotice.watch('popup-rpc-pool-notice');
 load();

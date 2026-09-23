@@ -494,6 +494,8 @@
     .field { margin-bottom: 14px; }
     .field label { display: block; font-size: 12px; font-weight: 600; color: var(--dim); cursor: pointer; }
     .field small { display: block; margin-top: 4px; font-size: 11px; color: var(--faint); line-height: 1.45; }
+    .rpc-failure-notice { margin: 6px 0 14px; padding: 9px 11px; border: 1px solid rgba(255,157,69,0.24); border-radius: var(--r-sm); background: rgba(255,157,69,0.045); color: var(--dim); font-size: 11px; line-height: 1.5; }
+    .rpc-failure-notice a { color: var(--amber-2); font-weight: 650; }
     .field-check label { display: flex; align-items: center; color: var(--text); font-weight: 650; }
 
     /* ---------------- misc ---------------- */
@@ -1306,6 +1308,7 @@
   <script src="spark.js"></script>
   <script src="wrapped.js"></script>
   <script src="sites.js"></script>
+  <script src="rpc-notice.js"></script>
   <!-- The modal must exist before dashboard.js runs (D-53): bindShareCard
        silently disables the composer if #card-modal is missing, and the old
        order was safe only by accident of init() being async. -->

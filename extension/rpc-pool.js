@@ -96,6 +96,19 @@
   const health = new Map(); // id -> { failures, benchedUntil, latencyMs, samples, methodBlocks, refusalCounts, lastSuccessAt }
   let userEndpoint = null;
   let keylessStatusPublished = false;
+  let noticeBroadcastTimer = null;
+
+  function notifyRpcNoticePages() {
+    if (noticeBroadcastTimer) return;
+    noticeBroadcastTimer = setTimeout(() => {
+      noticeBroadcastTimer = null;
+      try {
+        if (typeof chrome === 'undefined' || !chrome.runtime || typeof chrome.runtime.sendMessage !== 'function') return;
+        const pending = chrome.runtime.sendMessage({ type: 'pt_rpc_pool_status_changed' });
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch (_) { /* UI notification cannot affect the price path */ }
+    }, 0);
+  }
 
   /* Health persists across service-worker restarts. MV3 kills the worker
    * constantly, and an in-memory map made every wake re-learn which
@@ -423,35 +436,16 @@
         scope: 'background', reason, method: method || null,
         endpoint: endpoint || null, pool: statusSnapshot(method),
       });
-      if (entry) keylessStatusPublished = true;
+      if (entry) {
+        keylessStatusPublished = true;
+        notifyRpcNoticePages();
+      }
     } catch (_) { /* status recording never enters the RPC path */ }
   }
 
-  /**
-   * The pool's honest self-assessment: the smoothed latency of the BEST
-   * public endpoint, and how much evidence sits behind it. This is what
-   * lets the product notice "the keyless pool is slow from HERE" and say
-   * the fix out loud instead of every user in a throttled region
-   * rediscovering it alone (field report: cojica456, Balkans — all three
-   * public endpoints slow; a free personal endpoint made launches
-   * instant). Null until anything is measured.
-   */
-  /**
-   * How much of the pool's RECENT traffic is failing.
-   *
-   * poolLatency() below can only see calls that SUCCEEDED — latencyMs and
-   * samples are written in reportSuccess() and nowhere else — so a throttled
-   * or policy-blocked endpoint contributes no sample at all. That makes the
-   * pool look FAST precisely when it is failing: the one endpoint still
-   * answering reports its own healthy latency while the others 429/403 into
-   * the bench, and any measure built on latency alone reads "fine".
-   *
-   * The attempt log is the honest record, because a failure is written there
-   * with its status. A user whose console is full of
-   * "http 429 getMultipleAccounts @ tatum" / "http 403 … @ publicnode"
-   * (ticket-0010, fomo.family, 2026-08-29) is in exactly that state, and
-   * nothing keyed off latency will ever notice.
-   */
+  /** Diagnostic summary of the best public endpoint's measured latency. */
+  /** Diagnostic attempt summary; the Settings/Setup notice reads the rolling
+   * rpc-pool-status entry instead, which includes refusals and success ages. */
   function poolStress() {
     const attempts = attemptLog.length;
     if (!attempts) return { attempts: 0, failures: 0, failRate: 0 };

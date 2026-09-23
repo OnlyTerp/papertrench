@@ -326,24 +326,14 @@ test("F-63 refined: a second 403 on the same method confirms the block; 403s nev
     'a fully method-blocked pool must fail fast without network traffic');
 });
 
-/* ---------------- a dead pool does not look slow, it looks like nothing ------
+/* ---------------- refusal stress telemetry -------------------------------
  *
- * ticket-0010 (fomo.family, 2026-08-29): a console full of
- *   "PaperTrench: on-chain watch failed: http 429 getMultipleAccounts @ tatum"
- *   "PaperTrench: on-chain watch failed: http 403 getMultipleAccounts @ publicnode"
- * a live price that "takes a very long time", and the user asking whether
- * there is a fix. There is — a free personal endpoint, Settings → Price
- * connection — and the product carries a notice built to volunteer exactly
- * that, unprompted, so nobody has to discover it (cojica456's report).
- *
- * It cannot fire for this user. latencyMs and samples are written in
- * reportSuccess() and nowhere else, so when every endpoint refuses, there is
- * no successful call to measure and poolLatency() returns NULL outright — and
- * the notice's first guard is `if (!measured …) return`. The worst possible
- * pool state is the one state that guarantees silence.
+ * Latency only measures successful reads, so a wholly refused pool has no
+ * latency sample. The attempt summary remains useful diagnostic evidence; the
+ * user-facing notice reads the rolling rpc-pool-status entry instead.
  * ------------------------------------------------------------------------- */
 
-test('a wholly refused pool reports null latency — the notice guard bails on its worst case', async () => {
+test('a wholly refused pool retains failure evidence without success latency', async () => {
   const P = loadPool(async (url) => (/publicnode/.test(url)
     ? { ok: false, status: 403, json: async () => ({}) }
     : { ok: false, status: 429, json: async () => ({}) }));
@@ -353,7 +343,7 @@ test('a wholly refused pool reports null latency — the notice guard bails on i
   }
 
   assert.equal(P.poolLatency(), null,
-    'no successful call means nothing to measure — this is why a latency-only notice is silent');
+    'no successful call means no latency sample; failure evidence remains in poolStress');
 
   const stress = P.poolStress();
   // The count floor is deliberately 0, not the old walk shape: what matters
@@ -365,9 +355,8 @@ test('a wholly refused pool reports null latency — the notice guard bails on i
 });
 
 test('a pool that fails over and serves is NOT reported as failing', async () => {
-  // Two endpoints refuse, one answers. F-63's demotion routes around them, the
-  // user is served, and nothing should nag: a self-healed pool is a pool that
-  // works, and a notice fired here would be noise the user cannot act on.
+  // Two endpoints refuse, one answers. F-63's demotion routes around them;
+  // poolStress should reflect that the serving endpoint kept the failure rate low.
   const P = loadPool(async (url) => {
     if (/publicnode/.test(url)) return { ok: false, status: 403, json: async () => ({}) };
     if (/tatum/.test(url)) return { ok: false, status: 429, json: async () => ({}) };
@@ -378,7 +367,7 @@ test('a pool that fails over and serves is NOT reported as failing', async () =>
   }
   const stress = P.poolStress();
   assert.ok(stress.failRate < 0.5,
-    `a serving pool must stay under the notice threshold, got ${stress.failRate}`);
+    `successful failover must keep the failure ratio below one half, got ${stress.failRate}`);
 });
 
 test('poolStress reports a clean pool as unstressed', async () => {
@@ -389,35 +378,11 @@ test('poolStress reports a clean pool as unstressed', async () => {
   assert.equal(stress.failRate, 0, 'and must never be reported as failing');
 });
 
-test('the notice fires on a failing pool and names which fault it saw', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
-  assert.match(src, /PTRpcPool\.poolStress/,
-    'the notice must consult failure evidence, not latency alone');
-  assert.match(src, /if \(!slow && !failing\) return;/,
-    'either fault alone must be enough to tell the user the fix exists');
-  assert.match(src, /reason: failing \? 'failing' : 'slow'/,
-    'the notice must record which fault it saw');
-
-  // "slow from your region" is the wrong sentence to read when the endpoints
-  // are refusing you outright; a fix introduced by a wrong diagnosis reads as
-  // irrelevant, and this user already knows their price is not merely slow.
+test('keyless RPC guidance is not a fill-path toast or once-per-install worker notice', () => {
+  const background = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
   const content = fs.readFileSync(path.join(ROOT, 'content.js'), 'utf8');
-  assert.match(content, /throttled or refused where you are/,
-    'the toast must describe a refused pool honestly rather than calling it slow');
-});
-
-test('the throttle notice is never written from a fill-path RPC hop (ark 2026-09-12)', () => {
-  // maybeNoteSlowPool still exists for the dashboard. It used to run after
-  // every pt_onchain_watch / pt_onchain_prewatch — i.e. every token page
-  // and every brand-new-coin click — so a healthy machine whose public
-  // pool was 403/429 toasted "connection is being throttled" on the buy.
-  const src = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
-  const watch = src.slice(src.indexOf("case 'pt_onchain_watch'"), src.indexOf("case 'pt_onchain_unwatch'"));
-  const prewatch = src.slice(src.indexOf("case 'pt_onchain_prewatch'"), src.indexOf("case 'pt_onchain_identify'"));
-  assert.doesNotMatch(watch, /maybeNoteSlowPool/,
-    'watching a pool must not toast about the public connection');
-  assert.doesNotMatch(prewatch, /maybeNoteSlowPool/,
-    'a brand-new-coin prewatch must not toast about the public connection');
-  assert.match(src, /async function maybeNoteSlowPool/,
-    'the notice writer itself stays — dashboard / settings still say the fix');
+  assert.doesNotMatch(background, /maybeNoteSlowPool|pt_rpc_slow_told|pt_rpc_notice/,
+    'the old once-per-install notice writer is retired');
+  assert.doesNotMatch(content, /pt_rpc_notice|Heads-up: the public price connection/,
+    'pool guidance must not toast from a trading page or fill-adjacent path');
 });

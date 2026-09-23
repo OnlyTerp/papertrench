@@ -154,6 +154,8 @@
       background: rgba(255,255,255,0.028); border: 1px solid var(--line); border-radius: 10px;
       font-size: 11px; line-height: 1.5; color: var(--faint);
     }
+    .rpc-failure-notice { border-color: rgba(255,157,69,0.24); background: rgba(255,157,69,0.045); color: var(--dim); }
+    .rpc-failure-notice a { color: var(--amber-2); font-weight: 650; }
 
     /* Quick settings — the handful of knobs people re-tune mid-session
        (lev: "it will be nice to have these on the tab for quick fixes"). */
@@ -417,6 +419,7 @@
       </div>
       <div class="btns"><button id="qs-apply" class="btn-backup">Apply quick settings</button></div>
     </div>
+    <div class="hint rpc-failure-notice" id="popup-rpc-pool-notice" role="status" aria-live="polite" hidden>The free price connection is being refused right now, so brand-new coins can take longer to price. A free personal endpoint fixes it in about two minutes. <a href="https://github.com/OnlyTerp/papertrench/blob/main/docs/RPC-SPEEDUP.md" target="_blank" rel="noopener">Read the two-minute guide</a>.</div>
     <div class="btns" style="padding-top:10px">
       <button id="backup" class="btn-backup">⬇ Backup wallet</button>
       <button id="restore" class="btn-backup">⬆ Restore backup</button>
@@ -429,6 +432,7 @@
   <div class="hint">Open a token page on Axiom, Padre, Photon, GMGN, BullX, Dexscreener, Birdeye, or Jupiter to start paper trading.</div>
   <div id="status"></div>
   <script src="attest.js"></script>
+  <script src="rpc-notice.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

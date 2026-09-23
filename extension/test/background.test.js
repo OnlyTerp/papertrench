@@ -195,7 +195,6 @@ function serviceWorker(opts = {}) {
     get listener() { return messageListener; },
     get external() { return externalListener; },
     get isAllowedEndpoint() { return context.isAllowedEndpoint; },
-    get maybeNoteSlowPool() { return context.maybeNoteSlowPool; },
     get rpcPool() { return context.PTRpcPool; },
     get ctx() { return context; },
     armed: {
@@ -762,49 +761,6 @@ test('A2: keyless prewatch is deferred while every eligible batch endpoint is un
     feed.prewatch = originalPrewatch;
     worker.rpcPool._reset();
   }
-});
-
-/* ---------------- slow-pool notice: solve it for everyone ------------------
- *
- * cojica456 (Balkans): every keyless public endpoint slow from their region;
- * a free personal endpoint pasted into Settings made launches instant — a
- * fix they had to discover alone. The worker now reads the pool's own
- * measurements and says the fix out loud, exactly once, only when the user
- * has no personal endpoint. No telemetry leaves the machine.
- */
-
-test('a persistently slow public pool writes the notice exactly once', async () => {
-  const worker = serviceWorker();
-  worker.rpcPool._reset();
-  for (let i = 0; i < 12; i++) worker.rpcPool.reportSuccess('publicnode', 1200);
-  await worker.maybeNoteSlowPool({});
-  assert.ok(worker.values.pt_rpc_notice, 'the notice must be written');
-  assert.ok(worker.values.pt_rpc_notice.bestMs > 750, 'it carries the measured number');
-  assert.ok(worker.values.pt_rpc_slow_told, 'the told flag makes it once-per-install');
-  const first = worker.values.pt_rpc_notice;
-  await worker.maybeNoteSlowPool({});
-  assert.equal(worker.values.pt_rpc_notice, first, 'a second check never nags');
-});
-
-test('the notice never fires for users who already set their own endpoint', async () => {
-  const worker = serviceWorker();
-  worker.rpcPool._reset();
-  for (let i = 0; i < 12; i++) worker.rpcPool.reportSuccess('publicnode', 1500);
-  await worker.maybeNoteSlowPool({ rpcUrl: 'https://example-rpc.test' });
-  assert.equal(worker.values.pt_rpc_notice, undefined,
-    'they already solved it — telling them again is noise');
-});
-
-test('thin evidence never triggers the notice — one slow call is not a region', async () => {
-  const worker = serviceWorker();
-  worker.rpcPool._reset();
-  for (let i = 0; i < 3; i++) worker.rpcPool.reportSuccess('publicnode', 2000);
-  await worker.maybeNoteSlowPool({});
-  assert.equal(worker.values.pt_rpc_notice, undefined, 'needs real sample depth');
-  worker.rpcPool._reset();
-  for (let i = 0; i < 20; i++) worker.rpcPool.reportSuccess('publicnode', 200);
-  await worker.maybeNoteSlowPool({});
-  assert.equal(worker.values.pt_rpc_notice, undefined, 'a fast pool has nothing to confess');
 });
 
 /* ---------------- pt_state_commit: the wallet single-writer ----------------
