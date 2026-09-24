@@ -56,7 +56,14 @@ function loadGmgnHarness() {
         ' getToken: () => token,',
         ' pageTick: (payload) => handlePageTick(payload),',
         ' requote: () => requote(),',
-        ' chartSupply: () => (chartSupplyState && chartSupplyState.supply) || null,',
+        ' chartSupply: () => {',
+        '   const b = lastMcapSource ? chartSupplyState.get(lastMcapSource) : null;',
+        '   return (b && b.supply) || null;',
+        ' },',
+        ' chartSupplyFor: (src) => {',
+        '   const b = chartSupplyState.get(src);',
+        '   return (b && b.supply) || null;',
+        ' },',
         ' supplyUi: () => chartSupplyUi(),',
         ' };',
         '\n})();\n',
@@ -72,104 +79,131 @@ async function settle(overlay) {
   return overlay;
 }
 
+async function replayPons(loader, ticks) {
+  const ov = loader.runOverlay([0.0001], {
+    url: URL_,
+    // The resolver anchor exactly as captured: cap on ~684M supply while
+    // GMGN's chart caps are on ~1B.
+    refresh: () => ({
+      mint: PONS, symbol: 'PONS', name: 'Pons', chain: 'robinhood',
+      priceNative: 0.005349462505228893, priceUsd: 0.62281152,
+      mcap: 426071420.5389649, priceSource: 'resolver',
+    }),
+  });
+  await settle(ov);
+  const api = ov.win.__ponsTest;
+  assert.equal(api.getToken().mint.toLowerCase(), PONS.toLowerCase());
+  await api.requote();
+  await settle(ov);
+  const tok = api.getToken();
+  assert.ok(Number(tok.anchor && tok.anchor.priceNative) > 0, 'resolver anchor installed');
+  assert.equal(tok.anchor.mcap, 426071420.5389649);
+
+  let calibratedAt = -1;
+  const accepted = []; // { i, priceUsd, mcap }
+  let prevAccepted = null;
+  for (let i = 0; i < ticks.length; i++) {
+    const rec = ticks[i];
+    if (rec.dt > 0) await ov.advance(rec.dt);
+    const before = Number(api.getToken().priceUsd) || null;
+    api.pageTick(JSON.parse(JSON.stringify(rec.tick)));
+    const after = Number(api.getToken().priceUsd) || null;
+    if (after !== null && after !== before) {
+      prevAccepted = after;
+      accepted.push({ i, priceUsd: after, mcap: Number(api.getToken().mcap) || null });
+    }
+    if (calibratedAt < 0 && api.chartSupply() > 0) calibratedAt = i;
+  }
+
+  function wsMedianAt(idx) {
+    const vals = [];
+    for (let j = 0; j <= idx && vals.length < 5; j++) {
+      const t = ticks[idx - j].tick;
+      if (t.source === 'gmgn-ws-trade') {
+        const c = (t.candidates || [])[0];
+        if (c && c.unit === 'usd' && Number(c.value) > 0) vals.push(Number(c.value));
+      }
+    }
+    if (!vals.length) return null;
+    vals.sort((a, b) => a - b);
+    return vals[vals.length >> 1];
+  }
+  return { api, accepted, calibratedAt, wsMedianAt };
+}
+
+function assertStable(api, accepted, calibratedAt, wsMedianAt, supplySrc, allowedSupplies) {
+  assert.ok(calibratedAt >= 0, 'chart supply was learned from the replayed feed');
+  const learned = (supplySrc && api.chartSupplyFor(supplySrc)) || api.chartSupply();
+  assert.ok(Math.abs(learned - 1e9) / 1e9 < 0.05,
+    `learned supply ${learned} should be GMGN's ~1B convention`);
+  const conventions = allowedSupplies || [learned];
+
+  // After calibration every accepted price must sit within 10% of the
+  // concurrent trade-feed level — judged against the rolling median of the
+  // last few prints (a single live trade print legitimately deviates ~3%;
+  // the bug's signature was a 46% scale jump). 10% is the field report's
+  // own outlier threshold.
+  const after = accepted.filter((a) => a.i >= calibratedAt && wsMedianAt(a.i) !== null);
+  assert.ok(after.length > 50, 'enough post-calibration accepts to judge');
+  for (const a of after) {
+    const med = wsMedianAt(a.i);
+    const rel = Math.abs(a.priceUsd - med) / med;
+    assert.ok(rel <= 0.10, `tick ${a.i}: accepted ${a.priceUsd} vs ws median ${med} (${(rel * 100).toFixed(1)}%)`);
+  }
+  let postFlips = 0;
+  for (let i = 1; i < after.length; i++) {
+    const r = Math.max(after[i].priceUsd, after[i - 1].priceUsd)
+      / Math.min(after[i].priceUsd, after[i - 1].priceUsd);
+    if (r > 1.10) postFlips++;
+  }
+  assert.equal(postFlips, 0, 'no >10% flips after calibration');
+
+  // The panel cap must stay on a real feed's convention — never a blended
+  // one that no source actually plots.
+  for (const a of after) {
+    if (!(a.mcap > 0)) continue;
+    const impliedSupply = a.mcap / a.priceUsd;
+    assert.ok(conventions.some((s) => Math.abs(impliedSupply - s) / s < 0.10),
+      `tick ${a.i}: implied supply ${impliedSupply} matched no feed convention`);
+  }
+}
+
 test('C-32: replayed PONS ticks cannot flip the panel between supply conventions', async () => {
   const loader = loadGmgnHarness();
   try {
-    const ov = loader.runOverlay([0.0001], {
-      url: URL_,
-      // The resolver anchor exactly as captured: cap on ~684M supply while
-      // GMGN's chart caps are on ~1B.
-      refresh: () => ({
-        mint: PONS, symbol: 'PONS', name: 'Pons', chain: 'robinhood',
-        priceNative: 0.005349462505228893, priceUsd: 0.62281152,
-        mcap: 426071420.5389649, priceSource: 'resolver',
-      }),
-    });
-    await settle(ov);
-    const api = ov.win.__ponsTest;
-    assert.equal(api.getToken().mint.toLowerCase(), PONS.toLowerCase());
-    await api.requote();
-    await settle(ov);
-    const tok = api.getToken();
-    assert.ok(Number(tok.anchor && tok.anchor.priceNative) > 0, 'resolver anchor installed');
-    assert.equal(tok.anchor.mcap, 426071420.5389649);
+    const { api, accepted, calibratedAt, wsMedianAt } = await replayPons(loader, FIXTURE);
+    assertStable(api, accepted, calibratedAt, wsMedianAt);
+  } finally {
+    loader.restore();
+  }
+});
 
-    let calibratedAt = -1;
-    let lastWsUsd = null;
-    const accepted = []; // { i, priceUsd, mcap }
-    let prevAccepted = null;
-    let flipsOver10 = 0;
-    for (let i = 0; i < FIXTURE.length; i++) {
-      const rec = FIXTURE[i];
-      if (rec.dt > 0) await ov.advance(rec.dt);
-      const before = Number(api.getToken().priceUsd) || null;
-      api.pageTick(JSON.parse(JSON.stringify(rec.tick)));
-      const after = Number(api.getToken().priceUsd) || null;
-      if (rec.tick.source === 'gmgn-ws-trade') {
-        const c = (rec.tick.candidates || [])[0];
-        if (c && c.unit === 'usd' && Number(c.value) > 0) lastWsUsd = Number(c.value);
+test('C-32: a second cap feed on the resolver convention cannot poison the chart bucket', async () => {
+  const loader = loadGmgnHarness();
+  try {
+    // Interleave a synthetic xhr cap tick on the resolver's ~684M convention
+    // after every cap-carrying fixture tick. Shared-state calibration would
+    // alternate 1B and 684M samples in one median and reopen the flip-flop;
+    // per-source buckets keep each feed on its own learned convention.
+    const mixed = [];
+    for (const rec of FIXTURE) {
+      mixed.push(rec);
+      if (Number(rec.tick.mcap) > 0) {
+        mixed.push({
+          dt: 1,
+          tick: { source: 'xhr', mcap: 426_500_000, mint: PONS, symbol: 'PONS' },
+        });
       }
-      if (after !== null && after !== before) {
-        if (prevAccepted !== null) {
-          const r = Math.max(after, prevAccepted) / Math.min(after, prevAccepted);
-          if (r > 1.10) flipsOver10++;
-        }
-        prevAccepted = after;
-        accepted.push({ i, priceUsd: after, mcap: Number(api.getToken().mcap) || null });
-      }
-      if (calibratedAt < 0 && api.chartSupply() > 0) calibratedAt = i;
     }
-
-    assert.ok(calibratedAt >= 0, 'chart supply was learned from the replayed feed');
-    const learned = api.chartSupply();
-    assert.ok(Math.abs(learned - 1e9) / 1e9 < 0.05,
-      `learned supply ${learned} should be GMGN's ~1B convention`);
-
-    // After calibration every accepted price must sit within 10% of the
-    // concurrent trade-feed level — judged against the rolling median of the
-    // last few prints (a single live trade print legitimately deviates ~3%;
-    // the bug's signature was a 46% scale jump). 10% is the field report's
-    // own outlier threshold.
-    const after = accepted.filter((a) => a.i >= calibratedAt && wsMedianAt(a.i) !== null);
-    assert.ok(after.length > 50, 'enough post-calibration accepts to judge');
-    for (const a of after) {
-      const med = wsMedianAt(a.i);
-      const rel = Math.abs(a.priceUsd - med) / med;
-      assert.ok(rel <= 0.10, `tick ${a.i}: accepted ${a.priceUsd} vs ws median ${med} (${(rel * 100).toFixed(1)}%)`);
-    }
-    const postFlips = flipsBetween(accepted.filter((a) => a.i >= calibratedAt));
-    assert.equal(postFlips, 0, 'no >10% flips after calibration');
-
-    // The panel cap must stay on ONE convention — the chart's.
-    for (const a of after) {
-      if (!(a.mcap > 0)) continue;
-      const impliedSupply = a.mcap / a.priceUsd;
-      assert.ok(Math.abs(impliedSupply - learned) / learned < 0.10,
-        `tick ${a.i}: implied supply ${impliedSupply} drifted off the chart convention`);
-    }
-
-    function wsMedianAt(idx) {
-      const vals = [];
-      for (let j = 0; j <= idx && vals.length < 5; j++) {
-        const t = FIXTURE[idx - j].tick;
-        if (t.source === 'gmgn-ws-trade') {
-          const c = (t.candidates || [])[0];
-          if (c && c.unit === 'usd' && Number(c.value) > 0) vals.push(Number(c.value));
-        }
-      }
-      if (!vals.length) return null;
-      vals.sort((a, b) => a - b);
-      return vals[vals.length >> 1];
-    }
-    function flipsBetween(list) {
-      let flips = 0;
-      for (let i = 1; i < list.length; i++) {
-        const r = Math.max(list[i].priceUsd, list[i - 1].priceUsd)
-          / Math.min(list[i].priceUsd, list[i - 1].priceUsd);
-        if (r > 1.10) flips++;
-      }
-      return flips;
-    }
+    const { api, accepted, calibratedAt, wsMedianAt } = await replayPons(loader, mixed);
+    assertStable(api, accepted, calibratedAt, wsMedianAt, 'chart-export',
+      [api.chartSupplyFor('chart-export'), api.chartSupplyFor('xhr')].filter(Boolean));
+    // The xhr bucket learns the resolver's own ~684M convention; the chart's
+    // bucket must still hold ~1B. Either convention may legitimately own the
+    // last cap verdict — what matters is prices never leave the trade scale.
+    const xhrSupply = api.chartSupplyFor('xhr');
+    assert.ok(Math.abs(xhrSupply - 6.84e8) / 6.84e8 < 0.10,
+      `xhr bucket learned ${xhrSupply}, expected ~684M`);
   } finally {
     loader.restore();
   }

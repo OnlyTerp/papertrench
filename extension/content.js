@@ -216,8 +216,12 @@
   // the resolver anchor (GMGN mcap candles plot total supply; the anchor's
   // cap may be circulating). calibrateChartSupply learns the chart's own
   // supply from a direct price + a cap seen together; until it has one, the
-  // legacy anchor-ratio derivation stands.
-  let chartSupplyState = null;
+  // legacy anchor-ratio derivation stands. Keyed per tick source: two feeds
+  // carrying caps on DIFFERENT conventions must never share one median.
+  const chartSupplyState = new Map(); // source -> { samples, supply }
+  // The source whose mcap-basis verdict last priced the panel — its bucket is
+  // the convention the page's cap chart plots (chartSupplyUi, cap restatement).
+  let lastMcapSource = null;
   // Freshest ACCEPTED direct-price tick { priceUsd, at } — the evidence leg
   // calibrateChartSupply converts caps against.
   let lastDirectTick = null;
@@ -910,12 +914,17 @@
     const anchor = tokenAnchor();
     // C-32: every cap-carrying tick is calibration evidence — paired with the
     // freshest accepted direct price it reveals the chart's supply convention.
+    // Buckets are per-source so a feed on the resolver's cap basis cannot mix
+    // samples with the chart's basis and reopen the flip-flop.
+    const srcKey = payload.source || 'page';
     if (Number(payload.mcap) > 0) {
-      chartSupplyState = Q.calibrateChartSupply(
-        chartSupplyState, Number(payload.mcap), lastDirectTick, anchor, Date.now());
+      chartSupplyState.set(srcKey, Q.calibrateChartSupply(
+        chartSupplyState.get(srcKey) || null,
+        Number(payload.mcap), lastDirectTick, anchor, Date.now()));
     }
-    const chartSupply = chartSupplyState && Number(chartSupplyState.supply) > 0
-      ? Number(chartSupplyState.supply) : null;
+    const srcSupply = chartSupplyState.get(srcKey);
+    const chartSupply = srcSupply && Number(srcSupply.supply) > 0
+      ? Number(srcSupply.supply) : null;
     if (Number(anchor && anchor.priceNative) > 0) {
       verdict = Q.validateTick(anchor, payload, { chartSupply });
     } else {
@@ -975,15 +984,22 @@
     }
 
     // C-32: a direct tick is calibration evidence for the cap feed's supply,
-    // and once calibrated its own cap is restated on the chart's convention —
-    // the headline MC stops flip-flopping between supply bases.
+    // and once the chart's convention is learned its own cap is restated on it —
+    // the headline MC stops flip-flopping between supply bases. The convention
+    // comes from the last cap-basis source, not the direct tick's own bucket.
+    if (verdict.basis === 'mcap' || verdict.basis === 'native-mcap') {
+      lastMcapSource = srcKey;
+    }
     if (verdict.basis === 'usd' || verdict.basis === 'native') {
       lastDirectTick = {
         priceUsd: Number(verdict.priceUsd) > 0 ? Number(verdict.priceUsd) : null,
         at: Date.now(),
       };
-      if (chartSupply && Number(verdict.priceUsd) > 0) {
-        verdict.mcap = Number(verdict.priceUsd) * chartSupply;
+      const mcapBucket = lastMcapSource ? chartSupplyState.get(lastMcapSource) : null;
+      const mcapSupply = mcapBucket && Number(mcapBucket.supply) > 0
+        ? Number(mcapBucket.supply) : null;
+      if (mcapSupply && Number(verdict.priceUsd) > 0) {
+        verdict.mcap = Number(verdict.priceUsd) * mcapSupply;
       }
     }
 
@@ -1058,7 +1074,8 @@
     if (tokenKey !== lastTokenKey) {
       lastTokenKey = tokenKey;
       acceptedTickCount = 0;
-      chartSupplyState = null;
+      chartSupplyState.clear();
+      lastMcapSource = null;
       lastDirectTick = null;
     }
     acceptedTickCount += 1;
@@ -1793,7 +1810,8 @@
     if (!data || data.mint !== prevMint) {
       lastMcapTickAt = 0;
       oobRejects = 0;
-      chartSupplyState = null;
+      chartSupplyState.clear();
+      lastMcapSource = null;
       lastDirectTick = null;
       hostSupplyRefusals.clear();
       hostSupplyRefusalCounts.clear();
@@ -10368,7 +10386,8 @@
    * fall back to the token record's implied supply (the legacy behavior).
    */
   function chartSupplyUi() {
-    const learned = chartSupplyState && Number(chartSupplyState.supply);
+    const bucket = lastMcapSource ? chartSupplyState.get(lastMcapSource) : null;
+    const learned = bucket && Number(bucket.supply);
     if (learned > 0) return learned;
     return Number(token && token.mcap) > 0 && Number(token.priceUsd) > 0
       ? Number(token.mcap) / Number(token.priceUsd)
