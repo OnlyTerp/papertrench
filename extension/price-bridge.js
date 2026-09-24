@@ -717,24 +717,25 @@
     const bRoom = /^b-([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
     const fRoom = /^f:([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
     const supplyRoom = /^a:([1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(room);
-    const ignoredRoom = /^(?:td:|s:|stats-v2:|t:|id:)/.test(room);
-    if (!bRoom && !fRoom && !supplyRoom && !ignoredRoom) return 'ignore';
+    if (!bRoom && !fRoom && !supplyRoom) return null;
 
+    let pageIsToken = false;
     let pageIsSolana = false;
     try {
       const page = new URL(location.href);
-      pageIsSolana = /^\/(?:meme|t)\/[A-Za-z0-9]+(?:$|[/?#])/.test(page.pathname)
+      pageIsToken = /^\/(?:meme|t)\/[A-Za-z0-9]+(?:$|[/?#])/.test(page.pathname);
+      pageIsSolana = pageIsToken
         && (!page.searchParams.get('chain') || page.searchParams.get('chain') === 'sol');
     } catch (_) {}
-    if (!pageIsSolana) return 'ignore';
+    if (!pageIsToken) return null;
+    if (!pageIsSolana) return 'handled';
 
     if (supplyRoom) {
-      return axiomRoomPairMatches(supplyRoom[1]) ? 'facts-only' : 'ignore';
+      return axiomRoomPairMatches(supplyRoom[1]) ? 'facts-only' : 'handled';
     }
-    if (ignoredRoom) return 'ignore';
 
     const pair = bRoom ? bRoom[1] : fRoom[1];
-    if (!axiomRoomPairMatches(pair)) return 'ignore';
+    if (!axiomRoomPairMatches(pair)) return 'handled';
     const at = Number.isFinite(receivedAt) ? receivedAt : Date.now();
     const base = {
       candidates: [],
@@ -747,7 +748,7 @@
     };
 
     if (bRoom) {
-      if (typeof parsed.content !== 'number' || !Number.isFinite(parsed.content) || parsed.content <= 0) return 'ignore';
+      if (typeof parsed.content !== 'number' || !Number.isFinite(parsed.content) || parsed.content <= 0) return 'handled';
       axiomLastBPrice = { pair, price: parsed.content, at };
       emit('tick', withFrameEvidence({
         ...base,
@@ -760,10 +761,10 @@
     if (!Array.isArray(content) || content.length !== 17
       || typeof content[2] !== 'number' || !Number.isFinite(content[2])
       || typeof content[4] !== 'number' || !Number.isFinite(content[4]) || content[4] <= 0
-      || typeof content[5] !== 'number' || !Number.isFinite(content[5]) || content[5] <= 0) return 'ignore';
+      || typeof content[5] !== 'number' || !Number.isFinite(content[5]) || content[5] <= 0) return 'handled';
     if (!axiomLastBPrice || axiomLastBPrice.pair !== pair
       || at < axiomLastBPrice.at || at - axiomLastBPrice.at > AXIOM_FRESH_B_ROOM_MS
-      || Math.abs(content[4] / axiomLastBPrice.price - 1) > 0.005) return 'ignore';
+      || Math.abs(content[4] / axiomLastBPrice.price - 1) > 0.005) return 'handled';
 
     // Captured Axiom f-room tuples: index 4 is native and 5 is USD. Across
     // 35 captured frames, index 4 matched the b-room price within 0.5%, and
@@ -827,7 +828,7 @@
     return true;
   }
 
-  function forwardJson(raw, source, url, receivedAt, seq, padreBinary = false) {
+  function forwardJson(raw, source, url, receivedAt, seq, padreBinary = false, transportUrl) {
     // No consumer, no parse — the cheapest frame is the one never read.
     if (!feedActive()) return;
     let parsed = raw;
@@ -864,10 +865,9 @@
     if (!parsed || typeof parsed !== 'object') return;
 
     let axiomRoomAction = null;
-    if (hostIsAxiom && source === 'ws') {
-      if (!isAxiomMarketSocket(url)) return;
+    if (hostIsAxiom && source === 'ws' && isAxiomMarketSocket(transportUrl)) {
       axiomRoomAction = axiomRoomPolicy(parsed, receivedAt, seq);
-      if (axiomRoomAction === 'handled' || axiomRoomAction === 'ignore') return;
+      if (axiomRoomAction === 'handled') return;
     }
 
     if (forwardTokenActivity(parsed)) return;
@@ -1076,7 +1076,7 @@
         const receivedAt = Date.now();
         const seq = ++webSocketFrameSeq;
         if (typeof event.data === 'string') {
-          forwardJson(event.data, 'ws', socketUrl, receivedAt, seq);
+          forwardJson(event.data, 'ws', undefined, receivedAt, seq, false, socketUrl);
         } else if (hostIsPadre && feedActive() && event.data instanceof ArrayBuffer) {
           const decoded = decodeMsgpack(new Uint8Array(event.data));
           if (decoded !== null) forwardJson(decoded, 'ws', undefined, receivedAt, seq, true);

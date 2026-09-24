@@ -1,0 +1,19 @@
+{
+  "capture": "2026-09-23_21-21-24",
+  "transportUrl": "wss://friends.axiom.trade/ws",
+  "frames": [
+    {
+      "type": "friendPageUpdate",
+      "page": "meme",
+      "chain": "sol",
+      "timestamp": 1790198614229,
+      "subpage": {
+        "pairAddress": "5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9",
+        "price": 0,
+        "supply": 87994521722926.86,
+        "tokenAddress": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "protocol": "Orca"
+      }
+    }
+  ]
+}

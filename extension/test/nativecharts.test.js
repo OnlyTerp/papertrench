@@ -23,6 +23,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -339,9 +340,15 @@ function runBridge(opts = {}) {
   };
 
   const ctx = vm.createContext(sandbox);
-  vm.runInContext(fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8'), ctx, {
-    filename: 'price-bridge.js',
-  });
+  let bridgeSource = opts.bridgeSource || fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8');
+  if (opts.exposeReplay) {
+    const closeAt = bridgeSource.lastIndexOf('\n})();');
+    if (closeAt < 0) throw new Error('bridge IIFE close not found');
+    bridgeSource = bridgeSource.slice(0, closeAt)
+      + '\n  window.__ptReplayForwardJson = forwardJson;\n'
+      + bridgeSource.slice(closeAt);
+  }
+  vm.runInContext(bridgeSource, ctx, { filename: 'price-bridge.js' });
 
   return {
     emitted,
@@ -351,6 +358,10 @@ function runBridge(opts = {}) {
     win,
     webSockets,
     openWebSocket: (url) => new win.WebSocket(url || 'wss://cluster-global3.axiom.trade/'),
+    replayJson: (...args) => {
+      if (typeof win.__ptReplayForwardJson !== 'function') throw new Error('replay hook not enabled');
+      return win.__ptReplayForwardJson(...args);
+    },
     timers,
     mountGmgn: () => { gmgnMounted = true; },
     remountGmgn: () => { gmgnChart = makeGmgnChart(); },
@@ -953,23 +964,52 @@ function injectActivityFrame(env, frame, url) {
 const AXIOM_ROOM_FIXTURE = JSON.parse(fs.readFileSync(
   path.join(__dirname, 'fixtures', 'axiom-room-frames.json'), 'utf8'
 ));
+const AXIOM_NONROOM_FIXTURE = JSON.parse(fs.readFileSync(
+  path.join(__dirname, 'fixtures', 'axiom-nonroom-frames.json'), 'utf8'
+));
 const AXIOM_ROOM_BONK_PAIR = '5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9';
 const AXIOM_ROOM_BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 
-function axiomBridgeFor(chain = 'sol') {
+function axiomBridgeForIdentity(identity, chain = 'sol') {
   const env = runBridge({
-    href: `https://axiom.trade/meme/${AXIOM_ROOM_BONK_PAIR}?chain=${chain}`,
+    href: `https://axiom.trade/meme/${identity.pairAddress}?chain=${chain}`,
   });
   env.setNow(1_790_198_624_000);
-  env.send('paper-axis', {
-    pairAddress: AXIOM_ROOM_BONK_PAIR,
-    mint: AXIOM_ROOM_BONK_MINT,
-    symbol: 'BONK',
-  });
+  env.send('paper-axis', identity);
   env.emitted.length = 0;
   const socket = env.openWebSocket('wss://cluster-global3.axiom.trade/');
   return { env, socket };
 }
+
+function axiomBridgeFor(chain = 'sol') {
+  return axiomBridgeForIdentity({
+    pairAddress: AXIOM_ROOM_BONK_PAIR,
+    mint: AXIOM_ROOM_BONK_MINT,
+    symbol: 'BONK',
+  }, chain);
+}
+
+test('Axiom non-room frames keep generic facts and captured rooms for other pairs are dropped', () => {
+  const capturedFrame = AXIOM_NONROOM_FIXTURE.frames[0];
+  const { env } = axiomBridgeFor();
+  const friendsSocket = env.openWebSocket(AXIOM_NONROOM_FIXTURE.transportUrl);
+  friendsSocket.dispatchMessage(JSON.stringify(capturedFrame));
+  const facts = env.emitted.filter((message) => message.type === 'facts'
+    && message.payload.source === 'ws' && message.payload.mint === AXIOM_ROOM_BONK_MINT);
+  assert.equal(facts.length, 1, 'the captured non-room friends frame still uses generic facts forwarding');
+  assert.equal(facts[0].payload.supply, capturedFrame.subpage.supply);
+  assert.equal(env.emitted.filter((message) => message.type === 'tick' && message.payload.source === 'axiom-ws-room').length, 0);
+
+  const unrelated = axiomBridgeForIdentity({
+    pairAddress: 'MfDuWeqSHEqTFVYZ7LoexgAK9dxk7cy4DFJWjWMGVWa',
+    mint: 'So11111111111111111111111111111111111111112',
+    symbol: 'OTHER',
+  });
+  const capturedRoom = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  unrelated.socket.dispatchMessage(JSON.stringify(capturedRoom));
+  assert.equal(unrelated.env.emitted.filter((message) => message.type === 'tick').length, 0,
+    'a captured room for BONK cannot be attributed to the unrelated Solana token');
+});
 
 test('Axiom captured b-room price emits a mint/pair-attributed native tick', () => {
   const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
@@ -1057,6 +1097,203 @@ test('Axiom ignores undecoded rooms and stale f tuples', () => {
   assert.equal(env.emitted.filter((message) => message.type === 'tick').length, 0,
     'an f tuple without a fresh confirming b price is ignored');
 });
+
+if (process.env.PT_AXIOM_CAPTURE_REPLAY === '1') {
+  test('Axiom full-capture replay preserves the v3.24 path on Pulse and token pages', () => {
+    const captureRoot = path.join(ROOT, '..', 'recon-data', 'sites', 'axiom', 'captures', '2026-09-23_21-21-24');
+    const rawRoot = path.join(captureRoot, 'raw');
+    const readLines = (name) => fs.readFileSync(path.join(rawRoot, name), 'utf8')
+      .split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    const stripUrl = (value) => {
+      try { const parsed = new URL(value); return parsed.origin + parsed.pathname; } catch (_) { return null; }
+    };
+    const networkRows = readLines('network.jsonl');
+    const pageDocument = networkRows.find((row) => row.resourceType === 'Document'
+      && row.url && new URL(row.url).hostname === 'axiom.trade'
+      && new URL(row.url).pathname.startsWith('/meme/'));
+    assert.ok(pageDocument && pageDocument.sid, 'the capture contains a page-target token document');
+    const pageSid = pageDocument.sid;
+    const allWsRows = readLines('ws.jsonl');
+    const excludedWorkerFrames = allWsRows.filter((row) => row.sid !== pageSid && row.dir === 'in').length;
+    const wsRows = allWsRows.filter((row) => row.sid === pageSid);
+    const socketUrlById = new Map();
+    for (const row of wsRows) {
+      if (row.wsId && row.url) socketUrlById.set(String(row.wsId), stripUrl(row.url));
+    }
+    let wsSeq = 0;
+    let binaryFrames = 0;
+    const inputs = [];
+    for (const row of wsRows.filter((item) => item.dir === 'in').sort((a, b) => a.t - b.t)) {
+      const seq = ++wsSeq;
+      const textFrame = typeof row.payload === 'string' && (Number(row.opcode) === 1 || row.opcode == null);
+      if (!textFrame) { binaryFrames++; continue; }
+      inputs.push({
+        at: Number(row.t), kind: 'ws', order: inputs.length,
+        raw: row.payload, seq, transportUrl: socketUrlById.get(String(row.wsId)) || null,
+      });
+    }
+    let xhrInputs = 0;
+    let fetchInputs = 0;
+    let responsesWithoutBody = 0;
+    for (const row of networkRows) {
+      if (row.sid !== pageSid || !['XHR', 'Fetch'].includes(row.resourceType)) continue;
+      if (row.resourceType === 'Fetch' && !/json/i.test(String(row.mimeType || ''))) continue;
+      if (!row.bodyFile) { responsesWithoutBody++; continue; }
+      const bodyPath = path.join(rawRoot, row.bodyFile);
+      if (!fs.existsSync(bodyPath)) { responsesWithoutBody++; continue; }
+      const body = fs.readFileSync(bodyPath).toString('utf8');
+      const source = row.resourceType === 'XHR' ? 'xhr' : 'fetch';
+      if (source === 'xhr') xhrInputs++; else fetchInputs++;
+      inputs.push({
+        at: Number(row.tDone || row.t), kind: source, order: inputs.length,
+        raw: body, url: row.url,
+      });
+    }
+    inputs.sort((a, b) => a.at - b.at || a.order - b.order);
+    assert.ok(inputs.length > 0, 'the capture contains page-target frame and response bodies');
+    const earliestAt = inputs[0].at;
+    const v324Source = execFileSync('git', ['show', 'v3.24.0:extension/price-bridge.js'], {
+      cwd: path.join(ROOT, '..'), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+    });
+    const currentSource = fs.readFileSync(path.join(ROOT, 'price-bridge.js'), 'utf8');
+    const contexts = [
+      { name: 'pulse', href: 'https://axiom.trade/pulse?chains=sol,robinhood,arc,bnb,ink,hype,base,eth', identity: null },
+      { name: 'token', href: 'https://axiom.trade/meme/' + AXIOM_ROOM_BONK_PAIR + '?chain=sol',
+        identity: { pairAddress: AXIOM_ROOM_BONK_PAIR, mint: AXIOM_ROOM_BONK_MINT, symbol: 'BONK' } },
+    ];
+    const roomTick = (message) => message && message.type === 'tick'
+      && message.payload && message.payload.source === 'axiom-ws-room';
+    const relevant = (messages) => messages.filter((message) => message
+      && (message.type === 'tick' || message.type === 'facts' || /row/i.test(String(message.type || ''))));
+    const metadata = (message) => {
+      const payload = message.payload || {};
+      return {
+        type: message.type,
+        source: payload.source || null,
+        keys: (payload.candidates || []).map((candidate) => candidate.key || candidate.unit),
+        hasMcap: Number(payload.mcap) > 0,
+        supply: payload.supply === undefined ? null : payload.supply !== null,
+        mintRole: payload.mint === AXIOM_ROOM_BONK_MINT ? 'bonk' : payload.mint ? 'other' : null,
+      };
+    };
+    const eventCounts = (messages) => {
+      const bySourceKey = {};
+      const factsBySource = {};
+      let tokenActivityEvents = 0;
+      let rowEvents = 0;
+      let factsEvents = 0;
+      let ticks = 0;
+      for (const message of messages) {
+        if (message.type === 'facts') {
+          factsEvents++;
+          const source = (message.payload && message.payload.source) || 'unknown';
+          factsBySource[source] = (factsBySource[source] || 0) + 1;
+          continue;
+        }
+        if (/row/i.test(String(message.type || ''))) rowEvents++;
+        if (message.type !== 'tick') continue;
+        ticks++;
+        const payload = message.payload || {};
+        const keys = (payload.candidates || []).map((candidate) => candidate.key || candidate.unit);
+        const label = (payload.source || 'unknown') + ':' + (keys.join('+') || (Number(payload.mcap) > 0 ? 'mcap' : 'none'));
+        bySourceKey[label] = (bySourceKey[label] || 0) + 1;
+        if (payload.source === 'gmgn-ws-trade' || keys.includes('tokenActivityPriceUsd')) tokenActivityEvents++;
+      }
+      return { ticks, bySourceKey, tokenActivityEvents, rowEvents, factsEvents, factsBySource };
+    };
+    const replay = (bridgeSource, context, traceInputs = false) => {
+      const env = runBridge({ href: context.href, bridgeSource, exposeReplay: true });
+      env.setNow(earliestAt);
+      if (context.identity) env.send('paper-axis', context.identity);
+      env.send('page-state', { wantsTicks: true, factsWanted: true });
+      env.emitted.length = 0;
+      let lastHeartbeat = earliestAt;
+      const inputOutputs = [];
+      for (const input of inputs) {
+        env.setNow(input.at);
+        if (input.at - lastHeartbeat >= 30000) {
+          env.send('page-state', { wantsTicks: true, factsWanted: true });
+          if (context.identity) env.send('paper-axis', context.identity);
+          lastHeartbeat = input.at;
+        }
+        const before = env.emitted.length;
+        if (input.kind === 'ws') {
+          env.replayJson(input.raw, 'ws', undefined, input.at, input.seq, false, input.transportUrl);
+        } else {
+          env.replayJson(input.raw, input.kind, input.url, undefined, undefined);
+        }
+        const produced = relevant(env.emitted.slice(before));
+        if (traceInputs && produced.length) {
+          let roomClass = 'non-room';
+          try {
+            const parsed = JSON.parse(input.raw);
+            if (typeof parsed.room === 'string') {
+              roomClass = parsed.room.startsWith('b-') ? 'b-room'
+                : parsed.room.startsWith('f:') ? 'f-room'
+                  : parsed.room.startsWith('a:') ? 'a-room' : 'other-room';
+            }
+          } catch (_) {}
+          let host = null;
+          try { host = new URL(input.transportUrl || input.url).hostname.toLowerCase(); } catch (_) {}
+          inputOutputs.push({ inputKind: input.kind, host, roomClass, events: produced.map(metadata) });
+        }
+      }
+      return { events: relevant(env.emitted), inputOutputs };
+    };
+
+    const report = [];
+    let preserved = true;
+    let firstMismatch = null;
+    let tokenRoomTicks = 0;
+    let pulseRoomTicks = 0;
+    for (const context of contexts) {
+      const baselineRun = replay(v324Source, context, context.name === 'token');
+      const fixedRun = replay(currentSource, context);
+      const baseline = baselineRun.events;
+      const fixed = fixedRun.events;
+      const baselineCanon = baseline.map((message) => JSON.stringify(message));
+      const fixedCommon = fixed.filter((message) => !roomTick(message));
+      const fixedCanon = fixedCommon.map((message) => JSON.stringify(message));
+      let mismatchIndex = -1;
+      const shared = Math.min(baselineCanon.length, fixedCanon.length);
+      for (let i = 0; i < shared; i++) {
+        if (baselineCanon[i] !== fixedCanon[i]) { mismatchIndex = i; break; }
+      }
+      const same = mismatchIndex === -1 && baselineCanon.length === fixedCanon.length;
+      if (!same) {
+        preserved = false;
+        if (!firstMismatch) {
+          const i = mismatchIndex === -1 ? shared : mismatchIndex;
+          firstMismatch = {
+            context: context.name, index: i, baselineCount: baselineCanon.length, fixedCommonCount: fixedCanon.length,
+            baselineEvent: baseline[i] ? metadata(baseline[i]) : null,
+            fixedEvent: fixedCommon[i] ? metadata(fixedCommon[i]) : null,
+          };
+        }
+      }
+      const newRoomCount = fixed.filter(roomTick).length;
+      if (context.name === 'token') tokenRoomTicks = newRoomCount;
+      else pulseRoomTicks = newRoomCount;
+      report.push({
+        context: context.name,
+        inputs: { pageWsText: wsSeq - binaryFrames, pageWsBinaryIgnored: binaryFrames, xhrBodies: xhrInputs, fetchJsonBodies: fetchInputs, bodiesUnavailable: responsesWithoutBody },
+        v324: eventCounts(baseline),
+        fixed: { ...eventCounts(fixed), axiomRoomTicks: newRoomCount },
+        v324EventsPreservedExactlyAndInOrder: same,
+        v324NonRoomEmittingInputs: context.name === 'token'
+          ? baselineRun.inputOutputs.filter((input) => input.roomClass === 'non-room').slice(0, 25) : [],
+      });
+    }
+    console.log('AXIOM_CAPTURE_REPLAY ' + JSON.stringify({
+      capture: '2026-09-23_21-21-24', pageSidFramesOnly: true, excludedWorkerFrames,
+      report, firstMismatch,
+    }));
+    assert.equal(preserved, true, 'every v3.24.0-emitted page event is preserved exactly and in order');
+    assert.ok(tokenRoomTicks > 0, 'the BONK token URL receives new attributed room ticks');
+    assert.equal(pulseRoomTicks, 0, 'Pulse does not claim token-room frames');
+  });
+}
+
 
 test('GMGN high-volume frames past the size guard still feed the live price', () => {
   // Under high volume GMGN's token_activity batches grow past the 500KB
