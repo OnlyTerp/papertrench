@@ -1,26 +1,18 @@
 {
-  "version": "3.26.0",
+  "version": "3.27.0",
   "date": "2026-09-24",
   "entries": [
     {
-      "title": "Back up your wallet BEFORE installing this update — one last time.",
-      "text": "This version gives PaperTrench a permanent identity, so future updates never wipe your wallet, whatever folder you load them from. But this one update still looks like a brand-new install: open the old version's popup → Setup → Backup wallet first; then unzip the update over the same folder and fully restart Chrome (this one time the reload button alone leaves PaperTrench looking dead); then restore the file from the card that opens."
+      "title": "Tournaments are live.",
+      "text": "Sign up on papertrench.com/tournament (X login) — everyone starts on the same paper stack, and at every round boundary the lowest-P&L entrants are cut until the winners remain. Standings come only from each player's server-verified trade record, never from a number the app reports; positions still open at a cut are valued at an independent market price, or at cost and flagged if no price exists."
     },
     {
-      "title": "Automatic take profit / stop loss after every buy, plus trailing stops (Settings → Exits).",
-      "text": "Off by default; buying more re-bases them on your average entry; legs the price already passed are skipped, never fired. A trailing stop ratchets up with the highest price your coin actually reaches and fills at the real market price when it triggers — never at the level you set."
+      "title": "Tournament auto-sync (opt-in when you join).",
+      "text": "The extension keeps your record current during a live tournament using a limited token that can only sync, expires after 30 days, and can be revoked from the dashboard at any time. Deleting your account removes your tournament data and tokens."
     },
     {
-      "title": "Trade open positions from the dashboard.",
-      "text": "Every row now shows the live price and has Sell / Buy / Chart buttons. A dashboard fill needs two independent price sources to agree within 3% and books the less favourable one, so the dashboard can never beat the chart."
-    },
-    {
-      "title": "GMGN: trade prints from thin or stale pools can no longer move the price.",
-      "text": "Each print is now tied to the pool it came from; prints from pools other than the dominant one must match its price within 3% while it is still trading, or they are ignored."
-    },
-    {
-      "title": "Fixed: after a take-profit, stop-loss or trailing-stop exit, the next manual buy on that coin could refuse for a few seconds.",
-      "text": "The exit's own fill is now counted as fresh market evidence, so re-buying works right away."
+      "title": "Updating from 3.26.0 needs no backup/restore dance.",
+      "text": "The permanent extension ID shipped last release means your wallet carries over: just unzip the update over the same folder and reload the extension on chrome://extensions (if it doesn't come back, restart Chrome)."
     }
   ]
 }

@@ -3,6 +3,16 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.27.0 — 2026-09-24
+
+- **Tournaments are live.** Sign up on papertrench.com/tournament (X login) — everyone starts on the same paper stack, and at every round boundary the lowest-P&L entrants are cut until the winners remain. Standings come only from each player's server-verified trade record, never from a number the app reports; positions still open at a cut are valued at an independent market price, or at cost and flagged if no price exists.
+
+- **Tournament auto-sync (opt-in when you join).** The extension keeps your record current during a live tournament using a limited token that can only sync, expires after 30 days, and can be revoked from the dashboard at any time. Deleting your account removes your tournament data and tokens.
+
+- **Updating from 3.26.0 needs no backup/restore dance.** The permanent extension ID shipped last release means your wallet carries over: just unzip the update over the same folder and reload the extension on chrome://extensions (if it doesn't come back, restart Chrome).
+
+Tested: extension 2701/2701, server 398/398, bot 20/20 green (3119 total).
+
 ## v3.26.0 — 2026-09-24
 
 - **Back up your wallet BEFORE installing this update — one last time.** This version gives PaperTrench a permanent identity, so future updates never wipe your wallet, whatever folder you load them from. But this one update still looks like a brand-new install: open the old version's popup → Setup → Backup wallet first; then unzip the update over the same folder and fully restart Chrome (this one time the reload button alone leaves PaperTrench looking dead); then restore the file from the card that opens.

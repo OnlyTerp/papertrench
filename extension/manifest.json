@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PaperTrench",
-  "version": "3.26.0",
+  "version": "3.27.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6QtwdiHZN8gFdnKsxivclWdkf6nlrnpSukyMA6X84PRhJAkP+fBLaEMSCUahwTHqK76ioTYNJM50teUQlqWO4K34Vw7Qlgi6hKDRLAsu4shKOQjzdJvWQUOOtEN1bacVYQKvwMyhTGbGDdGa//rofflAJxMsZr8R9hQRGyD5TBRgtwaP4fGx4oMkHmUow2z+98LqTj5tSf3LmIc9VNGmbXPsxZocIQW6Dv8QS0wt/6nwRX4XDbS8vlWbqoZbTZc3dy75gVfNZCjG820B0UL3jJwydsDUYdmRFTBJuqowUOK+DCqDXG4KoqmtKq/Anr5l4cypG72Joa2HsdDt9KYQ0wIDAQAB",
   "description": "Paper-trade Solana memecoins with live P&L, native chart fills, session replay, AI coaching, and a verifiable track record.",
   "permissions": [
