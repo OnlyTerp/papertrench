@@ -1,14 +1,10 @@
 {
-  "version": "3.25.0",
+  "version": "3.25.1",
   "date": "2026-09-24",
   "entries": [
     {
-      "title": "Axiom prices now come from Axiom's own live feed.",
-      "text": "Axiom streams each token's real-time price over its own socket in a compact format the extension simply did not read, so fills and P&L were priced from slower aggregator lanes that lag the chart you are watching. That is the \"can't buy/sell in real time\" report — and very likely the \"it shows a big profit right after I buy\" one: a stale quote makes a fresh fill look like an instant gain. The extension now reads the room feed for the exact pair on screen, verified live on a real Axiom session, and everything it does not understand still fails closed instead of guessing."
-    },
-    {
-      "title": "When the free price connection is being refused, the extension says so — calmly, and where it helps.",
-      "text": "Keyless users had no way to learn why a brand-new coin took a while to price. Settings and the popup's Setup tab now show a quiet notice while the free pool is refusing, with the two-minute guide to a free personal endpoint that fixes it. It hides itself the moment the pool recovers or you save your own endpoint — never a toast, never anywhere near the buy button."
+      "title": "Fixed a price glitch on some GMGN coins that let a buy book an instant ~40% profit.",
+      "text": "GMGN's chart reports market cap on a different token-supply basis than PaperTrench's price source on some coins (seen on a Robinhood-chain coin), so the panel price flickered ~30% for a second at a time and a buy in the dip showed instant fake profit. PaperTrench now learns each chart's own supply basis from live trade prices, so the panel, fills and the chart's average-fill line follow the price the site shows. Tested on the live coin: the panel stayed within 0.4% of GMGN for five minutes, and a buy followed by an immediate sell loses only the fee."
     },
     {
       "title": "Loading this build by hand? Back up your paper wallet before you load a new folder.",

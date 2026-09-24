@@ -3,6 +3,14 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.25.1 — 2026-09-24
+
+- **Fixed a price glitch on some GMGN coins that let a buy book an instant ~40% profit.** GMGN's chart reports market cap on a different token-supply basis than PaperTrench's price source on some coins (seen on a Robinhood-chain coin), so the panel price flickered ~30% for a second at a time and a buy in the dip showed instant fake profit. PaperTrench now learns each chart's own supply basis from live trade prices, so the panel, fills and the chart's average-fill line follow the price the site shows. Tested on the live coin: the panel stayed within 0.4% of GMGN for five minutes, and a buy followed by an immediate sell loses only the fee.
+
+- **Loading this build by hand? Back up your paper wallet before you load a new folder.** An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The reminder that shipped in v3.24.0 still applies: back up first, then load the update.
+
+Tested: extension 2651/2651, server 387/387, bot 20/20 green (3058 total).
+
 ## v3.25.0 — 2026-09-24
 
 - **Axiom prices now come from Axiom's own live feed.** Axiom streams each token's real-time price over its own socket in a compact format the extension simply did not read, so fills and P&L were priced from slower aggregator lanes that lag the chart you are watching. That is the "can't buy/sell in real time" report — and very likely the "it shows a big profit right after I buy" one: a stale quote makes a fresh fill look like an instant gain. The extension now reads the room feed for the exact pair on screen, verified live on a real Axiom session, and everything it does not understand still fails closed instead of guessing.
