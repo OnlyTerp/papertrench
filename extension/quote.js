@@ -1956,8 +1956,91 @@
     };
   }
 
+  /* ------------- dashboard row fills: two-source agreement -------------
+   *
+   * The dashboard's open-position rows trade without the venue's live chart
+   * on screen, so an aggregator snapshot alone is exactly the stale-source
+   * class that minted fake fills before (C-32/F-66): it can lag the chart by
+   * seconds on a move. Every dashboard fill therefore needs TWO sources that
+   * are both fresh and agree — resolver + on-chain (Solana) or resolver +
+   * worker quote (elsewhere) — and books the CONSERVATIVE side of the pair
+   * (sells take the lower quote, buys the higher) so a disagreement can only
+   * ever cost the trader, never pay them.
+   */
+
+  var DASH_FILL_MAX_AGE_MS = 10 * 1000;
+  var DASH_FILL_AGREE_RATIO = 0.03;
+
+  /**
+   * Decide whether two quote legs may fill a dashboard row action.
+   *
+   * @param {'buy'|'sell'} side
+   * @param {object|null} a  resolver leg: { name, at, priceNative, priceUsd, mcap, chain }
+   * @param {object|null} b  witness leg, same shape
+   * @param {number} now     ms timestamp
+   * @returns {object} { ok:true, priceNative, priceUsd, mcap, at, source } or
+   *                   { ok:false, reason, detail }
+   */
+  function dashboardFillDecision(side, a, b, now) {
+    var t = Number(now) || Date.now();
+    if (side !== 'buy' && side !== 'sell') return { ok: false, reason: 'bad-side' };
+    var legs = [a, b];
+    for (var i = 0; i < legs.length; i++) {
+      var l = legs[i];
+      if (!l || typeof l !== 'object') {
+        return { ok: false, reason: 'missing', detail: 'a price source returned nothing' };
+      }
+      var at = Number(l.at);
+      if (!Number.isFinite(at) || at <= 0 || t - at > DASH_FILL_MAX_AGE_MS) {
+        return {
+          ok: false, reason: 'stale',
+          detail: (l.name || 'a price source') + ' is '
+            + (!Number.isFinite(at) || at <= 0 ? 'undated' : Math.round((t - at) / 1000) + 's old'),
+        };
+      }
+    }
+    // Compare on the leg the chain actually trades in: native on Solana
+    // (the wallet is SOL-denominated), USD everywhere else.
+    var chain = (a && a.chain) || 'solana';
+    var unit = chain === 'solana' ? 'priceNative' : 'priceUsd';
+    var va = Number(a[unit]);
+    var vb = Number(b[unit]);
+    if (!(va > 0) || !(vb > 0)) {
+      return { ok: false, reason: 'missing', detail: 'a price source has no ' + unit + ' leg' };
+    }
+    var ratio = Math.max(va, vb) / Math.min(va, vb) - 1;
+    if (ratio > DASH_FILL_AGREE_RATIO) {
+      return {
+        ok: false, reason: 'disagree',
+        detail: (a.name || 'resolver') + ' and ' + (b.name || 'witness')
+          + ' differ ' + (ratio * 100).toFixed(1) + '%',
+      };
+    }
+    // Conservative side of the pair: sells book the lower quote, buys the
+    // higher — disagreement can only cost the trader, never pay them.
+    var chosen = side === 'sell' ? (va <= vb ? a : b) : (va >= vb ? a : b);
+    var priceNative = Number(chosen.priceNative);
+    var priceUsd = Number(chosen.priceUsd);
+    if (!(priceNative > 0)) {
+      return { ok: false, reason: 'missing', detail: 'the chosen quote has no SOL leg' };
+    }
+    return {
+      ok: true,
+      priceNative: priceNative,
+      priceUsd: priceUsd > 0 ? priceUsd : null,
+      mcap: Number(chosen.mcap) > 0 ? Number(chosen.mcap) : null,
+      at: Number(chosen.at),
+      ageMs: Math.max(0, t - Number(chosen.at)),
+      source: 'dashboard:' + (a.name || 'resolver') + '+' + (b.name || 'witness'),
+      chosenName: chosen.name || null,
+    };
+  }
+
   var api = {
     pickBestPair,
+    dashboardFillDecision,
+    DASH_FILL_MAX_AGE_MS,
+    DASH_FILL_AGREE_RATIO,
     normalizePair,
     rugGuardVerdict,
     tokenFromPayload,

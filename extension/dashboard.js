@@ -202,6 +202,13 @@ let lbVerifyInFlightKey = null;
 let attestChain = [];
 let attestChainLoaded = false; // false until a chain read has actually succeeded
 let attestMigrateNudged = false;
+// Live per-position quotes polled while the dashboard is visible (s0berr:
+// "price updated right inside PaperTrench"). Display-only — these marks are
+// NEVER written into pt_state; fills fetch their own two-source quote at
+// click time (dashboardFill below). mint -> { priceNative, priceUsd, mcap,
+// at, source }.
+const posQuotes = new Map();
+let posQuotePumpStarted = false;
 /**
  * Storage access that fails soft — same contract as content.js's store helper:
  * get() resolves null when the read FAILED (chrome.runtime.lastError or a
@@ -288,6 +295,7 @@ async function init() {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) refreshIfChanged().then(refreshLiveDerived).catch(() => {});
   });
+  startPositionQuotePump();
 
   // The overlay's Flex button lands here: #flex=<mint> opens the share
   // composer for that coin — the open position if one exists (the partial-
@@ -449,7 +457,277 @@ function updateOpenPositionMarks() {
     node.textContent = `${win ? '+' : ''}${fmt(pnl)} SOL (${win ? '+' : ''}${pct.toFixed(1)}%)`;
     const qtyNode = row.querySelector('[data-pos-qty]');
     if (qtyNode) qtyNode.textContent = `${fmt(p.qty, 2)} tokens`;
+    // Live quote (display-only — never persisted): price/MC, position value,
+    // live unrealized P&L and the quote's age in the row.
+    const live = posQuotes.get(row.dataset.posRow);
+    const liveNode = row.querySelector('[data-pos-live]');
+    if (liveNode) {
+      if (live && Number(live.priceNative) > 0) {
+        const ageS = Math.max(0, Math.round((Date.now() - live.fetchedAt) / 1000));
+        const bits = [
+          Number(live.priceUsd) > 0 ? '$' + PC.formatPrice(live.priceUsd) : PC.formatPrice(live.priceNative) + ' SOL',
+          Number(live.mcap) > 0 ? PC.formatMarketCap(live.mcap) + ' MC' : null,
+          'worth ' + fmt(p.qty * live.priceNative, 3) + ' SOL',
+          ageS + 's ago',
+        ].filter(Boolean);
+        liveNode.textContent = bits.join(' · ');
+        const pnlLive = E.unrealizedPnlGross(p, live.priceNative);
+        const gross = E.grossOpenCostSol(p);
+        const pctLive = gross > 0 ? (p.qty * live.priceNative / gross - 1) * 100 : 0;
+        const winLive = pnlLive >= 0;
+        node.classList.toggle('green', winLive);
+        node.classList.toggle('red', !winLive);
+        node.textContent = `${winLive ? '+' : ''}${fmt(pnlLive)} SOL (${winLive ? '+' : ''}${pctLive.toFixed(1)}%)`;
+      } else {
+        liveNode.textContent = 'no live quote';
+      }
+    }
   });
+}
+
+/* ---------- open positions: live quote pump + row trading ----------
+ *
+ * s0berr: "buy and sell buttons on the dashboard's open positions, price
+ * updated right inside PaperTrench". Two rules make this safe:
+ *
+ *   - the row's live quote is DISPLAY ONLY — it is never written into
+ *     pt_state, so a dashboard view can never become the mark a P&L or an
+ *     order reads;
+ *   - a fill NEVER uses the displayed quote. At click time the row fetches a
+ *     fresh resolver quote AND an independent second source (on-chain for
+ *     Solana, the worker quote elsewhere), and dashboardFillDecision
+ *     (quote.js) refuses unless both are fresh and agree — the same
+ *     anti-stale-source doctrine as the panel, because an aggregator
+ *     snapshot lagging the live chart is exactly the exploit class the
+ *     pricing work closed.
+ */
+
+const POS_QUOTE_POLL_MS = 5000;
+const POS_QUOTE_MAX = 12;
+
+function pollPositionQuotes() {
+  if (document.visibilityState !== 'visible') return;
+  const positions = state.positions || {};
+  const mints = Object.keys(positions).slice(0, POS_QUOTE_MAX);
+  for (const m of [...posQuotes.keys()]) {
+    if (!positions[m]) posQuotes.delete(m);
+  }
+  mints.forEach((mint, i) => {
+    setTimeout(() => {
+      const p = (state.positions || {})[mint];
+      if (!p || document.visibilityState !== 'visible') return;
+      chrome.runtime.sendMessage({
+        type: 'pt_refresh',
+        token: { mint, chain: p.chain || 'solana', pairAddress: p.pairAddress || null },
+      }).then((rec) => {
+        if (!rec || !(Number(rec.priceNative) > 0)) return;
+        posQuotes.set(mint, {
+          priceNative: Number(rec.priceNative),
+          priceUsd: Number(rec.priceUsd) > 0 ? Number(rec.priceUsd) : null,
+          mcap: Number(rec.mcap) > 0 ? Number(rec.mcap) : null,
+          pairAddress: rec.pairAddress || null,
+          at: Number(rec.resolvedAt) || Date.now(),
+          fetchedAt: Date.now(),
+          source: 'resolver',
+        });
+        updateOpenPositionMarks();
+      }).catch(() => {});
+    }, i * 150); // staggered: twelve positions never fire as one burst
+  });
+}
+
+function startPositionQuotePump() {
+  if (posQuotePumpStarted) return;
+  posQuotePumpStarted = true;
+  setInterval(pollPositionQuotes, POS_QUOTE_POLL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) pollPositionQuotes();
+  });
+  pollPositionQuotes();
+}
+
+/** Write a one-line note under a position row (refusals, fill receipts). */
+function posRowNote(mint, text) {
+  const row = document.querySelector(`[data-pos-row="${esc(mint)}"]`);
+  const node = row && row.querySelector('[data-pos-note]');
+  if (node) node.textContent = text || '';
+}
+
+/**
+ * Fetch the two fill legs for a dashboard trade: the resolver's fresh quote
+ * plus an independent witness — the on-chain quote for Solana (falling back
+ * to the worker quote), the worker quote on every other chain.
+ */
+async function dashboardQuoteLegs(pos) {
+  const chain = pos.chain || 'solana';
+  // Pair-scoped first (the position's own pool), falling back to the
+  // mint-scoped ladder when the aggregator doesn't know that pair — the
+  // resolver's /pairs/ miss must not blind the whole fill when /tokens/
+  // still prices the mint.
+  const refreshOnce = (withPair) => chrome.runtime.sendMessage({
+    type: 'pt_refresh',
+    token: { mint: pos.mint, chain, pairAddress: withPair ? (pos.pairAddress || null) : null },
+  }).catch(() => null);
+  const resolverP = (async () => {
+    const rec = await refreshOnce(true);
+    if (rec && Number(rec.priceNative) > 0) return rec;
+    return pos.pairAddress ? refreshOnce(false) : rec;
+  })();
+  const witnessP = (async () => {
+    if (chain === 'solana') {
+      const onchain = await chrome.runtime.sendMessage({
+        type: 'pt_onchain_quote', mint: pos.mint,
+      }).catch(() => null);
+      if (onchain) return { leg: 'onchain', q: onchain };
+    }
+    const w = await chrome.runtime.sendMessage({
+      type: 'pt_worker_quote', mints: [pos.mint], chain,
+    }).catch(() => null);
+    const q = w && w[pos.mint];
+    return q ? { leg: 'worker', q } : null;
+  })();
+  const [rec, wit] = await Promise.all([resolverP, witnessP]);
+  const a = rec && Number(rec.priceNative) > 0 ? {
+    name: 'resolver', chain,
+    at: Number(rec.resolvedAt) || Date.now(),
+    priceNative: Number(rec.priceNative),
+    priceUsd: Number(rec.priceUsd) > 0 ? Number(rec.priceUsd) : null,
+    mcap: Number(rec.mcap) > 0 ? Number(rec.mcap) : null,
+    pairAddress: rec.pairAddress || null,
+  } : null;
+  const b = wit && wit.q ? {
+    name: wit.leg, chain,
+    at: Number(wit.q.observedAt) || Number(wit.q.at) || 0,
+    priceNative: Number(wit.q.priceNative) || null,
+    priceUsd: Number(wit.q.priceUsd) > 0 ? Number(wit.q.priceUsd) : null,
+    mcap: Number(wit.q.mcapUsd) > 0 ? Number(wit.q.mcapUsd) : null,
+  } : null;
+  return { a, b, resolver: rec };
+}
+
+/* Compact summaries for pt_trade_event — same fields content.js sends. */
+function dashSummarizeSession(value, fallbackSite) {
+  if (!value) return null;
+  return {
+    sessionId: value.sessionId,
+    roundId: value.id || value.roundId || null,
+    mint: value.mint,
+    symbol: value.symbol,
+    name: value.name || '',
+    site: value.site || fallbackSite || 'unknown',
+    openedAt: value.openedAt,
+    closedAt: value.closedAt || null,
+  };
+}
+
+function dashSummarizeTrade(t) {
+  return {
+    id: t.id, sessionId: t.sessionId, ts: t.ts, side: t.side,
+    mint: t.mint, symbol: t.symbol, site: t.site,
+    pairAddress: t.pairAddress || null, chain: t.chain || 'solana',
+    source: 'dashboard',
+    qty: t.qty, priceNative: t.priceNative, priceUsd: t.priceUsd,
+    solGross: t.solGross, solNet: t.solNet, feeSol: t.feeSol,
+    pnlSol: t.pnlSol, mcap: t.mcap,
+  };
+}
+
+function dashSummarizeRound(r) {
+  if (!r) return null;
+  return {
+    id: r.id, sessionId: r.sessionId, mint: r.mint, symbol: r.symbol,
+    name: r.name || '', site: r.site, openedAt: r.openedAt, closedAt: r.closedAt,
+    heldMs: r.heldMs, investedSol: r.investedSol, returnedSol: r.returnedSol,
+    pnlSol: r.pnlSol, pnlPct: r.pnlPct,
+  };
+}
+
+/**
+ * Trade an open position straight from its dashboard row.
+ *
+ * side 'sell': pct is the position fraction (25/50/75/100).
+ * side 'buy':  pct is the SOL amount (first quick-buy preset).
+ *
+ * The fill decision is PaperQuote.dashboardFillDecision; the wallet write is
+ * the same CAS loop every dashboard write uses, and the evidence chain and
+ * trade event follow exactly the panel's ordering — append AFTER commit.
+ */
+async function dashboardFill(mint, side, amount) {
+  const pos = (state.positions || {})[mint];
+  if (!pos) { posRowNote(mint, 'Position already closed'); return; }
+  // Row identity guard: the click targeted THIS bag. A re-entry between the
+  // render and the commit would carry a new sessionId — the mutation refuses
+  // rather than trading a position the row no longer describes.
+  const sessionAtClick = pos.sessionId || null;
+  posRowNote(mint, 'Getting two fresh quotes…');
+  let legs;
+  try {
+    legs = await dashboardQuoteLegs(pos);
+  } catch (_) {
+    legs = null;
+  }
+  const Q = window.PaperQuote;
+  const decision = Q && legs ? Q.dashboardFillDecision(side, legs.a, legs.b, Date.now()) : null;
+  if (!decision || !decision.ok) {
+    posRowNote(mint, 'Price sources disagree / unavailable — open the chart to trade'
+      + (decision && decision.detail ? ` (${decision.detail})` : ''));
+    return;
+  }
+  const ts = Date.now();
+  let result = null;
+  const mutate = (fresh) => {
+    result = null;
+    const cur = (fresh.positions || {})[mint];
+    if (side === 'sell') {
+      if (!cur || !(cur.qty > 0)) return;
+      if (sessionAtClick && cur.sessionId !== sessionAtClick) return;
+      result = E.sell(fresh, settings, {
+        ts, mint, site: cur.site,
+        qtyFraction: Math.max(0.0001, Math.min(1, Number(amount) / 100)),
+        priceNative: decision.priceNative, priceUsd: decision.priceUsd, mcap: decision.mcap,
+        priceSource: decision.source, priceAgeMs: decision.ageMs,
+        chain: cur.chain || 'solana',
+      });
+    } else {
+      const opened = !cur;
+      result = E.buy(fresh, settings, {
+        ts, mint,
+        symbol: (cur && cur.symbol) || pos.symbol,
+        name: (cur && cur.name) || pos.name,
+        site: (cur && cur.site) || pos.site,
+        pairAddress: (legs.a && legs.a.pairAddress) || (cur && cur.pairAddress) || pos.pairAddress || null,
+        solAmount: Number(amount),
+        priceNative: decision.priceNative, priceUsd: decision.priceUsd, mcap: decision.mcap,
+        priceSource: decision.source, priceAgeMs: decision.ageMs,
+        chain: 'solana',
+      });
+      result.opened = opened;
+    }
+  };
+  try {
+    await mutateState(mutate);
+  } catch (err) {
+    posRowNote(mint, (err && err.message) || 'The wallet refused the fill');
+    return;
+  }
+  if (!result) {
+    posRowNote(mint, 'That position changed before the fill — nothing was booked');
+    return;
+  }
+  // Evidence chain AFTER the wallet commit — same ordering as the panel's
+  // commitFill: a chained link for an uncommitted fill would be a permanent
+  // book/chain divergence.
+  await chrome.runtime.sendMessage({ type: 'pt_attest_append', trade: result.trade }).catch(() => null);
+  chrome.runtime.sendMessage({
+    type: 'pt_trade_event',
+    kind: side === 'buy' ? 'buy' : 'sell',
+    opened: side === 'buy' ? result.opened === true : false,
+    session: dashSummarizeSession(result.round || result.position || pos, pos.site),
+    trade: dashSummarizeTrade(result.trade),
+    round: result.round ? dashSummarizeRound(result.round) : null,
+  }).catch(() => {});
+  posRowNote(mint, `${side === 'buy' ? 'Bought' : 'Sold'} at ${fillLevel(result.trade)} — ${decision.source}, ${decision.ageMs}ms old`);
+  await refreshIfChanged().then(refreshLiveDerived).catch(() => {});
 }
 
 /**
@@ -1431,6 +1709,24 @@ function renderOverview(el) {
     // real terminals do. Fresh nodes per render, so direct binding is safe.
     openPos.querySelectorAll('.share-open-btn').forEach((button) =>
       button.addEventListener('click', () => openShareCardForPosition(button.dataset.mint)));
+    openPos.querySelectorAll('.pos-sell-btn').forEach((button) =>
+      button.addEventListener('click', () =>
+        dashboardFill(button.dataset.mint, 'sell', Number(button.dataset.pct)).catch(() => {})));
+    openPos.querySelectorAll('.pos-buy-btn').forEach((button) =>
+      button.addEventListener('click', () => {
+        const amt = Array.isArray(settings.presetsBuy) && settings.presetsBuy.length
+          ? Number(settings.presetsBuy[0]) : 0;
+        if (amt > 0) dashboardFill(button.dataset.mint, 'buy', amt).catch(() => {});
+      }));
+    openPos.querySelectorAll('.pos-chart-btn').forEach((button) =>
+      button.addEventListener('click', () => {
+        const p = (state.positions || {})[button.dataset.mint];
+        if (!p) return;
+        const url = window.PaperTrenchSites && window.PaperTrenchSites.tokenUrlFor(p.mint, {
+          siteId: p.site, pairAddress: p.pairAddress || null, chain: p.chain || 'solana',
+        });
+        if (url) chrome.tabs.create({ url });
+      }));
   }
   // The canvas must be in the document before it can be measured and drawn.
 }
@@ -1842,15 +2138,31 @@ function renderOpenPositions() {
     // D-28: data-pos-row/-pnl/-qty mark the nodes refreshLiveDerived updates
     // in place on each heartbeat — the section itself is never rebuilt for a
     // price tick.
+    const sellPcts = Array.isArray(settings.sellPcts) && settings.sellPcts.length
+      ? settings.sellPcts : [100];
+    const buyAmt = Array.isArray(settings.presetsBuy) && settings.presetsBuy.length
+      ? Number(settings.presetsBuy[0]) : 0;
+    const solana = !p.chain || p.chain === 'solana';
+    const tradeBtns = [
+      ...sellPcts.slice(0, 4).map((pct) =>
+        `<button class="btn-sec pos-sell-btn" data-mint="${esc(p.mint)}" data-pct="${esc(String(pct))}" style="padding:3px 8px;font-size:11px">Sell ${esc(String(pct))}%</button>`),
+      solana && buyAmt > 0
+        ? `<button class="btn-sec pos-buy-btn" data-mint="${esc(p.mint)}" style="padding:3px 8px;font-size:11px">Buy ${fmt(buyAmt)}</button>`
+        : '',
+      `<button class="btn-sec pos-chart-btn" data-mint="${esc(p.mint)}" style="padding:3px 8px;font-size:11px">Chart</button>`,
+    ].filter(Boolean).join('');
     return `
       <div class="stat" style="align-items:center" data-pos-row="${esc(p.mint)}">
         <span style="min-width:0;color:var(--text)">
           <strong style="font-size:14px">${esc(p.symbol)}</strong>
           <span class="dim mono" style="display:block;font-size:10.5px;margin-top:2px">${esc(E.short(p.mint))} · ${esc(p.site)}</span>
+          <span class="dim mono" style="display:block;font-size:10.5px;margin-top:2px" data-pos-live>quote…</span>
+          <span class="dim" style="display:block;font-size:10.5px;margin-top:2px;color:#F0B75A" data-pos-note></span>
         </span>
         <span style="text-align:right;white-space:nowrap">
           <span class="mono" style="font-size:12px" data-pos-qty>${fmt(p.qty, 2)} tokens</span>
           <span class="${win ? 'green' : 'red'}" style="display:block;margin-top:3px;font-weight:800;font-size:14px" data-pos-pnl>${win ? '+' : ''}${fmt(pnl)} SOL (${win ? '+' : ''}${pct.toFixed(1)}%)</span>
+          <span style="display:inline-flex;gap:5px;margin-top:6px;flex-wrap:wrap;justify-content:flex-end">${tradeBtns}</span>
         </span>
         <button class="btn-sec share-open-btn" data-mint="${esc(p.mint)}" style="margin-left:12px">Share</button>
       </div>`;
