@@ -19,6 +19,8 @@ function serviceWorker(opts = {}) {
   };
   let messageListener = null;
   let externalListener = null;
+  let installedListener = null;
+  const tabCreates = [];
   const fetchCalls = [];
   const captureCalls = [];
   const writes = [];
@@ -146,11 +148,14 @@ function serviceWorker(opts = {}) {
         onMessage: { addListener: (listener) => { messageListener = listener; } },
         onMessageExternal: { addListener: (listener) => { externalListener = listener; } },
         onStartup: { addListener: () => {} },
-        onInstalled: { addListener: () => {} },
+        onInstalled: { addListener: (listener) => { installedListener = listener; } },
         sendMessage: async (message) => opts.sendMessage ? opts.sendMessage(message) : {},
+        getURL: (p) => 'chrome-extension://papertrench-test/' + p,
+        getManifest: () => ({ version: '9.9.9-test' }),
       },
       tabs: {
         query: (query, callback) => callback([]),
+        create: async (props) => { tabCreates.push(props); return { id: 900 + tabCreates.length, ...props }; },
         sendMessage: async () => ({}),
         // Records WHICH window is asked for: the whole point of the
         // wrong-tab-screenshot fix is that this argument decides what gets
@@ -191,9 +196,10 @@ function serviceWorker(opts = {}) {
   };
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8'), context, { filename: 'background.js' });
   return {
-    values, fetchCalls, captureCalls, writes, holdNextWrite,
+    values, fetchCalls, captureCalls, writes, holdNextWrite, tabCreates,
     get listener() { return messageListener; },
     get external() { return externalListener; },
+    get installed() { return installedListener; },
     get isAllowedEndpoint() { return context.isAllowedEndpoint; },
     get rpcPool() { return context.PTRpcPool; },
     get ctx() { return context; },
@@ -1191,4 +1197,27 @@ test('PREDICT_QUOTE names a venue transport failure with venue_error (B5)', asyn
   assert.equal(r.ok, false);
   assert.equal(r.code, 'venue_error', 'a 429 is not "no book" — the refusal names its status');
   assert.match(r.message, /429/, `got: ${r.message}`);
+});
+
+/* Fixed-ID migration surface: a manifest key pins the extension ID from
+ * now on, but THIS install is one last ID change — a fresh profile with no
+ * pt_state may be an upgrader whose wallet stayed behind under the old
+ * folder-keyed copy, so the dashboard opens once with a restore card. */
+test('install with no wallet opens the dashboard with the migration card flag', async () => {
+  const worker = serviceWorker();
+  delete worker.values.pt_state;
+  assert.ok(worker.installed, 'onInstalled listener registered');
+  worker.installed({ reason: 'install' });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(worker.tabCreates.length, 1);
+  assert.match(worker.tabCreates[0].url, /dashboard\.html$/);
+  assert.ok(worker.values.pt_migration_card, 'the card flag is set for the dashboard');
+});
+
+test('install with an existing wallet opens nothing', async () => {
+  const worker = serviceWorker();
+  worker.installed({ reason: 'install' });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(worker.tabCreates.length, 0);
+  assert.equal(worker.values.pt_migration_card, undefined);
 });

@@ -3741,6 +3741,12 @@ chrome.runtime.onInstalled.addListener((details) => {
   // next fill — deterministic for the install, free for every later wake.
   attestSerial(ensureAttestMigratedLocked).catch(() => {});
   reinjectOpenTabs((details && details.reason) || 'installed').catch(() => {});
+  // Fixed extension ID (0xtauly: "updating reset my wallet twice"): the
+  // manifest key pins the ID from this version on, but THIS install is one
+  // last ID change for everyone coming from a folder-keyed copy — and a new
+  // ID reads as an empty wallet. A genuine fresh install (no pt_state)
+  // opens the dashboard once with a restore-your-backup card.
+  maybeShowMigrationCard(details).catch(() => {});
   // N1 (Discord 8/21, ark_trades13/amogus_0471): three users asked publicly
   // how to update — the extension is unpacked, so Chrome never updates it
   // and users kept trading on stale builds with known-fixed bugs. Check the
@@ -3750,6 +3756,20 @@ chrome.runtime.onInstalled.addListener((details) => {
   runUpdateCheck().catch(() => {});
 });
 refreshFrameInterval().catch(() => {});
+
+/* The one-time migration surface: reason 'install' with no stored wallet
+ * means a fresh profile — which, for an upgrader whose data stayed behind
+ * under the old folder-keyed ID, is exactly when the restore hint helps.
+ * The flag is read by dashboard.js and cleared on dismiss/restore/first
+ * trade, so the card can never nag twice. */
+async function maybeShowMigrationCard(details) {
+  if (!details || details.reason !== 'install') return;
+  const stored = await chrome.storage.local.get('pt_state').catch(() => null);
+  if (stored && stored.pt_state) return;
+  await chrome.storage.local.set({ pt_migration_card: { at: Date.now() } }).catch(() => {});
+  const url = (chrome.runtime.getURL ? chrome.runtime.getURL('dashboard.html') : 'dashboard.html');
+  try { await chrome.tabs.create({ url, active: true }); } catch (_) {}
+}
 
 /* ------------------------- update notice (N1) ---------------------------
  * The extension ships unpacked (no update_url), so Chrome will never update

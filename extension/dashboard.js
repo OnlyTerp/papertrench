@@ -261,6 +261,9 @@ async function init() {
   // Unpacked installs never auto-update; this is the only channel that tells
   // a user a fix shipped. Renders once per load, before any section.
   try { renderUpdateBanner(); } catch (_) {}
+  // Fixed-ID migration: a fresh install that is really an upgrader gets the
+  // restore-your-backup card above everything else.
+  renderMigrationCard().catch(() => {});
   // And once, after an update actually lands, what changed in it.
   renderWhatsNew().catch((err) => console.warn("PaperTrench: what's-new skipped —", err.message));
   renderSidebar();
@@ -962,6 +965,95 @@ async function renderUpdateBanner() {
   document.body.insertBefore(banner, document.body.firstChild);
   const dismiss = banner.querySelector('#pt-update-dismiss');
   if (dismiss) dismiss.addEventListener('click', () => banner.remove());
+}
+
+/**
+ * Fixed-ID migration card (0xtauly: "updating reset my wallet twice"). The
+ * manifest key pins the extension ID from this version on, but this install
+ * is one last ID change — a fresh profile with no pt_state may simply be an
+ * upgrader whose wallet still lives in the old copy's backup file. The SW
+ * sets pt_migration_card on install-with-no-wallet; the card is dismissible
+ * and auto-hides after the first trade or a successful restore.
+ */
+async function renderMigrationCard() {
+  const stored = await chrome.storage.local.get('pt_migration_card').catch(() => null);
+  if (!stored || !stored.pt_migration_card) return;
+  // Auto-hide: a wallet that already traded (or was just restored) never
+  // needs the hint again — clear the flag so it cannot nag later.
+  if (state && Array.isArray(state.journal) && state.journal.length > 0) {
+    chrome.storage.local.remove('pt_migration_card').catch(() => {});
+    return;
+  }
+  let card = document.getElementById('pt-migration-card');
+  if (card) card.remove();
+  card = document.createElement('div');
+  card.id = 'pt-migration-card';
+  card.innerHTML =
+    '<div style="flex:1"><b>Updating from an older PaperTrench?</b> '
+    + 'This version keeps its identity from now on, but this one time your wallet '
+    + 'is still in the old copy\'s backup — restore your backup file to get it back.</div>'
+    + '<button id="pt-migration-restore" class="btn-sec" '
+    + 'style="padding:6px 14px;font-size:12px;font-weight:700;white-space:nowrap">Restore your backup file</button>'
+    + '<button id="pt-migration-dismiss" title="Dismiss" '
+    + 'style="background:none;border:none;color:inherit;cursor:pointer;font-size:15px;padding:0 4px">×</button>'
+    + '<input id="pt-migration-file" type="file" accept=".json,application/json" hidden>';
+  card.style.cssText =
+    'position:sticky;top:0;z-index:51;display:flex;align-items:center;gap:14px;'
+    + 'background:rgba(96,165,250,.14);border-bottom:1px solid rgba(96,165,250,.45);'
+    + 'color:#BFDBFE;padding:11px 26px;font-size:12.5px;font-weight:600;line-height:1.5';
+  document.body.insertBefore(card, document.body.firstChild);
+  const clearCard = () => chrome.storage.local.remove('pt_migration_card').catch(() => {});
+  card.querySelector('#pt-migration-dismiss').addEventListener('click', () => {
+    clearCard();
+    card.remove();
+  });
+  const fileInput = card.querySelector('#pt-migration-file');
+  card.querySelector('#pt-migration-restore').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    let backup;
+    try { backup = JSON.parse(await file.text()); }
+    catch (_) { poslessCardNote(card, 'That file is not valid JSON.'); return; }
+    const data = backup && backup.app === 'papertrench-backup' ? backup.data : backup;
+    if (!data || typeof data !== 'object' || !data.pt_state || typeof data.pt_state !== 'object') {
+      poslessCardNote(card, 'Not a PaperTrench backup — nothing was restored.');
+      return;
+    }
+    if (!confirm('Restore this backup? It replaces the current (empty) wallet.')) return;
+    const write = {};
+    for (const key of ['pt_state', 'pt_settings', 'pt_frames', 'pt_replays']) {
+      if (data[key] !== undefined) write[key] = data[key];
+    }
+    if (AT) {
+      const chainLinks = Array.isArray(data.pt_attest_chain) ? data.pt_attest_chain
+        : (Array.isArray(data.pt_state.attestChain) ? data.pt_state.attestChain : []);
+      if (write.pt_state && write.pt_state.attestChain !== undefined) delete write.pt_state.attestChain;
+      Object.assign(write, AT.chainSegments(chainLinks));
+    }
+    const replaced = await chrome.runtime.sendMessage({ type: 'pt_wallet_replace', write }).catch(() => null);
+    if (!replaced || !replaced.ok) {
+      poslessCardNote(card, 'Restore failed: '
+        + ((replaced && replaced.error) ? replaced.error : 'wallet worker unreachable'));
+      return;
+    }
+    clearCard();
+    chrome.runtime.sendMessage({ type: 'pt_settings_changed' }).catch(() => {});
+    await refreshIfChanged().then(refreshLiveDerived).catch(() => {});
+    card.remove();
+  });
+}
+
+function poslessCardNote(card, text) {
+  let note = card.querySelector('[data-card-note]');
+  if (!note) {
+    note = document.createElement('span');
+    note.dataset.cardNote = '1';
+    note.style.cssText = 'color:#FCA5A5;font-weight:600;white-space:nowrap';
+    card.appendChild(note);
+  }
+  note.textContent = text;
 }
 
 /**

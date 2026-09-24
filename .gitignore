@@ -5,6 +5,7 @@ Thumbs.db
 .env
 .env.*
 *.local
+*.pem
 dist/
 *.zip
 .vscode/
