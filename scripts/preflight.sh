@@ -55,7 +55,7 @@ fi
 # Extensionless: GitHub Pages resolves /leaderboard to leaderboard.html, and
 # the pages link that spelling. The .html form still resolves, so this list is
 # what decides which one the site is actually built out of.
-NAV_DESTS="/leaderboard /sprint /duels /clans"
+NAV_DESTS="/leaderboard /sprint /duels /clans /tournament"
 NAV_MISSING=""
 for page in site/*.html; do
   # Article pages and the Arena family all carry the same nav block.
