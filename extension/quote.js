@@ -967,6 +967,96 @@
     return { samples: samples, supply: supply };
   }
 
+  /* F-66: GMGN's token_activity prints a USD price per POOL (`m`), and the
+   * freshest print used to become the mint's price outright — a thin, stale,
+   * or manipulated pool could move the panel whenever it landed inside the
+   * accept band. Consensus: track a rolling 60 s window per pool; a print
+   * from anything but the dominant pool (by USD volume, or by count when no
+   * sizes are reported) must agree with the dominant pool's last print
+   * within 3% while that print is still fresh (≤10 s), else it is dropped. */
+
+  var POOL_WINDOW_MS = 60000;
+  var POOL_DOMINANT_FRESH_MS = 10000;
+  var POOL_AGREE_RATIO = 0.03;
+  var POOL_MIN_TRADES = 3;
+
+  /**
+   * Fold one pool-attributed trade into rolling per-pool stats.
+   *
+   * @param {object|null} stats   prior state (null ok)
+   * @param {string} pool         pool/pair address the trade printed on
+   * @param {number} priceUsd     USD trade price
+   * @param {number} usdSize      USD trade size (0 when the feed omits it)
+   * @param {number} now          ms timestamp
+   * @returns {{pools: Map<string,{count:number,volUsd:number,lastPriceUsd:number,lastAt:number,trades:Array}>, total:number}}
+   */
+  function notePoolTrade(stats, pool, priceUsd, usdSize, now) {
+    var pools = new Map(stats && stats.pools ? stats.pools : []);
+    var key = String(pool || '');
+    var prev = pools.get(key) || { trades: [] };
+    var trades = prev.trades.filter(function (t) { return now - t.at <= POOL_WINDOW_MS; });
+    if (Number(priceUsd) > 0) {
+      trades.push({ at: now, usd: Number(usdSize) > 0 ? Number(usdSize) : 0 });
+    }
+    var setPool = function (k, rec, list) {
+      if (!list.length) { pools.delete(k); return; }
+      var volUsd = 0;
+      for (var i = 0; i < list.length; i++) volUsd += list[i].usd;
+      pools.set(k, {
+        count: list.length,
+        volUsd: volUsd,
+        lastPriceUsd: rec.lastPriceUsd || 0,
+        lastAt: rec.lastAt || 0,
+        trades: list,
+      });
+    };
+    setPool(key, {
+      lastPriceUsd: Number(priceUsd) > 0 ? Number(priceUsd) : prev.lastPriceUsd || 0,
+      lastAt: Number(priceUsd) > 0 ? now : prev.lastAt || 0,
+    }, trades);
+    // Trades age out of every pool's window, not just the one being noted —
+    // otherwise a quiet pool keeps stale weight forever.
+    for (var entry of pools) {
+      if (entry[0] === key) continue;
+      var kept = entry[1].trades.filter(function (t) { return now - t.at <= POOL_WINDOW_MS; });
+      setPool(entry[0], entry[1], kept);
+    }
+    var total = 0;
+    for (var v of pools.values()) total += v.count;
+    return { pools: pools, total: total };
+  }
+
+  /**
+   * 'accept' | 'drop' for a pool-attributed trade print.
+   * Accepts until ≥3 trades are in the window, accepts the dominant pool's
+   * own prints, and accepts other pools only while they agree with a fresh
+   * dominant print within 3%.
+   */
+  function poolConsensusVerdict(stats, pool, priceUsd, now) {
+    if (!stats || !(stats.total >= POOL_MIN_TRADES)) return 'accept';
+    var sizesAbsent = true;
+    for (var v of stats.pools.values()) {
+      if (v.volUsd > 0) { sizesAbsent = false; break; }
+    }
+    var dominantPool = null;
+    var dominant = null;
+    for (var entry of stats.pools) {
+      var score = sizesAbsent ? entry[1].count : entry[1].volUsd;
+      if (!dominant || score > dominant.score) {
+        dominant = { score: score, rec: entry[1] };
+        dominantPool = entry[0];
+      }
+    }
+    if (!dominant || String(pool || '') === dominantPool) return 'accept';
+    var rec = dominant.rec;
+    if (rec.lastPriceUsd > 0
+      && now - rec.lastAt <= POOL_DOMINANT_FRESH_MS
+      && Math.abs(Number(priceUsd) / rec.lastPriceUsd - 1) <= POOL_AGREE_RATIO) {
+      return 'accept';
+    }
+    return 'drop';
+  }
+
   /**
    * Decide whether a tick from the page's own feed may update the price.
    *
@@ -1884,6 +1974,8 @@
     onchainContradictsEvidence,
     scaleStepVerdict,
     calibrateChartSupply,
+    notePoolTrade,
+    poolConsensusVerdict,
     FILL_WITNESS_WINDOW_MS,
     FILL_WITNESS_RATIO,
     FILL_WITNESS_AGREE_RATIO,

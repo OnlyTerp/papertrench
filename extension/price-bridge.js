@@ -786,7 +786,16 @@
     for (const item of parsed.data) {
       if (!item || typeof item.a !== 'string' || !isTokenAddress(item.a)) continue;
       const priceUsd = numberValue(item.pu);
-      if (priceUsd > 0) latestByMint.set(normTokenAddress(item.a), priceUsd);
+      if (priceUsd > 0) {
+        // F-66: keep the pool (`m`) and the trade's USD size (`au`) so the
+        // content side can hold a thin/stale pool to the dominant pool's
+        // price instead of letting the freshest print win by arrival order.
+        latestByMint.set(normTokenAddress(item.a), {
+          priceUsd,
+          pool: typeof item.m === 'string' && item.m ? item.m : null,
+          usdSize: numberValue(item.au),
+        });
+      }
     }
     if (!latestByMint.size) return true;
     // Emit the mint the user is actually looking at FIRST: under high volume a
@@ -794,12 +803,14 @@
     // the watched coin makes the cut. Then top up with any others.
     let emitted = 0;
     const due = (mint) => now - (activityLastEmitByMint.get(mint) || 0) >= ACTIVITY_TICK_MIN_MS;
-    const emitTick = (mint, priceUsd) => {
+    const emitTick = (mint, trade) => {
       activityLastEmitByMint.set(mint, now);
       emit('tick', withFrameEvidence({
-        candidates: [{ value: priceUsd, unit: 'usd', key: 'tokenActivityPriceUsd' }],
+        candidates: [{ value: trade.priceUsd, unit: 'usd', key: 'tokenActivityPriceUsd' }],
         mcap: null,
         mint,
+        pool: trade.pool,
+        usdSize: trade.usdSize > 0 ? trade.usdSize : null,
         symbol: currentSymbolInfo.mint === mint ? currentSymbolInfo.symbol : null,
         name: null,
         source: 'gmgn-ws-trade',
@@ -810,11 +821,11 @@
       emitTick(watchedMint, latestByMint.get(watchedMint));
       emitted++;
     }
-    for (const [mint, priceUsd] of latestByMint) {
+    for (const [mint, trade] of latestByMint) {
       if (mint === watchedMint) continue;
       if (emitted >= 5) break;
       if (!due(mint)) continue;
-      emitTick(mint, priceUsd);
+      emitTick(mint, trade);
       emitted++;
     }
     // Bound the per-mint clock map so a long trenches session cannot grow it

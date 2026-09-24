@@ -222,6 +222,10 @@
   // The source whose mcap-basis verdict last priced the panel — its bucket is
   // the convention the page's cap chart plots (chartSupplyUi, cap restatement).
   let lastMcapSource = null;
+  // F-66: rolling per-pool trade stats (60 s window). A print from a thin or
+  // stale pool may not move the mint's price unless it agrees with the
+  // dominant pool's fresh print.
+  let poolStats = null;
   // Freshest ACCEPTED direct-price tick { priceUsd, at } — the evidence leg
   // calibrateChartSupply converts caps against.
   let lastDirectTick = null;
@@ -910,6 +914,33 @@
     // waiting for its first real price instead of expiring (DEFECT F-16).
     if (Number(payload.mcap) > 0) lastMcapTickAt = Date.now();
 
+    // F-66: a pool-attributed trade print may only move the price when it
+    // agrees with the dominant pool. Every print is noted — even a dropped
+    // one — so dominance can shift when volume genuinely migrates. Drops go
+    // to ONE rolling diagnostic slot, never the toast stack.
+    if (payload.pool) {
+      let tickUsd = null;
+      for (const c of payload.candidates || []) {
+        if (c && c.unit === 'usd' && Number(c.value) > 0) { tickUsd = Number(c.value); break; }
+      }
+      if (tickUsd > 0) {
+        poolStats = Q.notePoolTrade(poolStats, payload.pool, tickUsd, Number(payload.usdSize), Date.now());
+        if (Q.poolConsensusVerdict(poolStats, payload.pool, tickUsd, Date.now()) === 'drop') {
+          try {
+            const EL = window.PTErrors;
+            if (EL && typeof EL.recordStatus === 'function') {
+              EL.recordStatus('pool-consensus-drop', {
+                scope: 'content', reason: 'off-dominant-pool',
+                pool: String(payload.pool).slice(0, 12),
+                priceUsd: tickUsd, mint: token.mint || null,
+              });
+            }
+          } catch (_) { /* diagnostics must never affect the trading path */ }
+          return;
+        }
+      }
+    }
+
     let verdict = null;
     const anchor = tokenAnchor();
     // C-32: every cap-carrying tick is calibration evidence — paired with the
@@ -1077,6 +1108,7 @@
       chartSupplyState.clear();
       lastMcapSource = null;
       lastDirectTick = null;
+      poolStats = null;
     }
     acceptedTickCount += 1;
 
@@ -1813,6 +1845,7 @@
       chartSupplyState.clear();
       lastMcapSource = null;
       lastDirectTick = null;
+      poolStats = null;
       hostSupplyRefusals.clear();
       hostSupplyRefusalCounts.clear();
     }
