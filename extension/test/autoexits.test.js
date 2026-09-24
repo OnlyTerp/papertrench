@@ -271,3 +271,176 @@ test('a buy arms the configured set, and the trail rides the peak then fires', a
   assert.ok(Math.abs(exit.priceNative - 0.0014) < 1e-9, 'filled at the observed price');
   assert.ok(Math.abs(exit.triggerPrice - 0.0015) < 1e-9);
 });
+
+test('updateTrailPeaks with an order id touches only that order', () => {
+  const { state } = walletWithPosition(0.001);
+  const a = E.addOrder(state, MINT, { kind: 'trail', trailPct: 25 }, 0.001, T0);
+  const b = E.addOrder(state, MINT, { kind: 'trail', trailPct: 25 }, 0.001, T0 + 1);
+  E.updateTrailPeaks(state, MINT, 0.002, a.id);
+  assert.equal(a.peakPrice, 0.002);
+  assert.equal(b.peakPrice, 0.001, "a sibling trail is not dragged up by another id's mark");
+});
+
+test('armAutoExits seeds the trail peak at the current price, not the entry', () => {
+  // Bought high, dumped: avg 0.002 but the live price is 0.001 — a trail
+  // seeded at the average would sit its trigger at 0.0015 and market-sell
+  // the bag on the very next tick.
+  const { state, settings } = walletWithPosition(0.002, 1,
+    Object.assign({}, AUTO, { autoTrailPct: 25 }));
+  const armed = E.armAutoExits(state, settings, MINT, 0.001, null, T0);
+  const trail = armed.orders.find((o) => o.kind === 'trail');
+  assert.ok(Math.abs(trail.peakPrice - 0.001) < 1e-12, `peak at the live price (got ${trail.peakPrice})`);
+  assert.ok(trail.triggerPrice < 0.001, 'trigger below the live price — cannot fire on the next tick');
+});
+
+test('re-basing carries the previous auto trail peak forward', () => {
+  const { state, settings } = walletWithPosition(0.001, 1,
+    Object.assign({}, AUTO, { autoTrailPct: 25 }));
+  E.armAutoExits(state, settings, MINT, 0.001, null, T0);
+  E.updateTrailPeaks(state, MINT, 0.003); // the trail rode a 3x
+  E.buy(state, settings, { mint: MINT, symbol: 'BONK', solAmount: 1, priceNative: 0.002, ts: T0 + 1 });
+  const armed = E.armAutoExits(state, settings, MINT, 0.002, null, T0 + 1);
+  const trail = armed.orders.find((o) => o.kind === 'trail');
+  assert.ok(Math.abs(trail.peakPrice - 0.003) < 1e-12,
+    `adding to a winner keeps the earned peak (got ${trail.peakPrice})`);
+  // …but never below the CURRENT price either — a fresh high re-seeds it.
+  const armed2 = E.armAutoExits(state, settings, MINT, 0.004, null, T0 + 2);
+  assert.ok(Math.abs(armed2.orders.find((o) => o.kind === 'trail').peakPrice - 0.004) < 1e-12);
+});
+
+test('legs already past the current price are skipped with a reason', () => {
+  // Average-down deep: 1 SOL @ 0.002 then 1 SOL @ 0.0006 — avg ~0.00092,
+  // so SL −30% would arm at ~0.00065 ABOVE the live 0.0006: a market sell
+  // wearing a stop's costume. It must be skipped, not armed.
+  const { state, settings } = walletWithPosition(0.002, 1,
+    Object.assign({}, AUTO, { autoTrailPct: 25 }));
+  E.buy(state, settings, { mint: MINT, symbol: 'BONK', solAmount: 1, priceNative: 0.0006, ts: T0 + 1 });
+  const armed = E.armAutoExits(state, settings, MINT, 0.0006, null, T0 + 1);
+  const sl = armed.skippedLegs.find((s) => s.kind === 'sl');
+  assert.ok(sl && sl.reason === 'below', 'the stale SL is refused with a reason');
+  assert.ok(!E.ordersFor(state, MINT).some((o) => o.kind === 'sl'), 'no SL order armed');
+  assert.ok(armed.orders.some((o) => o.kind === 'tp'), 'the valid TP still arms');
+
+  // …and the mirror: a TP the price already passed is skipped too.
+  const { state: s2, settings: set2 } = walletWithPosition(0.0005, 1, AUTO);
+  const armed2 = E.armAutoExits(s2, set2, MINT, 0.002, null, T0);
+  const tp = armed2.skippedLegs.find((s) => s.kind === 'tp');
+  assert.ok(tp && tp.reason === 'above', 'TP +100% = 0.001 is below the live 0.002');
+  assert.ok(!E.ordersFor(s2, MINT).some((o) => o.kind === 'tp'));
+});
+
+test('a session high from BEFORE the buy cannot arm the trail above the live price', async () => {
+  const runOverlay = loadOverlayHarness();
+  // Watch the coin run to 2x and dump back to 1x BEFORE buying: the old
+  // mint-level session peak would ratchet the fresh trail to 0.002, its
+  // trigger lands at 0.0015 above the live 0.001, and the buy sells itself
+  // on the next tick. High-water marks are per ORDER id now — a trail only
+  // rises on prices observed while it is armed.
+  const ov = runOverlay([0.001, 0.002, 0.001, 0.001], {
+    initialSettings: {
+      autoExitsEnabled: true,
+      autoTp1Pct: null, autoSlPct: null,
+      autoTrailPct: 25, autoTrailSizePct: 100,
+    },
+  });
+  await ov.advance(1500); // resolves at 0.001
+  ov.nextPrice();
+  await ov.advance(2500); // pump to 0.002 — no position, no trail
+  ov.nextPrice();
+  await ov.advance(2500); // dumped back to 0.001
+  ov.clickPreset(0);
+  ov.clickById('pt-buy');
+  for (let w = 0; w < 12000 && !((ov.storage().pt_state || {}).positions || {})[MINT]; w += 200) {
+    await ov.advance(200);
+  }
+  assert.ok(ov.storage().pt_state.positions[MINT], 'the buy filled at 0.001');
+  // More ticks at the live price — the trail must NOT fire on the pre-buy
+  // high. This is the regression the per-order marks exist for.
+  await ov.advance(4000);
+  const st = ov.storage().pt_state;
+  assert.ok(st.positions[MINT], 'a trail cannot fire on a high it never saw');
+  const trail = (st.orders[MINT] || []).find((o) => o.kind === 'trail');
+  assert.ok(trail && Math.abs(trail.peakPrice - 0.001) < 1e-9,
+    `peak seeds at the entry, not the session high (got ${trail && trail.peakPrice})`);
+});
+
+test('re-buying the same mint arms a fresh trail that inherits no old peak', async () => {
+  const runOverlay = loadOverlayHarness();
+  const ov = runOverlay([0.001, 0.003, 0.002, 0.002, 0.002], {
+    initialSettings: {
+      autoExitsEnabled: true,
+      autoTp1Pct: null, autoSlPct: null,
+      autoTrailPct: 25, autoTrailSizePct: 100,
+    },
+  });
+  await ov.advance(1500);
+  ov.clickPreset(0);
+  ov.clickById('pt-buy'); // buy @0.001
+  for (let w = 0; w < 12000 && !((ov.storage().pt_state || {}).positions || {})[MINT]; w += 200) {
+    await ov.advance(200);
+  }
+  ov.nextPrice();
+  await ov.advance(2500); // 0.003 — trail ratchets, trigger 0.00225
+  ov.nextPrice();
+  for (let w = 0; w < 12000 && ov.storage().pt_state.positions[MINT]; w += 200) {
+    await ov.advance(200); // 0.002 < 0.00225 — the trail exits
+  }
+  assert.ok(!ov.storage().pt_state.positions[MINT], 'the trail closed the first round');
+  // Re-buy the same mint at 0.002. The old order's 0.003 mark is dead with
+  // its id — the new trail seeds at the new fill and must not sell itself.
+  ov.clickPreset(0);
+  ov.clickById('pt-buy');
+  for (let w = 0; w < 12000 && !((ov.storage().pt_state || {}).positions || {})[MINT]; w += 200) {
+    await ov.advance(200);
+  }
+  await ov.advance(4000);
+  const st = ov.storage().pt_state;
+  assert.ok(st.positions[MINT], 'the re-buy stays open — no inherited peak');
+  const trail = (st.orders[MINT] || []).find((o) => o.kind === 'trail');
+  assert.ok(trail && Math.abs(trail.peakPrice - 0.002) < 1e-9,
+    `new trail seeds at the new fill (got ${trail && trail.peakPrice})`);
+});
+
+test('an adopted stale base cannot lower a trail this tab already ratcheted', async () => {
+  const runOverlay = loadOverlayHarness();
+  const ov = runOverlay([0.001, 0.002, 0.002, 0.002], {
+    initialSettings: {
+      autoExitsEnabled: true,
+      autoTp1Pct: null, autoSlPct: null,
+      autoTrailPct: 25, autoTrailSizePct: 100,
+    },
+  });
+  await ov.advance(1500);
+  ov.clickPreset(0);
+  ov.clickById('pt-buy'); // buy @0.001
+  for (let w = 0; w < 12000 && !((ov.storage().pt_state || {}).positions || {})[MINT]; w += 200) {
+    await ov.advance(200);
+  }
+  ov.nextPrice();
+  await ov.advance(2500); // 0.002 — this tab ratcheted the trail to peak 0.002
+  const trailed = ov.storage().pt_state.orders[MINT].find((o) => o.kind === 'trail');
+  assert.ok(Math.abs(trailed.peakPrice - 0.002) < 1e-9, 'setup: peak is 0.002');
+
+  // Another writer (a second tab that never saw 0.002) commits a state
+  // whose copy of the SAME order id still sits at the entry peak.
+  const stale = JSON.parse(JSON.stringify(ov.storage().pt_state));
+  const staleTrail = stale.orders[MINT].find((o) => o.kind === 'trail');
+  staleTrail.peakPrice = 0.001;
+  staleTrail.triggerPrice = 0.00075;
+  stale.seq = (Number(stale.seq) || 0) + 50;
+  ov.externalWriteSilently({ pt_state: stale });
+
+  // This tab's next write hits the seq wall, adopts `current`, re-applies —
+  // adoptState raises the adopted trail back to its own id's mark.
+  ov.clickPreset(0);
+  ov.clickById('pt-buy');
+  let peak = 0;
+  for (let w = 0; w < 12000; w += 200) {
+    await ov.advance(200);
+    const tr = ((ov.storage().pt_state || {}).orders || {})[MINT] || [];
+    const t = tr.find((o) => o.kind === 'trail');
+    if (t && Math.abs(t.peakPrice - 0.002) < 1e-9) { peak = t.peakPrice; break; }
+  }
+  assert.ok(Math.abs(peak - 0.002) < 1e-9,
+    `the adoption merge kept this id's earned peak (got ${peak})`);
+});

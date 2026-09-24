@@ -363,7 +363,12 @@
   const BAR_POLL_MS = 6000;        // visible tab, off-screen positions
   const BAR_POLL_HIDDEN_MS = 30000; // background tab: stay polite
   let livePositionPrices = {};      // mint -> { priceNative, priceUsd }
-  const sessionPeakByMint = new Map(); // mint -> highest native price this tab observed (trail re-arm on CAS adoption)
+  // Trail high-water marks are per ORDER id, never per mint: a peak this tab
+  // saw BEFORE a trail existed (a run-up ahead of the buy, or a previous
+  // closed position on the same coin) must not ratchet a fresh trail's
+  // trigger above the live price — that fires it instantly. Seeded from the
+  // order's own peakPrice, raised only by prices observed while armed.
+  const trailPeakByOrderId = new Map(); // orderId -> max observed price since the order existed
   const barChips = new Map();       // mint -> cached chip nodes
   let barTotalEls = null;           // cached aggregate nodes
   let positionsBarHidden = false;
@@ -1815,11 +1820,6 @@
       delete livePositionPrices[oldMint];
       if (!livePositionPrices[newMint]) livePositionPrices[newMint] = cached;
     }
-    const peak = sessionPeakByMint.get(oldMint);
-    if (Number(peak) > 0) {
-      sessionPeakByMint.delete(oldMint);
-      if (!sessionPeakByMint.has(newMint)) sessionPeakByMint.set(newMint, peak);
-    }
     if (!E.rekeyMint(state, oldMint, newMint)) return;
     if (state.positions[newMint]) delete state.positions[newMint].standInKey;
     posEls = null; // the cached card nodes belong to the stand-in's render
@@ -3003,10 +3003,16 @@
     // birth instead of the live setting on this very paint.
     E.backfillAnchor(state, settings);
     // A state adopted from another writer may carry trail orders whose peaks
-    // predate this tab's high-water marks — merge by max so the adopted base
-    // cannot silently lower a trailing stop's trigger.
-    for (const [m, peak] of sessionPeakByMint) {
-      if (Number(peak) > 0) E.updateTrailPeaks(state, m, peak);
+    // predate this tab's high-water marks — raise each trail to its OWN id's
+    // mark so the adopted base cannot silently lower a trailing stop's
+    // trigger (and a foreign mint's marks can never touch these orders).
+    for (const [m, list] of Object.entries(state.orders || {})) {
+      if (!Array.isArray(list)) continue;
+      for (const o of list) {
+        if (o.kind !== 'trail') continue;
+        const mark = trailPeakByOrderId.get(o.id);
+        if (Number(mark) > 0) E.updateTrailPeaks(state, m, mark, o.id);
+      }
     }
     const hasPosition = Boolean(token && state.positions && state.positions[token.mint]);
     // The card's structure only changes when a position appears or vanishes.
@@ -3400,8 +3406,15 @@
       const label = `${o.kind === 'tp' ? 'TP' : 'SL'} ${pct === null ? '?' : (pct >= 0 ? '+' : '') + pct + '%'}`;
       return label + (o.sizePct < 100 ? ` (${o.sizePct}%)` : '');
     });
-    const skipped = armed && armed.skipped > 0 ? ` (${armed.skipped} didn't fit)` : '';
-    return `Auto exits armed: ${parts.join(', ')}${skipped}`;
+    const notes = (armed && armed.skippedLegs || []).map((sp) => {
+      const pct = Math.round(Number(sp.pct) || 0);
+      if (sp.reason === 'above') return `TP +${pct}% skipped — price is already above it`;
+      if (sp.reason === 'below') return `SL −${pct}% skipped — price is already below it`;
+      if (sp.reason === 'cap') return `${sp.kind === 'tp' ? 'TP' : sp.kind === 'sl' ? 'SL' : 'Trail'} didn't fit — order slots full`;
+      return null;
+    }).filter(Boolean);
+    const head = parts.length ? `Auto exits armed: ${parts.join(', ')}` : 'Auto exits: none armed';
+    return head + (notes.length ? `; ${notes.join('; ')}` : '');
   }
 
   /**
@@ -3415,13 +3428,30 @@
     if (orderFireInFlight || !chartOrdersOn() || !token || !token.mint) return;
     const observed = Number(token.priceNative);
     if (!(observed > 0)) return;
-    // This tab's observed high-water mark per mint. Trail peaks live in
-    // state but are OWNED by whichever tab sees the peak; keeping the mark
-    // here lets a CAS adoption re-raise them (adoptState merges by max).
-    if (observed > (sessionPeakByMint.get(token.mint) || 0)) {
-      sessionPeakByMint.set(token.mint, observed);
+    // This tab's high-water marks per ORDER id. Each trail ratchets only on
+    // prices observed since THAT order existed — a peak seen before the buy
+    // (or earned by an earlier closed position on the same mint) can never
+    // lift a fresh trail's trigger above the live price.
+    let trailRose = false;
+    for (const o of E.ordersFor(state, token.mint)) {
+      if (o.kind !== 'trail') continue;
+      let mark = trailPeakByOrderId.get(o.id);
+      if (!(mark > 0)) mark = Number(o.peakPrice) > 0 ? Number(o.peakPrice) : observed;
+      if (observed > mark) mark = observed;
+      trailPeakByOrderId.set(o.id, mark);
+      if (E.updateTrailPeaks(state, token.mint, mark, o.id)) trailRose = true;
     }
-    if (E.updateTrailPeaks(state, token.mint, sessionPeakByMint.get(token.mint))) {
+    // Marks for orders that no longer exist (fired, cancelled, closed out)
+    // die with them — a re-buy on the same mint arms a NEW order id.
+    const liveTrailIds = new Set();
+    for (const list of Object.values(state.orders || {})) {
+      if (!Array.isArray(list)) continue;
+      for (const o of list) if (o.kind === 'trail') liveTrailIds.add(o.id);
+    }
+    for (const id of [...trailPeakByOrderId.keys()]) {
+      if (!liveTrailIds.has(id)) trailPeakByOrderId.delete(id);
+    }
+    if (trailRose) {
       syncChartOrders(); // a trail's trigger moved — its line must rise with it
     }
     const due = E.triggeredOrders(state, token.mint, observed);
@@ -3498,6 +3528,10 @@
       });
       if (!result) return;
 
+      // A committed order fill is money evidence for the witness (F-47),
+      // same as a manual fill — without it a post-exit re-buy is judged
+      // against the stale pre-exit price and can refuse forever.
+      lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
       syncChartOrders(true);
       sendMessage({
         type: 'pt_trade_event', kind: 'sell', opened: false,
@@ -3592,6 +3626,8 @@
         return filled;
       });
       if (result) {
+        // Money evidence for the witness (F-47) — see fireChartOrder.
+        lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
         sendMessage({
           type: 'pt_trade_event', kind: 'buy', opened: result.opened,
           session: summarizeSession(result.position),
@@ -3777,6 +3813,13 @@
       mutate();
       await persistStateNow(mutate);
     });
+    // A dragged trail re-bases its peak to the drop point — the old mark for
+    // this id must follow, or the next adoption would snap the trigger back
+    // up to where it sat before the drag.
+    const moved = E.ordersFor(state, token.mint).find((o) => o.id === id);
+    if (moved && moved.kind === 'trail') {
+      trailPeakByOrderId.set(id, Number(moved.peakPrice) > 0 ? moved.peakPrice : Number(triggerPrice) || 0);
+    }
     // Force a repost: the label carries the level and the % from entry, both
     // of which the drag just changed.
     syncChartOrders(true);
@@ -7283,7 +7326,7 @@
     lastWrittenState = state;
     lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
     livePositionPrices = {};
-    sessionPeakByMint.clear();
+    trailPeakByOrderId.clear();
     posEls = null;
     sendMessage({ type: 'pt_clear_recordings' });
     sendMessage({ type: 'pt_settings_changed' });

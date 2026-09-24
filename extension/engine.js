@@ -1733,12 +1733,13 @@
    * follows the peak: peakPrice rises, triggerPrice = peak × (1 − trailPct).
    * Returns true when any order's peak actually rose.
    */
-  function updateTrailPeaks(state, mint, observedPrice) {
+  function updateTrailPeaks(state, mint, observedPrice, orderId) {
     const price = Number(observedPrice);
     if (!Number.isFinite(price) || price <= 0) return false;
     let rose = false;
     for (const o of ordersFor(state, mint)) {
       if (o.kind !== 'trail') continue;
+      if (orderId && o.id !== orderId) continue;
       if (!(Number(o.peakPrice) > 0)) o.peakPrice = price;
       if (price > o.peakPrice) {
         o.peakPrice = price;
@@ -1781,20 +1782,49 @@
     if (Number(s.autoSlPct) > 0) specs.push({ kind: 'sl', pct: Number(s.autoSlPct), sizePct: s.autoSlSizePct });
     if (Number(s.autoTrailPct) > 0) specs.push({ kind: 'trail', trailPct: Number(s.autoTrailPct), sizePct: s.autoTrailSizePct });
 
+    // The CURRENT observed price is the validity check: a TP below it or an
+    // SL above it is a market order in disguise (averaging down deep can
+    // leave avg×(1−sl%) ABOVE the live price), so those legs are skipped
+    // with a reason rather than armed to fire on the next tick.
+    const cur = Number(refPriceNative) > 0 ? Number(refPriceNative) : null;
+    // Re-base rule: a re-armed auto trail keeps the higher of its previous
+    // peak and the current price — adding to a winner must not reset the
+    // trailing protection back to the new average entry.
+    const prevTrail = ordersFor(state, mint).find((o) => o.auto && o.kind === 'trail');
+    const trailPeak = Math.max(
+      Number(prevTrail && prevTrail.peakPrice) || 0,
+      cur || 0) || null;
+
     const manual = ordersFor(state, mint).filter((o) => !o.auto);
     const room = Math.max(0, MAX_ORDERS_PER_MINT - manual.length);
     const armed = [];
+    const skippedLegs = [];
+    const legPct = (sp) => (sp.kind === 'trail' ? sp.trailPct : sp.pct);
     for (const sp of specs) {
-      if (armed.length >= room) break;
-      const raw = sp.kind === 'trail'
-        ? { kind: 'trail', trailPct: sp.trailPct, sizePct: sp.sizePct, auto: true }
-        : {
-          kind: sp.kind,
-          triggerPrice: sp.kind === 'tp' ? avgEntry * (1 + sp.pct / 100) : avgEntry * (1 - sp.pct / 100),
-          sizePct: sp.sizePct, auto: true,
-        };
+      if (armed.length >= room) {
+        skippedLegs.push({ kind: sp.kind, pct: legPct(sp), reason: 'cap' });
+        continue;
+      }
+      let raw;
+      if (sp.kind === 'trail') {
+        raw = { kind: 'trail', trailPct: sp.trailPct, peakPrice: trailPeak, sizePct: sp.sizePct, auto: true };
+      } else {
+        const trigger = sp.kind === 'tp' ? avgEntry * (1 + sp.pct / 100) : avgEntry * (1 - sp.pct / 100);
+        if (cur && sp.kind === 'tp' && trigger <= cur) {
+          skippedLegs.push({ kind: 'tp', pct: sp.pct, reason: 'above' });
+          continue;
+        }
+        if (cur && sp.kind === 'sl' && trigger >= cur) {
+          skippedLegs.push({ kind: 'sl', pct: sp.pct, reason: 'below' });
+          continue;
+        }
+        raw = { kind: sp.kind, triggerPrice: trigger, sizePct: sp.sizePct, auto: true };
+      }
       const order = normalizeOrder(raw, avgEntry, ts);
-      if (!order) continue;
+      if (!order) {
+        skippedLegs.push({ kind: sp.kind, pct: legPct(sp), reason: 'invalid' });
+        continue;
+      }
       order.mint = mint;
       order.triggerMcap = atPrice(order.triggerPrice);
       armed.push(order);
@@ -1802,7 +1832,7 @@
     if (!state.orders || typeof state.orders !== 'object') state.orders = {};
     if (manual.length || armed.length) state.orders[mint] = [...manual, ...armed];
     else delete state.orders[mint];
-    return { armed: armed.length, skipped: specs.length - armed.length, orders: armed };
+    return { armed: armed.length, skipped: skippedLegs.length, orders: armed, skippedLegs };
   }
 
   /* -------------------- pending limit buys (N2) --------------------

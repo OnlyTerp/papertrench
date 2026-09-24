@@ -592,7 +592,10 @@ async function dashboardQuoteLegs(pos) {
   const [rec, wit] = await Promise.all([resolverP, witnessP]);
   const a = rec && Number(rec.priceNative) > 0 ? {
     name: 'resolver', chain,
-    at: Number(rec.resolvedAt) || Date.now(),
+    // resolvedAt is stamped when the resolver fetched the record — a cache
+    // hit keeps its real age, so an undated quote refuses ('undated')
+    // instead of borrowing the click's timestamp.
+    at: Number(rec.resolvedAt) || 0,
     priceNative: Number(rec.priceNative),
     priceUsd: Number(rec.priceUsd) > 0 ? Number(rec.priceUsd) : null,
     mcap: Number(rec.mcap) > 0 ? Number(rec.mcap) : null,
@@ -605,6 +608,14 @@ async function dashboardQuoteLegs(pos) {
     priceUsd: Number(wit.q.priceUsd) > 0 ? Number(wit.q.priceUsd) : null,
     mcap: Number(wit.q.mcapUsd) > 0 ? Number(wit.q.mcapUsd) : null,
   } : null;
+  // Off-Solana the worker leg is USD-only. When it is the conservative side
+  // the fill still needs a SOL leg to book — derive it through the resolver
+  // leg's own native/USD ratio (the same conversion content.js uses), never
+  // a synthesized SOL quote of its own.
+  if (a && b && chain !== 'solana' && !(b.priceNative > 0)
+      && Number(a.priceNative) > 0 && Number(a.priceUsd) > 0 && Number(b.priceUsd) > 0) {
+    b.priceNative = b.priceUsd * (a.priceNative / a.priceUsd);
+  }
   return { a, b, resolver: rec };
 }
 
@@ -705,6 +716,10 @@ async function dashboardFill(mint, side, amount) {
         chain: 'solana',
       });
       result.opened = opened;
+      // Same as every panel buy path: the configured auto exits arm inside
+      // the mutation so a CAS remutate re-applies them too.
+      result.autoExits = E.armAutoExits(fresh, settings, mint,
+        decision.priceNative, decision.mcap, ts);
     }
   };
   try {
@@ -729,7 +744,23 @@ async function dashboardFill(mint, side, amount) {
     trade: dashSummarizeTrade(result.trade),
     round: result.round ? dashSummarizeRound(result.round) : null,
   }).catch(() => {});
-  posRowNote(mint, `${side === 'buy' ? 'Bought' : 'Sold'} at ${fillLevel(result.trade)} — ${decision.source}, ${decision.ageMs}ms old`);
+  let note = `${side === 'buy' ? 'Bought' : 'Sold'} at ${fillLevel(result.trade)} — ${decision.source}, ${decision.ageMs}ms old`;
+  // Same armed/skipped report the panel toasts: a leg that did not arm is
+  // said out loud, never silently dropped.
+  const ax = result.autoExits;
+  if (ax) {
+    const names = (ax.orders || []).map((o) => (o.kind === 'tp' ? 'TP' : o.kind === 'sl' ? 'SL' : 'Trail'));
+    const skips = (ax.skippedLegs || []).map((sp) => {
+      const pct = Math.round(Number(sp.pct) || 0);
+      if (sp.reason === 'above') return `TP +${pct}% skipped — price is already above it`;
+      if (sp.reason === 'below') return `SL −${pct}% skipped — price is already below it`;
+      if (sp.reason === 'cap') return "a leg didn't fit";
+      return null;
+    }).filter(Boolean);
+    const bits = [names.length ? names.join('+') + ' armed' : null, ...skips].filter(Boolean);
+    if (bits.length) note += ` · auto exits: ${bits.join('; ')}`;
+  }
+  posRowNote(mint, note);
   await refreshIfChanged().then(refreshLiveDerived).catch(() => {});
 }
 
@@ -1677,7 +1708,7 @@ function overviewNextAction() {
     return {
       kicker: 'In flight',
       title: `Manage ${positions.length} open position${positions.length === 1 ? '' : 's'}`,
-      body: 'Review live marks below. Use the PAPER panel on your terminal to manage your thesis and exits.',
+      body: 'Review live marks below — each row sells or buys right here, or use the PAPER panel on your terminal to manage your thesis and exits.',
       cta: 'View open positions', jump: 'overview', anchor: 'open-pos',
     };
   }
