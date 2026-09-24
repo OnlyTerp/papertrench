@@ -363,6 +363,7 @@
   const BAR_POLL_MS = 6000;        // visible tab, off-screen positions
   const BAR_POLL_HIDDEN_MS = 30000; // background tab: stay polite
   let livePositionPrices = {};      // mint -> { priceNative, priceUsd }
+  const sessionPeakByMint = new Map(); // mint -> highest native price this tab observed (trail re-arm on CAS adoption)
   const barChips = new Map();       // mint -> cached chip nodes
   let barTotalEls = null;           // cached aggregate nodes
   let positionsBarHidden = false;
@@ -1814,6 +1815,11 @@
       delete livePositionPrices[oldMint];
       if (!livePositionPrices[newMint]) livePositionPrices[newMint] = cached;
     }
+    const peak = sessionPeakByMint.get(oldMint);
+    if (Number(peak) > 0) {
+      sessionPeakByMint.delete(oldMint);
+      if (!sessionPeakByMint.has(newMint)) sessionPeakByMint.set(newMint, peak);
+    }
     if (!E.rekeyMint(state, oldMint, newMint)) return;
     if (state.positions[newMint]) delete state.positions[newMint].standInKey;
     posEls = null; // the cached card nodes belong to the stand-in's render
@@ -2996,6 +3002,12 @@
     // before the re-render below, so the vs-start figures read the derived
     // birth instead of the live setting on this very paint.
     E.backfillAnchor(state, settings);
+    // A state adopted from another writer may carry trail orders whose peaks
+    // predate this tab's high-water marks — merge by max so the adopted base
+    // cannot silently lower a trailing stop's trigger.
+    for (const [m, peak] of sessionPeakByMint) {
+      if (Number(peak) > 0) E.updateTrailPeaks(state, m, peak);
+    }
     const hasPosition = Boolean(token && state.positions && state.positions[token.mint]);
     // The card's structure only changes when a position appears or vanishes.
     if (hadPosition !== hasPosition) posEls = null;
@@ -3363,7 +3375,7 @@
    * quote a level ("out at 240K"), and matches the journal's own convention.
    */
   function orderLineLabel(order) {
-    const kind = order.kind === 'tp' ? 'TP' : 'SL';
+    const kind = order.kind === 'tp' ? 'TP' : order.kind === 'trail' ? 'Trail' : 'SL';
     const mcap = mcapAtPrice(order.triggerPrice);
     const level = mcap ? fmtMoney(mcap) : E.fmt(order.triggerPrice, 8) + ' SOL';
     // The % is measured from the AVERAGE ENTRY — the same number the average
@@ -3377,6 +3389,21 @@
       : `${kind} ${level} (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`;
   }
 
+  /** "Auto exits armed: TP +100% (50%), SL −30%" — once, after a buy. */
+  function autoExitsToastText(armed) {
+    const parts = (armed && armed.orders || []).map((o) => {
+      const ref = Number(o.armedAtPrice);
+      if (o.kind === 'trail') {
+        return `Trail −${o.trailPct}%` + (o.sizePct < 100 ? ` (${o.sizePct}%)` : '');
+      }
+      const pct = ref > 0 ? Math.round(((o.triggerPrice - ref) / ref) * 100) : null;
+      const label = `${o.kind === 'tp' ? 'TP' : 'SL'} ${pct === null ? '?' : (pct >= 0 ? '+' : '') + pct + '%'}`;
+      return label + (o.sizePct < 100 ? ` (${o.sizePct}%)` : '');
+    });
+    const skipped = armed && armed.skipped > 0 ? ` (${armed.skipped} didn't fit)` : '';
+    return `Auto exits armed: ${parts.join(', ')}${skipped}`;
+  }
+
   /**
    * Fire every order this observed price has tripped.
    *
@@ -3388,6 +3415,15 @@
     if (orderFireInFlight || !chartOrdersOn() || !token || !token.mint) return;
     const observed = Number(token.priceNative);
     if (!(observed > 0)) return;
+    // This tab's observed high-water mark per mint. Trail peaks live in
+    // state but are OWNED by whichever tab sees the peak; keeping the mark
+    // here lets a CAS adoption re-raise them (adoptState merges by max).
+    if (observed > (sessionPeakByMint.get(token.mint) || 0)) {
+      sessionPeakByMint.set(token.mint, observed);
+    }
+    if (E.updateTrailPeaks(state, token.mint, sessionPeakByMint.get(token.mint))) {
+      syncChartOrders(); // a trail's trigger moved — its line must rise with it
+    }
     const due = E.triggeredOrders(state, token.mint, observed);
     if (!due.length) return;
 
@@ -3475,7 +3511,7 @@
     } catch (err) {
       // A refused fill must not leave a level armed that the wallet has
       // already decided against — but it must also not vanish silently.
-      toast(`${order.kind === 'tp' ? 'Take profit' : 'Stop loss'} could not fill: ${err.message || 'unknown error'}`);
+      toast(`${order.kind === 'tp' ? 'Take profit' : order.kind === 'trail' ? 'Trailing stop' : 'Stop loss'} could not fill: ${err.message || 'unknown error'}`);
     }
     renderAll();
   }
@@ -3535,12 +3571,14 @@
             return;
           }
           drawnFillIds.add(filled.trade.id);
+          filled.autoExits = E.armAutoExits(
+            state, settings, mint, observedPrice, mcap, Date.now());
         };
         mutate();
         if (!filled) return null;
         if (filled.error) return null;
         await persistStateNow(mutate);
-        const { trade, position } = filled;
+        const { trade, position, autoExits } = filled;
         await commitFill(trade);
         const markerTs = Date.now();
         marks.push({ t: markerTs, p: trade.priceNative, side: 'buy' });
@@ -3566,6 +3604,7 @@
         const slipPct = buy.triggerPrice > 0
           ? ((observedPrice - buy.triggerPrice) / buy.triggerPrice) * 100 : 0;
         toast(`Limit buy ${asked} fired — bought ${E.fmt(buy.solAmount, 3)} SOL${slipPct <= -0.1 ? ` (${slipPct.toFixed(1)}% vs asked)` : ''}`);
+        if (result.autoExits) toast(autoExitsToastText(result.autoExits));
       }
     } catch (err) {
       toast(`Limit buy could not fill: ${err.message || 'unknown error'}`);
@@ -3681,7 +3720,7 @@
    * hides it teaches the opposite.
    */
   function announceOrderFill(order, result) {
-    const kind = order.kind === 'tp' ? 'Take profit' : 'Stop loss';
+    const kind = order.kind === 'tp' ? 'Take profit' : order.kind === 'trail' ? 'Trailing stop' : 'Stop loss';
     const slip = Number(result.trade.triggerSlipPct);
     const askedMcap = order.triggerMcap || mcapAtPrice(order.triggerPrice);
     const gotMcap = result.trade.mcap || mcapAtPrice(result.trade.priceNative);
@@ -4249,12 +4288,17 @@
           // "a bubble above and below"). A retried attempt claims its new id
           // the same way; a superseded id in the set is inert.
           drawnFillIds.add(filled.trade.id);
+          // Auto exits (s0berr): re-base the configured TP/SL/trail set on the
+          // new average entry inside the same mutation, so a CAS retry re-arms
+          // them on whatever base the write lands on.
+          filled.autoExits = E.armAutoExits(
+            state, settings, token.mint, fillQuote.priceNative, fillQuote.mcap, Date.now());
         };
         mutate();
         if (!filled) return null;
         await persistStateNow(mutate);
         if (!filled) return null;
-        const { trade, position, opened } = filled;
+        const { trade, position, opened, autoExits } = filled;
         // The evidence chain is appended AFTER the wallet commit: a chained
         // link for a fill the CAS could still reject would be a permanent
         // book/chain divergence, whereas a crash in the gap here leaves a
@@ -4274,7 +4318,7 @@
         });
         syncAveragePriceLines();
         if (opened) profitAlertLevels.set(token.mint, 0);
-        return { trade, position, opened };
+        return { trade, position, opened, autoExits };
       });
       const tCommitted = perfNow();
       if (!result && fillQuote.supplySource === 'site-facts' && token && token.hostSupplyRejected) {
@@ -4304,6 +4348,7 @@
         const sym = token.symbol || (token.mint && token.mint.length > 10
           ? token.mint.slice(0, 4) + '…' + token.mint.slice(-4) : '') || '?';
         toast(`Bought ${boughtText} of ${sym}${atMcap ? ` at ${fmtMoney(atMcap)} MC` : ''} (paper)`);
+        if (result.autoExits) toast(autoExitsToastText(result.autoExits));
         noteFillTiming('buy', tClick, tQuoted, tCommitted);
       }
     } catch (err) { toast(err.message || 'Buy failed'); }
@@ -7238,6 +7283,7 @@
     lastWrittenState = state;
     lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
     livePositionPrices = {};
+    sessionPeakByMint.clear();
     posEls = null;
     sendMessage({ type: 'pt_clear_recordings' });
     sendMessage({ type: 'pt_settings_changed' });
@@ -8160,6 +8206,8 @@
         });
         if (standInKey) filled.position.standInKey = true;
         filled.opened = opened;
+        filled.autoExits = E.armAutoExits(
+          state, settings, data.mint, data.priceNative, data.mcap, Date.now());
       };
       mutate();
       const persistStartedAt = Date.now();
@@ -8168,7 +8216,7 @@
       // Chain append after the wallet commit — see doBuy for the ordering.
       await commitFill(filled.trade);
       if (timing) timing.commit = Date.now();
-      return { trade: filled.trade, position: filled.position, opened: filled.opened };
+      return { trade: filled.trade, position: filled.position, opened: filled.opened, autoExits: filled.autoExits };
     });
     if (!result) return null;
     // #29: mark the fill's origin on the SUMMARY COPY only — the engine
@@ -8186,6 +8234,7 @@
     playTradeSound('buy');
     const atMcap = result.trade.mcap ? ` at ${fmtMoney(result.trade.mcap)} MC` : '';
     toast(`Bought ${E.fmt(amount, 3)} SOL of ${result.trade.symbol}${atMcap} (paper)`);
+    if (result.autoExits) toast(autoExitsToastText(result.autoExits));
     if (result.opened) profitAlertLevels.set(data.mint, 0);
     // The positions bar is the screener's answer to a row buy: the new
     // position shows up in the rail instantly, chart one click away.
@@ -9907,13 +9956,19 @@
 
       const tag = document.createElement('span');
       tag.className = 'pt-otag ' + (o.kind === 'tp' ? 'pt-otag-tp' : 'pt-otag-sl');
-      tag.textContent = o.kind === 'tp' ? 'TP' : 'SL';
+      tag.textContent = o.kind === 'tp' ? 'TP' : o.kind === 'trail' ? 'Trail' : 'SL';
 
       const level = document.createElement('span');
       level.className = 'pt-olevel';
       const mcap = mcapAtPrice(o.triggerPrice);
-      level.textContent = (mcap ? fmtMoney(mcap) + ' MC' : E.fmt(o.triggerPrice, 8) + ' SOL')
-        + (o.sizePct >= 100 ? '' : ` · ${o.sizePct}%`);
+      if (o.kind === 'trail') {
+        const peak = mcapAtPrice(o.peakPrice);
+        level.textContent = `Trailing −${o.trailPct}% (from peak ${peak ? fmtMoney(peak) + ' MC' : E.fmt(o.peakPrice, 8) + ' SOL'})`
+          + (o.sizePct >= 100 ? '' : ` · ${o.sizePct}%`);
+      } else {
+        level.textContent = (mcap ? fmtMoney(mcap) + ' MC' : E.fmt(o.triggerPrice, 8) + ' SOL')
+          + (o.sizePct >= 100 ? '' : ` · ${o.sizePct}%`);
+      }
 
       const kill = document.createElement('button');
       kill.className = 'pt-okill';

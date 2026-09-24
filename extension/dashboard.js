@@ -4733,6 +4733,26 @@ function renderSettings(el) {
           <h3>Exits — take profit &amp; stop loss</h3>
           <p class="dim" style="margin-top:0;font-size:12px;line-height:1.55">Arm a level on the chart and the position exits itself when the market gets there. Drag the line to place it exactly, the way a terminal does it.</p>
           <div class="field field-check"><label><input type="checkbox" id="set-chart-orders" ${settings.chartOrdersEnabled !== false ? 'checked' : ''}> Take profit / stop loss on the chart</label><small>Adds a TP/SL section to the trade panel and draggable order lines to the chart. Costs nothing until a level is actually armed.</small></div>
+          <div class="field field-check"><label><input type="checkbox" id="set-auto-exits" ${settings.autoExitsEnabled === true ? 'checked' : ''}> Arm exits automatically after every buy</label><small>Every buy re-arms the set below relative to your average entry — no more placing TP/SL by hand each time. Orders you place yourself are never touched.</small></div>
+          <div class="field"><label for="set-auto-tp1">Take profit 1</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="set-auto-tp1" min="1" max="10000" step="1" placeholder="off" value="${settings.autoTp1Pct ?? ''}" style="width:90px"> <span class="dim">% above entry</span>
+              <input type="number" id="set-auto-tp1-size" min="1" max="100" step="1" value="${settings.autoTp1SizePct ?? 100}" style="width:70px"> <span class="dim">% of bag</span>
+            </div></div>
+          <div class="field"><label for="set-auto-tp2">Take profit 2</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="set-auto-tp2" min="1" max="10000" step="1" placeholder="off" value="${settings.autoTp2Pct ?? ''}" style="width:90px"> <span class="dim">% above entry</span>
+              <input type="number" id="set-auto-tp2-size" min="1" max="100" step="1" value="${settings.autoTp2SizePct ?? 100}" style="width:70px"> <span class="dim">% of bag</span>
+            </div></div>
+          <div class="field"><label for="set-auto-sl">Stop loss</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="set-auto-sl" min="1" max="95" step="1" placeholder="off" value="${settings.autoSlPct ?? ''}" style="width:90px"> <span class="dim">% below entry</span>
+            </div></div>
+          <div class="field"><label for="set-auto-trail">Trailing stop</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="number" id="set-auto-trail" min="1" max="95" step="1" placeholder="off" value="${settings.autoTrailPct ?? ''}" style="width:90px"> <span class="dim">% below the peak</span>
+            </div>
+            <small>Follows the price up and sells if it falls that far back from the high. A trailing stop fills at the price observed when it trips — the honest-fill rule, same as a fixed stop.</small></div>
           <div class="field"><label for="set-chart-line-thickness">Order-line thickness</label><select id="set-chart-line-thickness"><option value="1" ${(settings.chartOrderLineThickness || 2) === 1 ? 'selected' : ''}>Thin (1px)</option><option value="2" ${(settings.chartOrderLineThickness || 2) === 2 ? 'selected' : ''}>Standard (2px)</option><option value="3" ${(settings.chartOrderLineThickness || 3) === 3 ? 'selected' : ''}>Thick (3px)</option><option value="4" ${(settings.chartOrderLineThickness || 4) === 4 ? 'selected' : ''}>Extra thick (4px)</option></select><small>Width of TP/SL and average-cost lines on the chart. Thicker lines are easier to grab and drag.</small></div>
           <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>When a level is watched:</strong> while a page feeding that token's price is open. PaperTrench checks armed levels against the prices your own tabs are already receiving — nothing runs in the background, and an armed level says so on the chart.</p>
           <p class="dim" style="font-size:11.5px;line-height:1.6;margin:8px 0 0"><strong>How a paper stop fills:</strong> at the next price this machine actually observed after your level was crossed — never at the level itself. On an illiquid coin a stop can gap well past where you put it, and the journal records both numbers (“stop 180K → filled 154K”). A paper stop that always fills exactly where you placed it would teach an exit quality that does not exist.</p>
@@ -5228,6 +5248,14 @@ function gatherSettingsFromForm(notes = [], base = settings) {
   };
   // Preset lists: positive, bounded, deduplicated where repeats are
   // meaningless, and capped at 8 (500 presets would mean 500 overlay buttons).
+  // Blank means "off" for optional percentage legs; a number passes through
+  // to mergeSettings which owns the real range clamps.
+  const optNum = (id) => {
+    const raw = document.getElementById(id).value.trim();
+    if (raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
   const numberList = (id, max, label, { dedupe = false } = {}) => {
     const parts = document.getElementById(id).value.split(',').map((s) => s.trim()).filter(Boolean);
     let values = parts.map((s) => parseFloat(s)).filter((n) => Number.isFinite(n) && n > 0 && n <= max);
@@ -5284,6 +5312,20 @@ function gatherSettingsFromForm(notes = [], base = settings) {
     listQuickBuyPlacement: document.getElementById('set-list-quick-buy-placement').value === 'bottom' ? 'bottom' : 'auto',
     listQuickBuyBySite,
     chartOrderLineThickness: Math.max(1, Math.min(4, Math.round(Number(document.getElementById('set-chart-line-thickness').value) || 2))),
+    // Auto-exit presets: blank = that leg off. mergeSettings clamps ranges.
+    autoExitsEnabled: document.getElementById('set-auto-exits').checked,
+    autoTp1Pct: optNum('set-auto-tp1'),
+    autoTp1SizePct: (() => {
+      const v = Number(document.getElementById('set-auto-tp1-size').value);
+      return Number.isFinite(v) && v >= 1 && v <= 100 ? Math.round(v) : 100;
+    })(),
+    autoTp2Pct: optNum('set-auto-tp2'),
+    autoTp2SizePct: (() => {
+      const v = Number(document.getElementById('set-auto-tp2-size').value);
+      return Number.isFinite(v) && v >= 1 && v <= 100 ? Math.round(v) : 100;
+    })(),
+    autoSlPct: optNum('set-auto-sl'),
+    autoTrailPct: optNum('set-auto-trail'),
     panelBuyEnabled: document.getElementById('set-panel-buy').checked,
     panelPresetsEnabled: document.getElementById('set-panel-presets').checked,
     sellPcts: sellPcts.length ? sellPcts : [25, 50, 75, 100],

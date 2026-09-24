@@ -41,6 +41,18 @@
     // chain switch never rewrites the SOL list.
     presetsBuyUsd: [10, 100, 500, 1000],
     sellPcts: [25, 50, 75, 100],
+    // Auto exits (s0berr): arm a TP/SL/trailing-stop set on every buy so the
+    // levels never have to be drawn by hand. Percentages are relative to the
+    // position's average entry; a null pct disables that leg.
+    autoExitsEnabled: false,
+    autoTp1Pct: 100,
+    autoTp1SizePct: 50,
+    autoTp2Pct: null,
+    autoTp2SizePct: 100,
+    autoSlPct: 30,
+    autoSlSizePct: 100,
+    autoTrailPct: null,
+    autoTrailSizePct: 100,
     // One-click trading: a preset amount fires the buy immediately (Axiom /
     // Padre quick-buy behaviour) instead of only selecting it for the BUY
     // button. Off returns to the two-step select-then-confirm flow.
@@ -278,6 +290,22 @@
   function mergeSettings(stored) {
     const merged = Object.assign(defaultSettings(), stored || {});
     merged.listQuickBuyBySite = normalizeListQuickBuyBySite(merged.listQuickBuyBySite);
+    // Auto-exit legs: null/empty disables that leg; numbers clamp into the
+    // ranges the armer honours (TP 1..10000%, SL/trail 1..95%, sizes 1..100).
+    merged.autoExitsEnabled = merged.autoExitsEnabled === true;
+    for (const [key, lo, hi] of [
+      ['autoTp1Pct', 1, 10000], ['autoTp2Pct', 1, 10000],
+      ['autoSlPct', 1, 95], ['autoTrailPct', 1, 95],
+    ]) {
+      const v = merged[key];
+      if (v === null || v === undefined || v === '') { merged[key] = null; continue; }
+      const n = Number(v);
+      merged[key] = Number.isFinite(n) && n > 0 ? clamp(n, lo, hi) : null;
+    }
+    for (const key of ['autoTp1SizePct', 'autoTp2SizePct', 'autoSlSizePct', 'autoTrailSizePct']) {
+      const n = Math.round(Number(merged[key]));
+      merged[key] = Number.isFinite(n) ? clamp(n, 1, 100) : 100;
+    }
     if (!stored) return merged;
 
     const revision = Number(stored.settingsRevision) || 0;
@@ -1542,7 +1570,7 @@
    *   stop loss    fires when the observed price is at or BELOW its level
    */
 
-  const ORDER_KINDS = ['tp', 'sl'];
+  const ORDER_KINDS = ['tp', 'sl', 'trail'];
   const MAX_ORDERS_PER_MINT = 8;
 
   function orderId(ts) {
@@ -1563,10 +1591,26 @@
     const kind = ORDER_KINDS.includes(raw.kind) ? raw.kind : null;
     if (!kind) return null;
 
-    const triggerPrice = Number(raw.triggerPrice);
+    const ref = Number(referencePrice);
+
+    // Trailing stop: the trigger RISES with the peak instead of sitting at a
+    // fixed level. peakPrice starts at the reference (arm-time) price unless
+    // a persisted order already carries a higher peak.
+    let trailPct = null;
+    let peakPrice = null;
+    let triggerPrice;
+    if (kind === 'trail') {
+      trailPct = clamp(Number(raw.trailPct), 1, 95);
+      if (!Number.isFinite(trailPct)) return null;
+      peakPrice = Number(raw.peakPrice) > 0 ? Number(raw.peakPrice)
+        : (Number.isFinite(ref) && ref > 0 ? ref : null);
+      if (!(peakPrice > 0)) return null;
+      triggerPrice = peakPrice * (1 - trailPct / 100);
+    } else {
+      triggerPrice = Number(raw.triggerPrice);
+    }
     if (!Number.isFinite(triggerPrice) || triggerPrice <= 0) return null;
 
-    const ref = Number(referencePrice);
     if (Number.isFinite(ref) && ref > 0) {
       if (kind === 'tp' && triggerPrice <= ref) return null;
       if (kind === 'sl' && triggerPrice >= ref) return null;
@@ -1581,6 +1625,8 @@
       id: raw.id || orderId(ts),
       kind,
       triggerPrice,
+      trailPct,
+      peakPrice,
       // Display-only: the market cap the level represents, captured at arm
       // time. Never used for evaluation — mcap depends on a supply figure
       // that can change, price is the thing actually compared.
@@ -1589,6 +1635,9 @@
       // The price the order was armed against, kept so the UI can show the
       // move it is waiting for without guessing at the entry.
       armedAtPrice: Number.isFinite(ref) && ref > 0 ? ref : null,
+      // Orders armed by the auto-exit presets are re-based on every buy and
+      // cleared/re-armed as a set; manual orders never carry this flag.
+      auto: raw.auto === true,
       createdAt: Number(ts) || Date.now(),
     };
   }
@@ -1628,6 +1677,13 @@
     const next = Number(triggerPrice);
     if (!Number.isFinite(next) || next <= 0) return null;
     order.triggerPrice = next;
+    // A dragged trailing stop keeps its trail distance: the drop point
+    // becomes the new trigger and the peak re-bases so the ratchet still
+    // works. Otherwise the next tick above the old peak would silently
+    // snap the line back to peak × (1 − trailPct).
+    if (order.kind === 'trail' && Number(order.trailPct) > 0) {
+      order.peakPrice = next / (1 - Number(order.trailPct) / 100);
+    }
     order.triggerMcap = Number(triggerMcap) > 0 ? Number(triggerMcap) : null;
     return order;
   }
@@ -1664,9 +1720,89 @@
   function triggeredOrders(state, mint, observedPrice) {
     const price = Number(observedPrice);
     if (!Number.isFinite(price) || price <= 0) return [];
+    // Trail triggers sit below the peak like a stop: fires when the observed
+    // price falls to the level, fills at the observed price (honest fill).
+    const firesDown = (o) => o.kind !== 'tp';
     return ordersFor(state, mint)
       .filter((o) => (o.kind === 'tp' ? price >= o.triggerPrice : price <= o.triggerPrice))
-      .sort((a, b) => (a.kind === 'sl' ? a.triggerPrice - b.triggerPrice : b.triggerPrice - a.triggerPrice));
+      .sort((a, b) => (firesDown(a) ? a.triggerPrice - b.triggerPrice : b.triggerPrice - a.triggerPrice));
+  }
+
+  /**
+   * Ratchet every trailing stop for a mint up with a new high. The trigger
+   * follows the peak: peakPrice rises, triggerPrice = peak × (1 − trailPct).
+   * Returns true when any order's peak actually rose.
+   */
+  function updateTrailPeaks(state, mint, observedPrice) {
+    const price = Number(observedPrice);
+    if (!Number.isFinite(price) || price <= 0) return false;
+    let rose = false;
+    for (const o of ordersFor(state, mint)) {
+      if (o.kind !== 'trail') continue;
+      if (!(Number(o.peakPrice) > 0)) o.peakPrice = price;
+      if (price > o.peakPrice) {
+        o.peakPrice = price;
+        o.triggerPrice = price * (1 - (Number(o.trailPct) || 0) / 100);
+        rose = true;
+      }
+    }
+    return rose;
+  }
+
+  /**
+   * Arm the configured auto-exit set for a mint (DEFECT: s0berr — "presets
+   * for TP and SL and trailing SL so I don't have to set them after every
+   * buy"). Runs inside the buy mutation so a lost CAS race re-applies it.
+   * Existing auto:true orders are replaced — the set is re-based on the
+   * position's average entry, so adding to a bag moves the exits with it.
+   * Manual orders are untouched; MAX_ORDERS_PER_MINT still bounds the list
+   * (manual orders consume room first).
+   *
+   * @returns {{armed: number, skipped: number, orders: object[]}|null} null
+   *   when disabled, nothing open, or no reference price.
+   */
+  function armAutoExits(state, settings, mint, refPriceNative, refMcap, ts) {
+    const s = settings || {};
+    if (!s.autoExitsEnabled) return null;
+    const pos = state && state.positions && state.positions[mint];
+    if (!pos || !(pos.qty > EPS)) return null;
+    // The average entry of the surviving stack is the base the user actually
+    // owns the exits relative to.
+    const avgEntry = pos.qty > EPS && Number(pos.costSol) > 0
+      ? pos.costSol / pos.qty : Number(refPriceNative);
+    if (!(avgEntry > 0)) return null;
+    const supply = Number(refMcap) > 0 && Number(refPriceNative) > 0
+      ? Number(refMcap) / Number(refPriceNative) : null;
+    const atPrice = (p) => supply ? p * supply : null;
+
+    const specs = [];
+    if (Number(s.autoTp1Pct) > 0) specs.push({ kind: 'tp', pct: Number(s.autoTp1Pct), sizePct: s.autoTp1SizePct });
+    if (Number(s.autoTp2Pct) > 0) specs.push({ kind: 'tp', pct: Number(s.autoTp2Pct), sizePct: s.autoTp2SizePct });
+    if (Number(s.autoSlPct) > 0) specs.push({ kind: 'sl', pct: Number(s.autoSlPct), sizePct: s.autoSlSizePct });
+    if (Number(s.autoTrailPct) > 0) specs.push({ kind: 'trail', trailPct: Number(s.autoTrailPct), sizePct: s.autoTrailSizePct });
+
+    const manual = ordersFor(state, mint).filter((o) => !o.auto);
+    const room = Math.max(0, MAX_ORDERS_PER_MINT - manual.length);
+    const armed = [];
+    for (const sp of specs) {
+      if (armed.length >= room) break;
+      const raw = sp.kind === 'trail'
+        ? { kind: 'trail', trailPct: sp.trailPct, sizePct: sp.sizePct, auto: true }
+        : {
+          kind: sp.kind,
+          triggerPrice: sp.kind === 'tp' ? avgEntry * (1 + sp.pct / 100) : avgEntry * (1 - sp.pct / 100),
+          sizePct: sp.sizePct, auto: true,
+        };
+      const order = normalizeOrder(raw, avgEntry, ts);
+      if (!order) continue;
+      order.mint = mint;
+      order.triggerMcap = atPrice(order.triggerPrice);
+      armed.push(order);
+    }
+    if (!state.orders || typeof state.orders !== 'object') state.orders = {};
+    if (manual.length || armed.length) state.orders[mint] = [...manual, ...armed];
+    else delete state.orders[mint];
+    return { armed: armed.length, skipped: specs.length - armed.length, orders: armed };
   }
 
   /* -------------------- pending limit buys (N2) --------------------
@@ -2573,6 +2709,8 @@
     // Chart orders (take profit / stop loss)
     ORDER_KINDS,
     MAX_ORDERS_PER_MINT,
+    updateTrailPeaks,
+    armAutoExits,
     normalizeOrder,
     ordersFor,
     addOrder,
