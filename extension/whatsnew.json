@@ -1,42 +1,18 @@
 {
-  "version": "3.24.0",
-  "date": "2026-09-22",
+  "version": "3.25.0",
+  "date": "2026-09-24",
   "entries": [
     {
-      "title": "If the chart is showing a price, the trade goes through — even with the free RPC pool face down.",
-      "text": "The fill ladder has five lanes and all five can be empty at once: a quiet 1-second lowcap chart, a public Solana pool cooling down under 429s, an unreachable aggregator. Our own price service was already running and already trusted — but only as a *witness* against a suspicious price, never as a source of one. It now prices the fill when every other lane is dead, judged by the same honesty gates as anything else, and it can never vouch for itself. That is the \"I often can't make a purchase in time… generally only happens with low-market-cap coins\" report, and it explains why it only ever bit on lowcaps."
+      "title": "Axiom prices now come from Axiom's own live feed.",
+      "text": "Axiom streams each token's real-time price over its own socket in a compact format the extension simply did not read, so fills and P&L were priced from slower aggregator lanes that lag the chart you are watching. That is the \"can't buy/sell in real time\" report — and very likely the \"it shows a big profit right after I buy\" one: a stale quote makes a fresh fill look like an instant gain. The extension now reads the room feed for the exact pair on screen, verified live on a real Axiom session, and everything it does not understand still fails closed instead of guessing."
     },
     {
-      "title": "A refused fill no longer costs you the trade.",
-      "text": "A click was treated as one sample: if nothing could PROVE a price in that instant, the trade was dropped and the only recovery was reloading the page — \"I have to refresh the page a few times before I can sell\". A click is an intent now. It keeps asking for up to six seconds, with every gate re-running on every attempt, and fills the moment a provable price lands. Nothing fills at an unproven price; you just stop losing the exit."
+      "title": "When the free price connection is being refused, the extension says so — calmly, and where it helps.",
+      "text": "Keyless users had no way to learn why a brand-new coin took a while to price. Settings and the popup's Setup tab now show a quiet notice while the free pool is refusing, with the two-minute guide to a free personal endpoint that fixes it. It hides itself the moment the pool recovers or you save your own endpoint — never a toast, never anywhere near the buy button."
     },
     {
-      "title": "A buy chip can no longer buy an amount other than the one it says.",
-      "text": "Foreign-chain coins price in dollars, Solana in SOL — but the chips were only rebuilt on mount, so walking from a BSC coin back to a Solana one left dollar chips on a SOL panel: tapping \"$1000\" asked for 1000 SOL and got refused for balance, and the other direction quietly bought $2 instead of 2 SOL. The chips, the amount box's own prompt, and armed limit buys now all follow the coin in front of you — a \"$100\" limit locks the converted SOL, or refuses out loud when the rate is missing."
-    },
-    {
-      "title": "BSC and Robinhood pages are tradeable, not just visible.",
-      "text": "A foreign page the resolver never resolved showed a live price and then refused every buy with \"No SOL/USD rate for this chain\", because only the resolver ever recorded that rate. It now comes from the accepted tick itself, which already carries both legs. Axiom's Robinhood pages also never mounted at all: the route table only knew the long `robinhood` spelling while Axiom's own chain selector reads HOOD — both spellings mount now."
-    },
-    {
-      "title": "The update notice finally says the part that costs people their wallet.",
-      "text": "An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The on-chart update notice now tells you to back up first, where you will actually see it rather than only in the popup you skipped."
-    },
-    {
-      "title": "Open a second window and your order is still there when you close it.",
-      "text": "Two views on one wallet were not equal: the one that had gone stale could still write its whole copy over the newer one, because opening and closing a window is exactly what puts the extension's background worker to sleep — and a slow worker and a dead worker look identical from the page. A heartbeat now walks away instead of writing blind; only a real trade may insist. Armed limit buys and cancels were the worst of it: they rode the 800ms price-mark writer, which drops a write when the worker is slow and, when another window is ahead, adopts that window's wallet — throwing away the order it was called to save. The panel said \"armed\" over a wallet that had never heard of it. That is cheng.4848's \"after closing that window, the order disappeared\"."
-    },
-    {
-      "title": "The P&L you see is the P&L you get.",
-      "text": "The panel's Unrealized P&L left the buy fee out of your cost, so it ran ahead of what a sale actually returned — and the ledger on the same card showed a second, different number. Both now count the buy fee, a new \"If you sell now\" line shows exactly what selling at this price returns after fees, and partial sells add up to the round's final P&L instead of more. That is the \"my interface showed a profit of $50, but after selling I only received $20\" report. A click that is waiting on a price now says so instead of looking ignored, and shared cards no longer print the entry as a price and the exit as a market cap."
-    },
-    {
-      "title": "New coins stop drowning in dead free-RPC calls.",
-      "text": "The free Solana endpoints refuse the batch read that prices brand-new pairs — one demands a paid plan, another blocks it outright — and the extension kept asking, hundreds of refusals an hour, filling every debug report. It now stops asking an endpoint that refuses by policy, gives a new coin at most three tries on the free pool, and waits for the pool to recover instead of hammering it. A click on a coin nobody has indexed yet can now fill from our own price service instead of sitting armed forever. Debug reports fold the pool's refusals into one status line, so the errors that matter are visible again."
-    },
-    {
-      "title": "Padre shows your paper fills on its chart again.",
-      "text": "On today's Padre the chart never handed its candles to PaperTrench after it loaded, so there was no level to anchor to — no buy marker and no dashed average-fill line, silently, on v3.23.4 too. The chart now re-sends its data once PaperTrench is listening, so your buys and sells land as markers at the fill and the average line sits where you actually got in."
+      "title": "Loading this build by hand? Back up your paper wallet before you load a new folder.",
+      "text": "An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The reminder that shipped in v3.24.0 still applies: back up first, then load the update."
     }
   ]
 }

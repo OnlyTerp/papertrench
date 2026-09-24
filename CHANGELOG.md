@@ -3,6 +3,16 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.25.0 — 2026-09-24
+
+- **Axiom prices now come from Axiom's own live feed.** Axiom streams each token's real-time price over its own socket in a compact format the extension simply did not read, so fills and P&L were priced from slower aggregator lanes that lag the chart you are watching. That is the "can't buy/sell in real time" report — and very likely the "it shows a big profit right after I buy" one: a stale quote makes a fresh fill look like an instant gain. The extension now reads the room feed for the exact pair on screen, verified live on a real Axiom session, and everything it does not understand still fails closed instead of guessing.
+
+- **When the free price connection is being refused, the extension says so — calmly, and where it helps.** Keyless users had no way to learn why a brand-new coin took a while to price. Settings and the popup's Setup tab now show a quiet notice while the free pool is refusing, with the two-minute guide to a free personal endpoint that fixes it. It hides itself the moment the pool recovers or you save your own endpoint — never a toast, never anywhere near the buy button.
+
+- **Loading this build by hand? Back up your paper wallet before you load a new folder.** An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The reminder that shipped in v3.24.0 still applies: back up first, then load the update.
+
+Tested: extension 2640/2640, server 387/387, bot 20/20 green (3047 total).
+
 ## v3.24.0 — 2026-09-22
 
 - **If the chart is showing a price, the trade goes through — even with the free RPC pool face down.** The fill ladder has five lanes and all five can be empty at once: a quiet 1-second lowcap chart, a public Solana pool cooling down under 429s, an unreachable aggregator. Our own price service was already running and already trusted — but only as a *witness* against a suspicious price, never as a source of one. It now prices the fill when every other lane is dead, judged by the same honesty gates as anything else, and it can never vouch for itself. That is the "I often can't make a purchase in time… generally only happens with low-market-cap coins" report, and it explains why it only ever bit on lowcaps.
