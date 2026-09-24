@@ -1,14 +1,26 @@
 {
-  "version": "3.25.1",
+  "version": "3.26.0",
   "date": "2026-09-24",
   "entries": [
     {
-      "title": "Fixed a price glitch on some GMGN coins that let a buy book an instant ~40% profit.",
-      "text": "GMGN's chart reports market cap on a different token-supply basis than PaperTrench's price source on some coins (seen on a Robinhood-chain coin), so the panel price flickered ~30% for a second at a time and a buy in the dip showed instant fake profit. PaperTrench now learns each chart's own supply basis from live trade prices, so the panel, fills and the chart's average-fill line follow the price the site shows. Tested on the live coin: the panel stayed within 0.4% of GMGN for five minutes, and a buy followed by an immediate sell loses only the fee."
+      "title": "Back up your wallet BEFORE installing this update — one last time.",
+      "text": "This version gives PaperTrench a permanent identity, so future updates never wipe your wallet, whatever folder you load them from. But this one update still looks like a brand-new install: open the old version's popup → Setup → Backup wallet first; then unzip the update over the same folder and fully restart Chrome (this one time the reload button alone leaves PaperTrench looking dead); then restore the file from the card that opens."
     },
     {
-      "title": "Loading this build by hand? Back up your paper wallet before you load a new folder.",
-      "text": "An unpacked install loaded from a NEW folder is a new extension id, which is a new storage partition — indistinguishable, from the outside, from a deleted wallet. The reminder that shipped in v3.24.0 still applies: back up first, then load the update."
+      "title": "Automatic take profit / stop loss after every buy, plus trailing stops (Settings → Exits).",
+      "text": "Off by default; buying more re-bases them on your average entry; legs the price already passed are skipped, never fired. A trailing stop ratchets up with the highest price your coin actually reaches and fills at the real market price when it triggers — never at the level you set."
+    },
+    {
+      "title": "Trade open positions from the dashboard.",
+      "text": "Every row now shows the live price and has Sell / Buy / Chart buttons. A dashboard fill needs two independent price sources to agree within 3% and books the less favourable one, so the dashboard can never beat the chart."
+    },
+    {
+      "title": "GMGN: trade prints from thin or stale pools can no longer move the price.",
+      "text": "Each print is now tied to the pool it came from; prints from pools other than the dominant one must match its price within 3% while it is still trading, or they are ignored."
+    },
+    {
+      "title": "Fixed: after a take-profit, stop-loss or trailing-stop exit, the next manual buy on that coin could refuse for a few seconds.",
+      "text": "The exit's own fill is now counted as fresh market evidence, so re-buying works right away."
     }
   ]
 }
