@@ -212,6 +212,15 @@
   const OOB_REANCHOR_MIN_MS = 3000;
   let oobRejects = 0;
   let lastOobRequoteAt = 0;
+  // C-32: the page's cap feed can carry a different supply convention than
+  // the resolver anchor (GMGN mcap candles plot total supply; the anchor's
+  // cap may be circulating). calibrateChartSupply learns the chart's own
+  // supply from a direct price + a cap seen together; until it has one, the
+  // legacy anchor-ratio derivation stands.
+  let chartSupplyState = null;
+  // Freshest ACCEPTED direct-price tick { priceUsd, at } — the evidence leg
+  // calibrateChartSupply converts caps against.
+  let lastDirectTick = null;
   // Armed buys expire on QUIET, not on a clock alone (DEFECT F-16): while
   // validated mcap ticks prove the coin is actively trading, keep waiting for
   // the first fillable price. A hard cap still bounds the wait.
@@ -899,8 +908,16 @@
 
     let verdict = null;
     const anchor = tokenAnchor();
+    // C-32: every cap-carrying tick is calibration evidence — paired with the
+    // freshest accepted direct price it reveals the chart's supply convention.
+    if (Number(payload.mcap) > 0) {
+      chartSupplyState = Q.calibrateChartSupply(
+        chartSupplyState, Number(payload.mcap), lastDirectTick, anchor, Date.now());
+    }
+    const chartSupply = chartSupplyState && Number(chartSupplyState.supply) > 0
+      ? Number(chartSupplyState.supply) : null;
     if (Number(anchor && anchor.priceNative) > 0) {
-      verdict = Q.validateTick(anchor, payload);
+      verdict = Q.validateTick(anchor, payload, { chartSupply });
     } else {
       verdict = Q.bootstrapTick(token, payload, pendingSolUsd);
     }
@@ -955,6 +972,19 @@
         + ') rejected as scale-step vs accepted ' + lastAcceptedMarket.priceNative
         + ' — one tick may not re-scale the market (F-50)');
       return;
+    }
+
+    // C-32: a direct tick is calibration evidence for the cap feed's supply,
+    // and once calibrated its own cap is restated on the chart's convention —
+    // the headline MC stops flip-flopping between supply bases.
+    if (verdict.basis === 'usd' || verdict.basis === 'native') {
+      lastDirectTick = {
+        priceUsd: Number(verdict.priceUsd) > 0 ? Number(verdict.priceUsd) : null,
+        at: Date.now(),
+      };
+      if (chartSupply && Number(verdict.priceUsd) > 0) {
+        verdict.mcap = Number(verdict.priceUsd) * chartSupply;
+      }
     }
 
     const oldNative = Number(token.priceNative);
@@ -1028,6 +1058,8 @@
     if (tokenKey !== lastTokenKey) {
       lastTokenKey = tokenKey;
       acceptedTickCount = 0;
+      chartSupplyState = null;
+      lastDirectTick = null;
     }
     acceptedTickCount += 1;
 
@@ -1761,6 +1793,8 @@
     if (!data || data.mint !== prevMint) {
       lastMcapTickAt = 0;
       oobRejects = 0;
+      chartSupplyState = null;
+      lastDirectTick = null;
       hostSupplyRefusals.clear();
       hostSupplyRefusalCounts.clear();
     }
@@ -3742,10 +3776,11 @@
       if (site && site.id === 'gmgn') {
         // GMGN's TradingView symbol ends in `/USD/MCAP`: its Y axis is market
         // cap. Scale the USD fill prices by GMGN's live implied supply, but
-        // retain the true average token price in the line label.
-        const supply = Number(token.mcap) > 0 && Number(token.priceUsd) > 0
-          ? Number(token.mcap) / Number(token.priceUsd)
-          : null;
+        // retain the true average token price in the line label. The learned
+        // chart supply wins over the record's implied supply (C-32): the two
+        // conventions differ whenever the resolver's cap basis is not the
+        // chart's.
+        const supply = chartSupplyUi();
         // GMGN's own chart manager is available through its React-held
         // TradingView instance. Ask the MAIN-world bridge to use native
         // order lines so panning, zooming, and auto-scale stay exact.
@@ -10324,6 +10359,20 @@
     const nowMcap = Number(token.mcap);
     if (!(nowPrice > 0) || !(nowMcap > 0)) return null;
     return nowMcap * (priceNative / nowPrice);
+  }
+
+  /**
+   * The supply convention the page's own cap chart plots. When calibration
+   * (C-32) has seen a direct price and a cap together, that learned supply
+   * converts USD prices into the chart's cap units exactly; before it has,
+   * fall back to the token record's implied supply (the legacy behavior).
+   */
+  function chartSupplyUi() {
+    const learned = chartSupplyState && Number(chartSupplyState.supply);
+    if (learned > 0) return learned;
+    return Number(token && token.mcap) > 0 && Number(token.priceUsd) > 0
+      ? Number(token.mcap) / Number(token.priceUsd)
+      : null;
   }
 
   /** Entry figure in the unit traders actually use, price only as a fallback. */

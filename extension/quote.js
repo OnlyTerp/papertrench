@@ -915,6 +915,58 @@
   // epsilon) is required because these prices span 1e-9 .. 1e3.
   var ACCEPT_RATIO = 20;
 
+  // The chart's market cap can carry a DIFFERENT supply convention than the
+  // resolver anchor (GMGN's mcap candles plot ~1B total supply while the
+  // anchor's cap is on ~684M circulating): deriving a token price as
+  // anchorPrice × tickMcap/anchorMcap is then off by exactly that ratio, and
+  // interleaved direct-price ticks flip the panel between the two scales
+  // (DEFECT C-32, GMGN PONS 0.62⇄0.91). A direct price and a cap observed in
+  // the same instant are the same market twice — their ratio is the chart's
+  // own supply, learned here so cap ticks convert with the chart's
+  // convention instead of the anchor's.
+  var CHART_SUPPLY_WINDOW_MS = 3000;
+  var CHART_SUPPLY_SAMPLES = 5;
+
+  /**
+   * Update the chart-supply calibration with one cap-carrying tick.
+   *
+   * @param {object|null} state     prior { samples: number[], supply } (null ok)
+   * @param {number} tickMcap       USD market cap carried by the tick
+   * @param {object|null} direct    freshest ACCEPTED direct tick { priceUsd, at }
+   * @param {object} anchor         trusted token record { mcap, priceUsd }
+   * @param {number} now            ms timestamp
+   * @returns {{samples: number[], supply: number|null}}
+   */
+  function calibrateChartSupply(state, tickMcap, direct, anchor, now) {
+    var samples = state && Array.isArray(state.samples) ? state.samples.slice() : [];
+    var anchorMcap = anchor && Number(anchor.mcap);
+    var anchorUsd = anchor && Number(anchor.priceUsd);
+    var anchorSupply = anchorMcap > 0 && anchorUsd > 0 ? anchorMcap / anchorUsd : null;
+    var usable = Number(tickMcap) > 0
+      && direct && Number(direct.priceUsd) > 0
+      && Number.isFinite(Number(direct.at))
+      && Number.isFinite(Number(now))
+      && now - Number(direct.at) <= CHART_SUPPLY_WINDOW_MS
+      && anchorSupply > 0
+      // A cap outside the anchor band is a wrong-scale tick, not evidence.
+      && withinBand(Number(tickMcap), anchorMcap);
+    if (usable) {
+      var implied = Number(tickMcap) / Number(direct.priceUsd);
+      // An implied supply absurdly far from the anchor's is a different unit
+      // entirely (FDV-vs-price confusion), never a convention to adopt.
+      if (withinBand(implied, anchorSupply)) {
+        samples.push(implied);
+        while (samples.length > CHART_SUPPLY_SAMPLES) samples.shift();
+      }
+    }
+    var supply = null;
+    if (samples.length) {
+      var sorted = samples.slice().sort(function (a, b) { return a - b; });
+      supply = sorted[sorted.length >> 1];
+    }
+    return { samples: samples, supply: supply };
+  }
+
   /**
    * Decide whether a tick from the page's own feed may update the price.
    *
@@ -926,7 +978,7 @@
    * This is what stops a stray page number (the observed bogus 0.44 SOL against
    * a ~0.00000004 SOL token) from ever becoming a displayed or fill price.
    */
-  function validateTick(anchor, tick) {
+  function validateTick(anchor, tick, opts) {
     const reject = (reason) => ({
       accepted: false,
       reason,
@@ -983,13 +1035,27 @@
     // price movement. Validate against the trusted mcap anchor, then derive
     // both SOL and USD token prices from the ratio.
     const tickMcap = Number(tick.mcap);
+    const chartSupply = opts && Number(opts.chartSupply) > 0 ? Number(opts.chartSupply) : null;
     if (anchorMcap && tickMcap > 0 && withinBand(tickMcap, anchorMcap)) {
       nextMcap = tickMcap;
       if (nextNative === null && nextUsd === null) {
-        const ratio = tickMcap / anchorMcap;
-        nextNative = anchorNative * ratio;
-        nextUsd = anchorUsd ? anchorUsd * ratio : null;
-        basis = 'mcap';
+        if (chartSupply && anchorUsd) {
+          // C-32: the cap's own supply convention, learned from direct price
+          // evidence (calibrateChartSupply). Converting through it yields the
+          // price the chart actually plots, not anchor×ratio — on GMGN the
+          // two differ by the supply-convention ratio (1.46x on PONS).
+          const usd = tickMcap / chartSupply;
+          if (withinBand(usd, anchorUsd)) {
+            nextUsd = usd;
+            nextNative = anchorNative * (usd / anchorUsd);
+            basis = 'mcap';
+          }
+        } else {
+          const ratio = tickMcap / anchorMcap;
+          nextNative = anchorNative * ratio;
+          nextUsd = anchorUsd ? anchorUsd * ratio : null;
+          basis = 'mcap';
+        }
       }
     }
 
@@ -1817,6 +1883,7 @@
     witnessAgrees,
     onchainContradictsEvidence,
     scaleStepVerdict,
+    calibrateChartSupply,
     FILL_WITNESS_WINDOW_MS,
     FILL_WITNESS_RATIO,
     FILL_WITNESS_AGREE_RATIO,

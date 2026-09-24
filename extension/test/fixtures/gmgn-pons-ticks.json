@@ -1,0 +1,6272 @@
+[
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [],
+   "mcap": 622982820,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "source": "gmgn-mcap-candle"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 83982.69,
+     "unit": "unknown",
+     "key": "price",
+     "symbol": "BTC"
+    },
+    {
+     "value": 116.47,
+     "unit": "unknown",
+     "key": "price",
+     "symbol": "SOL"
+    },
+    {
+     "value": 777.495,
+     "unit": "unknown",
+     "key": "price",
+     "symbol": "BNB"
+    },
+    {
+     "value": 2664.71,
+     "unit": "unknown",
+     "key": "price",
+     "symbol": "ETH"
+    }
+   ],
+   "symbol": "BTC",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62298282,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6229828293698675,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6239323537118948,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622982829.3698674,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622982829.3698674,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623932353.7118949,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623932353.7118949,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6231770415832983,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623177041.5832983,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623177041.5832983,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.623133140250591,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623133140.2505909,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623133140.2505909,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6237465026796115,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623746502.6796116,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623746502.6796116,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6275116635906711,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 627511663.5906711,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 627511663.5906711,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 627511663.5906711,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 627511663.5906711,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62295826703937,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622958267.03937,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622958267.03937,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6258526872949521,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625852687.2949522,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625852687.2949522,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625852687.2949522,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 625852687.2949522,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6224260644187422,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622426064.4187422,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622426064.4187422,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 868,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622426064.4187422,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622426064.4187422,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 436,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6228798086489942,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622879808.6489942,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622879808.6489942,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6235691614494822,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623569161.4494822,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623569161.4494822,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 215,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6228115204947127,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622811520.4947127,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622811520.4947127,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1743,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62281152,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 5437,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622811520.4947127,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622811520.4947127,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622811520.4947127,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622811520.4947127,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.623282320370629,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623282320.3706291,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623282320.3706291,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 215,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6228209527472485,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622820952.7472484,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622820952.7472484,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1489,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6145548348465055,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 614554834.8465055,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 614554834.8465055,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1726,
+  "tick": {
+   "candidates": [
+    {
+     "value": 614554834.8465055,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 614554834.8465055,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6226125629134694,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622612562.9134694,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622612562.9134694,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 216,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.622548406326159,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622548406.326159,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622548406.326159,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1715,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622548406.326159,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622548406.326159,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2607,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6229390872909427,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622939087.2909427,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622939087.2909427,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 877,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62264165078937,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 224,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622641650.78937,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622641650.78937,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 419,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62264165,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 625,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6225470575418632,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622547057.5418632,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622547057.5418632,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6237622974560004,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623762297.4560004,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623762297.4560004,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1519,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623762297.4560004,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 623762297.4560004,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2980,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623762297.4560004,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 623762297.4560004,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 642,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6223847069317017,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622384706.9317017,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622384706.9317017,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2156,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622384706.9317017,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622384706.9317017,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 874,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6251903783666062,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622384706.9317017,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622384706.9317017,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625190378.3666062,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625190378.3666062,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1492,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6225315088333594,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622531508.8333594,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622531508.8333594,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1727,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622531508.8333594,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622531508.8333594,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 443,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6226785825454917,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622678582.5454917,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622678582.5454917,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6231034494352723,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623103449.4352723,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623103449.4352723,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 216,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6253484827412186,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625348482.7412186,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625348482.7412186,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 430,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.622162742008407,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622162742.008407,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622162742.008407,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1722,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622162742.008407,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622162742.008407,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 346,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6012697425810475,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622162742.008407,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622162742.008407,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62216274,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1229,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219962171951164,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621996217.1951164,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621996217.1951164,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1949,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621996217.1951164,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621996217.1951164,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 433,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.626911272592202,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626911272.5922021,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626911272.5922021,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621822536.5095311,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621822536.5095311,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 432,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6250447377532669,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625044737.7532668,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625044737.7532668,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 225,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6250335378547636,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625033537.8547635,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625033537.8547635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1722,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625033537.8547635,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 625033537.8547635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1538,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6250209606956932,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625020960.6956933,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625020960.6956933,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1094,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6250096399954591,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625009639.9954591,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625009639.9954591,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 437,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6227106800284709,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622710680.0284709,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622710680.0284709,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 868,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6225295244374117,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622529524.4374117,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622529524.4374117,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 219,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6266442812484376,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626644281.2484376,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626644281.2484376,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 384,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6263802280911619,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626380228.0911618,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626380228.0911618,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622127985.9519233,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622127985.9519233,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6206706549649056,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620670654.9649056,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620670654.9649056,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6249984823527248,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624998482.3527248,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624998482.3527248,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 222,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6227150385221002,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622715038.5221002,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622715038.5221002,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.621255194610718,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621255194.610718,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621255194.610718,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1925,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621255194.610718,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621255194.610718,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 635,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6223613598496252,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622361359.8496251,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622361359.8496251,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 429,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6249849877118433,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624984987.7118433,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624984987.7118433,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 426,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6222617226027696,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622261722.6027696,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622261722.6027696,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 220,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6222553674375262,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622255367.4375262,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622255367.4375262,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6249319712203038,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 219,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624931971.2203038,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624931971.2203038,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62493197,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 343,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.622147074390659,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622147074.390659,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622147074.390659,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6209075739222885,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620907573.9222884,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620907573.9222884,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 435,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.624847344499356,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624847344.499356,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624847344.499356,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624808407.6106652,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624808407.6106652,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6261913988319332,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626191398.8319331,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626191398.8319331,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6247552512683527,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624755251.2683527,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624755251.2683527,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1923,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624755251.2683527,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 624755251.2683527,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1091,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6215562327247849,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621556232.7247849,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621556232.7247849,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1524,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621556232.7247849,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621556232.7247849,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 438,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6263468604453313,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626346860.4453313,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626346860.4453313,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1735,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626346860.4453313,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626346860.4453313,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 877,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6214363149918726,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621436314.9918725,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621436314.9918725,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621923855.8929573,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621923855.8929573,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 216,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219023038847851,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621902303.884785,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621902303.884785,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6246733142137585,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624673314.2137585,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624673314.2137585,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 647,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6222698073834453,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622269807.3834453,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622269807.3834453,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 852,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6208539586100371,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620853958.6100371,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620853958.6100371,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1729,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620853958.6100371,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620853958.6100371,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1514,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6246568282710899,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624656828.2710899,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624656828.2710899,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1300,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62465682,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 624,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624656828.2710899,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 624656828.2710899,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1074,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6246394777299732,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624639477.7299732,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624639477.7299732,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 864,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6218421101174163,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621842110.1174163,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621842110.1174163,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6215964764915106,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621596476.4915106,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621596476.4915106,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 221,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6215785560256485,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621578556.0256485,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621578556.0256485,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620314120.4871585,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620314120.4871585,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 646,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6245354178507003,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624535417.8507004,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624535417.8507004,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 440,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6203943703016797,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620394370.3016796,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620394370.3016796,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 211,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6244642851461631,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624464285.1461631,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624464285.1461631,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 643,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6206702217286746,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620670221.7286745,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620670221.7286745,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624450628.7005805,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624450628.7005805,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 213,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6244196942512708,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624419694.2512708,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624419694.2512708,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1734,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624419694.2512708,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 624419694.2512708,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 425,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6212180354508174,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621218035.4508175,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621218035.4508175,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1088,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6222033777171295,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622203377.7171295,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622203377.7171295,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 220,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6202817739025627,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620281773.9025626,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620281773.9025626,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1734,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620281773.9025626,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620281773.9025626,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2790,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620281773.9025626,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620281773.9025626,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1718,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62028177,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1202,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6272680373657923,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 627268037.3657923,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 627268037.3657923,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1708,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6243843769548417,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624384376.9548417,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624384376.9548417,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1686,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624384376.9548417,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 624384376.9548417,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1516,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6215480953173793,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621548095.3173794,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621548095.3173794,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1959,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621548095.3173794,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621548095.3173794,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 858,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6222753477824778,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621548095.3173794,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621548095.3173794,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622275347.7824779,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622275347.7824779,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 425,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6243665299518892,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624366529.9518893,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624366529.9518893,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 222,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6208495167285405,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1938,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2818,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 656,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62084951,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 2417,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2551,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2822,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2820,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2802,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620849516.7285405,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620849516.7285405,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 866,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6210071997666825,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621007199.7666825,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621007199.7666825,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 870,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62084951,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1219,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621007199.7666825,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621007199.7666825,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2592,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621007199.7666825,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621007199.7666825,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2813,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621007199.7666825,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621007199.7666825,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2158,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6218657288421423,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621865728.8421423,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621865728.8421423,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2144,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621865728.8421423,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621865728.8421423,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2784,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621865728.8421423,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621865728.8421423,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 220,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6211569882739774,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621156988.2739774,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621156988.2739774,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 211,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219288249979998,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621928824.9979998,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621928824.9979998,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 440,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62097988849994,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620979888.49994,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620979888.49994,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 436,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62097988,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 910,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6243406416175421,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624340641.6175421,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624340641.6175421,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1930,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624340641.6175421,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 624340641.6175421,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2604,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219897124052979,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 232,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621989712.4052979,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621989712.4052979,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62633946455204,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626339464.55204,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626339464.55204,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 434,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6261296703380922,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1711,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2799,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2789,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1508,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62612967,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1209,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2782,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626129670.3380922,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626129670.3380922,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1939,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6243393013840355,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624339301.3840355,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624339301.3840355,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 652,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6214136104570903,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1740,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2817,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2604,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1307,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62141361,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1524,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2808,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6206257281994884,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621413610.4570903,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621413610.4570903,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620625728.1994884,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620625728.1994884,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1942,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620625728.1994884,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620625728.1994884,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2805,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620625728.1994884,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620625728.1994884,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2378,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6216961310826928,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621696131.0826929,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621696131.0826929,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1729,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621696131.0826929,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621696131.0826929,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1510,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62169613,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1542,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621696131.0826929,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621696131.0826929,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2609,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621696131.0826929,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621696131.0826929,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2797,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621696131.0826929,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621696131.0826929,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2151,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6261942357419172,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626194235.7419173,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626194235.7419173,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2164,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626194235.7419173,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 626194235.7419173,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 644,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6230167739092427,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 623016773.9092427,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 623016773.9092427,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1088,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6261825773306029,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626182577.3306029,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626182577.3306029,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621791960.3171173,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621791960.3171173,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 438,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6215271084256371,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621527108.4256371,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621527108.4256371,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 225,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6209190110041188,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620919011.0041188,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620919011.0041188,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620992041.8056461,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620992041.8056461,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621703881.7230073,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621703881.7230073,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 654,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.620000940407341,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620000940.407341,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620000940.407341,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 427,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6243308871026255,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 624330887.1026255,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 624330887.1026255,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6194446417394541,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619444641.7394542,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619444641.7394542,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62433088,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1857,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619444641.7394542,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619444641.7394542,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2789,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619444641.7394542,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619444641.7394542,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2799,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619444641.7394542,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619444641.7394542,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1933,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6208791005810939,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620879100.5810939,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620879100.5810939,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1478,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620879100.5810939,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620879100.5810939,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 217,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6254241677088628,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625424167.7088628,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625424167.7088628,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1947,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625424167.7088628,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 625424167.7088628,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1055,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6253062229954705,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 625306222.9954704,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 625306222.9954704,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1183,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62530622,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6197331984658527,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619733198.4658527,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619733198.4658527,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1955,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619733198.4658527,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619733198.4658527,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2824,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619733198.4658527,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619733198.4658527,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 215,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.622248638282746,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622248638.282746,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622248638.282746,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1926,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622248638.282746,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622248638.282746,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2791,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622248638.282746,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622248638.282746,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1938,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6269201815157753,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622248638.282746,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622248638.282746,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 626920181.5157753,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 626920181.5157753,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1085,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6200387815031256,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620038781.5031257,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620038781.5031257,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1730,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620038781.5031257,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620038781.5031257,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 429,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62003878,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 2469,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620038781.5031257,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620038781.5031257,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 221,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6199764214531723,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619976421.4531723,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619976421.4531723,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6203430364513868,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 223,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620343036.4513868,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620343036.4513868,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1721,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620343036.4513868,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620343036.4513868,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2810,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620343036.4513868,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620343036.4513868,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 852,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6198596714213209,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619859671.4213209,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619859671.4213209,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1952,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619859671.4213209,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 619859671.4213209,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 438,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6199908884637655,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619990888.4637655,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619990888.4637655,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619896077.4516389,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619896077.4516389,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 231,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6199933542114441,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 619993354.2114441,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 619993354.2114441,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6209296447745256,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 223,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620929644.7745256,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620929644.7745256,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6203798856016064,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620379885.6016064,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620379885.6016064,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1744,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620379885.6016064,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620379885.6016064,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1970,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6202014234821672,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620201423.4821672,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620201423.4821672,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62037988,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 345,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6203122998380284,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620312299.8380284,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620312299.8380284,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 431,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6204512253581929,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620451225.3581928,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620451225.3581928,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 219,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6205973723289611,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620597372.328961,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620597372.328961,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1936,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620597372.328961,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620597372.328961,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6210031924577079,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621003192.4577079,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621003192.4577079,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1529,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6207165641398816,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620716564.1398816,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620716564.1398816,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1944,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620716564.1398816,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620716564.1398816,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 438,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.620777676746005,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620777676.746005,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620777676.746005,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1300,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6212095202287454,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621209520.2287455,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621209520.2287455,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 635,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6214310529328684,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621431052.9328684,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621431052.9328684,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1074,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6210029402811673,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621002940.2811673,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621002940.2811673,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1515,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621002940.2811673,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621002940.2811673,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6203417199178528,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 223,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620341719.9178528,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620341719.9178528,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1958,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620341719.9178528,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620341719.9178528,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1526,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62034171,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 1226,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6211822189771385,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621182218.9771385,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621182218.9771385,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1515,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621182218.9771385,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621182218.9771385,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2569,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6220770192566262,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622077019.2566261,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622077019.2566261,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6205636359092248,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620563635.9092249,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620563635.9092249,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2159,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620563635.9092249,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 620563635.9092249,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1494,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6214218280645352,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621421828.0645351,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621421828.0645351,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2131,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621421828.0645351,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621421828.0645351,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2356,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6214385325151248,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621438532.5151248,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621438532.5151248,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1491,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62143853,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 319,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621438532.5151248,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621438532.5151248,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 874,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219414776827011,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621941477.6827011,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621941477.6827011,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1066,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6208291576265106,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 620829157.6265106,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 620829157.6265106,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 212,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6217095718621167,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621709571.8621167,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621709571.8621167,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 432,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6213164172706978,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621316417.2706977,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621316417.2706977,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2369,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621316417.2706977,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621316417.2706977,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1957,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6220623292625357,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 224,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621316417.2706977,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621316417.2706977,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622062329.2625357,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622062329.2625357,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 211,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6210060895654319,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 0,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621006089.565432,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621006089.565432,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1729,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621006089.565432,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621006089.565432,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 654,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6213340337060635,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621334033.7060635,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 621334033.7060635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 2175,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621334033.7060635,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621334033.7060635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2774,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621334033.7060635,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621334033.7060635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.62133403,
+     "unit": "unknown",
+     "key": "price"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "name": "Pons",
+   "source": "xhr"
+  }
+ },
+ {
+  "dt": 2773,
+  "tick": {
+   "candidates": [
+    {
+     "value": 621334033.7060635,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 621334033.7060635,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1502,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6220253875258449,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ },
+ {
+  "dt": 1,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622025387.5258449,
+     "unit": "unknown",
+     "key": "padreChartClose"
+    }
+   ],
+   "mcap": 622025387.5258449,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "padre-chart-bar"
+  }
+ },
+ {
+  "dt": 1959,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622025387.5258449,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622025387.5258449,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2805,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622025387.5258449,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622025387.5258449,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 2821,
+  "tick": {
+   "candidates": [
+    {
+     "value": 622025387.5258449,
+     "unit": "unknown",
+     "key": "chartExportClose"
+    }
+   ],
+   "mcap": 622025387.5258449,
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "chart-export"
+  }
+ },
+ {
+  "dt": 1281,
+  "tick": {
+   "candidates": [
+    {
+     "value": 0.6219742925609035,
+     "unit": "usd",
+     "key": "tokenActivityPriceUsd"
+    }
+   ],
+   "mint": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+   "symbol": "PONS",
+   "source": "gmgn-ws-trade"
+  }
+ }
+]
