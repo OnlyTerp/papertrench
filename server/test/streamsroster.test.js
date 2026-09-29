@@ -45,7 +45,7 @@ function makeElement(id) {
  * the documented "hand-maintained list stands alone" path) and hand back the
  * elements it rendered into.
  */
-async function bootPage() {
+async function bootPage(search = '') {
   const els = new Map();
   const getEl = (id) => {
     if (!els.has(id)) els.set(id, makeElement(id));
@@ -89,7 +89,7 @@ async function bootPage() {
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     URLSearchParams,
     URL,
-    location: { href: 'https://papertrench.com/streams', search: '' },
+    location: { href: 'https://papertrench.com/streams' + search, search },
     navigator: { userAgent: 'node' },
   };
   sandbox.window = sandbox;
@@ -147,4 +147,29 @@ test('the roster carries no duplicate identities', async () => {
   assert.ok(channels.length >= 6, 'every roster entry links somewhere');
   assert.equal(new Set(channels).size, channels.length,
     'each channel gets exactly one card');
+});
+
+test('a ?channel= deep link can name a Kick creator, not only a Twitch login', async () => {
+  // The parameter shipped matching Twitch logins only, so the one Kick
+  // streamer on the roster could not be linked to at all. The player below
+  // mounts because the offline probes are offline in this harness — which is
+  // exactly the pinned deep-link path.
+  const { els } = await bootPage('?channel=ark1317');
+  const player = els.get('playerFrame');
+  assert.ok(player && player.innerHTML.includes('player.kick.com/ark1317'),
+    'the Kick deep link must feature the Kick channel in the player');
+
+  // And the host-prefixed spelling is the same link.
+  const { els: prefixed } = await bootPage('?channel=kick.com/Ark1317');
+  assert.ok(prefixed.get('playerFrame').innerHTML.includes('player.kick.com/ark1317'),
+    'kick.com/<slug> normalizes to the same deep link');
+});
+
+test('a deep link that names nobody falls through to the normal opening pick', async () => {
+  const { els } = await bootPage('?channel=notonthelist');
+  const player = els.get('playerFrame');
+  // Somebody (the pick, whoever it is) still renders — a bad link is not a
+  // dead page. The pick prefers a platform with a live signal.
+  assert.ok(player && /player\.(kick|twitch)\.com\//.test(player.innerHTML),
+    'an unknown channel must leave the player populated as usual');
 });

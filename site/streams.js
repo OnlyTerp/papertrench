@@ -88,6 +88,10 @@
 
   const LIVE_POLL_MS = 60000;
 
+  // The tab itself announces live — a pinned tab is where this page spends
+  // its life, and the poll already knows the answer.
+  const BASE_TITLE = (typeof document !== 'undefined' && document.title) || 'PaperTrench';
+
   /* ------------------------------------------------------------------ */
 
   // Twitch embeds require the hosting domain as `parent`. Deriving it from
@@ -328,6 +332,10 @@
     s = s.replace(/^@/, '');
     const m = s.match(/twitch\.tv\/([a-z0-9_]+)/);
     if (m) s = m[1];
+    // Kick deep links ride the same parameter, so its host strips too —
+    // "?channel=kick.com/ark1317" and "?channel=ark1317" are one link.
+    const k = s.match(/kick\.com\/([a-z0-9_]+)/);
+    if (k) s = k[1];
     // Trim URL remnants only — anything else (spaces, punctuation) must fail
     // the test below, not get salvaged into a plausible-looking login.
     s = s.split(/[/?#]/)[0];
@@ -732,6 +740,7 @@
     // The pill only goes red when something is genuinely live — a permanently
     // red "LIVE" dot on an empty roster is the cheapest kind of lie.
     $('liveCount').classList.toggle('on', liveCount > 0);
+    document.title = liveCount > 0 ? `▶ ${liveCount} live — ${BASE_TITLE}` : BASE_TITLE;
 
     // Put a live channel in the player unless the viewer picked one themself.
     // orderedRoster() already sorts live to the front, so its first entry IS
@@ -758,9 +767,12 @@
     const requested = normalizeLogin(new URLSearchParams(location.search).get('channel'));
 
     const pickFeatured = () => {
-      // ?channel=<login> stays a Twitch deep link — it shipped that way and
-      // the links are in the wild.
-      const asked = requested && roster.find((s) => s.login === requested);
+      // ?channel=<login> shipped as a Twitch deep link, so a Kick creator
+      // could not be linked to at all — the parameter simply had no second
+      // platform to match. It now tries the Twitch login first (the links in
+      // the wild are Twitch), then the Kick slug.
+      const asked = requested && (roster.find((s) => s.login === requested)
+        || roster.find((s) => platformOf(s) === PLATFORMS.kick && embedHandle(s) === requested));
       if (asked) {
         userPinned = true;
         featured = keyOf(asked);
