@@ -44,6 +44,7 @@
   const BIRDEYE_HOST_RE = /(^|\.)birdeye\.so$/;
   const JUP_HOST_RE = /(^|\.)jup\.ag$/;
   const LUTE_HOST_RE = /(^|\.)lute\.gg$/;
+  const DEBOT_HOST_RE = /(^|\.)debot\.ai$/;
   // Jupiter's swap routes name the quote side too — SOL/USDC/USDT are the
   // pair's other half, never the token the user meant to open.
   const QUOTE_MINTS = new Set([
@@ -191,6 +192,14 @@
       return { family: 'lute', kind: 'token', url: 'https://lute.gg' + path + url.search };
     }
 
+    if (DEBOT_HOST_RE.test(host)) {
+      // debot.ai/token/solana/<mint> — the solana slug only, same gate as
+      // GMGN and fomo here; feed and tracker routes never warm-route (O-10).
+      const m = path.match(/^\/token\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[/?#])/);
+      if (!m) return null;
+      return { family: 'debot', kind: 'token', url: 'https://debot.ai' + path + url.search };
+    }
+
     if (SOLSCAN_HOSTS.has(host)) {
       const m = path.match(/^\/(token|account|address|tx)\/([^/?#]+)/);
       if (!m) return null;
@@ -233,6 +242,7 @@
     if (BIRDEYE_HOST_RE.test(h)) return 'birdeye';
     if (JUP_HOST_RE.test(h)) return 'jupiter';
     if (LUTE_HOST_RE.test(h)) return 'lute';
+    if (DEBOT_HOST_RE.test(h)) return 'debot';
     return null;
   }
 
@@ -257,6 +267,7 @@
     ['birdeye', 'https://birdeye.so'],
     ['jupiter', 'https://jup.ag'],
     ['lute', 'https://lute.gg'],
+    ['debot', 'https://debot.ai'],
   ];
 
   // x.com is the warm X viewer's destination and the most-clicked link on
