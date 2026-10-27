@@ -151,7 +151,7 @@
   // Expanded URLs are only mined on hosts where a base58 path/query segment
   // IS a token or pair address. A generic scan would false-positive on
   // random web IDs (Drive links and the like), and a wrong CA chip is a lie.
-  const CA_HOST_RE = /(^|\.)(pump\.fun|dexscreener\.com|gmgn\.ai|birdeye\.so|axiom\.trade|bullx\.io|tinyastro\.io|jup\.ag|solscan\.io|raydium\.io|meteora\.ag|geckoterminal\.com|dextools\.io|bags\.fm|letsbonk\.fun|fomo\.family|lute\.gg)$/i;
+  const CA_HOST_RE = /(^|\.)(pump\.fun|dexscreener\.com|gmgn\.ai|birdeye\.so|axiom\.trade|bullx\.io|tinyastro\.io|jup\.ag|solscan\.io|raydium\.io|meteora\.ag|geckoterminal\.com|dextools\.io|bags\.fm|letsbonk\.fun|fomo\.family|lute\.gg|debot\.ai)$/i;
 
   function casFromText(text) {
     const out = [];

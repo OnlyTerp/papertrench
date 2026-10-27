@@ -140,6 +140,27 @@ const MATRIX = [
   ['https://lute.gg/', 'lute', null, null, 'landing page is not a token page'],
   ['https://lute.gg/login', 'lute', null, null, 'login page must not mount (O-10)'],
   ['https://lute.gg/signup', 'lute', null, null, 'signup page must not mount (O-10)'],
+  // DeBot (debot.ai) — multichain, token pages at /token/<slug>/<address>.
+  // Every slug and address below was captured from the live site 2026-10-27.
+  ['https://debot.ai/token/solana/DJTu7vi8norVzdVAffgvb39VP7wjKeTsgaMBJrzfxvoF', 'debot', 'mint', 'DJTu7vi8norVzdVAffgvb39VP7wjKeTsgaMBJrzfxvoF', 'live-captured solana token page'],
+  ['https://debot.ai/token/solana/' + MINT + '?ref=abc', 'debot', 'mint', MINT, 'query strings do not change the route'],
+  ['https://debot.ai/token/bsc/0x4902c5ebc598265ed2212b559b042de8a5eeec3f', 'debot', 'mint', '0x4902c5ebc598265ed2212b559b042de8a5eeec3f', 'live-captured bsc token page'],
+  ['https://debot.ai/token/base/0x4cfcdd76df7f00f7f7d911263947a9b5ed0b0fe5', 'debot', 'mint', '0x4cfcdd76df7f00f7f7d911263947a9b5ed0b0fe5', 'live-captured base token page'],
+  ['https://debot.ai/token/eth/0xe60e9bd04ccc0a394f1fdf29874e35a773cb07f4', 'debot', 'mint', '0xe60e9bd04ccc0a394f1fdf29874e35a773cb07f4', 'live-captured eth token page'],
+  ['https://debot.ai/token/base/' + EVM_B58ISH, 'debot', 'mint', EVM_B58ISH, 'a base58-passing EVM address routes to BASE, never read as a mint (O-11)'],
+  ['https://debot.ai/token/eth/' + MINT, 'debot', null, null, 'a base58 mint under an EVM slug is refused (O-11, shape-strict)'],
+  ['https://debot.ai/token/solana/0x4902c5ebc598265ed2212b559b042de8a5eeec3f', 'debot', null, null, 'an EVM address under the solana slug is refused (O-11, shape-strict)'],
+  ['https://debot.ai/token/xlayer/0x4902c5ebc598265ed2212b559b042de8a5eeec3f', 'debot', null, null, 'an advertised but never-captured slug fails closed'],
+  ['https://debot.ai/', 'debot', null, null, 'home feed is not a token page'],
+  ['https://debot.ai/?chain=solana', 'debot', null, null, 'home feed is not a token page'],
+  ['https://debot.ai/meme?chain=solana', 'debot', null, null, 'trenches feed must not mount (O-10)'],
+  ['https://debot.ai/hot?chain=solana', 'debot', null, null, 'trending feed must not mount (O-10)'],
+  ['https://debot.ai/track?chain=solana', 'debot', null, null, 'wallet tracker must not mount (O-10)'],
+  ['https://debot.ai/favorite?chain=solana', 'debot', null, null, 'watchlist must not mount (O-10)'],
+  ['https://debot.ai/asset?chain=solana', 'debot', null, null, 'the user\'s own assets must not mount (O-10)'],
+  ['https://debot.ai/copyOrder/history?chain=solana', 'debot', null, null, 'copy-trade history must not mount (O-10)'],
+  ['https://debot.ai/perps/trading?chain=solana', 'debot', null, null, 'perps page is not a spot token page'],
+  ['https://debot.ai/referral', 'debot', null, null, 'referral page must not mount (O-10)'],
 ];
 
 test('overlay presence matrix: every audited URL shape gates correctly', () => {
@@ -163,6 +184,12 @@ test('overlay presence matrix: every audited URL shape gates correctly', () => {
       if (id === 'lute' && got.token) {
         assert.equal(got.token.chain, 'solana',
           `${href}: lute is Solana-only`);
+      }
+      // DeBot speaks its own slugs; the record must carry the CANONICAL chain.
+      if (id === 'debot') {
+        const canonical = { solana: 'solana', bsc: 'bnb', base: 'base', eth: 'ethereum' };
+        assert.equal(got.token.chain, canonical[href.match(/\/token\/([a-z0-9]+)\//)[1]],
+          `${href}: the detected chain must be the canonical name for the URL slug`);
       }
     }
   }

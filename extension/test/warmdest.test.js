@@ -523,6 +523,13 @@ test('the classifier routes the main terminals token pages and refuses their oth
   assert.equal(WD.classify(`https://www.lute.gg/trade/${MINT}`).url,
     `https://lute.gg/trade/${MINT}`, 'www canonicalizes to the bare host');
 
+  const debot = WD.classify(`https://debot.ai/token/solana/${MINT}?ref=abc`);
+  assert.equal(debot && debot.family, 'debot');
+  assert.equal(debot.url, `https://debot.ai/token/solana/${MINT}?ref=abc`,
+    'query passes byte-for-byte');
+  assert.equal(WD.classify(`https://www.debot.ai/token/solana/${MINT}`).url,
+    `https://debot.ai/token/solana/${MINT}`, 'www canonicalizes to the bare host');
+
   // The O-10/O-11 discipline carries over: wallet/portfolio/EVM routes and
   // the terminals own list pages must never warm-route.
   for (const href of [
@@ -539,6 +546,15 @@ test('the classifier routes the main terminals token pages and refuses their oth
     'https://lute.gg/trade/compass',
     'https://lute.gg/trade',
     'https://lute.gg/login',
+    // DeBot: only the solana slug warm-routes, like GMGN and fomo; its feed,
+    // tracker and history routes never do.
+    'https://debot.ai/token/bsc/0x4902c5ebc598265ed2212b559b042de8a5eeec3f',
+    `https://debot.ai/token/eth/${MINT}`,
+    'https://debot.ai/token/solana/0x4902c5ebc598265ed2212b559b042de8a5eeec3f',
+    'https://debot.ai/?chain=solana',
+    'https://debot.ai/meme?chain=solana',
+    'https://debot.ai/track?chain=solana',
+    'https://debot.ai/copyOrder/history?chain=solana',
   ]) {
     assert.equal(WD.classify(href), null, `${JSON.stringify(href)} must not classify`);
   }
@@ -548,6 +564,7 @@ test('the classifier routes the main terminals token pages and refuses their oth
   assert.equal(WD.familyOfHost('gmgn.ai'), 'gmgn');
   assert.equal(WD.familyOfHost('fomo.family'), 'fomo');
   assert.equal(WD.familyOfHost('lute.gg'), 'lute');
+  assert.equal(WD.familyOfHost('debot.ai'), 'debot');
 });
 
 test('terminal viewers are never pre-created — first click pays, then it is warm', async () => {
@@ -671,6 +688,7 @@ test('preconnect targets cover every family exactly once, plus x.com (Turbo III)
     ['birdeye', `https://birdeye.so/token/${MINT}?chain=solana`],
     ['jupiter', `https://jup.ag/tokens/${MINT}`],
     ['lute', `https://lute.gg/trade/${MINT}`],
+    ['debot', `https://debot.ai/token/solana/${MINT}`],
   ];
   const origins = new Map();
   for (const [family, href] of samples) {
@@ -681,11 +699,11 @@ test('preconnect targets cover every family exactly once, plus x.com (Turbo III)
     assert.match(origin, /^https:\/\/[^/]+$/, 'canonical origins carry no path');
     origins.set(family, origin);
   }
-  assert.equal(origins.size, 12, 'twelve families, twelve distinct origins');
+  assert.equal(origins.size, 13, 'thirteen families, thirteen distinct origins');
 
   // From a neutral page every origin plus the X origins is wanted.
   const neutral = WD.preconnectTargets('example.com');
-  assert.equal(neutral.length, 15);
+  assert.equal(neutral.length, 16);
   assert.ok(neutral.includes('https://x.com'), 'x.com is always included');
   assert.ok(neutral.includes('https://pbs.twimg.com'), 'viewer images ride along');
   assert.ok(neutral.includes('https://abs.twimg.com'), 'viewer static assets ride along');
@@ -698,7 +716,7 @@ test('preconnect targets cover every family exactly once, plus x.com (Turbo III)
   for (const [family, href] of samples) {
     const host = new URL(href).hostname;
     const targets = WD.preconnectTargets(host);
-    assert.equal(targets.length, 14, `exactly one exclusion on ${host}`);
+    assert.equal(targets.length, 15, `exactly one exclusion on ${host}`);
     assert.ok(!targets.includes(origins.get(family)), `own origin excluded on ${host}`);
     assert.ok(targets.includes('https://x.com'), 'x.com survives the filter');
   }

@@ -397,17 +397,21 @@
   // user's own average is not a market price", one layer out. Anonymous
   // live-tape pushes ({price, ts} with no id or attribution) stay eligible.
   const TRADE_EVENT_TYPE_RE = /^(swap|trade|buy|sell)/i;
+  // The short spellings (`op`, `tx`, `trader`) are a captured trade-tape row's
+  // own keys: {op: 'buy', tx: <signature>, trader: <wallet>, price, ...}
+  // (debot.ai /api/dashboard/dex/latest/by_token, 2026-10-27).
   function looksLikeTradeEvent(node) {
-    const type = node.type || node.eventType || node.txType;
+    const type = node.type || node.eventType || node.txType || node.op;
     const typed = typeof type === 'string' && TRADE_EVENT_TYPE_RE.test(type);
     const hasEventId = typeof node.tradeId === 'string' || typeof node.txId === 'string'
       || typeof node.txHash === 'string' || typeof node.signature === 'string'
-      || typeof node.transactionHash === 'string';
+      || typeof node.transactionHash === 'string' || typeof node.tx === 'string';
     // Attribution can be flat (userId on the row) or NESTED — fomo's holder
     // rows carry a whole `user` object; either way the record is about a
     // PERSON's trade, and its prices are that person's history.
     const attributed = typeof node.userId === 'string' || typeof node.userHandle === 'string'
       || typeof node.displayName === 'string' || typeof node.maker === 'string'
+      || typeof node.trader === 'string'
       || (node.user !== null && typeof node.user === 'object');
     return (typed && (hasEventId || attributed)) || (hasEventId && attributed);
   }

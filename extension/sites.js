@@ -133,6 +133,15 @@
   const AXIOM_CHAIN_BY_SLUG = { sol: 'solana', bnb: 'bnb', eth: 'ethereum', robinhood: 'robinhood', hood: 'robinhood' };
   const AXIOM_SLUG_BY_CHAIN = { solana: 'sol', bnb: 'bnb', ethereum: 'eth', robinhood: 'robinhood' };
 
+  // DeBot (live-verified 2026-10-27, logged OUT, in-app browser): token pages
+  // are debot.ai/token/<slug>/<address>, and the slugs below are the ones its
+  // own feed links carried after switching ?chain= on the home page — solana
+  // (base58), bsc, base and eth (0x40-hex). The site also advertises X Layer,
+  // Polygon and Arbitrum, but no token link for those was captured, so they
+  // fail closed until one is.
+  const DEBOT_CHAIN_BY_SLUG = { solana: 'solana', bsc: 'bnb', base: 'base', eth: 'ethereum' };
+  const DEBOT_SLUG_BY_CHAIN = { solana: 'solana', bnb: 'bsc', base: 'base', ethereum: 'eth' };
+
   /**
    * Validate an address against the shape its OWN chain uses, and return the
    * detection record. This is how O-11 survives multichain: instead of one
@@ -496,6 +505,24 @@
       detect: () => {
         const m = location.pathname.match(/^\/trade\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[\/?#])/);
         return m ? { kind: 'mint', address: m[1], chain: 'solana' } : null;
+      },
+    },
+    {
+      id: 'debot',
+      name: 'DeBot',
+      tokenUrl: (mint, pairAddress, chain) => 'https://debot.ai/token/'
+        + (DEBOT_SLUG_BY_CHAIN[chain || 'solana'] || 'solana') + '/' + mint,
+      match: (h) => /(^|\.)debot\.ai$/.test(h),
+      // debot.ai/token/<slug>/<address> carries the token MINT (the pools
+      // payload on that page lists the same address as `token.address`).
+      // Every other captured route — /, /meme, /hot, /track, /favorite,
+      // /asset, /callout, /copyOrder/history, /perps/trading, /referral —
+      // is a feed, a tracker or the user's own book and never mounts (O-10).
+      // Shape-strictness per slug carries O-11, as on GMGN.
+      detect: () => {
+        const m = location.pathname.match(/^\/token\/([a-z0-9]+)\/([A-Za-z0-9]+)(?:$|[/?#])/);
+        if (!m) return null;
+        return tokenForSlug(DEBOT_CHAIN_BY_SLUG, m[1], m[2]);
       },
     },
   ];

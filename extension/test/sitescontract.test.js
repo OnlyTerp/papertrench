@@ -59,6 +59,7 @@ const PAGES = [
   ['fomo', `https://fomo.family/tokens/solana/${MINT}`],
   ['pumpfun', `https://pump.fun/coin/${MINT}`],
   ['lute', `https://lute.gg/trade/${MINT}`],
+  ['debot', `https://debot.ai/token/solana/${MINT}`],
 ];
 
 test('every shipped adapter detects a token page into the promised shape', () => {
