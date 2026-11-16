@@ -108,6 +108,7 @@ export function makeCommands(d) {
     async refresh() {
       d.spend('refresh');
       await d.main.reload({ waitUntil: 'domcontentloaded' });
+      d.pageMainHash = d.mainWorldHash();
       await d.wait(2500);
       return { url: d.main.url() };
     },
@@ -120,7 +121,6 @@ export function makeCommands(d) {
       const gen = 'ld' + Date.now();
       await d.swEval((g) => { self.__ldGen = g; return 1; }, gen);
       const old = d.sw;
-      d.spend('reload-ext');
       await old.evaluate((g) => {
         if (self.__ldGen !== g) throw new Error('worker restarted before the reload was sent');
         setTimeout(() => chrome.runtime.reload(), 50);
@@ -139,14 +139,29 @@ export function makeCommands(d) {
       }
       d.sw = fresh;
       d.loadedBuild = disk;
-      // Content scripts of the old build are orphaned: one refresh of the same tab, like a person would.
-      await d.main.reload({ waitUntil: 'domcontentloaded' });
-      await d.wait(3000);
+      // No page load. The extension re-injects its isolated scripts into open
+      // tabs on reload (reinjectOpenTabs), the same path a user's update takes.
+      // Wait for the new content script to speak on this page.
+      let contentBack = null;
+      for (const until = Date.now() + 20_000; Date.now() < until && !contentBack; await d.wait(300)) {
+        // 'standdown' is the OLD script tearing down; anything else is the new one.
+        const ev = d.ring.find((e) => e.t > t0 && e.src === 'papertrench-content' && e.type !== 'standdown');
+        if (ev) contentBack = { type: ev.type, afterMs: ev.t - t0 };
+      }
+      const hosts = await d.main.evaluate(() => document.querySelectorAll('#papertrench-host').length).catch(() => null);
+      const bridgeStale = d.pageMainHash !== d.mainWorldHash();
       const st = await readState();
-      return { loaded: d.loadedBuild, reloadMs: Date.now() - t0, journalEntries: (st.journal || []).length, positions: Object.keys(st.positions || {}).length };
+      return {
+        loaded: d.loadedBuild, reloadMs: Date.now() - t0, pageReloaded: false,
+        contentBack, overlayHosts: hosts,
+        // Page-world files changed since this page loaded: their new code runs
+        // only after a refresh. Ask the person at the window to press F5.
+        bridgeStale,
+        journalEntries: (st.journal || []).length, positions: Object.keys(st.positions || {}).length,
+      };
     },
 
-    /** Go somewhere on the same site: click a matching link if one is on screen, else a counted same-tab load. */
+    /** Go somewhere on the same site by clicking a matching link on screen; refused if there is none. */
     async open({ path: target }) {
       if (!target) throw new d.Refusal('BAD_ARGS', 'open needs --path');
       const href = sameSiteTarget(d.main.url(), target);
@@ -165,10 +180,8 @@ export function makeCommands(d) {
         await d.wait(1500);
         return { method: 'click', url: d.main.url() };
       }
-      d.spend('load');
-      await d.main.goto(href, { waitUntil: 'domcontentloaded' });
-      await d.wait(2500);
-      return { method: 'load', url: d.main.url() };
+      // Never a typed-URL load: people get around by clicking.
+      throw new d.Refusal('NOT_ON_SCREEN', `no visible link to ${u.pathname}${u.search}; navigate by clicks (open-row, back) instead`);
     },
 
     /** History back/forward, refused when it would leave the site (e.g. to the

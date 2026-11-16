@@ -120,6 +120,17 @@ const cdp = await ctx.browser().newBrowserCDPSession();
 const loaded = await cdp.send('Extensions.loadUnpacked', { path: EXT });
 const EXT_ID = loaded.id;
 let loadedBuild = buildOnDisk();
+// Page-world scripts (price-bridge etc.) only change with a new document;
+// an extension reload re-injects the isolated scripts but leaves these as
+// they were when the page last loaded.
+function mainWorldHash() {
+  const m = JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8'));
+  const files = [...new Set((m.content_scripts || []).filter((c) => c.world === 'MAIN').flatMap((c) => c.js || []))].sort();
+  const h = crypto.createHash('sha256');
+  for (const f of files) { h.update(f); h.update(fs.readFileSync(path.join(EXT, f))); }
+  return h.digest('hex').slice(0, 12);
+}
+let pageMainHash = null;
 
 async function extensionWorker(timeoutMs = 15_000) {
   const t0 = Date.now();
@@ -271,6 +282,7 @@ const D = {
   ctx, main, pageCdp, EXT_ID, STATE_DIR, ring, tabEvents, lastByType, budget,
   get sw() { return sw; }, set sw(v) { sw = v; },
   get loadedBuild() { return loadedBuild; }, set loadedBuild(v) { loadedBuild = v; },
+  mainWorldHash, get pageMainHash() { return pageMainHash; }, set pageMainHash(v) { pageMainHash = v; },
   get blocked() { return blocked; },
   buildOnDisk, swEval, spend, wait, Refusal, shutdown: () => shutdown(),
 };
@@ -324,7 +336,10 @@ const server = http.createServer((req, res) => {
 server.listen(0, '127.0.0.1', async () => {
   const port = server.address().port;
   // First load of the session: the start page, in the tab Chrome opened.
+  // The one load the driver starts itself: the extension can only be added
+  // after Chrome is up, so the session's first page comes after it.
   await main.goto(START_URL, { waitUntil: 'domcontentloaded' }).catch((e) => record({ kind: 'nav', type: 'nav-error', payload: { error: e.message } }));
+  pageMainHash = mainWorldHash();
   await wait(3000);
   await checkChallenge();
   writeState({ phase: 'ready', port, extId: EXT_ID, build: loadedBuild, startedAt: Date.now() });

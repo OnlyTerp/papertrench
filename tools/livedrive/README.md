@@ -16,10 +16,16 @@ Rules it enforces (not conventions):
 - **Code changes don't relaunch Chrome.** Commands live in `commands.mjs`,
   which the daemon re-imports on every call. Only `daemon.mjs` changes need a
   relaunch.
-- **Move like a person.** `open` clicks a matching link on screen when there is
-  one; otherwise it does a same-tab load on the same site. Full loads
-  (`refresh`, URL load, `reload-ext`, and Chrome launches) spend a rolling
-  budget, 5 per 10 minutes by default (`LIVEDRIVE_NAV_MAX`,
+- **Move like a person: clicks, never typed URLs.** `open` clicks a matching
+  link on screen and refuses when there is none; `open-row` and `back` /
+  `forward` move the same way. `reload-ext` reloads the extension without
+  reloading the page: the extension re-injects its own scripts into the open
+  tab, the same path a user's update takes. If the page-world scripts
+  (price-bridge etc.) changed, it reports `bridgeStale` and the person at the
+  window presses F5. Bot checks on this setup followed driver-started page
+  loads, so the only ones left are the session's first page (the extension
+  can only be added after Chrome is up) and an explicit `refresh`. They spend a
+  rolling budget, 5 per 10 minutes by default (`LIVEDRIVE_NAV_MAX`,
   `LIVEDRIVE_NAV_WINDOW_MS`). Chrome launches also have their own cap, 2 per
   hour (`LIVEDRIVE_LAUNCH_MAX`, `LIVEDRIVE_LAUNCH_WINDOW_MS`). Both budgets
   are saved on disk, so restarting the daemon doesn't reset them.
@@ -45,7 +51,7 @@ Rules it enforces (not conventions):
 ```
 node tools/livedrive/livedrive.mjs start
 node tools/livedrive/livedrive.mjs status
-node tools/livedrive/livedrive.mjs reload-ext                 # reload extension + one refresh
+node tools/livedrive/livedrive.mjs reload-ext                 # reload extension, no page load
 node tools/livedrive/livedrive.mjs refresh
 node tools/livedrive/livedrive.mjs open --path /pulse?chain=sol
 node tools/livedrive/livedrive.mjs open-row --mint <MINT>     # click a Pulse row

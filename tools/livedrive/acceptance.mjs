@@ -49,7 +49,7 @@ const ticks = step('row-tick feed', 'events', '--types', 'row-tick', '--wait', '
 check('row-tick events arriving', ticks.out && ticks.out.count > 0, { count: ticks.out && ticks.out.count });
 
 // Chip taps on coins with NO position (the case that hung on 2026-11-16):
-// once on the live board, once as the first action after a refresh.
+// once on the live board, once as the first action after an extension reload.
 function chipBuy(label) {
   const buy = step(label, 'chip-buy', '--unheld', '--filter', 'pump$');
   const o = buy.out || {};
@@ -59,11 +59,16 @@ function chipBuy(label) {
 }
 if (chips.length) {
   chipBuy('chip buy, unheld coin');
-  step('refresh', 'refresh');
-  chipBuy('chip buy, first action after refresh');
+  // Extension reload with NO page load: the new content script must come back
+  // on its own (the extension re-injects it), exactly once.
+  const rx = step('reload extension (no page load)', 'reload-ext').out || {};
+  check('reload-ext: page not reloaded, content script back, one overlay', rx.pageReloaded === false && !!rx.contentBack && rx.overlayHosts === 1, rx);
+  chipBuy('chip buy, first action after extension reload');
 }
 
-const target = chips[1] || chips[0];
+// Rows move: pick from what is on screen now, not the list from the start.
+const nowChips = step('list chips again', 'chips', '--filter', 'pump$').out.chips || [];
+const target = nowChips[1] || nowChips[0] || chips[0];
 if (target) {
   const open = step('open coin by clicking its row', 'open-row', '--mint', target.mint);
   check('row click opened the coin in this tab', open.code === 0 && /\/(token|meme|t)\//.test(open.out.url || ''), open.out);
@@ -82,7 +87,9 @@ check('negative control: popup caught as TAB_INVARIANT', neg.code === 3, neg.out
 const s1 = ld('status').out;
 check('one tab at the end', s1.pages === 1, { pages: s1.pages });
 check('only the negative control opened a tab', s1.tabs.driverOpened - opened0 === 1, { opened: s1.tabs.driverOpened - opened0 });
-check('page loads within budget', s1.navBudget.used <= s1.navBudget.max, s1.navBudget);
+// The run itself loads no page: every move is a click or history step.
+// (A rolling window can only shrink the count when nothing new is spent.)
+check('no page loads during the run', s1.navBudget.used <= s0.navBudget.used, { before: s0.navBudget.used, after: s1.navBudget.used });
 check('no bot check at the end', !s1.blocked, s1.blocked);
 
 console.log(failed ? 'ACCEPTANCE: FAIL' : 'ACCEPTANCE: PASS');
