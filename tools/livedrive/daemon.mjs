@@ -137,13 +137,25 @@ const pages = ctx.pages();
 const main = pages[0] || await ctx.newPage(); // the only newPage in this file: an empty profile window
 const tabEvents = { driverOpened: 0, extensionOpened: 0, startupExtra: 0, log: [] };
 for (const extra of pages.slice(1)) { tabEvents.startupExtra++; await extra.close().catch(() => {}); }
-ctx.on('page', (p) => {
+// Who opened it decides whose fault it is: a tab whose opener is our tab came
+// from the page (a click, window.open) and breaks the one-tab rule; a tab with
+// no opener came from the extension or browser (chrome.tabs.create, e.g. the
+// chart tab PaperTrench opens after a list buy that starts a new position).
+// Both are closed; only the first fails the command.
+tabEvents.pending = 0;
+ctx.on('page', async (p) => {
   if (p === main) return;
-  const url = p.url();
-  const fromExtension = url.startsWith('chrome-extension://');
-  if (fromExtension) tabEvents.extensionOpened++; else tabEvents.driverOpened++;
-  tabEvents.log.push({ t: Date.now(), url, fromExtension });
-  p.close().catch(() => {});
+  tabEvents.pending++;
+  try {
+    const opener = await p.opener().catch(() => null);
+    const url = p.url();
+    const fromPage = opener === main;
+    if (fromPage) tabEvents.driverOpened++; else tabEvents.extensionOpened++;
+    tabEvents.log.push({ t: Date.now(), url, opener: fromPage ? 'page' : 'none' });
+    if (tabEvents.log.length > 50) tabEvents.log.shift();
+    record({ kind: 'tab', type: 'tab-opened', payload: { url, opener: fromPage ? 'page' : 'none' } });
+    await p.close().catch(() => {});
+  } finally { tabEvents.pending--; }
 });
 
 // ---- passive recorders (installed once, survive navigation) -----------------
@@ -277,6 +289,7 @@ function run(name, args) {
     const t0 = Date.now();
     const result = await fn(args || {});
     await wait(150); // let a stray popup surface before counting
+    for (let i = 0; i < 20 && tabEvents.pending > 0; i++) await wait(50);
     if (!SITE_SAFE.has(name)) await checkChallenge();
     if (tabEvents.driverOpened > before) throw new Refusal('TAB_INVARIANT', `${name} opened ${tabEvents.driverOpened - before} extra tab(s); closed`, tabEvents.log.slice(-3));
     if (ctx.pages().length > 1) await wait(300);

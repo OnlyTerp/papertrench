@@ -48,11 +48,19 @@ check('Pulse chips visible', chips.length > 0, { n: chips.length });
 const ticks = step('row-tick feed', 'events', '--types', 'row-tick', '--wait', '6000', '--limit', '1');
 check('row-tick events arriving', ticks.out && ticks.out.count > 0, { count: ticks.out && ticks.out.count });
 
-if (chips[0]) {
-  const buy = step('chip buy', 'chip-buy', '--index', '0', '--filter', 'pump$', '--watch', '10000');
+// Chip taps on coins with NO position (the case that hung on 2026-11-16):
+// once on the live board, once as the first action after a refresh.
+function chipBuy(label) {
+  const buy = step(label, 'chip-buy', '--unheld', '--filter', 'pump$');
   const o = buy.out || {};
-  const outcome = (o.fills && o.fills.length) ? 'filled' : (o.toasts && o.toasts.length ? 'messaged' : 'silent');
-  check('chip tap ends in a fill or a message (never silent)', outcome !== 'silent', { rowMc: o.rowMcAtTap, fills: o.fills, toasts: o.toasts });
+  check(`${label}: ends in a fill or a message (never silent)`, o.endState === 'filled' || o.endState === 'message',
+    { endState: o.endState, endMs: o.endMs, rowMc: o.rowMcAtTap, outcome: o.outcome, fills: (o.fills || []).map((f) => ({ mcap: Math.round(f.mcap), src: f.priceSource, vsRow: f.vsRow })), toasts: o.toasts });
+  return o;
+}
+if (chips.length) {
+  chipBuy('chip buy, unheld coin');
+  step('refresh', 'refresh');
+  chipBuy('chip buy, first action after refresh');
 }
 
 const target = chips[1] || chips[0];

@@ -113,23 +113,37 @@ export function makeCommands(d) {
     },
 
     async 'reload-ext'() {
-      d.spend('reload-ext');
-      const before = d.sw;
+      // Prove the reload really happened before stamping the disk build as
+      // loaded: tag the live worker, send the reload from THAT worker, and
+      // accept only a worker that comes up without the tag.
       const disk = d.buildOnDisk();
-      await before.evaluate(() => chrome.runtime.reload()).catch(() => {});
+      const gen = 'ld' + Date.now();
+      await d.swEval((g) => { self.__ldGen = g; return 1; }, gen);
+      const old = d.sw;
+      d.spend('reload-ext');
+      await old.evaluate((g) => {
+        if (self.__ldGen !== g) throw new Error('worker restarted before the reload was sent');
+        setTimeout(() => chrome.runtime.reload(), 50);
+        return 1;
+      }, gen);
       const t0 = Date.now();
-      for (;;) {
-        const w = d.ctx.serviceWorkers().find((s) => s !== before && s.url().startsWith(`chrome-extension://${d.EXT_ID}/`));
-        if (w) { d.sw = w; break; }
+      let fresh = null;
+      while (!fresh) {
         if (Date.now() - t0 > 20_000) throw new Error('extension did not come back after reload');
-        await d.wait(250);
+        await d.wait(300);
+        for (const w of d.ctx.serviceWorkers()) {
+          if (w === old || !w.url().startsWith(`chrome-extension://${d.EXT_ID}/`)) continue;
+          const tag = await w.evaluate(() => self.__ldGen || null).catch(() => 'dead');
+          if (tag === null) { fresh = w; break; }
+        }
       }
+      d.sw = fresh;
       d.loadedBuild = disk;
       // Content scripts of the old build are orphaned: one refresh of the same tab, like a person would.
       await d.main.reload({ waitUntil: 'domcontentloaded' });
       await d.wait(3000);
       const st = await readState();
-      return { loaded: d.loadedBuild, journalEntries: (st.journal || []).length, positions: Object.keys(st.positions || {}).length };
+      return { loaded: d.loadedBuild, reloadMs: Date.now() - t0, journalEntries: (st.journal || []).length, positions: Object.keys(st.positions || {}).length };
     },
 
     /** Go somewhere on the same site: click a matching link if one is on screen, else a counted same-tab load. */
@@ -193,22 +207,43 @@ export function makeCommands(d) {
     async chips({ filter }) { return { chips: await listChips(filter) }; },
 
     /** Tap a Pulse row's quick-buy chip and report what got booked against what the row showed. */
-    async 'chip-buy'({ mint, index = 0, filter, watch = 6000 }) {
-      const chips = await listChips(filter);
+    async 'chip-buy'({ mint, index = 0, filter, unheld = false, watch = 70_000 }) {
+      // Judged by END STATE, not a fixed window: a fill, a message from the
+      // extension, or the timeout (an armed buy can legitimately wait ~60 s).
+      let chips = await listChips(filter);
+      if (unheld) {
+        const held = new Set(Object.keys((await readState()).positions || {}));
+        chips = chips.filter((c) => !held.has(c.mint));
+      }
       const target = mint ? chips.find((c) => c.mint === mint) : chips[Number(index)];
       if (!target) throw new d.Refusal('NOT_FOUND', 'no matching visible chip', { visible: chips.map((c) => [c.mint.slice(0, 6), c.mc]) });
       const mcText = await rowMcap(target.mint);
       const t0 = Date.now();
       await d.main.mouse.click(target.x, target.y);
-      const fills = await watchFills(target.mint, t0, Number(watch));
-      await d.wait(500);
+      const deadline = t0 + Number(watch);
+      let fills = [], endState = 'timeout', outcome = null;
+      const END_TOAST = /released|expired|refused|disagree|couldn|failed|needs a real tap|queue full|not enough|guard/i;
+      while (Date.now() < deadline) {
+        fills = (await journalFor(target.mint, t0, 5)).map(fillView);
+        if (fills.length) { endState = 'filled'; break; }
+        const line = eventsSince(t0, ['console']).map((e) => /row-buy source=(\S+) outcome=(\S+)/.exec(e.payload.text)).filter(Boolean).pop();
+        if (line) outcome = { source: line[1], outcome: line[2] };
+        const msg = eventsSince(t0, ['toast']).map((e) => e.payload.text).find((t) => END_TOAST.test(t));
+        if (msg) { endState = 'message'; break; }
+        await d.wait(300);
+      }
+      await d.wait(300);
       const rowMcUsd = parseMcap(mcText);
       return {
         mint: target.mint,
         rowMcAtTap: mcText,
+        endState,
+        endMs: Date.now() - t0,
+        outcome,
         fills: fills.map((f) => ({ ...f, vsRow: rowMcUsd && f.mcap ? +(f.mcap / rowMcUsd).toFixed(4) : null })),
         bridge: eventsSince(t0, ['row-buy']).map((e) => e.payload),
         toasts: eventsSince(t0, ['toast']).map((e) => e.payload.text),
+        console: eventsSince(t0, ['console']).filter((e) => e.payload.world !== 'page').map((e) => e.payload.text.slice(0, 240)).slice(-8),
         build: d.loadedBuild,
       };
     },
