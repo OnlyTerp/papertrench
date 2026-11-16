@@ -26,8 +26,12 @@ Rules it enforces (not conventions):
 - **Bot checks freeze it.** Before and after every site action, and every
   5 s, the page is checked for a Cloudflare challenge. While one is up, site
   commands return `BLOCKED` (exit 2) and a screenshot lands in
-  `shots/blocked.png`. The driver never touches the challenge; a person
-  clears it in the window, and the next status check notices.
+  `shots/blocked.png`. The driver never clicks or solves the challenge; a
+  person clears it in the window, and the next status check notices. The
+  page recorder and the 5 s check still run while it is up (they read the
+  title, URL and text), so the driver is not invisible to the challenge page.
+  Every challenge so far came right after a full page load; whether the
+  automation itself draws them is unknown.
 - **Background-safe.** Clicks go through the browser, not the OS cursor, so
   you can keep working. The window may sit behind others; `status` reports
   `visibility` and per-event ages so throttling shows up instead of being
