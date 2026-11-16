@@ -219,6 +219,11 @@ export function makeCommands(d) {
       if (!target) throw new d.Refusal('NOT_FOUND', 'no matching visible chip', { visible: chips.map((c) => [c.mint.slice(0, 6), c.mc]) });
       const mcText = await rowMcap(target.mint);
       const t0 = Date.now();
+      // The Pulse worker's last print for this coin before the tap, so a fill
+      // can be judged against the row AND the feed that priced it.
+      const feed = d.ring.filter((e) => e.type === 'row-tick' && e.t < t0
+        && (e.payload?.mint === target.mint || e.payload?.pairAddress === target.mint)).pop();
+      const feedAtTap = feed ? { mcap: feed.payload.mcap, ageMs: t0 - feed.t } : null;
       await d.main.mouse.click(target.x, target.y);
       const deadline = t0 + Number(watch);
       let fills = [], endState = 'timeout', outcome = null;
@@ -237,6 +242,7 @@ export function makeCommands(d) {
       return {
         mint: target.mint,
         rowMcAtTap: mcText,
+        feedAtTap,
         endState,
         endMs: Date.now() - t0,
         outcome,
