@@ -1651,3 +1651,37 @@ test('a chip quote that agrees with the tapped row still fills (control)', async
   await waitFor(() => harness.getState().journal.length === 1);
   assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
 });
+
+test('a board feed that disagrees with the tapped row falls back to the resolver, not the feed', async () => {
+  // Axiom Pulse worker, live 2026-11-16: most rows priced to the dollar, a
+  // few 2-3x off (MONKEYS feed $12.0K vs row $6.07K). The tapped row's own
+  // print is the referee: a disagreeing feed is ignored and the click still
+  // fills on the resolver path instead of being refused.
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 100_000);
+  harness.noteRowPrice({ mint: B, candidates: [{ unit: 'usd', value: 230 }], mcap: 230_000 });
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  const fill = harness.getState().journal[0];
+  assert.equal(Math.round(Number(fill.mcap)), 100_000, 'booked at the resolver, not the 2.3x feed');
+  assert.ok(fill.priceSource && fill.priceSource !== 'row-feed',
+    `the receipt names the source that priced it (got ${fill.priceSource})`);
+});
+
+test('a board feed that agrees with the tapped row prices the fill (control)', async () => {
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 105_000);
+  harness.noteRowPrice({ mint: B, candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000 });
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  const fill = harness.getState().journal[0];
+  assert.equal(Math.round(Number(fill.mcap)), 105_000);
+  // F-48 receipts for chip fills too: which source priced it and how old the
+  // price was, so a wrong-price report is a journal lookup.
+  assert.equal(fill.priceSource, 'row-feed');
+  assert.ok(Number.isFinite(fill.priceAgeMs) && fill.priceAgeMs >= 0, `price age recorded (got ${fill.priceAgeMs})`);
+});

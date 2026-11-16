@@ -582,6 +582,8 @@
     if (event.origin && event.origin !== location.origin) return;
     const ev = event.data;
     if (ev.type === 'tick') { noteRowPrice(ev.payload); handlePageTick(ev.payload); }
+    // Axiom Pulse worker row prices: board rows only, never the page token's feed.
+    else if (ev.type === 'row-tick') noteRowPrice(ev.payload);
     else if (ev.type === 'facts') handleHostFacts(ev.payload);
     else if (ev.type === 'row-buy') {
       // A quick-buy chip injected by the MAIN-world bridge was tapped; the
@@ -7745,6 +7747,19 @@
   // refused, visibly — live 2026-11-16 a chip booked Jupiter's $708K on a
   // row printing $16.5M, showing a fake +2235%. Refuse only: the row text
   // is never used to price a fill.
+  /** The row the trader TAPPED printed its own MC (rowTapMcaps). A board
+   * feed that disagrees with that print by more than 15% is describing
+   * something else (Axiom Pulse worker, live 2026-11-16: most rows exact to
+   * the dollar, a few 2-3x off) — the caller falls through to the resolver
+   * instead of booking it. No tap on record, or no feed cap: no veto. */
+  function rowFeedAgreesWithTap(address, live) {
+    const tap = address ? rowTapMcaps.get(address) : null;
+    if (!tap || !live || !(Number(live.mcap) > 0)) return true;
+    if (Date.now() - tap.at >= ROW_TAP_MCAP_TTL_MS) return true;
+    const cap = Number(live.mcap);
+    return Math.max(cap / tap.mcap, tap.mcap / cap) <= 1.15;
+  }
+
   function rowTapMcapAgrees(address, data, timing) {
     const tap = rowTapMcaps.get(address);
     if (!tap || Date.now() - tap.at >= ROW_TAP_MCAP_TTL_MS || !(Number(data.mcap) > 0)) return true;
@@ -7921,6 +7936,7 @@
   async function rowLivePrice(addr) {
     const live = recentRowPrices.get(addr);
     if (!live || !(live.usd > 0) || Date.now() - live.at >= ROW_PRICE_TTL_MS) return null;
+    if (!rowFeedAgreesWithTap(addr, live)) return null;
     const rate = await R.solUsd().catch(() => 0);
     if (!(rate > 0)) return null;
     return {
@@ -7929,6 +7945,7 @@
       symbol: live.symbol || null,
       name: live.name || null,
       mcap: live.mcap || null,
+      at: live.at,
     };
   }
 
@@ -8157,6 +8174,10 @@
     // so it never gates.
     const ROW_ANCHOR_MAX_AGE_MS = 120_000;
     if (!rowPrint || !(rowPrint.usd > 0) || Date.now() - rowPrint.at > ROW_ANCHOR_MAX_AGE_MS) return true;
+    // A board print that contradicts the row the trader actually tapped is
+    // not an anchor; the tapped print itself still referees the quote
+    // (rowTapMcapAgrees, in fillRowBuy).
+    if (!rowFeedAgreesWithTap(address, rowPrint)) return true;
     const rate = Number(data.priceUsd) / Number(data.priceNative);
     const rowNative = rate > 0 ? rowPrint.usd / rate : 0;
     if (!(rowNative > 0)) return true;
@@ -8271,6 +8292,10 @@
           solAmount: amount,
           priceNative: data.priceNative, priceUsd: data.priceUsd, mcap: data.mcap,
           ...(feeContextForOrder() || {}),
+          // F-48 receipts for chip fills too: which source priced the fill
+          // and how old that price was at commit.
+          priceSource: data.priceSource || 'resolver',
+          priceAgeMs: Number(data.priceAt) > 0 ? Math.max(0, Date.now() - Number(data.priceAt)) : null,
         });
         if (standInKey) filled.position.standInKey = true;
         filled.opened = opened;
@@ -8363,13 +8388,14 @@
         const live = (data.mint && recentRowPrices.get(data.mint))
           || (data.pairAddress && recentRowPrices.get(data.pairAddress))
           || recentRowPrices.get(armed.address);
-        if (data.priceSource !== 'row-props'
+        if (data.priceSource !== 'row-props' && rowFeedAgreesWithTap(armed.address, live)
             && live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
           const scale = live.usd / Number(data.priceUsd);
           data.priceUsd = live.usd;
           data.priceNative = Number(data.priceNative) * scale;
           if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
           data.priceSource = 'row-feed';
+          data.priceAt = live.at;
         }
         // Serialize only the commit. The armed resolver cascade must stay free
         // to retry while a direct click is pricing or filling.
@@ -8481,6 +8507,7 @@
           priceUsd: validRowQuote.priceUsd || null,
           mcap: validRowQuote.mcapUsd || null,
           priceSource: 'row-props',
+          priceAt: t0, // the row's own props, read at the tap
         };
       } else {
         const fresh = await Promise.race([
@@ -8494,6 +8521,7 @@
             priceNative: fresh.priceNative, priceUsd: fresh.priceUsd,
             mcap: fresh.mcap || null,
             priceSource: 'row-feed',
+            priceAt: fresh.at,
           };
         } else {
           try {
@@ -8508,7 +8536,7 @@
                       mint: address, pairAddress: null,
                       symbol: row.symbol, name: row.name,
                       priceNative: row.priceNative, priceUsd: row.priceUsd, mcap: row.mcap || null,
-                      priceSource: 'row-feed',
+                      priceSource: 'row-feed', priceAt: row.at,
                     };
                   }
                 }
@@ -8587,7 +8615,7 @@
       const live = (data.mint && recentRowPrices.get(data.mint))
         || (data.pairAddress && recentRowPrices.get(data.pairAddress))
         || (address && recentRowPrices.get(address));
-      if (data.priceSource !== 'row-props'
+      if (data.priceSource !== 'row-props' && rowFeedAgreesWithTap(address, live)
           && live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceUsd) > 0) {
         // F-59: the cap rides the price. The old override rewrote
         // priceUsd/priceNative and left `mcap` at the resolver's stale
@@ -8599,6 +8627,7 @@
         data.priceNative = Number(data.priceNative) * scale;
         if (Number(data.mcap) > 0) data.mcap = Number(data.mcap) * scale;
         data.priceSource = 'row-feed';
+        data.priceAt = live.at;
       }
       timing.priceSource = data.priceSource;
 

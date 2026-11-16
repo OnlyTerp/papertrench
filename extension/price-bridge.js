@@ -1142,6 +1142,102 @@
     try { window.SharedWorker = WrappedSharedWorker; } catch (_) {}
   }
 
+  // Axiom Unified Pulse (live recon 2026-11-16): rows carry no price in their
+  // React props — they are fed by a dedicated `PulseWorker.unified-*.js`
+  // Worker posting OUTPUT_BATCH messages. TABLE_REPLACE items and insert ops
+  // map pairAddress -> tokenAddress + supply; patch ops set `marketCap` in
+  // the pair's QUOTE-token units, with `quoteTokenPriceUsd` alongside. Without
+  // this tap chip buys priced from the resolver/Jupiter and drifted 5-30% on
+  // fast coins (410ldv, ticket-0016/0017). Passive: one message listener on
+  // the page's own worker object, nothing posted to it, nothing modified.
+  const OriginalWorker = window.Worker;
+  if (typeof OriginalWorker === 'function' && /(^|\.)axiom\.trade$/.test(bridgeHostname)) {
+    const pulsePairs = new Map(); // pairAddress -> { mint, supply, mcapQuote, quoteUsd, symbol, name }
+    const pendingRowTicks = new Map(); // mint -> payload, coalesced per flush
+    let rowTickTimer = null;
+    const flushRowTicks = () => {
+      rowTickTimer = null;
+      for (const payload of pendingRowTicks.values()) emit('row-tick', payload);
+      pendingRowTicks.clear();
+    };
+    const notePulsePair = (pair, at) => {
+      const rec = pulsePairs.get(pair);
+      if (!rec || !(rec.supply > 0) || !(rec.mcapQuote > 0) || !(rec.quoteUsd > 0)) return;
+      const mcapUsd = rec.mcapQuote * rec.quoteUsd;
+      pendingRowTicks.set(rec.mint, {
+        mint: rec.mint, pairAddress: pair, symbol: rec.symbol, name: rec.name,
+        candidates: [{ value: mcapUsd / rec.supply, unit: 'usd', key: 'axiomPulseRow' }],
+        mcap: mcapUsd, at, source: 'axiom-pulse-worker',
+      });
+      if (pendingRowTicks.size > 400) pendingRowTicks.delete(pendingRowTicks.keys().next().value);
+      if (!rowTickTimer) rowTickTimer = setTimeout(flushRowTicks, 200);
+    };
+    // Live 2026-11-16: SOL-quoted Solana rows matched the printed MC to the
+    // dollar; other quotes and EVM rows did not (a Pump AMM pair's patch set
+    // a quote rate that priced a $60.9K row at $0). Only the proven shape is
+    // emitted; everything else stays on the resolver path.
+    const absorbPulseRow = (row, at, chain) => {
+      if (!row || typeof row.pairAddress !== 'string' || typeof row.tokenAddress !== 'string') return;
+      if (chain !== 'sol' || row.quoteToken !== 'sol') { pulsePairs.delete(row.pairAddress); return; }
+      const prev = pulsePairs.get(row.pairAddress) || {};
+      const rec = {
+        mint: row.tokenAddress,
+        supply: numberValue(row.supply) || prev.supply || null,
+        mcapQuote: numberValue(row.marketCap) || prev.mcapQuote || null,
+        quoteUsd: numberValue(row.quoteTokenPriceUsd) || prev.quoteUsd || null,
+        symbol: typeof row.tokenTicker === 'string' ? row.tokenTicker.slice(0, 24) : (prev.symbol || null),
+        name: typeof row.tokenName === 'string' ? row.tokenName.slice(0, 48) : (prev.name || null),
+      };
+      pulsePairs.delete(row.pairAddress);
+      pulsePairs.set(row.pairAddress, rec);
+      if (pulsePairs.size > 3000) pulsePairs.delete(pulsePairs.keys().next().value);
+      notePulsePair(row.pairAddress, at);
+    };
+    const absorbPulseBatch = (data) => {
+      if (!data || data.type !== 'OUTPUT_BATCH' || !Array.isArray(data.messages)) return;
+      const at = Date.now();
+      for (const m of data.messages) {
+        if (!m) continue;
+        if (m.type === 'TABLE_REPLACE' && Array.isArray(m.items)) {
+          for (const item of m.items) absorbPulseRow(item && item.row, at, item && item.chain);
+        } else if (m.type === 'TABLE_OPERATIONS' && Array.isArray(m.operations)) {
+          for (const op of m.operations) {
+            if (!op) continue;
+            if (op.type === 'insert') absorbPulseRow(op.item, at, op.chain);
+            else if (op.type === 'patch' && typeof op.pairAddress === 'string' && op.set) {
+              const rec = pulsePairs.get(op.pairAddress);
+              if (!rec) continue;
+              const set = op.set;
+              let moved = false;
+              const cap = numberValue(set.marketCap);
+              if (cap > 0) { rec.mcapQuote = cap; moved = true; }
+              // The SOL/USD rate moves a few percent at most between frames;
+              // anything else is not this row's quote rate.
+              const q = numberValue(set.quoteTokenPriceUsd);
+              if (q > 0 && q / rec.quoteUsd < 1.25 && rec.quoteUsd / q < 1.25) { rec.quoteUsd = q; moved = true; }
+              const sup = numberValue(set.supply);
+              if (sup > 0) { rec.supply = sup; moved = true; }
+              if (moved) notePulsePair(op.pairAddress, at);
+            }
+          }
+        }
+      }
+    };
+    const WrappedWorker = function (url, options) {
+      const worker = options === undefined ? new OriginalWorker(url) : new OriginalWorker(url, options);
+      try {
+        if (/PulseWorker/i.test(String(url)) && worker && typeof worker.addEventListener === 'function') {
+          worker.addEventListener('message', (event) => {
+            try { absorbPulseBatch(event && event.data); } catch (_) {}
+          });
+        }
+      } catch (_) {}
+      return worker;
+    };
+    WrappedWorker.prototype = OriginalWorker.prototype;
+    try { window.Worker = WrappedWorker; } catch (_) {}
+  }
+
   const OriginalEventSource = window.EventSource;
   if (typeof OriginalEventSource === 'function') {
     const WrappedEventSource = function (url, options) {
