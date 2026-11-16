@@ -2999,8 +2999,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // (the v3.1.0 lesson: "PaperTrench never opens a tab you didn't
         // click for" — this IS the click's consequence, so it is allowed,
         // but it stays a background tab until the user goes to it).
+        // 3.28: opt-in only (listOpenChartTab). A tab loaded by URL is what
+        // draws Cloudflare checks (Terp, 2026-11-16), and the positions bar
+        // already keeps the coin one click away. The old listQuickOpen key is
+        // ignored: the dashboard saved it as true on every settings save.
         if (message.kind === 'buy' && message.opened && message.trade
-            && message.trade.source === 'list-chip' && settings.listQuickOpen !== false) {
+            && message.trade.source === 'list-chip' && settings.listOpenChartTab === true) {
           try {
             const url = self.PaperTrenchSites
               && self.PaperTrenchSites.tokenUrlFor(message.trade.mint, {

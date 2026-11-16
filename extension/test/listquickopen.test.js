@@ -117,8 +117,28 @@ function chipBuy(overrides) {
   }, overrides || {});
 }
 
-test('a list-chip buy that opens a position opens the chart tab, backgrounded', async () => {
+test('3.28: by default a list-chip buy opens no tab (a URL load in a new tab draws bot checks)', async () => {
+  // Terp, 2026-11-16: Cloudflare checks come from pages loaded by URL rather
+  // than reached through the site. This feature loaded one per new position.
   const worker = serviceWorker();
+  await worker.fire(chipBuy());
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(worker.createdTabs.length, 0, 'no tab unless the trader opted in');
+});
+
+test('3.28: the old always-saved listQuickOpen=true is not an opt-in', async () => {
+  // The dashboard wrote listQuickOpen=true on every settings save, so a
+  // stored true says nothing about what the trader chose.
+  const worker = serviceWorker();
+  worker.values.pt_settings.listQuickOpen = true;
+  await worker.fire(chipBuy());
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(worker.createdTabs.length, 0, 'legacy key ignored');
+});
+
+test('opted in (listOpenChartTab), a list-chip buy that opens a position opens the chart tab, backgrounded', async () => {
+  const worker = serviceWorker();
+  worker.values.pt_settings.listOpenChartTab = true;
   await worker.fire(chipBuy());
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(worker.createdTabs.length, 1, 'exactly one chart tab opened');
@@ -129,6 +149,7 @@ test('a list-chip buy that opens a position opens the chart tab, backgrounded', 
 
 test('panel buys (no list-chip source) never open a tab', async () => {
   const worker = serviceWorker();
+  worker.values.pt_settings.listOpenChartTab = true; // opted in: these must still open nothing
   await worker.fire(chipBuy({ trade: Object.assign({}, chipBuy().trade, { source: null }) }));
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(worker.createdTabs.length, 0, 'no tab for panel buys — their chart is on screen');
@@ -136,6 +157,7 @@ test('panel buys (no list-chip source) never open a tab', async () => {
 
 test('chip buys that only add to an existing position open no tab', async () => {
   const worker = serviceWorker();
+  worker.values.pt_settings.listOpenChartTab = true; // opted in: these must still open nothing
   await worker.fire(chipBuy({ opened: false }));
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(worker.createdTabs.length, 0, 'no tab for adds to existing positions');
@@ -143,14 +165,15 @@ test('chip buys that only add to an existing position open no tab', async () => 
 
 test('sell events never open a tab, whatever their source', async () => {
   const worker = serviceWorker();
+  worker.values.pt_settings.listOpenChartTab = true; // opted in: these must still open nothing
   await worker.fire(chipBuy({ kind: 'sell' }));
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(worker.createdTabs.length, 0, 'sells never open tabs');
 });
 
-test('listQuickOpen=false keeps chip buys tab-silent', async () => {
+test('listOpenChartTab=false keeps chip buys tab-silent', async () => {
   const worker = serviceWorker();
-  worker.values.pt_settings.listQuickOpen = false;
+  worker.values.pt_settings.listOpenChartTab = false;
   await worker.fire(chipBuy());
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(worker.createdTabs.length, 0, 'setting off = no tab, even for new positions');

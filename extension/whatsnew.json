@@ -15,6 +15,10 @@
       "text": "A chip buy that opens a new position first asks the chain which coin the row really is, and that lookup had no time limit. Live tonight the first tap after a page load waited on it for 20 s until PaperTrench released the tap; other taps waited about 3 s. The lookup is now capped at 1.5 s: the same first tap filled in 1.9 s. If the chain doesn't answer in time, the position is filed under the row's own address, as it was before that lookup existed. This is one cause; we can't promise it was the cause of every stuck buy you've reported."
     },
     {
+      "title": "A list buy no longer opens the coin's chart in a new tab unless you turn it on.",
+      "text": "Each of those tabs was a fresh page load, and pages loaded that way are what bring up Axiom's \"verify you are human\" check. The positions bar already keeps the coin one click away. If you want the tab back, it's \"Open the chart tab after a list buy\" in settings (it starts off for everyone, including people who had it on)."
+    },
+    {
       "title": "Every chip buy now records where its price came from and how old it was,",
       "text": "like panel buys already did, including buys priced by the outside quote. If a fill ever looks wrong, Share debug logs shows which source priced it."
     },

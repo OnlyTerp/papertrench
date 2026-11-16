@@ -11,11 +11,13 @@ details live in the commit messages.
 
 - **Found one cause of "A stuck row buy was released".** A chip buy that opens a new position first asks the chain which coin the row really is, and that lookup had no time limit. Live tonight the first tap after a page load waited on it for 20 s until PaperTrench released the tap; other taps waited about 3 s. The lookup is now capped at 1.5 s: the same first tap filled in 1.9 s. If the chain doesn't answer in time, the position is filed under the row's own address, as it was before that lookup existed. This is one cause; we can't promise it was the cause of every stuck buy you've reported.
 
+- **A list buy no longer opens the coin's chart in a new tab unless you turn it on.** Each of those tabs was a fresh page load, and pages loaded that way are what bring up Axiom's "verify you are human" check. The positions bar already keeps the coin one click away. If you want the tab back, it's "Open the chart tab after a list buy" in settings (it starts off for everyone, including people who had it on).
+
 - **Every chip buy now records where its price came from and how old it was,** like panel buys already did, including buys priced by the outside quote. If a fill ever looks wrong, Share debug logs shows which source priced it.
 
 - **Still open:** a chip buy that opens a new position now takes about 1.5 s on Axiom, because the chain lookup above rarely answers faster there. It books the price from the moment you tapped. When the Pulse feed has no price for a coin, a chip buy uses the outside quote, which can sit off the row (live tonight: $5.79K booked $6.4K, 11% over; $3.53K booked $3.46K), and on fast new coins it can be far enough off that the 2x check refuses the buy.
 
-Tested: extension suite 2714/2716 in-suite, the two generator checks (icons, what's-new) pass when run on their own; server and bot untouched this release, not rerun. Checked live on Axiom only, on a logged-in session; the 1.5 s cap applies to chip buys on every site.
+Tested: extension suite 2716/2718 in-suite, the two generator checks (icons, what's-new) pass when run on their own; server and bot untouched this release, not rerun. Checked live on Axiom only, on a logged-in session; the 1.5 s cap applies to chip buys on every site.
 
 ## v3.27.1 — 2026-11-16
 
