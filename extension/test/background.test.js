@@ -1342,7 +1342,8 @@ function kalshiPredictWorker() {
       if (book('KXRL')) return { ok: false, status: 429, json: async () => ({}) };
       let body = null;
       if (book('KXOPEN') || book('KXSHUT') || book('KXPAST')) body = levels;
-      else if (info('KXOPEN')) body = market('active', '', '2026-10-30T12:29:00Z');
+      // Always in the future: a fixed date here expired on 2026-10-30 and failed the gate.
+      else if (info('KXOPEN')) body = market('active', '', new Date(Date.now() + 30 * 864e5).toISOString());
       else if (info('KXSHUT')) body = market('finalized', 'yes', '2026-08-01T12:00:00Z');
       else if (info('KXPAST')) body = market('active', '', '2026-08-01T12:00:00Z');
       if (!body) throw new Error(`strict fake: unrouted predict request ${u}`);

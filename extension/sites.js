@@ -216,6 +216,12 @@
         if (meme) return tokenForSlug(AXIOM_CHAIN_BY_SLUG, slug, meme[1], 'pair');
         const t = location.pathname.match(/^\/t\/([A-Za-z0-9]+)(?:$|[/?#])/);
         if (t) return tokenForSlug(AXIOM_CHAIN_BY_SLUG, slug, t[1], 'mint');
+        // Axiom Unified (verified live 2026-11-16): /meme/<pair> and
+        // /t/<mint> now redirect to /token/<MINT>?chain=<slug>, so this is the
+        // only route users actually land on. Missing it meant the panel
+        // never mounted on Axiom at all (ticket-0021).
+        const unified = location.pathname.match(/^\/token\/([A-Za-z0-9]+)(?:$|[/?#])/);
+        if (unified) return tokenForSlug(AXIOM_CHAIN_BY_SLUG, slug, unified[1], 'mint');
         return null;
       },
       // Pulse / Discover rows carry anchors to /meme/<pair> plus small

@@ -594,6 +594,7 @@
         return;
       }
       if (ev.payload && ev.payload.address) {
+        noteRowTapMcap(ev.payload.address, ev.payload.rowMcapUsd);
         doRowBuy(ev.payload.address, null, ev.payload.quote);
       }
     }
@@ -6719,7 +6720,7 @@
 
   function onShortcutKey(event) {
     const test = SHORTCUT_SCHEMES[settings && settings.shortcutScheme];
-    if (!test || masterOff || settings.overlayEnabled === false) return;
+    if (!test || settings.appEnabled === false || settings.overlayEnabled === false) return;
     if (event.repeat || !test(event)) return;
 
     // Never steal a key from something being typed into — the host site's
@@ -7730,6 +7731,29 @@
   // token_activity ticks carry a mint). A row buy prefers this over a
   // network quote because the screener is showing that very price.
   const recentRowPrices = new Map(); // mint -> { usd, at, seq, symbol, name, mcap }
+  // 3.27.1: the market cap the tapped row was SHOWING, kept for the armed
+  // TTL. A sanity bound on the fill, never a price source.
+  const ROW_TAP_MCAP_TTL_MS = 60_000;
+  const rowTapMcaps = new Map(); // address -> { mcap, at }
+  function noteRowTapMcap(address, mcap) {
+    if (!address || !(Number.isFinite(Number(mcap)) && Number(mcap) > 0)) return;
+    rowTapMcaps.set(address, { mcap: Number(mcap), at: Date.now() });
+    if (rowTapMcaps.size > 64) rowTapMcaps.delete(rowTapMcaps.keys().next().value);
+  }
+  // The row the trader tapped is the one live number we have on Axiom
+  // Unified's Pulse. A quote more than 2x off what that row was showing is
+  // refused, visibly — live 2026-11-16 a chip booked Jupiter's $708K on a
+  // row printing $16.5M, showing a fake +2235%. Refuse only: the row text
+  // is never used to price a fill.
+  function rowTapMcapAgrees(address, data, timing) {
+    const tap = rowTapMcaps.get(address);
+    if (!tap || Date.now() - tap.at >= ROW_TAP_MCAP_TTL_MS || !(Number(data.mcap) > 0)) return true;
+    const off = Math.max(Number(data.mcap) / tap.mcap, tap.mcap / Number(data.mcap));
+    if (off <= 2) return true;
+    toast(`Price check failed: row shows ${fmtMoney(tap.mcap)} MC, quote ${fmtMoney(Number(data.mcap))} — paper fill refused`);
+    if (timing) timing.outcome = 'refused-row-mcap';
+    return false;
+  }
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
@@ -8202,6 +8226,7 @@
     // since moved past (entry MC 6k on a coin printing 20k). The row's own
     // print is the anchor instead (see rowPrintVouchesFirstBuy).
     if (!(await rowPrintVouchesFirstBuy(address, data, posAnchor))) return null;
+    if (!rowTapMcapAgrees(address, data, timing)) return null;
     // F-61: a row-fed candidate carries NO mint — the row feed keys its
     // ticks by whatever the board prints (on Axiom Pulse that is the PAIR
     // stand-in; F-59 saw the same keying). Committing under that key strands

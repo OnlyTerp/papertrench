@@ -52,6 +52,14 @@ const MATRIX = [
   ['https://axiom.trade/meme/' + PAIR + '?chain=sol', 'axiom', 'pair', PAIR, 'explicit sol slug is solana'],
   ['https://axiom.trade/t/' + MINT, 'axiom', 'mint', MINT, '/t/ carries a MINT — was mislabeled kind:pair (O-13)'],
   ['https://axiom.trade/t/' + MINT + '?chain=sol', 'axiom', 'mint', MINT, '/t/ mint under an explicit sol slug'],
+  // Axiom Unified (live, 2026-11-16): /meme/<pair> and /t/<mint> now
+  // redirect to /token/<MINT>?chain=<slug>. Users only ever land on /token/,
+  // so a detector that misses it never mounts the panel (ticket-0021).
+  ['https://axiom.trade/token/' + MINT + '?chain=sol', 'axiom', 'mint', MINT, 'Axiom Unified /token/ route carries the MINT'],
+  ['https://axiom.trade/token/' + MINT, 'axiom', 'mint', MINT, '/token/ with no chain slug is Solana'],
+  ['https://axiom.trade/token/' + EVM_B58ISH + '?chain=bnb', 'axiom', 'mint', EVM_B58ISH, '/token/ on bnb mounts with its chain'],
+  ['https://axiom.trade/token/' + EVM_B58ISH + '?chain=sol', 'axiom', null, null, '/token/ keeps O-11: an EVM address under sol is refused'],
+  ['https://axiom.trade/tokens/' + MINT, 'axiom', null, null, 'only the exact /token/ segment counts'],
   ['https://axiom.trade/', 'axiom', null, null, 'home is not a token page'],
   ['https://axiom.trade/pulse', 'axiom', null, null, 'screener is not a token page'],
   ['https://axiom.trade/tracker/' + WALLET, 'axiom', null, null, 'wallet tracker must not mount (O-10)'],

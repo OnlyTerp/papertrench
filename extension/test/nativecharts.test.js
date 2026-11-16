@@ -1029,6 +1029,22 @@ test('Axiom captured b-room price emits a mint/pair-attributed native tick', () 
     'the bridge timestamps the received page frame for the existing freshness gate');
 });
 
+test('Axiom b-room price still ticks on the Axiom Unified /token/<mint> page', () => {
+  // Axiom now redirects /meme/<pair> to /token/<mint> (live, 2026-11-16).
+  // The room policy used to treat /token/ as "not a token page" and drop
+  // every frame, so the panel fell back to lagging Jupiter quotes.
+  const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
+  const env = runBridge({ href: `https://axiom.trade/token/${AXIOM_ROOM_BONK_MINT}?chain=sol` });
+  env.setNow(1_790_198_624_000);
+  env.send('paper-axis', { pairAddress: AXIOM_ROOM_BONK_PAIR, mint: AXIOM_ROOM_BONK_MINT, symbol: 'BONK' });
+  env.emitted.length = 0;
+  const socket = env.openWebSocket('wss://cluster-global3.axiom.trade/');
+  socket.dispatchMessage(JSON.stringify(b));
+  const ticks = env.emitted.filter((message) => message.type === 'tick' && message.payload.source === 'axiom-ws-room');
+  assert.equal(ticks.length, 1, 'the /token/ page takes Axiom room prices');
+  assert.equal(ticks[0].payload.mint, AXIOM_ROOM_BONK_MINT);
+});
+
 test('Axiom f-room legs use only the captured, b-confirmed tuple positions', () => {
   const b = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('b-'));
   const f = AXIOM_ROOM_FIXTURE.frames.find((frame) => frame.room.startsWith('f:'));

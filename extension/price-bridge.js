@@ -723,7 +723,8 @@
     let pageIsSolana = false;
     try {
       const page = new URL(location.href);
-      pageIsToken = /^\/(?:meme|t)\/[A-Za-z0-9]+(?:$|[/?#])/.test(page.pathname);
+      // /token/ is the Axiom Unified route every token page now lands on.
+      pageIsToken = /^\/(?:meme|t|token)\/[A-Za-z0-9]+(?:$|[/?#])/.test(page.pathname);
       pageIsSolana = pageIsToken
         && (!page.searchParams.get('chain') || page.searchParams.get('chain') === 'sol');
     } catch (_) {}
@@ -3974,6 +3975,9 @@
             quote: typeof rowQuoteFromFiber === 'function'
               ? rowQuoteFromFiber(entry.row, decision.address)
               : undefined,
+            rowMcapUsd: typeof rowDisplayedMcap === 'function'
+              ? rowDisplayedMcap(entry.row)
+              : null,
           });
         } else {
           emit('row-buy-refused', decision.refuse);
@@ -4343,6 +4347,21 @@
     } catch (_) {
       return null;
     }
+  }
+
+  /** The market cap the tapped row is showing ("MC $16.5M"), or null.
+   * 3.27.1: a sanity bound only — never a price. Axiom Unified's Pulse rows
+   * feed no price to us, and a chip once booked Jupiter's $708K on a row
+   * printing $16.5M (live, 2026-11-16). */
+  function rowDisplayedMcap(row) {
+    try {
+      const text = row && (row.innerText || row.textContent) || '';
+      const m = /\bMC\s*\$\s*([\d][\d,]*(?:\.\d+)?)\s*([KMB])?(?![\w.])/i.exec(text);
+      if (!m) return null;
+      const scale = { K: 1e3, M: 1e6, B: 1e9 }[(m[2] || '').toUpperCase()] || 1;
+      const value = Number(m[1].replace(/,/g, '')) * scale;
+      return Number.isFinite(value) && value > 0 ? value : null;
+    } catch (_) { return null; }
   }
 
   function rowQuoteFromFiber(row, tappedAddress) {

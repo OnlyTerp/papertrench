@@ -499,6 +499,10 @@ test('the classifier routes the main terminals token pages and refuses their oth
   assert.equal(axiom && axiom.family, 'axiom');
   assert.equal(axiom.url, `https://axiom.trade/meme/${MINT}`);
   assert.equal(WD.classify(`https://axiom.trade/t/${MINT}`).family, 'axiom');
+  // Axiom Unified (2026-11-16) serves every token page at /token/<mint>.
+  const unified = WD.classify(`https://axiom.trade/token/${MINT}?chain=sol`);
+  assert.equal(unified && unified.family, 'axiom', 'the /token/ route Axiom now redirects to is a token page');
+  assert.equal(unified.url, `https://axiom.trade/token/${MINT}?chain=sol`);
 
   const padre = WD.classify(`https://trade.padre.gg/trade/solana/${MINT}`);
   assert.equal(padre && padre.family, 'padre');

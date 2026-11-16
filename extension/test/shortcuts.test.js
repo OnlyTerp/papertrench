@@ -69,8 +69,31 @@ test('keys are ignored while the user is typing', () => {
 
 test('the master switch and a disabled overlay both silence them', () => {
   const fn = handler();
-  assert.match(fn, /masterOff/, 'the app-wide off switch outranks shortcuts');
+  assert.match(fn, /appEnabled === false/, 'the app-wide off switch outranks shortcuts');
   assert.match(fn, /overlayEnabled === false/, 'a hidden panel has nothing to toggle');
+});
+
+test('the handler actually runs: no ReferenceError, and OFF swallows nothing', () => {
+  // 3.27.0 read an undeclared `masterOff`, so every keydown threw
+  // "masterOff is not defined" for anyone with shortcuts on (chillygmi's
+  // export: 5 entries at content.js:6722). Run the real handler body.
+  const vm = require('node:vm');
+  const schemes = content.slice(content.indexOf('const SHORTCUT_SCHEMES'), content.indexOf('function onShortcutKey('));
+  const run = (settings) => {
+    let prevented = 0;
+    const ctx = { settings, prevented: 0 };
+    vm.runInNewContext(schemes + handler() + `
+      onShortcutKey({ altKey: true, ctrlKey: false, metaKey: false, shiftKey: false,
+        repeat: false, key: 'b', code: 'KeyB', target: { tagName: 'BODY' },
+        composedPath: () => [{ tagName: 'BODY' }],
+        preventDefault() { prevented++; }, stopPropagation() {} });`,
+    Object.assign(ctx, { prevented }));
+    return ctx;
+  };
+  assert.doesNotThrow(() => run({ shortcutScheme: 'alt', appEnabled: false }),
+    'master OFF must return quietly, not throw');
+  assert.doesNotThrow(() => run({ shortcutScheme: 'alt', appEnabled: true, overlayEnabled: false }),
+    'a hidden panel must return quietly, not throw');
 });
 
 test('an unhandled combination is left for the site', () => {

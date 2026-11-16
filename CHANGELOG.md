@@ -3,6 +3,18 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## v3.27.1 — 2026-11-16
+
+- **PaperTrench is back on Axiom.** Axiom moved every token page to a new address (axiom.trade/token/…), and PaperTrench didn't recognise it, so the panel never appeared there. It now mounts on the new pages, whether you open them directly or click in from Pulse, and prices from Axiom's own chart feed (checked live: under 1.3 s old, including with the tab in the background).
+
+- **Pulse quick-buy can no longer book a price wildly off the row you tapped.** Axiom's new Pulse no longer shares its live row prices with us, so a quick-buy chip priced from an outside aggregator, and one test buy booked $708K on a coin showing $16.5M. A chip buy is now checked against the market cap the row was showing when you tapped it; if the quote is more than 2x off, the paper fill is refused and you're told why, instead of booking a fake P&L.
+
+- **Fixed: keyboard shortcuts threw an error on every key press.** If you had shortcuts turned on, each press logged "masterOff is not defined" and the shortcut did nothing. They work again, and still do nothing while PaperTrench is switched off.
+
+- **Still open:** quick-buy fills on brand-new Pulse coins can still land 5–30% off the row on fast movers (the 2x check only catches gross errors); bringing back Axiom's live Pulse row feed is the real fix and is next.
+
+Tested: extension 2707/2707 green (server and bot untouched this release, not rerun). Axiom checked live on a logged-in session.
+
 ## v3.27.0 — 2026-09-24
 
 - **Tournaments are live.** Sign up on papertrench.com/tournament (X login) — everyone starts on the same paper stack, and at every round boundary the lowest-P&L entrants are cut until the winners remain. Standings come only from each player's server-verified trade record, never from a number the app reports; positions still open at a cut are valued at an independent market price, or at cost and flagged if no price exists.

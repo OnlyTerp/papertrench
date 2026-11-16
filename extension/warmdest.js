@@ -90,7 +90,8 @@
     if (AXIOM_HOST_RE.test(host)) {
       // axiom.trade/meme/<pair> and /t/<mint> — token pages only (the wallet
       // and profile routes also end in base58 and must never warm-route).
-      const m = path.match(/^\/(meme|t)\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[/?#])/);
+      // /token/<mint> is the Axiom Unified route (2026-11-16).
+      const m = path.match(/^\/(meme|t|token)\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:$|[/?#])/);
       if (!m) return null;
       return { family: 'axiom', kind: 'token', url: 'https://axiom.trade' + path + url.search };
     }

@@ -358,6 +358,7 @@ function bootRace(options = {}) {
     setPresetBuy: (amount) => { settings.presetsBuy = [amount]; },
     setSettings: (patch) => { Object.assign(settings, patch); },
     getRecentRowPrice: (mint) => recentRowPrices.get(mint) || null,
+    noteRowTapMcap: typeof noteRowTapMcap === 'function' ? noteRowTapMcap : null,
   };
 `
     + CONTENT.slice(end);
@@ -1625,4 +1626,28 @@ test('a row buy still expires at its existing TTL', async () => {
 
   assert.equal(harness.getRowArmed(), null, 'an expired armed intent is cleared');
   assert.equal(harness.getState().journal.length, 0, 'an expired intent does not fill');
+});
+
+test('a chip quote far from the market cap the tapped row showed is refused, not booked', async () => {
+  // Live on Axiom Unified, 2026-11-16: USPR's row printed $16.5M MC, the
+  // chip booked Jupiter's $708K, and the wallet showed a fake +2235%.
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  assert.equal(typeof harness.noteRowTapMcap, 'function', 'the tapped row cap must be recorded');
+  harness.noteRowTapMcap(B, 2_300_000); // quote says 100k: 23x off
+  await harness.doRowBuy(B);
+  assert.equal(harness.getState().journal.length, 0, 'a 23x-off quote must not book');
+  assert.ok(harness.getToastMessages().some((m) => /paper fill refused/.test(m)),
+    'the refusal is visible');
+});
+
+test('a chip quote that agrees with the tapped row still fills (control)', async () => {
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 110_000); // quote 100k: within the 2x bound
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
 });
