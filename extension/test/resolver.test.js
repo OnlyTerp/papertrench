@@ -119,6 +119,21 @@ test('caches a resolved token so a second lookup makes no new request', async ()
   assert.equal(second.priceNative, first.priceNative);
 });
 
+test('a resolved record says when it was quoted, and a cache hit keeps that time', async () => {
+  // 3.28 chip receipts: a fill priced by the resolver records how old its
+  // price was. The stamp is the fetch time, never the cache-hit time.
+  const R = loadResolver((url) => {
+    if (url.includes('/tokens/')) return jsonResponse(tokensPayload);
+    return notFound();
+  });
+  const before = Date.now();
+  const first = await R.resolve(BONK_MINT);
+  assert.ok(first.quotedAt >= before && first.quotedAt <= Date.now(), `quotedAt is the fetch time (got ${first.quotedAt})`);
+  await new Promise((r) => setTimeout(r, 15));
+  const second = await R.resolve(BONK_MINT);
+  assert.equal(second.quotedAt, first.quotedAt, 'a cache hit is not a fresh quote');
+});
+
 test('refresh re-quotes an already-resolved token', async () => {
   const R = loadResolver((url) => {
     if (url.includes('/pairs/solana/')) return jsonResponse(pairPayload);

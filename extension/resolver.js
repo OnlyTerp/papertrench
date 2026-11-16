@@ -46,6 +46,9 @@
     var chainId = Q.chainIdFor(data.chain);
     if (chainId === null) return;
     var at = Date.now();
+    // When this price was fetched; cache hits return the same record, so a
+    // fill can tell a fresh quote from a cached one (3.28 chip receipts).
+    data.quotedAt = at;
     var mint = data.mint ? Q.canonicalAddress(data.mint) : null;
     var pair = data.pairAddress ? Q.canonicalAddress(data.pairAddress) : null;
     if (mint) cache.set(cacheKey(chainId, mint), { at: at, data: data });

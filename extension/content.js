@@ -7980,6 +7980,7 @@
       priceUsd: null,
       mcap: null,
       priceSource: 'row-onchain',
+      priceAt: Number(found.observedAt) > 0 ? Number(found.observedAt) : null,
     };
   }
 
@@ -8196,6 +8197,10 @@
     return true;
   }
 
+  // F-61's chain identity read may delay a chip fill by at most this much
+  // (0 = unbounded; only the queue tests use that, to hold a fill in flight).
+  const ROW_IDENTITY_READ_MAX_MS = 1500;
+
   async function fillRowBuy(address, data, amount, ownerToken) {
     const timing = rowBuyTimingState;
     if (timing) timing.fillStart = Date.now();
@@ -8260,7 +8265,17 @@
     // address as the key, exactly the honest legacy behavior.
     if (address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)) {
       try {
-        const found = await R.onchainPrewatch({ mint: address, pool: address }, { priority: true }).catch(() => null);
+        // Bounded for real (live 3.28.0: unbounded, a cold first read took
+        // 3-20 s and the latch watchdog released the tap as "stuck"). A
+        // late answer keeps the row's own key, the legacy path below.
+        const read = R.onchainPrewatch({ mint: address, pool: address }, { priority: true }).catch(() => null);
+        let identityTimer = null;
+        const found = ROW_IDENTITY_READ_MAX_MS > 0
+          ? await Promise.race([read, new Promise((resolve) => {
+            identityTimer = setTimeout(() => resolve(null), ROW_IDENTITY_READ_MAX_MS);
+          })])
+          : await read;
+        if (identityTimer) clearTimeout(identityTimer);
         // Cross-family answers are never adopted: the Solana chain cannot
         // name an EVM coin, whatever shape the answer wears.
         if (found && found.mint && !sameMint(found.mint, data.mint)
@@ -8295,7 +8310,12 @@
           // F-48 receipts for chip fills too: which source priced the fill
           // and how old that price was at commit.
           priceSource: data.priceSource || 'resolver',
-          priceAgeMs: Number(data.priceAt) > 0 ? Math.max(0, Date.now() - Number(data.priceAt)) : null,
+          // priceAt: set by the row/feed/chain paths; quotedAt: the resolver's
+          // fetch time. Neither known: null, never a guess.
+          priceAgeMs: (() => {
+            const at = Number(data.priceAt) > 0 ? Number(data.priceAt) : Number(data.quotedAt);
+            return at > 0 ? Math.max(0, Date.now() - at) : null;
+          })(),
         });
         if (standInKey) filled.position.standInKey = true;
         filled.opened = opened;

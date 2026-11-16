@@ -173,6 +173,7 @@ function bootRace(options = {}) {
           priceUsd: 100,
           mcap: 100_000,
           priceSource: 'resolver',
+          quotedAt: clock - 1500,
         });
       }
       if (payload.address === C) {
@@ -327,9 +328,16 @@ function bootRace(options = {}) {
   storage.pt_state = initialState;
   storage.pt_settings = settings;
 
-  const end = CONTENT.lastIndexOf('\n})();');
+  // The queue tests hold the pair's identity read open to keep one fill in
+  // flight; the 1.5 s identity bound (3.28) would release it, so those tests
+  // run unbounded. The bound itself has its own test below.
+  const SOURCE = options.holdPairIdentity
+    ? CONTENT.replace('const ROW_IDENTITY_READ_MAX_MS = 1500;', 'const ROW_IDENTITY_READ_MAX_MS = 0;')
+    : CONTENT;
+  if (options.holdPairIdentity && SOURCE === CONTENT) throw new Error('identity bound constant not found');
+  const end = SOURCE.lastIndexOf('\n})();');
   assert.ok(end > 0, 'content script has its IIFE terminator');
-  const instrumented = CONTENT.slice(0, end)
+  const instrumented = SOURCE.slice(0, end)
     .replace('  function toast(msg) {',
       '  function toast(msg) { window.__rowToastMessages.push(msg);')
     + `
@@ -361,7 +369,7 @@ function bootRace(options = {}) {
     noteRowTapMcap: typeof noteRowTapMcap === 'function' ? noteRowTapMcap : null,
   };
 `
-    + CONTENT.slice(end);
+    + SOURCE.slice(end);
   vm.runInContext(instrumented, sandbox, { filename: 'content.js' });
   const harness = sandbox.window.__rowHarness;
   harness.setSite({ id: 'axiom', rowBuy: { kind: 'pair' } });
@@ -1668,6 +1676,8 @@ test('a board feed that disagrees with the tapped row falls back to the resolver
   assert.equal(Math.round(Number(fill.mcap)), 100_000, 'booked at the resolver, not the 2.3x feed');
   assert.ok(fill.priceSource && fill.priceSource !== 'row-feed',
     `the receipt names the source that priced it (got ${fill.priceSource})`);
+  assert.ok(Number.isFinite(fill.priceAgeMs) && fill.priceAgeMs >= 1500,
+    `a resolver-priced chip fill records its quote's age (got ${fill.priceAgeMs})`);
 });
 
 test('a board feed that agrees with the tapped row prices the fill (control)', async () => {
@@ -1684,4 +1694,23 @@ test('a board feed that agrees with the tapped row prices the fill (control)', a
   // price was, so a wrong-price report is a journal lookup.
   assert.equal(fill.priceSource, 'row-feed');
   assert.ok(Number.isFinite(fill.priceAgeMs) && fill.priceAgeMs >= 0, `price age recorded (got ${fill.priceAgeMs})`);
+});
+
+test('a hung chain identity read cannot stall a feed-priced chip fill (live 3.28: 3-20 s, then "stuck row buy")', async () => {
+  // Live 2026-11-16 on 3.28.0: the first chip tap after a page load spent
+  // 20 s in fill->state and the latch watchdog released it; later taps spent
+  // 3.2 s there. The only await in that window for a first buy is the F-61
+  // chain identity read, which had no bound. A row key that the chain can't
+  // name in time stays the row's own key (F-61's legacy path).
+  const race = bootRace();
+  const { harness } = race;
+  // B's chain identity never answers (no releaseB).
+  harness.noteRowTapMcap(B, 105_000);
+  harness.noteRowPrice({ mint: B, candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000 });
+  harness.doRowBuy(B);
+  await race.advance(3000);
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+  assert.equal(harness.getState().journal.length, 1, 'the fill lands without the identity answer');
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 105_000);
+  assert.ok(!harness.getToastMessages().some((m) => /stuck row buy/.test(m)), 'no watchdog release');
 });
