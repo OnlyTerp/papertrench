@@ -1808,11 +1808,11 @@ test('a lagging outside quote is brought to the cap the tapped row showed (live:
   assert.equal(fill.priceSource, 'row-print', 'the receipt says the row print priced it');
 });
 
-test('a quote within 15% of the tapped row is left alone (control)', async () => {
+test('a quote within 5% of the tapped row is left alone (control)', async () => {
   const race = bootRace({ quoteB: PUMP_QUOTE });
   const { harness } = race;
   race.releaseB();
-  harness.noteRowTapMcap(B, 110_000);
+  harness.noteRowTapMcap(B, 103_000);
   await harness.doRowBuy(B);
   await waitFor(() => harness.getState().journal.length === 1);
   assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
@@ -1883,4 +1883,15 @@ test('without Axiom\'s supply for the row, the print alone is not a price (contr
   await harness.doRowBuy(B);
   assert.equal(harness.getState().journal.length, 0);
   assert.ok(harness.getRowArmed());
+});
+
+test('a 13% gap is lag too: the row cap is booked (live: a 32.2K row booked 28.1K)', async () => {
+  const race = bootRace({ quoteB: PUMP_QUOTE });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 114_800);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 114_800);
+  assert.equal(harness.getState().journal[0].priceSource, 'row-print');
 });

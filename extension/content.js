@@ -8007,7 +8007,7 @@
    *  - a tap on record from the last 10 s (the number the trader acted on);
    *  - the quote did not come from the row or the chain already;
    *  - quote and row within 2x (rowTapMcapAgrees ran first: beyond that the
-   *    fill was refused) but more than 15% apart;
+   *    fill was refused) but more than 5% apart;
    *  - on Axiom, and the quote's own cap / price implies a launchpad supply
    *    (0.9e9 to 1.01e9). On any other basis two caps can differ by how
    *    supply is counted, and that ratio is not a price gap.
@@ -8024,7 +8024,10 @@
     const cap = Number(data.mcap);
     if (!(usd > 0) || !(native > 0) || !(cap > 0)) return false;
     const off = Math.max(cap / tap.mcap, tap.mcap / cap);
-    if (!(off > 1.15) || off > 2) return false;
+    // 5%: the row prints three or four significant digits, so a gap that
+    // size is not rounding. (Live: a 32.2K row booked 28.1K, 13% under, and
+    // slipped past the first cut at 15%.)
+    if (!(off > 1.05) || off > 2) return false;
     // Axiom only: it is the one venue where the row was checked against the
     // coin's own chart page (three coins, 2026-11-18). Other sites print
     // "MC $…" too, with nothing yet showing their row is the better number.
@@ -8054,13 +8057,19 @@
    * would be a number no real trade could get.
    */
   const ROW_PRINT_MIN_MCAP_USD = 1500;
-  async function rowPrintOnlyQuote(address) {
-    if (!site || site.id !== 'axiom' || !address) return null;
+  function rowPrintPossible(address) {
+    if (!site || site.id !== 'axiom' || !address) return false;
     const tap = rowTapMcaps.get(address);
-    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS || !(tap.mcap >= ROW_PRINT_MIN_MCAP_USD)) return null;
+    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS || !(tap.mcap >= ROW_PRINT_MIN_MCAP_USD)) return false;
     const row = recentRowPrices.get(address);
     const supply = row && Number(row.supply);
-    if (!(supply >= 0.9e9 && supply <= 1.01e9)) return null;
+    return supply >= 0.9e9 && supply <= 1.01e9;
+  }
+  async function rowPrintOnlyQuote(address) {
+    if (!rowPrintPossible(address)) return null;
+    const tap = rowTapMcaps.get(address);
+    const row = recentRowPrices.get(address);
+    const supply = Number(row.supply);
     const rate = await R.solUsd().catch(() => 0);
     if (!(rate > 0)) return null;
     const priceUsd = tap.mcap / supply;
@@ -8837,6 +8846,10 @@
       // nothing below may block this function's finally forever.
       const ROW_CASCADE_TIMEOUT_MS = 10_000;
       let data = null;
+      // Only awaited when the row print can actually price this tap: an
+      // unconditional await here would add a tick to every chip buy.
+      const printFallback = rowPrintPossible(address)
+        ? await rowPrintOnlyQuote(address).catch(() => null) : null;
       const validRowQuote = rowQuote && await validRowPropsQuote(rowQuote, address);
       if (validRowQuote) {
         data = {
@@ -8886,12 +8899,15 @@
                 }
                 return d;
               })(),
-              new Promise((resolve) => setTimeout(() => resolve(null), ROW_CASCADE_TIMEOUT_MS)),
+              // When the row's own print can price this coin anyway, the
+              // outside sources get 1.5 s, not 10: live, a coin only the row
+              // priced took 6.9 s to fill while they timed out one by one.
+              new Promise((resolve) => setTimeout(() => resolve(null), printFallback ? 1500 : ROW_CASCADE_TIMEOUT_MS)),
             ]);
           } catch (_) { data = null; }
         }
       }
-      if (!data || !(data.priceNative > 0)) data = await rowPrintOnlyQuote(address);
+      if (!data || !(data.priceNative > 0)) data = printFallback || await rowPrintOnlyQuote(address);
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the
         // intent is NEVER refused. It arms exactly like the panel's D-39

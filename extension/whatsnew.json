@@ -36,7 +36,7 @@
     },
     {
       "title": "X-Ray: follower counts load on X's newer profile layout,",
-      "text": "a first visit starts the follower read instead of waiting for a second visit (with deep scan on, that can be one extra request to X per newly visited profile, inside the existing budget), and the card says plainly when follower lists or posts haven't been read instead of showing \"Reading follower lists…\" forever or a green \"None found\". Not yet checked on a live X page."
+      "text": "a first visit starts the follower read instead of waiting for a second visit (with deep scan on, that can be one extra request to X per newly visited profile, inside the existing budget), and the card says plainly when follower lists or posts haven't been read instead of showing \"Reading follower lists…\" forever or a green \"None found\". Checked on a live X profile (@onlyterp): the card showed 58.9K followers and 5.1K following, matching X's own header."
     },
     {
       "title": "Lag and freezes with a big wallet or many open positions.",
@@ -44,11 +44,11 @@
     },
     {
       "title": "A chip buy no longer books a lagging outside price when the row said otherwise.",
-      "text": "When Axiom's feed doesn't cover a row, the buy was priced by an outside quote that could trail the row badly (seen live: an $82.5K row booked $61.8K while the coin's own page confirmed about $81K). If that quote is more than 15% from the cap the row showed when you tapped (and within the 2x sanity limit, beyond which the buy is refused), the buy is now booked at the row's cap. Only for coins on the standard 1B supply, where the two caps are counted the same way."
+      "text": "When Axiom's feed doesn't cover a row, the buy was priced by an outside quote that could trail the row badly (seen live: an $82.5K row booked $61.8K while the coin's own page confirmed about $81K). If that quote is more than 5% from the cap the row showed when you tapped (and within the 2x sanity limit, beyond which the buy is refused), the buy is now booked at the row's cap. Only for coins on the standard 1B supply, where the two caps are counted the same way."
     },
     {
-      "title": "A chip buy that has to wait for a price says so at once",
-      "text": "instead of sitting silent for up to 60 s. Coins that nothing prices (a dead coin, or one quoted in a token the price sites don't convert) still can't be filled until a price exists."
+      "title": "Coins the price sites don't cover can be chip-bought on Axiom.",
+      "text": "Some new coins are quoted in tokens the outside price sites don't convert, so nothing priced them and the tap waited and expired. The buy is now priced from the market cap the row shows and the supply Axiom reports for it. Rows under a $1,500 cap are left out (a 0.1 SOL buy there would be a visible share of the whole supply); those wait for a real price, and a chip buy that has to wait now says so at once instead of sitting silent for up to 60 s."
     },
     {
       "title": "Stale positions are flagged, and a reopened coin that really moved can be sold.",
@@ -71,8 +71,12 @@
       "text": "since 3.24.0 the panel's \"If you sell now\" line is computed by the same code that books the sell, fees and slippage included; a test now pins that the two are equal."
     },
     {
+      "title": "Settings open even when the browser refuses the settings page (the Opera report).",
+      "text": "If the browser won't open it the normal way, the dashboard opens as a regular tab instead. Not tested in Opera itself."
+    },
+    {
       "title": "What is left:",
-      "text": "Opera blocking the settings page is Opera's own policy. A coin that nothing prices at all cannot be filled until a price exists. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
+      "text": "a dust coin (under a $1,500 cap) that no source prices cannot be filled until a price exists. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
     }
   ]
 }
