@@ -2153,6 +2153,18 @@
         return;
       }
 
+      // F-55 before adoption: a dust-pool phantom must not become the panel
+      // price at all. Gating only the mark left token.priceNative holding it,
+      // so the card showed the profit and the heartbeat could fire a
+      // take-profit on a rugged coin.
+      {
+        const held = state.positions[token.mint];
+        if (held && Q.rugGuardVerdict(fresh.priceNative, held.lastPriceNative, fresh.liquidityUsd) === 'refuse') {
+          console.debug('PaperTrench: refused phantom up-price for ' + token.mint
+            + ' from a collapsed pool (resolver refresh, ' + fresh.liquidityUsd + ' USD liq) F-55');
+          return;
+        }
+      }
       clearHostSupplyLineage();
       token.priceNative = fresh.priceNative;
       if (fresh.priceUsd) token.priceUsd = fresh.priceUsd;
@@ -3514,6 +3526,10 @@
     if (orderFireInFlight || !chartOrdersOn() || !token || !token.mint) return;
     const observed = Number(token.priceNative);
     if (!(observed > 0)) return;
+    // B3: an auto-exit books whatever token.priceNative holds. A price nothing
+    // has refreshed inside the staleness bound is not the market any more;
+    // firing a TP/SL on it books a level that may be long gone.
+    if (Q.isPriceStale(lastPriceAt)) return;
     // This tab's high-water marks per ORDER id. Each trail ratchets only on
     // prices observed since THAT order existed — a peak seen before the buy
     // (or earned by an earlier closed position on the same mint) can never
@@ -3617,7 +3633,7 @@
       // A committed order fill is money evidence for the witness (F-47),
       // same as a manual fill — without it a post-exit re-buy is judged
       // against the stale pre-exit price and can refuse forever.
-      lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
+      lastAcceptedMarket = { priceNative: observedPrice, at: Date.now() };
       syncChartOrders(true);
       sendMessage({
         type: 'pt_trade_event', kind: 'sell', opened: false,
@@ -3713,7 +3729,7 @@
       });
       if (result) {
         // Money evidence for the witness (F-47) — see fireChartOrder.
-        lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
+        lastAcceptedMarket = { priceNative: observedPrice, at: Date.now() };
         sendMessage({
           type: 'pt_trade_event', kind: 'buy', opened: result.opened,
           session: summarizeSession(result.position),
@@ -4458,7 +4474,7 @@
       }
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
-        lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
+        lastAcceptedMarket = { priceNative: fillQuote.priceNative, at: Date.now() };
         sendMessage({
           type: 'pt_trade_event',
           kind: 'buy',
@@ -4682,7 +4698,7 @@
       const tCommitted = perfNow();
       if (result) {
         // A committed fill is money evidence for the witness (F-47).
-        lastAcceptedMarket = { priceNative: result.trade.priceNative, at: Date.now() };
+        lastAcceptedMarket = { priceNative: fillQuote.priceNative, at: Date.now() };
         sendMessage({
           type: 'pt_trade_event',
           kind: 'sell',

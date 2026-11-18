@@ -68,7 +68,9 @@ test('F-47: the fill path actually routes through the witness', () => {
     'every buy/sell quote must pass the witness gate');
   assert.match(content, /lastAcceptedMarket = \{ priceNative: verdict\.priceNative, at: Date\.now\(\) \};/,
     'accepted ticks are evidence');
-  const fillEvidence = content.match(/lastAcceptedMarket = \{ priceNative: result\.trade\.priceNative, at: Date\.now\(\) \};/g) || [];
+  // B3: the evidence is the QUOTED price, not the post-slippage fill price
+  // (at >10% slippage the trader's own fill contradicted an honest chain read).
+  const fillEvidence = content.match(/lastAcceptedMarket = \{ priceNative: (?:fillQuote\.priceNative|observedPrice), at: Date\.now\(\) \};/g) || [];
   assert.ok(fillEvidence.length >= 2, 'committed buys AND sells are money evidence');
   // F-57 widened this contract: the judgment also carries WHERE the candidate
   // came from, because an aggregator snapshot answers to a tighter band than

@@ -107,3 +107,16 @@ test('F-55: the batch mark path consults the guard (source contract)', () => {
   assert.ok(rblock.indexOf('Q.rugGuardVerdict(') < rblock.indexOf('E.markPosition('),
     'resolver guard precedes its mark');
 });
+
+test('F-55/B4: a refused phantom is not adopted as the panel price either (source-order contract)', () => {
+  // The guard only gated markPosition; token.priceNative had already taken
+  // the dust-pool print, so the panel showed the profit and the heartbeat
+  // could fire a take-profit on it (soramonk 8/23: +170% on a rugged coin).
+  const content = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+  const adopt = content.indexOf('token.priceNative = fresh.priceNative;');
+  const guard = content.indexOf("refused phantom up-price for ");
+  assert.ok(adopt > 0 && guard > 0, 'both sites exist');
+  assert.ok(guard < adopt, 'the guard runs BEFORE the resolver price is adopted');
+  const between = content.slice(guard, adopt);
+  assert.match(between, /return;/, 'and a refusal leaves the previous price in place');
+});
