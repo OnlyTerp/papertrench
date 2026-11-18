@@ -1047,6 +1047,7 @@ function mutateHarness(initialState) {
   const stored = { pt_state: initialState };
   const calls = { gets: 0, sets: 0 };
   let interfere = null;
+  let workerDown = false;
   const store = {
     get: async () => {
       calls.gets += 1;
@@ -1069,6 +1070,7 @@ function mutateHarness(initialState) {
       runtime: {
         sendMessage: async (msg) => {
           if (!msg || msg.type !== 'pt_state_commit') return {};
+          if (workerDown) throw new Error('worker unreachable');
           calls.commits = (calls.commits || 0) + 1;
           const cur = stored.pt_state;
           const curSeq = cur ? (Number(cur.seq) || 0) : 0;
@@ -1091,6 +1093,7 @@ function mutateHarness(initialState) {
     adopted: () => sandbox.adopted(),
     stored, calls,
     setInterfere: (fn) => { interfere = fn; },
+    setWorkerDown: (v) => { workerDown = !!v; },
   };
 }
 
@@ -1802,4 +1805,24 @@ test('the replay tape and the copied fill line show the same gross P&L as the jo
   const tape = dashJs.slice(dashJs.indexOf('shell.tape.innerHTML = events.map'));
   assert.doesNotMatch(tape.slice(0, 900), /item\.trade\.pnlSol/, 'the tape goes through the helper');
   assert.doesNotMatch(dashJs, /realized \$\{t\.pnlSol >= 0/, 'the copied fill line goes through the helper');
+});
+
+test('B5: with the worker unreachable, a dashboard write still never lands on top of a fill it did not see', async () => {
+  // The unreachable-worker fallback wrote straight to storage. The pre-write
+  // check had already passed, so a fill landing in the gap after it (while
+  // the commit call was failing) was overwritten.
+  const h = mutateHarness({ seq: 5, rounds: [{ id: 'r1' }], journal: [], positions: {} });
+  h.setWorkerDown(true);
+  h.setInterfere((n, stored) => {
+    if (n === 3) { // the read made after the commit call failed
+      stored.pt_state.seq = 6;
+      stored.pt_state.rounds.unshift({ id: 'r2' });
+    }
+  });
+  await h.mutate((fresh) => {
+    fresh.rounds.find((r) => r.id === 'r1').note = { text: 'kept', t: 1 };
+  });
+  assert.equal(h.stored.pt_state.rounds.length, 2, 'the fill that landed during the failed commit survives');
+  assert.equal(h.stored.pt_state.rounds.find((r) => r.id === 'r1').note.text, 'kept', 'and the note still lands');
+  assert.equal(h.stored.pt_state.seq, 7);
 });

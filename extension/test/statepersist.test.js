@@ -1734,3 +1734,36 @@ test('B5: a buy whose commit gets no reply never writes over a fill another wind
   assert.equal(after.journal.filter((t) => t.id !== 'other-window-fill').length, before + 1,
     'and this view s own buy landed too, exactly once');
 });
+
+test('B5: heartbeats that walked away leave no inflated seq behind to overwrite a newer wallet', async () => {
+  // Each walked-away heartbeat had already bumped the in-memory seq. After k
+  // of them this view sat at N+k with nothing written; another window that
+  // really made k writes was also at N+k, so this view's stale copy passed
+  // the compare-and-swap and erased those writes. The collision needs the
+  // two counts to match, so every plausible k is tried.
+  for (let k = 1; k <= 12; k++) {
+    const opts = { workerDown: false };
+    const ov = runOverlay([0.001], opts);
+    await ov.advance(1200);
+    assert.ok(ov.openPaperPosition(1));
+    await ov.advance(2000);
+
+    const base = JSON.parse(JSON.stringify(ov.storage().pt_state));
+    opts.workerDown = true;
+    await ov.advance(4000); // several heartbeats walk away
+
+    const ahead = JSON.parse(JSON.stringify(base));
+    ahead.seq = (Number(base.seq) || 0) + k;
+    ahead.updatedAt = (Number(base.updatedAt) || 0) + k;
+    ahead.journal = [{
+      id: 'other-window-fill', side: 'buy', mint: BONK, ts: ahead.updatedAt,
+      solGross: 0.5, priceNative: 0.001, priceUsd: 0.2,
+    }].concat(base.journal || []);
+    ov.externalWriteSilently({ pt_state: ahead });
+
+    opts.workerDown = false;
+    await ov.advance(4000);
+    assert.ok(ov.storage().pt_state.journal.some((t) => t.id === 'other-window-fill'),
+      `with the other window ${k} writes ahead, this view must lose the compare-and-swap, not win it with a stale copy`);
+  }
+});

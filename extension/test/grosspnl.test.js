@@ -324,3 +324,21 @@ test('a mark carries its time, and the positions bar flags a mark nobody refresh
   const old = Q3.positionRows(state, live, null, null, E.grossOpenCostSol, state.positions.M.lastMarkAt + 10 * 60_000);
   assert.equal(old[0].stale, true, 'ten minutes with no new mark is not a live price');
 });
+
+test('"If you sell now" is exactly what the sell then books, fees and slippage included', () => {
+  // cheng 9/22 (v3.23.4): "interface showed a profit of $50, but I only
+  // received $20". The panel then showed the mark only; since 3.24.0 it also
+  // shows what a sale returns. This pins that the shown figure and the booked
+  // one come from the same computation.
+  const settings = E.mergeSettings({ feeBps: 100, slippageBps: 1500, gasSolPerTx: 0.001, tipSolPerTx: 0.002 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: 1, mint: 'M', solAmount: 1, priceNative: 1e-6, priceUsd: 2e-4, mcap: 200_000 });
+  const pos = state.positions.M;
+  const order = { ts: 2, mint: 'M', qtyFraction: 1, priceNative: 1.5e-6, priceUsd: 3e-4, mcap: 300_000 };
+  const shown = E.previewSell(pos, settings, order);
+  const markOnly = E.unrealizedPnlGross(Object.assign({}, pos, { lastPriceNative: 1.5e-6 }));
+  const booked = E.sell(state, settings, order).trade;
+  assert.ok(Math.abs(shown.pnlGrossSol - booked.pnlGrossSol) < 1e-12, 'preview === booked');
+  assert.ok(Math.abs(shown.net - booked.solNet) < 1e-12, 'and so are the proceeds');
+  assert.ok(shown.pnlGrossSol < markOnly, 'which is less than the bare mark by fees and slippage');
+});

@@ -160,6 +160,8 @@ function runOrderRace(opts) {
     setInterval: (fn, ms) => { timers.push({ fn, at: now + ms, every: ms }); return timers.length; },
     fetch: (u) => {
       const s = String(u);
+      // Every price source dead (options.networkDown is read live).
+      if (options.networkDown && options.networkDown()) return Promise.resolve({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
       if (s.includes('jup.ag')) return Promise.resolve({ ok: true, status: 200, json: async () => jupiterPayload() });
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ pairs: null }) });
     },
@@ -381,4 +383,43 @@ test('a stop armed after the last price move still fires on a flat feed (D-57)',
     `the stop must fire against the price already on screen; got ${slSells.length}`);
   assert.ok(!st.positions[NEW_MINT],
     'a 100% stop must close the position, not leave the bag open');
+}, { timeout: 30000 });
+
+test('B3: a level never fires on a price nothing has refreshed (every source dead)', async () => {
+  // The D-57 watchdog judges an armed level against the price already on
+  // screen. That is right while SOMETHING keeps confirming the price (the
+  // test above). When the feed and every aggregator have gone quiet the
+  // number on screen is just the last thing seen; booking a stop or a
+  // take-profit at it books a level that may be long gone.
+  let down = false;
+  const ov = runOrderRace({ networkDown: () => down });
+  await ov.settle();
+  await ov.advance(1000);
+  const SCREEN_NATIVE = 0.0000021 / SOL_USD;
+
+  down = true;
+  await ov.advance(12_000); // the last price ages out; nothing refreshes it
+
+  const base = E.resetState(E.defaultSettings());
+  E.buy(base, E.defaultSettings(), {
+    ts: 4_000_000, mint: NEW_MINT, site: 'padre',
+    solAmount: 1, priceNative: SCREEN_NATIVE * 4, priceUsd: SCREEN_NATIVE * 4 * SOL_USD,
+  });
+  E.addOrder(base, NEW_MINT, { kind: 'sl', triggerPrice: SCREEN_NATIVE * 2, sizePct: 100 },
+    SCREEN_NATIVE * 4, 4_100_000);
+  ov.seed(base);
+  await ov.settle();
+  await ov.advance(4000);
+
+  const st = ov.workerState();
+  assert.equal((st.journal || []).filter((t) => t.side === 'sell').length, 0,
+    'no fresh price, no fire');
+  assert.ok(st.positions[NEW_MINT], 'the position and its level are still there');
+
+  // The sources come back: the level fires on the first refreshed price.
+  down = false;
+  await ov.advance(6000);
+  const after = ov.workerState();
+  assert.equal((after.journal || []).filter((t) => t.side === 'sell' && t.orderKind === 'sl').length, 1,
+    'and it fires as soon as a source confirms the price again');
 }, { timeout: 30000 });

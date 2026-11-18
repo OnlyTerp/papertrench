@@ -3575,7 +3575,7 @@
     // B3: an auto-exit books whatever token.priceNative holds. A price nothing
     // has refreshed inside the staleness bound is not the market any more;
     // firing a TP/SL on it books a level that may be long gone.
-    if (Q.isPriceStale(lastPriceAt)) return;
+    if (Q.isPriceStale(lastPriceAt, Date.now())) return;
     // This tab's high-water marks per ORDER id. Each trail ratchets only on
     // prices observed since THAT order existed — a peak seen before the buy
     // (or earned by an earlier closed position on the same mint) can never
@@ -4478,7 +4478,7 @@
           // address is a stand-in bag exactly like a list buy's. Untagged, the
           // chain heal never looked at it, and it stayed lost once the page
           // closed before the mint was discovered.
-          if (token && token.pending && token.srcKind === 'pair'
+          if (token && token.srcKind === 'pair'
             && sameMint(token.mint, token.srcAddress) && filled.position) {
             filled.position.standInKey = true;
           }

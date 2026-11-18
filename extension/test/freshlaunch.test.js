@@ -352,7 +352,9 @@ function runFreshLaunch(opts) {
         }
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ pairs: null }) });
       }
-      if (s.includes('jup.ag')) return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      // solRateOnly: Jupiter knows SOL/USD but not the coin (the usual state
+      // of a launch nobody has indexed).
+      if (s.includes('jup.ag')) return Promise.resolve({ ok: true, status: 200, json: async () => (options.solRateOnly ? jupiterPayload().filter((x) => x.id === Q.WSOL_MINT) : []) });
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ schemaVersion: '1.0.0', pairs: null }) });
     },
     chrome: {
@@ -458,6 +460,11 @@ function runFreshLaunch(opts) {
     // Emit a bridge 'tick' exactly the MAIN-world bridge sends it. Tests drive
     // the real handlePageTick path this way — the same path a live chart's
     // first price takes.
+    emitBridge: (type, payload) => {
+      for (const fn of (winListeners.message || [])) {
+        fn({ source: win, origin: null, data: { source: 'papertrench-bridge', type, payload } });
+      }
+    },
     emitTick: (payload) => {
       for (const fn of (winListeners.message || [])) {
         fn({ source: win, origin: null, data: { source: 'papertrench-bridge', type: 'tick', payload } });
@@ -1339,4 +1346,56 @@ test('a SOL/USD rate derived from a foreign-chain tick is only adopted when it l
   assert.equal(Q.derivedSolRatePlausible(1810, 73.9), false, 'that is the ETH price');
   assert.equal(Q.derivedSolRatePlausible(74.1, 0), true, 'no reference rate known: as before');
   assert.equal(Q.derivedSolRatePlausible(0, 73.9), false);
+});
+
+test('B5: a panel buy made while the page is still keyed by its pair address is tagged as a stand-in bag', async () => {
+  // The chain heal only looks at positions flagged standInKey, and only list
+  // buys set it. A panel buy on a pair-URL page whose mint was not known yet
+  // was filed under the pair with no flag; if the page closed before the
+  // mint was discovered, nothing ever moved it ("it says i did not buy").
+  const PAIR_KEY = '7PTQpne3b7kjJEvDYDMBHSuRjTDUh6HSin2xMyW3pump';
+  const ov = runFreshLaunch({
+    url: `https://axiom.trade/meme/${PAIR_KEY}`,
+    resolved: () => false,
+    resolvePrice: null,
+    // The chain prices the pool but cannot name a mint other than the
+    // address it was asked about: the page stays keyed by the pair.
+    onchainPrewatch: () => ({ mint: PAIR_KEY, pool: PAIR_KEY, poolKind: 'pump-curve', priceNative: 3.2e-8, decimals: 6 }),
+  });
+  await ov.settle();
+  await ov.advance(3000);
+  ov.setInput('pt-custom', '0.5');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  await ov.advance(8000);
+  const pos = ((ov.storage().pt_state || {}).positions || {})[PAIR_KEY];
+  assert.ok(pos && pos.qty > 0, `the buy filled under the pair key (price: ${ov.priceText()}, armed: ${ov.buyButtonArmed()})`);
+  assert.equal(pos.standInKey, true, 'and it is flagged so the chain heal will look at it later');
+});
+
+test('B1: a click on a coin whose mint is known but unpriced takes the board print keyed by its pair', async () => {
+  // The row that opened this chart printed its price under the PAIR address;
+  // the panel had since learned the mint. The click-time lookup asked under
+  // the mint only, missed the print, and fell through to a resolver that did
+  // not know the coin yet.
+  const PAIR_KEY = '7PTQpne3b7kjJEvDYDMBHSuRjTDUh6HSin2xMyW3pump';
+  const ov = runFreshLaunch({
+    url: `https://axiom.trade/meme/${PAIR_KEY}`,
+    resolved: () => false,
+    resolvePrice: null,
+    solRateOnly: true,
+    // The chain names the mint but gives no price.
+    onchainPrewatch: () => ({ mint: NEW_MINT, pool: PAIR_KEY }),
+  });
+  await ov.settle();
+  await ov.advance(3000);
+  ov.emitBridge('row-tick', { mint: PAIR_KEY, candidates: [{ unit: 'usd', value: 0.0004 }], mcap: 400_000 });
+  await ov.settle();
+  ov.setInput('pt-custom', '0.5');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  await ov.advance(2000);
+  const positions = (ov.storage().pt_state || {}).positions || {};
+  const filled = Object.values(positions).find((p) => p && p.qty > 0);
+  assert.ok(filled, `the click fills from the board print (price: ${ov.priceText()}, armed: ${ov.buyButtonArmed()})`);
 });
