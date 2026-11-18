@@ -92,6 +92,6 @@ test('F-47: the fill path actually routes through the witness', () => {
   // from Solana data.
   assert.match(content, /const worker = await bounded\(R\.workerQuote\(mint, chain\), WITNESS_BUDGET_MS, null\);/,
     'a dead chain lane falls back to the chain-qualified worker quote, not to silence (bounded)');
-  assert.match(content, /if \(Q\.witnessAgrees\(useUsdWitness \? chosen\.priceUsd : chosen\.priceNative,\s*\n\s*useUsdWitness \? witnessUsd : witnessNative\)\) return chosen;/,
+  assert.match(content, /if \(Q\.witnessAgrees\(useUsdWitness \? chosen\.priceUsd : chosen\.priceNative,\s*\n\s*useUsdWitness \? witnessUsd : witnessNative, chosen\.source\)\) return chosen;/,
     'only an agreeing witness lets a divergent candidate fill - and foreign candidates are compared in their own USD units');
 });
