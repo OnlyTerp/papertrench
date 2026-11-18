@@ -2621,9 +2621,11 @@ async function xrayObserve(message, settings) {
       if (XR.FOLLOWER_OPS.has(digest.op) && digest.followersTarget === subjectId) {
         const source = digest.op === 'FollowersYouKnow' ? 'you_follow' : 'followers';
         const others = digest.users.filter((u) => u.restId !== subjectId && u.followers !== null);
-        // Merge even when nobody usable came back: the list WAS read, and
-        // the card must be able to say so instead of waiting forever.
-        XR.mergeSmart(record, others, source, now);
+        // An EMPTY list was still read, and the card must be able to say so
+        // instead of waiting forever. A list whose users all lack counts was
+        // not usefully read: leave it unread so a later page can fill it.
+        const listed = digest.users.filter((u) => u.restId !== subjectId).length;
+        if (others.length || listed === 0) XR.mergeSmart(record, others, source, now);
       }
       if (digest.cursor && (digest.op === 'UserTweets' || digest.op === 'UserTweetsAndReplies')) {
         record.scanCursor = digest.cursor;

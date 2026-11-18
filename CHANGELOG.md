@@ -7,9 +7,9 @@ details live in the commit messages.
 
 - **The average fill / exit lines stop jumping around.** The line was being re-placed on most price updates even though your average hadn't changed, so it landed a few percent off depending on the tick. It now moves only when a buy or sell changes the average. Reproduced in tests (a 5% jump); not yet checked on a live chart.
 
-- **A coin you bought before it migrated shows up when you open it by its new pool.** The position was filed under the old bonding-curve address and the new pool's page never learned that address. PaperTrench now looks up every pool for the coin once and moves the position over. Not yet checked live; coins only Jupiter knows are still open.
+- **One cause of "it says I didn't buy" after a coin migrates.** A position filed under the old bonding-curve address was not found when the coin was opened by its new pool address, because that page never learned the old address. PaperTrench now looks up every pool for the coin once and moves the position over. Found by reading the code and proven in tests; we have not reproduced the reported case itself, and Axiom's current coin pages already took a path that worked. Coins only Jupiter knows are still open.
 
-- **X-Ray: follower counts load on X's newer profile layout,** a first visit now schedules the follower read instead of waiting for a second visit, and the card says plainly when follower lists or posts haven't been read instead of showing "Reading follower lists…" forever or a green "None found". Not yet checked on a live X page.
+- **X-Ray: follower counts load on X's newer profile layout,** a first visit now schedules the follower read instead of waiting for a second visit (with deep scan on, that can be one extra request to X per newly visited profile, inside the existing budget), and the card says plainly when follower lists or posts haven't been read instead of showing "Reading follower lists…" forever or a green "None found". Not yet checked on a live X page.
 
 ## v3.28.0 — 2026-11-18
 
