@@ -1176,7 +1176,15 @@
     pos.lastPriceNative = priceNative;
     // When this mark was taken. Without it a mark looked equally live a
     // second or an hour after the last source went quiet.
-    pos.lastMarkAt = Date.now();
+    // meta.markedAt: the time the PRICE was observed, for callers that put a
+    // cached price back onto an adopted wallet. Restamping those as "now"
+    // made an old price look fresh again on every adoption. 0 / unknown
+    // keeps whatever time the position already carried.
+    if (meta && Object.prototype.hasOwnProperty.call(meta, 'markedAt')) {
+      if (Number(meta.markedAt) > 0) pos.lastMarkAt = Number(meta.markedAt);
+    } else {
+      pos.lastMarkAt = Date.now();
+    }
     if (priceUsd) pos.lastPriceUsd = priceUsd;
     if (meta && meta.priceSource) pos.lastPriceSource = meta.priceSource;
     if (meta && meta.pairAddress) pos.lastPricePair = meta.pairAddress;

@@ -234,8 +234,12 @@ function runOverlay(priceSeries, opts) {
             // sees one thing either way — no reply. Opening and closing a
             // window is exactly what produces it.
             if (options.workerDown) {
-              // A commit that gets no answer; the hook lets a test land
-              // another window's write INSIDE that wait.
+              // A commit that gets no answer. landSilently: the worker DID
+              // write it and only the reply was lost. The hook lets a test
+              // land another window's write inside that wait.
+              if (options.landSilently && options.landSilently(msg)) {
+                storage.pt_state = JSON.parse(JSON.stringify(msg.state));
+              }
               if (options.onCommit) options.onCommit(msg);
               return Promise.resolve({});
             }
@@ -1784,4 +1788,78 @@ test('B12: an idle wallet is not written to storage every heartbeat', async () =
   commits = 0;
   await ov.advance(30_000);
   assert.ok(commits <= 2, `an unchanged wallet over 30 s costs at most 2 commits, got ${commits}`);
+});
+
+test('B5: a buy whose commit landed but whose reply was lost is never booked twice', async () => {
+  // The mirror of the test above: the worker DID write this view's buy, the
+  // reply never arrived, and another window then wrote on top of it. Storage
+  // now holds a stamp that is neither this view's write nor its base. Adopting
+  // it and re-applying the buy would book the same buy twice.
+  let armed = false;
+  let before = Infinity;
+  let ov = null;
+  const isBuyCommit = (msg) => armed && msg.state && (msg.state.journal || []).length > before;
+  ov = runOverlay([0.001], {
+    workerDown: true,
+    landSilently: (msg) => isBuyCommit(msg),
+    onCommit: (msg) => {
+      if (!isBuyCommit(msg)) return;
+      armed = false;
+      const landed = JSON.parse(JSON.stringify(ov.storage().pt_state));
+      const next = JSON.parse(JSON.stringify(landed));
+      next.seq = (Number(landed.seq) || 0) + 1;
+      next.updatedAt = (Number(landed.updatedAt) || 0) + 1;
+      next.journal = [{
+        id: 'other-window-fill', side: 'buy', mint: BONK, ts: next.updatedAt,
+        solGross: 0.5, priceNative: 0.001, priceUsd: 0.2,
+      }].concat(landed.journal || []);
+      ov.externalWriteSilently({ pt_state: next });
+    },
+  });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the wallet opens with a position on screen');
+  await ov.advance(2000);
+  before = (ov.storage().pt_state.journal || []).length;
+  armed = true;
+  ov.clickPreset(0);
+  await ov.advance(8000);
+
+  const after = ov.storage().pt_state;
+  assert.equal(armed, false, 'the buy commit landed and the foreign write followed it');
+  assert.ok(after.journal.some((t) => t.id === 'other-window-fill'), 'the other window s fill is there');
+  assert.equal(after.journal.filter((t) => t.id !== 'other-window-fill').length, before + 1,
+    'this view s buy is in the wallet exactly once');
+});
+
+test('B12: a wallet with a post-exit watch running (the hour after any sell) is not saved every beat either', async () => {
+  // Each price sample bumps the watch's sample counter. Counted as a real
+  // change, that put the full-wallet save back on every beat for an hour
+  // after every close, which is most of an active session.
+  let commits = 0;
+  const ov = runOverlay([0.001], { countCommit: () => { commits += 1; } });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1));
+  await ov.advance(2000);
+  const withWatch = JSON.parse(JSON.stringify(ov.storage().pt_state));
+  withWatch.seq = (Number(withWatch.seq) || 0) + 1;
+  withWatch.updatedAt = (Number(withWatch.updatedAt) || 0) + 1;
+  const t = withWatch.updatedAt;
+  withWatch.postWatch = [{
+    roundId: 'r-test', mint: BONK, exitPriceNative: 0.001, closedAt: t - 1000,
+    until: t + 60 * 60 * 1000, maxPriceNative: null, minPriceNative: null, samples: 0, lastSampleAt: 0,
+  }];
+  ov.externalWriteSilently({ pt_state: withWatch });
+  await ov.advance(8000);
+  assert.ok((ov.storage().pt_state.postWatch || []).length === 1, 'the watch is live in this view');
+  commits = 0;
+  for (let i = 0; i < 300; i++) { // 30 s of live ticks, 10 per second
+    ov.dispatchBridge('tick', {
+      source: 'padre-chart-bar', mint: null, mcap: null,
+      candidates: [{ value: 0.001 * (1 + 0.002 * Math.sin(i / 7)), unit: 'unknown', key: 'padreChartClose' }],
+    });
+    await ov.advance(100);
+  }
+  const watch = ov.storage().pt_state.postWatch[0];
+  assert.ok(commits <= 12, `sampling a watch costs about the marks cadence, not every beat (got ${commits}; it was 38)`);
+  assert.ok(watch.samples > 0, 'and the samples are still saved');
 });

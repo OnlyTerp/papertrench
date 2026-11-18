@@ -3154,8 +3154,11 @@
    */
   /** Put back what this view genuinely owns after adopting newer truth. */
   function reapplyOwnMarks() {
+    // These are CACHED prices: each mark carries the time its price was
+    // seen, never "now", or an old price would look fresh after every
+    // adoption (and defeat the stale flag and the old-mark sell rule).
     if (token && token.mint && Number(token.priceNative) > 0) {
-      E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
+      E.markPosition(state, token.mint, token.priceNative, token.priceUsd, { markedAt: lastPriceAt || 0 });
     }
     for (const mint of Object.keys(livePositionPrices)) {
       const p = livePositionPrices[mint];
@@ -3163,6 +3166,7 @@
         E.markPosition(state, mint, p.priceNative, p.priceUsd, {
           priceSource: p.priceSource,
           pairAddress: p.pairAddress,
+          markedAt: Number(p.at) || 0,
         });
       }
     }
@@ -3196,6 +3200,23 @@
       const curStamp = `${Number(cur.seq) || 0}:${cur.updatedAt}`;
       if (curStamp === lastWrittenStamp) return;
       if (curStamp === base) break;
+      // Someone else's state. Before re-applying this mutation on top of it,
+      // rule out that it already CONTAINS the mutation: the worker may have
+      // landed our commit and only lost the reply, and another window then
+      // wrote on top. Re-applying a buy there books it twice. A fill is
+      // recognisable: every fill id this view holds is in their journal, and
+      // this view filled something within the last 30 s.
+      {
+        const theirs = new Set((cur.journal || []).map((t) => t && t.id));
+        const mine = state.journal || [];
+        const allThere = mine.every((t) => !t || theirs.has(t.id));
+        const justFilled = mine.some((t) => t && Date.now() - Number(t.ts) < 30_000);
+        if (allThere && justFilled) {
+          adoptState(cur);
+          reapplyOwnMarks();
+          return;
+        }
+      }
       adoptState(cur);
       reapplyOwnMarks();
       await remutate();
@@ -4145,7 +4166,9 @@
   //    adoption event it missed).
   const SOON_MARKS_INTERVAL_MS = 5000;
   const SOON_MARK_KEYS = new Set(['lastPriceNative', 'lastPriceUsd', 'lastPriceSource', 'lastPricePair',
-    'lastMarkAt', 'peakPnlSol', 'troughPnlSol']);
+    'lastMarkAt', 'peakPnlSol', 'troughPnlSol',
+    // post-exit watch sampling: a counter and a timestamp per price sample
+    'samples', 'lastSampleAt']);
   let lastSoonAt = 0;
   let lastSoonSig = null;
   let lastSoonStructSig = null;
@@ -4179,18 +4202,7 @@
       const storedState = stored[E.STORAGE_KEYS.state];
       if (storedState && Number(storedState.seq) > Number(state.seq)) {
         adoptState(storedState);
-        if (token && token.mint && Number(token.priceNative) > 0) {
-          E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
-        }
-        for (const mint of Object.keys(livePositionPrices)) {
-          const p = livePositionPrices[mint];
-          if (p && Number(p.priceNative) > 0) {
-            E.markPosition(state, mint, p.priceNative, p.priceUsd, {
-              priceSource: p.priceSource,
-              pairAddress: p.pairAddress,
-            });
-          }
-        }
+        reapplyOwnMarks();
       }
       // Heartbeat persistence must never surface as a pageerror: under
       // multi-tab contention this tab simply loses this round (persistStateNow
@@ -7996,11 +8008,11 @@
    *  - the quote did not come from the row or the chain already;
    *  - quote and row within 2x (rowTapMcapAgrees ran first: beyond that the
    *    fill was refused) but more than 15% apart;
-   *  - the quote is on the standard 1e9-supply basis (a pump-style mint, or
-   *    its own cap / price is 1e9 within 1%). On any other basis two caps can
-   *    differ by how supply is counted, and that ratio is not a price gap.
-   * The price is then the row's cap over that supply, converted at the
-   * quote's own SOL rate. Mutates `data`; the receipt says 'row-print'.
+   *  - on Axiom, and the quote's own cap / price implies a launchpad supply
+   *    (0.9e9 to 1.01e9). On any other basis two caps can differ by how
+   *    supply is counted, and that ratio is not a price gap.
+   * The price is then the row's cap over the quote's implied supply,
+   * converted at the quote's own SOL rate. Mutates `data`; the receipt says 'row-print'.
    */
   function rowPrintReprice(address, data) {
     const tap = address ? rowTapMcaps.get(address) : null;
@@ -8013,13 +8025,18 @@
     if (!(usd > 0) || !(native > 0) || !(cap > 0)) return false;
     const off = Math.max(cap / tap.mcap, tap.mcap / cap);
     if (!(off > 1.15) || off > 2) return false;
-    const SUPPLY = 1e9;
+    // Axiom only: it is the one venue where the row was checked against the
+    // coin's own chart page (three coins, 2026-11-18). Other sites print
+    // "MC $…" too, with nothing yet showing their row is the better number.
+    if (!site || site.id !== 'axiom') return false;
+    // The supply the QUOTE itself implies, never an assumed constant: a pump
+    // coin with burned supply sits a few percent under 1e9 (live: 959.7M).
+    // Launchpad supplies only: outside this band the two caps may be counted
+    // differently, and their ratio is then not a price gap.
     const impliedSupply = cap / usd;
-    const standardBasis = /pump$/.test(String(data.mint || address))
-      || Math.abs(impliedSupply / SUPPLY - 1) < 0.01;
-    if (!standardBasis) return false;
+    if (!(impliedSupply >= 0.9e9 && impliedSupply <= 1.01e9)) return false;
     const rate = usd / native; // the quote's own SOL/USD
-    data.priceUsd = tap.mcap / SUPPLY;
+    data.priceUsd = tap.mcap / impliedSupply;
     data.priceNative = data.priceUsd / rate;
     data.mcap = tap.mcap;
     data.priceSource = 'row-print';
@@ -9256,6 +9273,7 @@
               priceUsd: quote.priceUsd,
               priceSource: quote.priceSource,
               pairAddress: quote.pairAddress,
+              at: now, // when this price was seen (reapplyOwnMarks)
             };
             // Mark the engine too, so peak/trough and equity stay truthful for
             // positions the user never has on screen.

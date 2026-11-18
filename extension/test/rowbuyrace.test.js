@@ -1830,3 +1830,15 @@ test('a quote on an unknown supply basis is never rescaled to the row (control)'
   await waitFor(() => harness.getState().journal.length === 1);
   assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
 });
+
+test('the row-print reprice is Axiom-only: elsewhere the quote stands (control)', async () => {
+  const race = bootRace({ quoteB: PUMP_QUOTE });
+  const { harness } = race;
+  harness.setSite({ id: 'padre', rowBuy: { kind: 'mint' } });
+  race.releaseB();
+  harness.noteRowTapMcap(B, 133_000);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
+  assert.notEqual(harness.getState().journal[0].priceSource, 'row-print');
+});

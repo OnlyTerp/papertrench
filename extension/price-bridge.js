@@ -4554,8 +4554,16 @@
         if (barePrice !== null && !barePriceProven && !hasExplicitPrice) return null;
         return fields;
       };
+      // B12: bounded like addressFromRowFiber (visited set, a read budget,
+      // long arrays skipped). 400 fibers, each re-walking a shared list
+      // prop item by item, ran inside the click handler of a chip tap.
+      const visited = new WeakSet();
+      let budget = 8000;
       const walk = (obj, depth) => {
-        if (!obj || typeof obj !== 'object' || depth > 3) return;
+        if (!obj || typeof obj !== 'object' || depth > 3 || budget <= 0 || visited.has(obj)) return;
+        visited.add(obj);
+        if (Array.isArray(obj) && obj.length > 50) return;
+        budget -= 1 + Object.keys(obj).length;
         const own = fieldsFor(obj) || {};
         const hasIdentity = own.tokenAddress || own.mint || own.pairAddress;
         const hasPrice = [...priceKeys].some((name) => own[name] !== undefined);

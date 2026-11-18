@@ -342,3 +342,21 @@ test('"If you sell now" is exactly what the sell then books, fees and slippage i
   assert.ok(Math.abs(shown.net - booked.solNet) < 1e-12, 'and so are the proceeds');
   assert.ok(shown.pnlGrossSol < markOnly, 'which is less than the bare mark by fees and slippage');
 });
+
+test('putting a cached price back on a position does not make it look freshly marked', () => {
+  // After adopting another window's wallet, this view re-applies the prices
+  // it had cached. Stamped "now", a ten-minute-old price became a fresh mark
+  // on every adoption, so the stale flag never showed and the old-mark sell
+  // rule never applied.
+  const settings = E.mergeSettings({ feeBps: 0 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: Date.now(), mint: 'M', solAmount: 1, priceNative: 1e-6, priceUsd: 2e-4 });
+  const seenAt = Date.now() - 10 * 60_000;
+  E.markPosition(state, 'M', 2e-6, 4e-4, { markedAt: seenAt });
+  assert.equal(state.positions.M.lastMarkAt, seenAt, 'the mark carries the time its price was seen');
+  E.markPosition(state, 'M', 2e-6, 4e-4, { markedAt: 0 });
+  assert.equal(state.positions.M.lastMarkAt, seenAt, 'an unknown time keeps the time already there');
+  const before = Date.now();
+  E.markPosition(state, 'M', 2.1e-6, 4.2e-4);
+  assert.ok(state.positions.M.lastMarkAt >= before, 'a live mark is stamped now');
+});
