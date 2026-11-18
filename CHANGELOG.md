@@ -3,6 +3,14 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
+## Unreleased
+
+- **The average fill / exit lines stop jumping around.** The line was being re-placed on most price updates even though your average hadn't changed, so it landed a few percent off depending on the tick. It now moves only when a buy or sell changes the average. Reproduced in tests (a 5% jump); not yet checked on a live chart.
+
+- **A coin you bought before it migrated shows up when you open it by its new pool.** The position was filed under the old bonding-curve address and the new pool's page never learned that address. PaperTrench now looks up every pool for the coin once and moves the position over. Not yet checked live; coins only Jupiter knows are still open.
+
+- **X-Ray: follower counts load on X's newer profile layout,** a first visit now schedules the follower read instead of waiting for a second visit, and the card says plainly when follower lists or posts haven't been read instead of showing "Reading follower lists…" forever or a green "None found". Not yet checked on a live X page.
+
 ## v3.28.0 — 2026-11-18
 
 - **Pulse quick-buy prices from Axiom's own Pulse feed.** Axiom's new Pulse sends its row prices through a background worker; PaperTrench now reads that feed, so a chip buy is priced from Axiom's own numbers instead of an outside aggregator's. It has to land within 15% of the row's market cap or it isn't used; in live fills on Nov 16 it landed within 0–6% of the row, most within 1% (a $36.3K row booked $36.3K, a $24.7K row booked $24.7K, a $33.9K row booked $31.9K).
