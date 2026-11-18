@@ -41,7 +41,7 @@ details live in the commit messages.
 
 - **What is left:** Opera blocking the settings page is Opera's own policy. A coin that nothing prices at all cannot be filled until a price exists. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where.
 
-Tested: extension __EXT__, server 398/398, bot 20/20 green. __LIVE__
+Tested: extension 2769/2769, server 398/398, bot 20/20 green. Checked live on Axiom (one tab, clicks only): chip buys filled in about 0.6 s; rows Axiom's feed did not cover booked at the row's cap ($78.2K and $120K rows booked $78.2K and $120.0K, and that coin's own page then read $122K; on a fast-falling coin the page had moved 15% a few seconds later); a panel buy booked $41.7K with the page at $41.5K and its sell $77.2K with the page at $77.1K, with the supply exactly 1B and the average line on one level in between; the wallet was saved 5 to 6 times per 30 s, idle and on a held coin with 241 price ticks (it was about 38). Tested but not reproduced live: the sell refusals, the missing-buy causes, the stuck-price retry, the quick-buy gate, stale-position flags and X-Ray (no X login in the test browser). The freeze fixes were measured in the test rig and by that save count, not in a browser performance trace.
 
 ## v3.28.0 — 2026-11-18
 
