@@ -8079,26 +8079,31 @@
    * row's supply. Live 2026-11-18: coins quoted in tokens the aggregators do
    * not convert armed and expired although the row showed a cap all along.
    * The price is that cap over Axiom's own supply at the known SOL rate.
-   * Not for dust: below a $1,500 cap a 0.1 SOL buy is a visible share of the
-   * whole supply (at $1 it is several times the supply), and a fill there
-   * would be a number no real trade could get.
+   * Sized, not floored: the buy may be at most 2% of the cap the row shows.
+   * A real buy that size barely moves the price, so the row's cap is an
+   * honest fill. A bigger share has no honest price (0.1 SOL into a $1 coin
+   * is several times its whole supply); that tap is refused with the reason
+   * instead of waiting 60 s for a price that cannot exist.
    */
-  const ROW_PRINT_MIN_MCAP_USD = 1500;
+  const ROW_PRINT_MAX_SHARE = 0.02;
   function rowPrintPossible(address) {
     if (!site || site.id !== 'axiom' || !address) return false;
     const tap = rowTapMcaps.get(address);
-    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS || !(tap.mcap >= ROW_PRINT_MIN_MCAP_USD)) return false;
+    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS || !(tap.mcap > 0)) return false;
     const row = recentRowPrices.get(address);
     const supply = row && Number(row.supply);
     return supply >= 0.9e9 && supply <= 1.01e9;
   }
-  async function rowPrintOnlyQuote(address) {
+  async function rowPrintOnlyQuote(address, amountSol) {
     if (!rowPrintPossible(address)) return null;
     const tap = rowTapMcaps.get(address);
     const row = recentRowPrices.get(address);
     const supply = Number(row.supply);
     const rate = await R.solUsd().catch(() => 0);
     if (!(rate > 0)) return null;
+    if (Number(amountSol) > 0 && Number(amountSol) * rate > ROW_PRINT_MAX_SHARE * tap.mcap) {
+      return { tooBig: true, mcap: tap.mcap, buyUsd: Number(amountSol) * rate };
+    }
     const priceUsd = tap.mcap / supply;
     return {
       mint: address, pairAddress: null,
@@ -8875,8 +8880,9 @@
       let data = null;
       // Only awaited when the row print can actually price this tap: an
       // unconditional await here would add a tick to every chip buy.
-      const printFallback = rowPrintPossible(address)
-        ? await rowPrintOnlyQuote(address).catch(() => null) : null;
+      const printQuote = rowPrintPossible(address)
+        ? await rowPrintOnlyQuote(address, amount).catch(() => null) : null;
+      const printFallback = printQuote && !printQuote.tooBig ? printQuote : null;
       const validRowQuote = rowQuote && await validRowPropsQuote(rowQuote, address);
       if (validRowQuote) {
         data = {
@@ -8934,7 +8940,13 @@
           } catch (_) { data = null; }
         }
       }
-      if (!data || !(data.priceNative > 0)) data = printFallback || await rowPrintOnlyQuote(address);
+      if (!data || !(data.priceNative > 0)) data = printFallback;
+      if ((!data || !(data.priceNative > 0)) && printQuote && printQuote.tooBig) {
+        // Nothing prices this coin and the buy is a large share of all of it.
+        toast(`No paper fill: this coin's whole market cap is ${fmtMoney(printQuote.mcap)} and this buy is ${fmtMoney(printQuote.buyUsd)} — there is no honest price for a buy that size`);
+        outcome = 'refused-too-big';
+        return;
+      }
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the
         // intent is NEVER refused. It arms exactly like the panel's D-39

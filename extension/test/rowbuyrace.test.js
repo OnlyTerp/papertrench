@@ -1863,8 +1863,9 @@ test('a coin no outside source prices still fills on Axiom, at the cap the row s
   assert.ok(Math.abs(Number(fill.priceUsd) - 3_400 / 1e9) < 1e-15, 'cap over the supply Axiom itself reports');
 });
 
-test('a dust row is never filled from its own print: it arms and says so (control)', async () => {
-  // A $1 cap would hand a 0.1 SOL buy several times the whole supply.
+test('a buy bigger than 2% of an unpriced coin is refused with the reason, not armed for 60 s', async () => {
+  // A $1 cap: a 0.1 SOL buy is several times the whole supply. No price can
+  // be honest for that, and waiting cannot produce one.
   const race = bootRace({ unpricedB: true });
   const { harness } = race;
   race.releaseB();
@@ -1872,7 +1873,22 @@ test('a dust row is never filled from its own print: it arms and says so (contro
   harness.noteRowPrice(DEAD_FEED);
   await harness.doRowBuy(B);
   assert.equal(harness.getState().journal.length, 0);
-  assert.ok(harness.getRowArmed(), 'armed, waiting for a real price');
+  assert.equal(harness.getRowArmed(), null, 'not armed: there is nothing to wait for');
+  assert.ok(harness.getToastMessages().some((m) => /whole market cap/.test(m) && /no honest price/.test(m)),
+    `the trader is told why (toasts: ${JSON.stringify(harness.getToastMessages())})`);
+});
+
+test('a small cap is fine when the buy is a small share of it', async () => {
+  // The old fixed $1,500 floor refused this; the rule is the buy's share.
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 1_200);
+  harness.noteRowPrice(DEAD_FEED);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 1_200);
+  assert.equal(harness.getState().journal[0].priceSource, 'row-print');
 });
 
 test('without Axiom\'s supply for the row, the print alone is not a price (control)', async () => {
