@@ -7985,6 +7985,47 @@
     if (timing) timing.outcome = 'refused-row-mcap';
     return false;
   }
+  /**
+   * A lagging outside quote is brought to the cap the tapped row showed.
+   *
+   * Live 2026-11-18: chip buys Axiom's feed did not cover were priced by the
+   * aggregator 25% and 32% off the row (an $82.5K row booked $61.8K) while
+   * the coin's own chart page confirmed the row. That is the "fills me far
+   * from the price" report in its remaining form. Conditions, all required:
+   *  - a tap on record from the last 10 s (the number the trader acted on);
+   *  - the quote did not come from the row or the chain already;
+   *  - quote and row within 2x (rowTapMcapAgrees ran first: beyond that the
+   *    fill was refused) but more than 15% apart;
+   *  - the quote is on the standard 1e9-supply basis (a pump-style mint, or
+   *    its own cap / price is 1e9 within 1%). On any other basis two caps can
+   *    differ by how supply is counted, and that ratio is not a price gap.
+   * The price is then the row's cap over that supply, converted at the
+   * quote's own SOL rate. Mutates `data`; the receipt says 'row-print'.
+   */
+  function rowPrintReprice(address, data) {
+    const tap = address ? rowTapMcaps.get(address) : null;
+    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS) return false;
+    if (data.priceSource === 'row-feed' || data.priceSource === 'row-props'
+      || data.priceSource === 'row-onchain' || data.priceSource === 'row-print') return false;
+    const usd = Number(data.priceUsd);
+    const native = Number(data.priceNative);
+    const cap = Number(data.mcap);
+    if (!(usd > 0) || !(native > 0) || !(cap > 0)) return false;
+    const off = Math.max(cap / tap.mcap, tap.mcap / cap);
+    if (!(off > 1.15) || off > 2) return false;
+    const SUPPLY = 1e9;
+    const impliedSupply = cap / usd;
+    const standardBasis = /pump$/.test(String(data.mint || address))
+      || Math.abs(impliedSupply / SUPPLY - 1) < 0.01;
+    if (!standardBasis) return false;
+    const rate = usd / native; // the quote's own SOL/USD
+    data.priceUsd = tap.mcap / SUPPLY;
+    data.priceNative = data.priceUsd / rate;
+    data.mcap = tap.mcap;
+    data.priceSource = 'row-print';
+    data.priceAt = tap.at;
+    return true;
+  }
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
@@ -8478,6 +8519,7 @@
     // print is the anchor instead (see rowPrintVouchesFirstBuy).
     if (!(await rowPrintVouchesFirstBuy(address, data, posAnchor))) return null;
     if (!rowTapMcapAgrees(address, data, timing)) return null;
+    rowPrintReprice(address, data);
     // F-61: a row-fed candidate carries NO mint — the row feed keys its
     // ticks by whatever the board prints (on Axiom Pulse that is the PAIR
     // stand-in; F-59 saw the same keying). Committing under that key strands

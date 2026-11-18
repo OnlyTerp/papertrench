@@ -39,16 +39,40 @@
       "text": "a first visit starts the follower read instead of waiting for a second visit (with deep scan on, that can be one extra request to X per newly visited profile, inside the existing budget), and the card says plainly when follower lists or posts haven't been read instead of showing \"Reading follower lists…\" forever or a green \"None found\". Not yet checked on a live X page."
     },
     {
+      "title": "Lag and freezes with a big wallet or many open positions.",
+      "text": "Three causes measured and fixed: the whole wallet (about 1 MB for a full journal) was re-read and re-saved every 0.8 s whether or not anything changed, and every other open tab decoded it again; every price tick rebuilt a number formatter hundreds of times for the positions bar; and the scan that finds list rows could spend a long time walking one row's data. Measured in a test harness, not in a browser trace: 38 full saves per idle half-minute down to at most 2, and the per-tick positions-bar cost down about 7x with 150 open positions."
+    },
+    {
+      "title": "A chip buy no longer books a lagging outside price when the row said otherwise.",
+      "text": "When Axiom's feed doesn't cover a row, the buy was priced by an outside quote that could trail the row badly (seen live: an $82.5K row booked $61.8K while the coin's own page confirmed about $81K). If that quote is more than 15% from the cap the row showed when you tapped (and within the 2x sanity limit, beyond which the buy is refused), the buy is now booked at the row's cap. Only for coins on the standard 1B supply, where the two caps are counted the same way."
+    },
+    {
+      "title": "A chip buy that has to wait for a price says so at once",
+      "text": "instead of sitting silent for up to 60 s. Coins that nothing prices (a dead coin, or one quoted in a token the price sites don't convert) still can't be filled until a price exists."
+    },
+    {
+      "title": "Stale positions are flagged, and a reopened coin that really moved can be sold.",
+      "text": "Every mark now carries its time: a position nobody has re-priced for two minutes is shown faded on the positions bar instead of looking live, and a sell against such an old mark is no longer refused just because the price moved (anything more than 2x from the mark still needs a second source)."
+    },
+    {
+      "title": "Brand-new pump coins above a $100K market cap are priced before the price sites list them,",
+      "text": "up to $250K."
+    },
+    {
       "title": "Smaller fixes.",
-      "text": "The replay tape and the copied fill line show the same P&L as the journal row (they showed a figure that left the buy fee out). Axiom links from the positions bar and dashboard go straight to the new coin page instead of through a redirect. The update banner and README now say to press Reload and never Remove: removing the extension deletes your wallet."
+      "text": "While a page switches from the bonding curve to the new pool, the card says \"Confirming coin…\" instead of showing a coin you hold as empty. A SOL/USD rate worked out from a non-Solana coin's price is only used when it matches the known SOL rate. The replay tape and the copied fill line show the same P&L as the journal row (they showed a figure that left the buy fee out). Axiom links from the positions bar and dashboard go straight to the new coin page instead of through a redirect. The update banner and README now say to press Reload and never Remove: removing the extension deletes your wallet."
     },
     {
       "title": "Checked and found already fixed:",
       "text": "sell amounts when clipping (3.24.0), wallet reset on update (the permanent extension ID from 3.26.0; the remaining way to lose a wallet is clicking Remove), profit on a rug after selling (3.10/3.12), quick-buy chip covering the market cap, Robinhood / BNB routing, the onboarding step that never ticked."
     },
     {
-      "title": "Still open:",
-      "text": "page freezes reported on 3.23 (none since 3.24; we need a performance trace from someone who still sees it). Chip buys priced by the outside quote can still sit off the row when Axiom's feed can't confirm the price. Opera blocking the settings page is Opera's own policy."
+      "title": "Checked against the \"showed $50, received $20\" report:",
+      "text": "since 3.24.0 the panel's \"If you sell now\" line is computed by the same code that books the sell, fees and slippage included; a test now pins that the two are equal."
+    },
+    {
+      "title": "What is left:",
+      "text": "Opera blocking the settings page is Opera's own policy. A coin that nothing prices at all cannot be filled until a price exists. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
     }
   ]
 }

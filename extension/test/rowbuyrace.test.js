@@ -174,6 +174,7 @@ function bootRace(options = {}) {
           mcap: 100_000,
           priceSource: 'resolver',
           quotedAt: clock - 1500,
+          ...(options.quoteB || {}),
         });
       }
       if (payload.address === C) {
@@ -1784,4 +1785,48 @@ test('a chip buy that has to wait for a price says so at once', async () => {
   assert.ok(harness.getRowArmed(), 'the tap armed');
   assert.ok(harness.getToastMessages().some((m) => /no live price/i.test(m) && /armed/i.test(m)),
     `the trader is told it is waiting (toasts: ${JSON.stringify(harness.getToastMessages())})`);
+});
+
+// A 1e9-supply coin, as every pump-style launch is: 100k cap = $0.0001.
+const PUMP_QUOTE = { priceNative: 1e-6, priceUsd: 1e-4, mcap: 100_000 };
+
+test('a lagging outside quote is brought to the cap the tapped row showed (live: an $82.5K row booked $61.8K)', async () => {
+  // Final live run, 2026-11-18: two chip buys Axiom's feed did not cover
+  // were priced by the outside quote, 25% and 32% off the row; the coin's
+  // own chart page confirmed the row. Inside the 2x sanity bound, with the
+  // quote on the same 1e9-supply basis, the row the trader tapped is the
+  // price.
+  const race = bootRace({ quoteB: PUMP_QUOTE });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 133_000); // the quote says 100k: 1.33x behind
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  const fill = harness.getState().journal[0];
+  assert.equal(Math.round(Number(fill.mcap)), 133_000, 'booked at the cap the row showed');
+  assert.ok(Math.abs(Number(fill.priceNative) / 1e-6 - 1.33) < 0.01, `and the price moved with it (got ${fill.priceNative})`);
+  assert.equal(fill.priceSource, 'row-print', 'the receipt says the row print priced it');
+});
+
+test('a quote within 15% of the tapped row is left alone (control)', async () => {
+  const race = bootRace({ quoteB: PUMP_QUOTE });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 110_000);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
+  assert.notEqual(harness.getState().journal[0].priceSource, 'row-print');
+});
+
+test('a quote on an unknown supply basis is never rescaled to the row (control)', async () => {
+  // Without a 1e9-supply basis the two caps may simply be counted
+  // differently (circulating vs total); the ratio is then not a price gap.
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 133_000);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
 });
