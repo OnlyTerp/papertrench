@@ -988,7 +988,8 @@ async function renderUpdateBanner() {
   banner.innerHTML =
     '<span style="flex:1">Update available — <b>v' + esc(notice.latest) + '</b> is out '
     + '(you are running v' + esc(String(chrome.runtime.getManifest().version)) + '). '
-    + 'Unpacked extensions never auto-update.</span>'
+    + 'Unpacked extensions never auto-update. Unzip over the same folder and press Reload on chrome://extensions. '
+    + '<b>Never click Remove</b> — removing the extension deletes your wallet.</span>'
     + '<a href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" '
     + 'style="color:#7DE3B4;font-weight:700;text-decoration:none">Get the new version →</a>'
     + '<button id="pt-update-dismiss" title="Hide for now" '

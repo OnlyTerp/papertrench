@@ -91,6 +91,8 @@ PaperTrench is not on the Chrome Web Store yet. Loading it unpacked takes about 
 3. Click **Load unpacked** and select the folder that contains **`manifest.json`** — the unzipped release folder itself, or the **`extension/`** folder if you cloned the repo.
 4. Pin PaperTrench so the popup is one click away.
 
+**Updating:** unzip the new release over the same folder, then press **Reload** on the PaperTrench card at `chrome://extensions`. Your wallet carries over. Do **not** click **Remove**: removing an extension deletes its stored data, wallet included. If you want a safety net first, use **Backup wallet** in the popup.
+
 > **Getting "Manifest file is missing or unreadable"?** The folder you selected doesn't have `manifest.json` at its top level. Open the folder you unzipped and select the level where `manifest.json` sits.
 
 Open any supported token page and the overlay appears within a second or two.
