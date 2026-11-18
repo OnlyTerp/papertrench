@@ -267,12 +267,12 @@ test('row buys run the full fill pipeline and never navigate the row', () => {
   // mint gets ONE bounded prewatch probe to heal the key before commit —
   // the stand-in stranding the 8/17 report chased (jb).
   // 3.28 widened it for the chip-fill receipt (priceSource/priceAgeMs on E.buy)
-  // and the bounded F-61 identity read.
+  // and the bounded F-61 identity read; again for the feed-named identity skip.
   assert.match(content, /async function fillRowBuy\(address, data, amount, ownerToken\)/,
     'the shared commit extractor exists (one commit path for click + armed flush)');
-  assert.match(content, /fillRowBuy[\s\S]{0,7200}E\.buy\(state, settings/,
+  assert.match(content, /fillRowBuy[\s\S]{0,7800}E\.buy\(state, settings/,
     'the extractor runs the engine buy');
-  assert.match(content, /fillRowBuy[\s\S]{0,7600}commitFill\(filled\.trade\)/,
+  assert.match(content, /fillRowBuy[\s\S]{0,8200}commitFill\(filled\.trade\)/,
     'the extractor appends the attestation chain');
   assert.match(content, /await fillRowBuy\(address, data, amount, rowBuyToken\);/,
     'the click path commits through the shared extractor');
