@@ -8043,6 +8043,34 @@
     data.priceAt = tap.at;
     return true;
   }
+  /**
+   * The last resort before arming, on Axiom: nothing prices the coin, but the
+   * row the trader tapped is printing a cap and Axiom's feed carries the
+   * row's supply. Live 2026-11-18: coins quoted in tokens the aggregators do
+   * not convert armed and expired although the row showed a cap all along.
+   * The price is that cap over Axiom's own supply at the known SOL rate.
+   * Not for dust: below a $1,500 cap a 0.1 SOL buy is a visible share of the
+   * whole supply (at $1 it is several times the supply), and a fill there
+   * would be a number no real trade could get.
+   */
+  const ROW_PRINT_MIN_MCAP_USD = 1500;
+  async function rowPrintOnlyQuote(address) {
+    if (!site || site.id !== 'axiom' || !address) return null;
+    const tap = rowTapMcaps.get(address);
+    if (!tap || Date.now() - tap.at >= ROW_PRICE_TTL_MS || !(tap.mcap >= ROW_PRINT_MIN_MCAP_USD)) return null;
+    const row = recentRowPrices.get(address);
+    const supply = row && Number(row.supply);
+    if (!(supply >= 0.9e9 && supply <= 1.01e9)) return null;
+    const rate = await R.solUsd().catch(() => 0);
+    if (!(rate > 0)) return null;
+    const priceUsd = tap.mcap / supply;
+    return {
+      mint: address, pairAddress: null,
+      symbol: row.symbol || null, name: row.name || null,
+      priceNative: priceUsd / rate, priceUsd, mcap: tap.mcap,
+      priceSource: 'row-print', priceAt: tap.at,
+    };
+  }
   const ROW_PRICE_TTL_MS = 10_000;
   let rowBuyScanAt = 0;
   let rowBuyInFlight = false;
@@ -8199,6 +8227,7 @@
       // A print the bridge could not vouch for: usable only when the row the
       // trader tapped confirms it (rowFeedAgreesWithTap).
       unverified: payload.unverified === true,
+      supply: Number(payload.supply) > 0 ? Number(payload.supply) : null,
     });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
     if (payload.source === 'axiom-pulse-worker' && typeof payload.pairAddress === 'string'
@@ -8862,6 +8891,7 @@
           } catch (_) { data = null; }
         }
       }
+      if (!data || !(data.priceNative > 0)) data = await rowPrintOnlyQuote(address);
       if (!data || !(data.priceNative > 0)) {
         // D-40 (Terp roll-on, board path): the click already happened — the
         // intent is NEVER refused. It arms exactly like the panel's D-39

@@ -452,7 +452,19 @@ async function cardBgRemove(id) {
 }
 
 function openDashboard() {
-  chrome.runtime.openOptionsPage();
+  // B19: some Chromium browsers (Opera) refuse openOptionsPage for an
+  // unpacked extension and Settings did nothing. The dashboard is an
+  // ordinary extension page, so it can always be opened as a tab instead.
+  let done = false;
+  const asTab = () => {
+    if (done) return;
+    done = true;
+    try { chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') }); } catch (_) {}
+  };
+  try {
+    const p = chrome.runtime.openOptionsPage(() => { if (chrome.runtime.lastError) asTab(); });
+    if (p && typeof p.catch === 'function') p.catch(asTab);
+  } catch (_) { asTab(); }
 }
 
 /* -------------------- recording orchestration -------------------- */

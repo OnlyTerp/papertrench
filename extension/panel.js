@@ -146,9 +146,26 @@ async function refresh() {
   render(d);
 }
 
+function openDashboardPage() {
+  // B19: some Chromium browsers (Opera) refuse openOptionsPage for an
+  // unpacked extension and Settings did nothing. The dashboard is an
+  // ordinary extension page, so it can always be opened as a tab instead.
+  let done = false;
+  // The desk opens no tabs itself (it is a read-only projection): the
+  // background worker owns the tab fallback.
+  const asTab = () => {
+    if (done) return;
+    done = true;
+    try { chrome.runtime.sendMessage({ type: 'pt_open_dashboard' }); } catch (_) {}
+  };
+  try {
+    const p = chrome.runtime.openOptionsPage(() => { if (chrome.runtime.lastError) asTab(); });
+    if (p && typeof p.catch === 'function') p.catch(asTab);
+  } catch (_) { asTab(); }
+}
 $('#dash').addEventListener('click', (e) => {
   e.preventDefault();
-  chrome.runtime.openOptionsPage();
+  openDashboardPage();
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {

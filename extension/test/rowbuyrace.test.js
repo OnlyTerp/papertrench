@@ -1842,3 +1842,45 @@ test('the row-print reprice is Axiom-only: elsewhere the quote stands (control)'
   assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 100_000);
   assert.notEqual(harness.getState().journal[0].priceSource, 'row-print');
 });
+
+const DEAD_FEED = { mint: B, unverified: true, source: 'axiom-pulse-worker', supply: 1e9, candidates: [{ unit: 'usd', value: 2e-17 }], mcap: 2e-8 };
+
+test('a coin no outside source prices still fills on Axiom, at the cap the row showed over Axiom\'s own supply', async () => {
+  // Live 2026-11-18: pump.fun lists coins quoted in tokens the aggregators
+  // do not convert. The resolver returned nothing, Axiom's feed price for the
+  // row was garbage, and the tap armed and expired 60 s later although the
+  // row was printing a perfectly good cap the whole time.
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 3_400);
+  harness.noteRowPrice(DEAD_FEED);
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  const fill = harness.getState().journal[0];
+  assert.equal(fill.priceSource, 'row-print');
+  assert.equal(Math.round(Number(fill.mcap)), 3_400);
+  assert.ok(Math.abs(Number(fill.priceUsd) - 3_400 / 1e9) < 1e-15, 'cap over the supply Axiom itself reports');
+});
+
+test('a dust row is never filled from its own print: it arms and says so (control)', async () => {
+  // A $1 cap would hand a 0.1 SOL buy several times the whole supply.
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 1.108);
+  harness.noteRowPrice(DEAD_FEED);
+  await harness.doRowBuy(B);
+  assert.equal(harness.getState().journal.length, 0);
+  assert.ok(harness.getRowArmed(), 'armed, waiting for a real price');
+});
+
+test('without Axiom\'s supply for the row, the print alone is not a price (control)', async () => {
+  const race = bootRace({ unpricedB: true });
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 3_400);
+  await harness.doRowBuy(B);
+  assert.equal(harness.getState().journal.length, 0);
+  assert.ok(harness.getRowArmed());
+});

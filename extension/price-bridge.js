@@ -1168,6 +1168,10 @@
         mint: rec.mint, pairAddress: pair, symbol: rec.symbol, name: rec.name,
         candidates: [{ value: mcapUsd / rec.supply, unit: 'usd', key: 'axiomPulseRow' }],
         mcap: mcapUsd, at, source: 'axiom-pulse-worker',
+        // Axiom's own supply for the row: the content script can turn the
+        // cap the row PRINTS into a price even when this feed's price is not
+        // usable (see rowPrintOnlyQuote).
+        supply: rec.supply,
         ...(rec.unverified ? { unverified: true } : {}),
       });
       if (pendingRowTicks.size > 400) pendingRowTicks.delete(pendingRowTicks.keys().next().value);

@@ -28,7 +28,22 @@ const AT = (typeof window !== 'undefined' && window.PTAttest) || null;
 /** Promise-API storage get for the chain helpers. */
 function chainGet(keys) { return chrome.storage.local.get(keys); }
 
-$('dash').addEventListener('click', () => chrome.runtime.openOptionsPage());
+function openDashboardPage() {
+  // B19: some Chromium browsers (Opera) refuse openOptionsPage for an
+  // unpacked extension and Settings did nothing. The dashboard is an
+  // ordinary extension page, so it can always be opened as a tab instead.
+  let done = false;
+  const asTab = () => {
+    if (done) return;
+    done = true;
+    try { chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') }); } catch (_) {}
+  };
+  try {
+    const p = chrome.runtime.openOptionsPage(() => { if (chrome.runtime.lastError) asTab(); });
+    if (p && typeof p.catch === 'function') p.catch(asTab);
+  } catch (_) { asTab(); }
+}
+$('dash').addEventListener('click', () => openDashboardPage());
 $('desk').addEventListener('click', async () => {
   // Docked desk (DELIGHT-MAP.md D1): open the side panel for the current
   // window. chrome.sidePanel.open requires a user gesture — this click is
