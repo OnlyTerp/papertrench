@@ -3,21 +3,23 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## v3.28.0 — 2026-11-16
+## v3.28.0 — 2026-11-18
 
-- **Pulse quick-buy prices from Axiom's own Pulse feed.** Axiom's new Pulse sends its row prices through a background worker; PaperTrench now reads that feed, so a chip buy is priced from Axiom's own numbers instead of an outside aggregator's. It has to land within 15% of the row's market cap or it isn't used; in tonight's live fills it landed within 0–6% of the row, most within 1% (a $36.3K row booked $36.3K, a $24.7K row booked $24.7K, a $33.9K row booked $31.9K).
+- **Pulse quick-buy prices from Axiom's own Pulse feed.** Axiom's new Pulse sends its row prices through a background worker; PaperTrench now reads that feed, so a chip buy is priced from Axiom's own numbers instead of an outside aggregator's. It has to land within 15% of the row's market cap or it isn't used; in live fills on Nov 16 it landed within 0–6% of the row, most within 1% (a $36.3K row booked $36.3K, a $24.7K row booked $24.7K, a $33.9K row booked $31.9K).
 
 - **A wrong Pulse feed price can't book a bad fill.** On a few coins Axiom's feed disagreed with the row it sits next to (2–3x off). The feed is only used for SOL-paired Solana coins, and only when it agrees with the market cap the row showed when you tapped. If it doesn't, the buy falls back to the outside quote, and the 2x check from 3.27.1 still refuses that if it's far off.
 
-- **Found one cause of "A stuck row buy was released".** A chip buy that opens a new position first asks the chain which coin the row really is, and that lookup had no time limit. Live tonight the first tap after a page load waited on it for 20 s until PaperTrench released the tap; other taps waited about 3 s. The lookup is now capped at 1.5 s: the same first tap filled in 1.9 s. If the chain doesn't answer in time, the position is filed under the row's own address, as it was before that lookup existed. This is one cause; we can't promise it was the cause of every stuck buy you've reported.
+- **Found one cause of "A stuck row buy was released".** A chip buy that opens a new position first asks the chain which coin the row really is, and that lookup had no time limit. Live, the first tap after a page load waited on it for 20 s until PaperTrench released the tap; other taps waited about 3 s. The lookup is now capped at 1.5 s: the same first tap filled in 1.9 s. If the chain doesn't answer in time, the position is filed under the row's own address, as it was before that lookup existed. This is one cause; we can't promise it was the cause of every stuck buy you've reported.
+
+- **Chip buys on Axiom Pulse fill in about 0.6 s when Axiom's feed prices the coin.** That feed already says which coin a row is, so the chain lookup above is skipped for it. Live on Nov 18, three such buys that opened new positions filled in 0.62–0.63 s, 0.1–0.3% from the row. A coin the feed doesn't price still does the capped lookup (about 2 s).
 
 - **A list buy no longer opens the coin's chart in a new tab unless you turn it on.** Each of those tabs was a fresh page load, and pages loaded that way are what bring up Axiom's "verify you are human" check. The positions bar already keeps the coin one click away. If you want the tab back, it's "Open the chart tab after a list buy" in settings (it starts off for everyone, including people who had it on).
 
 - **Every chip buy now records where its price came from and how old it was,** like panel buys already did, including buys priced by the outside quote. If a fill ever looks wrong, Share debug logs shows which source priced it.
 
-- **Still open:** a chip buy that opens a new position now takes about 1.5 s on Axiom, because the chain lookup above rarely answers faster there. It books the price from the moment you tapped. When the Pulse feed has no price for a coin, a chip buy uses the outside quote, which can sit off the row (live tonight: $5.79K booked $6.4K, 11% over; $3.53K booked $3.46K), and on fast new coins it can be far enough off that the 2x check refuses the buy.
+- **Still open:** when the Pulse feed has no price for a coin, a chip buy uses the outside quote, which can sit off the row (seen live: $5.79K booked $6.4K; a $266 coin booked $528, just under the 2x line), and some coins are refused outright (Nov 18: a USDC-paired coin showed $73K on Axiom while outside sources said $8–13K; we don't yet know which is right). Not yet traced: positions disappearing after a coin migrates, average fill / exit lines jumping, sell amounts when clipping, X-Ray follower counts.
 
-Tested: extension suite 2716/2718 in-suite, the two generator checks (icons, what's-new) pass when run on their own; server and bot untouched this release, not rerun. Checked live on Axiom only, on a logged-in session; the 1.5 s cap applies to chip buys on every site.
+Tested: extension 2720/2720, server 398/398, bot 20/20 green (3138 total). Checked live on Axiom only, on a logged-in session; the 1.5 s cap applies to chip buys on every site.
 
 ## v3.27.1 — 2026-11-16
 
