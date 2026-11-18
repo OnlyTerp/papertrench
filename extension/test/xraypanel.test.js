@@ -421,3 +421,34 @@ test('the observer is told the toggle state so it can stop reading responses', a
   assert.ok(state, 'the panel must report the toggle to the MAIN world');
   assert.equal(state.enabled, true);
 });
+
+/* ---------------- ticket-0014 ---------------- */
+
+test('a first visit plans a scan once the account is recognised, not only on later visits', async () => {
+  const panel = mountPanel({ intel: null, observedIntel: intelFixture() });
+  await panel.settle();
+  assert.ok(!panel.sent.some((m) => m.type === 'pt_xray_plan'), 'nothing to plan before the account is known');
+  panel.fireMessage({ source: 'papertrench-xray-digest', digest: { op: 'UserByScreenName', users: [], tweets: [] } });
+  await panel.settle();
+  for (const t of panel.timers.filter((x) => x.kind === 'timeout')) { try { await t.fn(); } catch (_) {} }
+  await panel.settle();
+  assert.ok(panel.sent.some((m) => m.type === 'pt_xray_plan'),
+    'the digest that first names the account must schedule the plan');
+});
+
+test('unread follower lists, missing counts and unread posts are stated, never shown as loading or as a clean result', async () => {
+  const intel = intelFixture();
+  intel.smart = []; intel.smartAt = null;
+  intel.followers = null; intel.following = null;
+  intel.cas = []; intel.casDropped = 0; intel.bioCas = [];
+  intel.newestTweetAt = null; intel.scannedBackTo = null;
+  const panel = mountPanel({ intel });
+  await panel.settle();
+  const text = panel.text();
+  assert.doesNotMatch(text, /Reading follower lists/, 'nothing is being read: do not say it is');
+  assert.match(text, /Followers tab/, 'say how the lists get read');
+  assert.doesNotMatch(text, /— followers/, 'a dash is not a count');
+  assert.match(text, /counts not/i);
+  assert.doesNotMatch(text, /None found/, 'no posts read is not "no contract addresses"');
+  assert.match(text, /No posts read yet/);
+});

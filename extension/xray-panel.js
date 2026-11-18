@@ -366,7 +366,9 @@
       if (intel.createdAt) row.appendChild(el('span', 'dim', ago(intel.createdAt, now)));
       sec.appendChild(row);
       const row2 = el('div', 'row');
-      row2.appendChild(el('span', 'dim', compact(intel.followers) + ' followers · ' + compact(intel.following) + ' following'));
+      row2.appendChild(el('span', 'dim', Number.isFinite(intel.followers) || Number.isFinite(intel.following)
+        ? compact(intel.followers) + ' followers · ' + compact(intel.following) + ' following'
+        : 'Follower counts not in this page’s data yet'));
       if (intel.verified) row2.appendChild(el('span', 'dim', '✓ blue'));
       sec.appendChild(row2);
       body.appendChild(sec);
@@ -383,8 +385,11 @@
       const sec = section('Contract addresses posted');
       const total = intel.cas.length + intel.casDropped;
       const row = el('div', 'row');
-      row.appendChild(el('span', 'big ' + (total ? 'warn' : 'ok'),
-        total ? total + (total === 1 ? ' CA' : ' CAs') + ' found' : 'None found'));
+      // No posts read is not a clean bill: say so instead of a green "None".
+      const postsRead = Number.isFinite(intel.newestTweetAt) || Number.isFinite(intel.scannedBackTo);
+      row.appendChild(el('span', 'big ' + (total ? 'warn' : (postsRead ? 'ok' : 'dim')),
+        total ? total + (total === 1 ? ' CA' : ' CAs') + ' found'
+          : (postsRead ? 'None found' : 'No posts read yet')));
       if (intel.cas.length) row.appendChild(el('span', 'dim', ago(intel.cas[0].lastAt, now)));
       sec.appendChild(row);
       if (intel.bioCas.length) {
@@ -421,7 +426,7 @@
       if (!intel.smart.length) {
         sec.appendChild(el('div', 'empty', intel.smartAt
           ? 'No sizable accounts seen in the follower lists read so far.'
-          : 'Reading follower lists…'));
+          : 'Not read yet. Open this account’s Followers tab once and X-Ray reads the list from there.'));
       } else {
         for (const f of intel.smart) {
           const line = el('div', 'who');
@@ -507,8 +512,11 @@
       postId: route ? route.postId : null,
     }).then((res) => {
       if (!res || !res.ok) return;
+      // A first visit only learns who the account is HERE; without this the
+      // plan was never asked for until a later visit (ticket-0014).
+      const firstSight = !subject;
       if (res.intel) applyIntel(res.intel);
-      if (res.scanAgain) scheduleScan();
+      if (res.scanAgain || (firstSight && subject)) scheduleScan();
     });
   });
 

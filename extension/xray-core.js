@@ -121,6 +121,12 @@
   function num(v) {
     return Number.isFinite(v) && v >= 0 ? v : null;
   }
+  /** A follower/following count: a non-negative number, or a plain digit
+   * string. Anything else is null — never a guessed zero. */
+  function count(v) {
+    if (typeof v === 'string' && /^[0-9]{1,12}$/.test(v)) return Number(v);
+    return num(v);
+  }
   /** X's legacy date format ("Wed Oct 10 20:19:24 +0000 2018") → ms, or null.
    * V8 parses this form; anything it refuses stays null rather than NaN. */
   function parseXDate(v) {
@@ -209,6 +215,8 @@
     const handle = (core && str(core.screen_name, 20)) || (legacy && str(legacy.screen_name, 20));
     if (!isHandle(handle)) return null;
 
+    const counts = node.relationship_counts && typeof node.relationship_counts === 'object'
+      ? node.relationship_counts : null;
     const profileBio = node.profile_bio && typeof node.profile_bio === 'object' ? node.profile_bio : null;
     const bio = (profileBio && str(profileBio.description, LIMITS.bioChars))
       ?? (legacy && str(legacy.description, LIMITS.bioChars));
@@ -227,8 +235,12 @@
       urls,
       avatar,
       createdAt: parseXDate((core && core.created_at) || (legacy && legacy.created_at)),
-      followers: num(legacy && legacy.followers_count),
-      following: num(legacy && legacy.friends_count),
+      // Counts moved out of `legacy` on newer payloads (relationship_counts),
+      // and some arrive as digit strings (ticket-0014: "— followers").
+      followers: count(legacy && legacy.followers_count) ?? count(counts && counts.followers_count)
+        ?? count(counts && counts.followers),
+      following: count(legacy && legacy.friends_count) ?? count(counts && counts.following_count)
+        ?? count(counts && counts.following),
       verified: node.is_blue_verified === true || (legacy && legacy.verified === true) || false,
     };
   }

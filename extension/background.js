@@ -2621,7 +2621,9 @@ async function xrayObserve(message, settings) {
       if (XR.FOLLOWER_OPS.has(digest.op) && digest.followersTarget === subjectId) {
         const source = digest.op === 'FollowersYouKnow' ? 'you_follow' : 'followers';
         const others = digest.users.filter((u) => u.restId !== subjectId && u.followers !== null);
-        if (others.length) XR.mergeSmart(record, others, source, now);
+        // Merge even when nobody usable came back: the list WAS read, and
+        // the card must be able to say so instead of waiting forever.
+        XR.mergeSmart(record, others, source, now);
       }
       if (digest.cursor && (digest.op === 'UserTweets' || digest.op === 'UserTweetsAndReplies')) {
         record.scanCursor = digest.cursor;

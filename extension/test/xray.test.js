@@ -939,3 +939,43 @@ test('SSR: the worker accepts an SSRProfile digest and the ledger answers from i
   assert.equal(forged.ok, false);
 });
 
+
+/* ---------------- ticket-0014: counts and Smart Following never load ---------------- */
+
+test('follower counts are read from the newer relationship_counts layout and from numeric strings', () => {
+  const split = XR.userFromNode(userNodeCore({
+    legacy: { description: 'x' },
+    relationship_counts: { followers_count: 128_400, following_count: 312 },
+  }));
+  assert.equal(split.followers, 128_400, 'counts outside `legacy` are still counts');
+  assert.equal(split.following, 312);
+
+  const short = XR.userFromNode(userNodeCore({
+    legacy: { description: 'x' },
+    relationship_counts: { followers: '5021', following: '77' },
+  }));
+  assert.equal(short.followers, 5021, 'a count sent as a digit string is a count');
+  assert.equal(short.following, 77);
+
+  const none = XR.userFromNode(userNodeCore({ legacy: { description: 'x' } }));
+  assert.equal(none.followers, null, 'no count anywhere stays null, never zero');
+  const junk = XR.userFromNode(userNodeCore({
+    legacy: { description: 'x' }, relationship_counts: { followers_count: '12abc', following_count: -4 },
+  }));
+  assert.equal(junk.followers, null);
+  assert.equal(junk.following, null);
+});
+
+test('a follower list that was read but held nobody usable still ends the Smart Following wait', async () => {
+  const worker = xrayWorker();
+  await send(worker.listener, { type: 'pt_xray_observe', digest: digestOf([SUBJECT], []), handle: 'degenlabs' });
+  const observed = await send(worker.listener, {
+    type: 'pt_xray_observe',
+    digest: digestOf([{ ...SUBJECT }], [], {
+      op: 'FollowersYouKnow', subjectRestId: null, followersTarget: SUBJECT.restId,
+    }),
+    handle: 'degenlabs',
+  });
+  assert.ok(observed.intel.smartAt > 0, 'the list WAS read: the card must be able to say so');
+  assert.deepEqual(plain(observed.intel.smart), []);
+});
