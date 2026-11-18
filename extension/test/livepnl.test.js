@@ -655,7 +655,7 @@ test('T3: panel unrealized and pre-sell ledger agree on the gross basis', async 
   assert.ok(ov.openPaperPosition(0.5, { feeBps: 100, gasSolPerTx: 0, tipSolPerTx: 0 }));
   await ov.advance(600);
   ov.nextPrice();
-  await ov.advance(2500);
+  await ov.advance(5500); // marks are saved at most every 5 s
 
   const state = ov.currentState();
   const pos = state.positions['DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'];

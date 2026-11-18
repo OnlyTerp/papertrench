@@ -2695,15 +2695,23 @@
 
   const EPS_ = 1e-9;
 
+  // toLocaleString(options) builds a fresh Intl.NumberFormat per call
+  // (~12 us); the positions bar formats 2 numbers per chip per tick.
+  const NUMBER_FORMATS = new Map();
+  function numberFormat(dp) {
+    let f = NUMBER_FORMATS.get(dp);
+    if (!f) { f = new Intl.NumberFormat(undefined, { maximumFractionDigits: dp }); NUMBER_FORMATS.set(dp, f); }
+    return f;
+  }
   function fmt(n, dp = 4) {
     if (n === null || n === undefined || isNaN(n)) return '—';
-    return Number(n).toLocaleString(undefined, { maximumFractionDigits: dp });
+    return numberFormat(dp).format(Number(n));
   }
 
   function fmtUsd(n) {
     if (n === null || n === undefined || isNaN(n)) return '—';
     const sign = n > 0 ? '+' : n < 0 ? '-' : '';
-    return sign + '$' + Math.abs(Number(n)).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return sign + '$' + numberFormat(2).format(Math.abs(Number(n)));
   }
 
   function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }

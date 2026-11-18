@@ -4441,9 +4441,19 @@
         const score = /pair/i.test(keyName) ? 3 : /token|mint/i.test(keyName) ? 2 : 1;
         if (!best || score > best.score) best = { address: value, score };
       };
+      // B12: bounded in breadth too. Fibers were capped (80) and depth was
+      // capped (3), but a prop holding the whole list was walked item by
+      // item, again for every fiber that referenced it: 90 ms for one row
+      // with a 2,000-item list, for every row, every few seconds.
+      const visited = new WeakSet();
+      let budget = 4000; // property reads per row, across all its fibers
       const walk = (obj, depth) => {
-        if (!obj || typeof obj !== 'object' || depth > 3) return;
-        for (const [k, v] of Object.entries(obj)) {
+        if (!obj || typeof obj !== 'object' || depth > 3 || budget <= 0 || visited.has(obj)) return;
+        visited.add(obj);
+        if (Array.isArray(obj) && obj.length > 50) return; // a list prop never names THIS row
+        for (const k of Object.keys(obj)) {
+          if (--budget <= 0) return;
+          const v = obj[k];
           consider(v, k);
           if (v && typeof v === 'object') walk(v, depth + 1);
         }

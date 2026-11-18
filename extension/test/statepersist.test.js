@@ -228,6 +228,7 @@ function runOverlay(priceSeries, opts) {
           // and go through the same local.set so onChanged fires exactly as
           // it does when the real worker lands the write.
           if (msg.type === 'pt_state_commit') {
+            if (options.countCommit) options.countCommit(msg);
             // options.workerDown models the MV3 worker asleep, dying or just
             // slow: `bounded` cannot tell those apart, so the content script
             // sees one thing either way — no reply. Opening and closing a
@@ -439,7 +440,7 @@ test('the debounced writer adopts newer external state instead of clobbering it'
   ov.externalWriteSilently({ pt_state: foreign });
 
   ov.nextPrice();
-  await ov.advance(3000);                  // heartbeat re-quotes, marks, persists
+  await ov.advance(6000);                  // heartbeat re-quotes, marks, persists (marks save at most every 5 s)
 
   const st = ov.storage().pt_state;
   assert.ok(st.positions && st.positions[BONK],
@@ -1766,4 +1767,21 @@ test('B5: heartbeats that walked away leave no inflated seq behind to overwrite 
     assert.ok(ov.storage().pt_state.journal.some((t) => t.id === 'other-window-fill'),
       `with the other window ${k} writes ahead, this view must lose the compare-and-swap, not win it with a stale copy`);
   }
+});
+
+test('B12: an idle wallet is not written to storage every heartbeat', async () => {
+  // Every heartbeat read the whole wallet and committed the whole wallet
+  // (about 1 MB for a full journal), and every other open tab decoded it
+  // again: 38 full-state commits per 30 s with the price standing still.
+  // That is main-thread work for nothing ("the extension is constantly
+  // laggy", ark and cheng, 9/11-9/21). Marks may be saved less often; a fill
+  // still commits at once (the other tests in this file).
+  let commits = 0;
+  const ov = runOverlay([0.001], { countCommit: () => { commits += 1; } });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1));
+  await ov.advance(4000);
+  commits = 0;
+  await ov.advance(30_000);
+  assert.ok(commits <= 2, `an unchanged wallet over 30 s costs at most 2 commits, got ${commits}`);
 });

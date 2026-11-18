@@ -3078,8 +3078,20 @@
    * depends on it. Shared by the storage listener and the contention guard in
    * persistSoon, so both paths refresh the UI identically.
    */
+  /** The debounced writer's "already saved" signatures describe what is IN
+   * STORAGE. After an adoption that is the adopted state exactly as it
+   * arrived: whatever this tab then puts back on top of it (a trail it had
+   * ratcheted, its live marks) is a difference that still has to be written. */
+  function noteStoredState(stored) {
+    try {
+      lastSoonSig = soonSignature(stored, true);
+      lastSoonStructSig = soonSignature(stored, false);
+    } catch (_) { lastSoonSig = null; lastSoonStructSig = null; }
+  }
+
   function adoptState(next) {
     const hadPosition = Boolean(token && state.positions && state.positions[token.mint]);
+    noteStoredState(next); // what storage holds now (see persistSoon)
     state = next;
     // D-56: a state adopted from another writer (storage listener, CAS
     // contention) may be the first sighting of a legacy wallet — anchor it
@@ -4120,11 +4132,42 @@
    * fill, an armed order, a cancelled order — anything the trader typed —
    * goes through persistStateNow(mutate) with a re-runnable mutation.
    */
+  // B12: this writer used to read the whole wallet and commit the whole
+  // wallet every 800 ms, price moving or not (about 1 MB each way for a full
+  // journal, decoded again by every other open tab). It now writes only what
+  // changed, and no more often than the change deserves:
+  //  - something other than a price mark changed (an order, an alert, a
+  //    flag): on the next 800 ms beat, as before;
+  //  - only marks moved: at most every 5 s (they re-apply from the live
+  //    price on any reload; a fill never goes through here);
+  //  - nothing changed: nothing is written, and storage is re-read only on
+  //    that same 5 s cadence (the read is this writer's safety net for an
+  //    adoption event it missed).
+  const SOON_MARKS_INTERVAL_MS = 5000;
+  const SOON_MARK_KEYS = new Set(['lastPriceNative', 'lastPriceUsd', 'lastPriceSource', 'lastPricePair',
+    'lastMarkAt', 'peakPnlSol', 'troughPnlSol']);
+  let lastSoonAt = 0;
+  let lastSoonSig = null;
+  let lastSoonStructSig = null;
+  // Everything persistSoon carries lives outside journal/rounds.
+  function soonSignature(s, withMarks) {
+    const { journal, rounds, seq, updatedAt, ...rest } = s || {};
+    return JSON.stringify(rest, (k, v) => {
+      if (!withMarks) return SOON_MARK_KEYS.has(k) ? undefined : v;
+      // lastMarkAt is a freshness stamp (stale after 120 s): bucket it to
+      // 30 s so an unmoved price does not dirty the wallet every beat.
+      return k === 'lastMarkAt' ? Math.floor(v / 30000) : v;
+    });
+  }
   function persistSoon() {
     if (persistTimer) return;
+    const wait = 800;
     persistTimer = setTimeout(async () => {
       persistTimer = null;
       if (!contextAlive()) { shutdown('invalidated'); return; }
+      if (soonSignature(state, false) === lastSoonStructSig
+        && Date.now() - lastSoonAt < SOON_MARKS_INTERVAL_MS) return;
+      lastSoonAt = Date.now();
       // This writer is blind: it debounces marks and knows nothing about what
       // happened during the wait. If another tab/popup/dashboard wrote a newer
       // state in the meantime (and the adoption event was missed or is still
@@ -4154,8 +4197,16 @@
       // throws after its CAS retries when no remutate is present). Nothing
       // unique is lost — the marks re-apply next beat. The live Trenches
       // report (5 tabs) logged 40 of these as uncaught rejections.
+      const sig = soonSignature(state, true);
+      const structSig = soonSignature(state, false);
+      if (sig === lastSoonSig) { lastSoonStructSig = structSig; return; }
       await persistStateNow().catch(() => {});
-    }, 800);
+      // Only a write that LANDED clears the dirty bit (a walk-away restores seq).
+      if (state === lastWrittenState && `${state.seq}:${state.updatedAt}` === lastWrittenStamp) {
+        lastSoonSig = sig;
+        lastSoonStructSig = structSig;
+      }
+    }, wait);
   }
 
   // Re-entrancy guard: an instant preset tap (or a double-click) while a buy
@@ -9065,8 +9116,7 @@
     if (chip.lastPnl !== null && row.pnlSol !== chip.lastPnl) {
       const cls = row.up ? 'pt-flash-up' : 'pt-flash-down';
       chip.el.classList.remove('pt-flash-up', 'pt-flash-down');
-      void chip.el.offsetWidth;
-      chip.el.classList.add(cls);
+      (typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16))(() => chip.el.classList.add(cls));
     }
     chip.lastPnl = row.pnlSol;
   }
