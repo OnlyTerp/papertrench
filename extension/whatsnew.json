@@ -48,7 +48,7 @@
     },
     {
       "title": "Coins the price sites don't cover can be chip-bought on Axiom.",
-      "text": "Some new coins are quoted in tokens the outside price sites don't convert, so nothing priced them and the tap waited and expired. The buy is now priced from the market cap the row shows and the supply Axiom reports for it. Rows under a $1,500 cap are left out (a 0.1 SOL buy there would be a visible share of the whole supply); those wait for a real price, and a chip buy that has to wait now says so at once instead of sitting silent for up to 60 s."
+      "text": "Some new coins are quoted in tokens the outside price sites don't convert, so nothing priced them and the tap waited and expired. The buy is now priced from the market cap the row shows and the supply Axiom reports for it. The rule is the size of the buy: up to 2% of the coin's market cap fills at the row's price. A bigger share has no honest price (0.1 SOL into a $1 coin is several times its whole supply), so that tap is refused at once with the reason. A chip buy that does have to wait for a price now says so immediately instead of sitting silent for up to 60 s."
     },
     {
       "title": "Stale positions are flagged, and a reopened coin that really moved can be sold.",
@@ -76,7 +76,7 @@
     },
     {
       "title": "What is left:",
-      "text": "a dust coin (under a $1,500 cap) that no source prices cannot be filled until a price exists; it tells you it is waiting. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
+      "text": "the settings fallback could not be tried in Opera itself (it is not installed on our test machine). The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
     }
   ]
 }
