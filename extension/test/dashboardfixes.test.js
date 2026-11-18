@@ -1789,3 +1789,17 @@ test('D-39: recordings reload only when the replay list changes, plus on Replay 
   assert.match(nav, /currentSection === 'replay'\) \{\s*\n\s*loadRecordings\(\)/,
     'entering Replay refreshes recordings for late-saving videos');
 });
+
+test('the replay tape and the copied fill line show the same gross P&L as the journal row', () => {
+  // A live sell showed "net" 0.00976 above "gross" 0.00876: trade.pnlSol
+  // leaves the buy fee out, so it overstates the round by that fee. The
+  // journal row already prefers pnlGrossSol; these two screens did not.
+  const helperSrc = fnBlock(dashJs, 'function tradePnlShown(t)');
+  const tradePnlShown = new Function(helperSrc + '\nreturn tradePnlShown;')();
+  assert.equal(tradePnlShown({ side: 'sell', pnlSol: 0.008811, pnlGrossSol: 0.007811 }), 0.007811);
+  assert.equal(tradePnlShown({ side: 'sell', pnlSol: 0.5 }), 0.5, 'legacy fills keep their only figure');
+  assert.equal(tradePnlShown({ side: 'buy' }), undefined, 'a buy has no P&L');
+  const tape = dashJs.slice(dashJs.indexOf('shell.tape.innerHTML = events.map'));
+  assert.doesNotMatch(tape.slice(0, 900), /item\.trade\.pnlSol/, 'the tape goes through the helper');
+  assert.doesNotMatch(dashJs, /realized \$\{t\.pnlSol >= 0/, 'the copied fill line goes through the helper');
+});

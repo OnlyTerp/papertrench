@@ -2449,6 +2449,15 @@ function bindCalendar(el) {
 
 /* ---------- journal ---------- */
 
+/** The P&L a fill row shows. A sell's pnlSol leaves the buy fee out of its
+ * cost, so it reads higher than what the round really made; pnlGrossSol is
+ * the cash figure. Fills written before that field existed keep pnlSol. */
+function tradePnlShown(t) {
+  if (!t) return undefined;
+  if (t.side === 'sell' && t.pnlGrossSol != null && Number.isFinite(Number(t.pnlGrossSol))) return Number(t.pnlGrossSol);
+  return t.pnlSol == null ? undefined : Number(t.pnlSol);
+}
+
 function renderJournal(el) {
   const rows = (state.journal || []).map((t) => {
     const pnl = t.side === 'sell' && t.pnlGrossSol != null && Number.isFinite(Number(t.pnlGrossSol))
@@ -2910,7 +2919,7 @@ function buildCoachMessages(round, trades, roundFrames) {
   // D-49: local time with an explicit UTC offset, matching the calendar's
   // local-day buckets — never bare UTC ISO.
   const fillText = trades.sort((a, b) => a.ts - b.ts).map((t) =>
-    `${formatLocalStamp(t.ts)} ${t.side.toUpperCase()} ${t.qty.toFixed(4)} ${t.symbol} @ ${t.priceNative} SOL (gross ${t.solGross.toFixed(3)} SOL${t.pnlSol !== undefined ? `, realized ${t.pnlSol >= 0 ? '+' : ''}${t.pnlSol.toFixed(4)}` : ''})`
+    `${formatLocalStamp(t.ts)} ${t.side.toUpperCase()} ${t.qty.toFixed(4)} ${t.symbol} @ ${t.priceNative} SOL (gross ${t.solGross.toFixed(3)} SOL${Number.isFinite(tradePnlShown(t)) ? `, realized ${tradePnlShown(t) >= 0 ? '+' : ''}${tradePnlShown(t).toFixed(4)}` : ''})`
   ).join('\n');
   const frameText = roundFrames.length
     ? `\n\nPaperTrench captured ${roundFrames.length} timestamped chart frames during this round.`
@@ -3447,8 +3456,8 @@ function syncTape(view) {
       const offset = Math.max(0, item.at - replay.openedAt);
       const detail = item.trade
         ? `${fmt(item.trade.solGross, 3)} SOL @ ${fillLevel(item.trade)}${
-            item.trade.pnlSol !== undefined && item.trade.pnlSol !== null
-              ? ` · <span class="${item.trade.pnlSol >= 0 ? 'green' : 'red'}">${item.trade.pnlSol >= 0 ? '+' : ''}${fmt(item.trade.pnlSol, 3)} SOL</span>` : ''}`
+            Number.isFinite(tradePnlShown(item.trade))
+              ? ` · <span class="${tradePnlShown(item.trade) >= 0 ? 'green' : 'red'}">${tradePnlShown(item.trade) >= 0 ? '+' : ''}${fmt(tradePnlShown(item.trade), 3)} SOL</span>` : ''}`
         : item.frame ? 'chart frame captured'
         : 'context snapshot';
       return `
