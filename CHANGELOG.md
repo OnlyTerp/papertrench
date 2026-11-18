@@ -3,13 +3,17 @@
 Stream-style log of what shipped, newest first. User-facing wording; the gory
 details live in the commit messages.
 
-## Unreleased
+## v3.28.1 — 2026-11-18
 
-- **The average fill / exit lines stop jumping around.** The line was being re-placed on most price updates even though your average hadn't changed, so it landed a few percent off depending on the tick. It now moves only when a buy or sell changes the average. Reproduced in tests (a 5% jump); not yet checked on a live chart.
+- **The average fill / exit lines stop jumping around.** The line was being re-placed on most price updates even though your average hadn't changed, so it landed a few percent off depending on the tick. It now moves only when a buy or sell changes the average. Reproduced in tests (a 5% jump) and checked live on Axiom: over 75 s and 66 updates, with the coin moving between $37K and $47K, the line held one level, within 1% of the true average entry.
 
 - **One cause of "it says I didn't buy" after a coin migrates.** A position filed under the old bonding-curve address was not found when the coin was opened by its new pool address, because that page never learned the old address. PaperTrench now looks up every pool for the coin once and moves the position over. Found by reading the code and proven in tests; we have not reproduced the reported case itself, and Axiom's current coin pages already took a path that worked. Coins only Jupiter knows are still open.
 
 - **X-Ray: follower counts load on X's newer profile layout,** a first visit now schedules the follower read instead of waiting for a second visit (with deep scan on, that can be one extra request to X per newly visited profile, inside the existing budget), and the card says plainly when follower lists or posts haven't been read instead of showing "Reading follower lists…" forever or a green "None found". Not yet checked on a live X page.
+
+- **Still open:** the "avg entry MC" number can read up to about 10% high on some coins because the supply estimate behind it drifts (seen live: 1.09B on a 1B-supply coin); the chart line itself is not affected. A sell recorded at a stale market cap has not been reproduced. Chip fills priced by the outside quote can still sit off the row.
+
+Tested: extension 2726/2726, server 398/398, bot 20/20 green. Chip buys and the average line checked live on Axiom; the migration and X-Ray fixes are tested only.
 
 ## v3.28.0 — 2026-11-18
 
