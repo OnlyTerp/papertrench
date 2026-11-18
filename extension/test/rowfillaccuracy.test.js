@@ -27,7 +27,7 @@ const content = readFileSync(path.join(ROOT, 'content.js'), 'utf8');
 
 // 3.28 widened 9000 -> 10000: doRowBuy grew the tap-agreement check and
 // the chip-fill receipt (priceAt) ahead of the cap rescale.
-function bodyOf(marker, span = 10000) {
+function bodyOf(marker, span = 14000) { // doRowBuy grew past 10k chars with the row-print fallback
   const start = content.indexOf(marker);
   assert.ok(start > 0, `${marker} exists`);
   return content.slice(start, start + span);

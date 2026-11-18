@@ -8943,7 +8943,8 @@
       if (!data || !(data.priceNative > 0)) data = printFallback;
       if ((!data || !(data.priceNative > 0)) && printQuote && printQuote.tooBig) {
         // Nothing prices this coin and the buy is a large share of all of it.
-        toast(`No paper fill: this coin's whole market cap is ${fmtMoney(printQuote.mcap)} and this buy is ${fmtMoney(printQuote.buyUsd)} — there is no honest price for a buy that size`);
+        toast('No paper fill: the whole market cap of this coin is ' + fmtMoney(printQuote.mcap)
+          + ' and this buy is ' + fmtMoney(printQuote.buyUsd) + '. There is no honest price for a buy that size');
         outcome = 'refused-too-big';
         return;
       }
