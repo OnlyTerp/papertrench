@@ -3187,6 +3187,7 @@
   async function directWriteMutation(baseStamp, remutate) {
     const key = E.STORAGE_KEYS.state;
     let base = baseStamp;
+    let storedSeq = -1;
     for (let round = 0; round < 3; round++) {
       const got = await store.get(key);
       // Unreadable storage is not empty storage. Writing over a wallet we
@@ -3198,6 +3199,7 @@
       const cur = got[key];
       if (!cur) break; // truly empty: the write is all there is
       const curStamp = `${Number(cur.seq) || 0}:${cur.updatedAt}`;
+      storedSeq = Number(cur.seq) || 0;
       if (curStamp === lastWrittenStamp) return;
       if (curStamp === base) break;
       // Someone else's state. Before re-applying this mutation on top of it,
@@ -3226,11 +3228,33 @@
       lastWrittenState = state;
       lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
     }
+    // What is written must sit strictly ABOVE what storage holds. If the seq
+    // was put back underneath this mutation, a commit still queued in the
+    // worker (expecting the old seq) would pass its compare-and-swap after
+    // this write and replace it.
+    if (!(Number(state.seq) > storedSeq)) {
+      state.seq = storedSeq + 1;
+      state.updatedAt = Date.now();
+      lastWrittenState = state;
+      lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
+    }
     await store.set({ [key]: state });
   }
 
   let lastPersistAttempts = 0;
+  // Mutation commits (a fill, an order) currently waiting on the worker. A
+  // heartbeat stamps the SAME state object; one running alongside a waiting
+  // mutation could, by giving up and restoring the seq, undo that mutation's
+  // bump (found live with the worker queue held: the fill was then saved
+  // under the seq storage already had and a stale queued commit erased it).
+  let mutationCommitsInFlight = 0;
   async function persistStateNow(remutate) {
+    if (!remutate && mutationCommitsInFlight > 0) return; // a heartbeat waits its turn
+    if (!remutate) return persistStateNowInner(remutate);
+    mutationCommitsInFlight += 1;
+    try { return await persistStateNowInner(remutate); } finally { mutationCommitsInFlight -= 1; }
+  }
+  async function persistStateNowInner(remutate) {
     lastPersistAttempts = 0;
     for (let attempt = 0; attempt < 4; attempt++) {
       lastPersistAttempts = attempt + 1;
@@ -3245,6 +3269,7 @@
       // fill was being re-adopted (and, since F-40, replayed) as if another
       // tab had made it. The write STAMP survives cloning and does.
       lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
+      const beatStamp = lastWrittenStamp;
       const reply = await bounded(sendMessage({
         type: 'pt_state_commit', state, expectedSeq: state.seq - 1,
       }), COMMIT_BUDGET_MS, null);
@@ -3279,7 +3304,9 @@
           // really moved on, and its stale copy then passed the next CAS.
           // Only if this is still the object we stamped: an adoption during
           // the wait replaced it, and its seq is already the true one.
-          if (state === lastWrittenState) {
+          // ...and only if nobody stamped it again since this beat did (a
+          // mutation that started during the wait owns the seq now).
+          if (state === lastWrittenState && lastWrittenStamp === beatStamp) {
             state.seq = prevSeq;
             state.updatedAt = prevAt;
           }

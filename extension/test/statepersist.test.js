@@ -229,6 +229,10 @@ function runOverlay(priceSeries, opts) {
           // it does when the real worker lands the write.
           if (msg.type === 'pt_state_commit') {
             if (options.countCommit) options.countCommit(msg);
+            // workerHangs: the worker is alive but not answering (its queue is
+            // held). The tab waits out its whole commit budget, so a heartbeat
+            // and a buy can both be mid-commit at once, as they were live.
+            if (options.workerHangs) return new Promise(() => {});
             // options.workerDown models the MV3 worker asleep, dying or just
             // slow: `bounded` cannot tell those apart, so the content script
             // sees one thing either way — no reply. Opening and closing a
@@ -1862,4 +1866,33 @@ test('B12: a wallet with a post-exit watch running (the hour after any sell) is 
   const watch = ov.storage().pt_state.postWatch[0];
   assert.ok(commits <= 12, `sampling a watch costs about the marks cadence, not every beat (got ${commits}; it was 38)`);
   assert.ok(watch.samples > 0, 'and the samples are still saved');
+});
+
+test('B5 (found live): a buy saved through the fallback always lands ABOVE the stored seq, even with heartbeats walking away around it', async () => {
+  // Live, 2026-11-18, worker queue held: a heartbeat that gave up restored
+  // the seq it had bumped and undid the bump of a buy still waiting on its
+  // own commit. The buy's fallback then wrote the fill under the SAME seq
+  // storage already had, and a stale queued heartbeat commit (expected that
+  // seq) passed the compare-and-swap afterwards and erased the fill.
+  // Prices tick throughout so heartbeats really are committing; the buy is
+  // placed at every phase of their cycle.
+  for (let lead = 0; lead <= 6000; lead += 500) {
+    const ov = runOverlay([0.001], { workerHangs: true });
+    const tick = (i) => ov.dispatchBridge('tick', {
+      source: 'padre-chart-bar', mint: null, mcap: null,
+      candidates: [{ value: 0.001 * (1 + 0.01 * Math.sin(i / 5)), unit: 'unknown', key: 'padreChartClose' }],
+    });
+    const run = async (ms) => { for (let t = 0; t < ms; t += 100) { tick(t / 100); await ov.advance(100); } };
+    await ov.advance(1200);
+    assert.ok(ov.openPaperPosition(1));
+    await run(3000 + lead);
+    const before = ov.storage().pt_state;
+    const seq0 = Number(before.seq) || 0;
+    const fills0 = (before.journal || []).length;
+    ov.clickPreset(0);
+    await run(9000);
+    const after = ov.storage().pt_state;
+    assert.equal((after.journal || []).length, fills0 + 1, `lead ${lead}: the buy is in the wallet`);
+    assert.ok(Number(after.seq) > seq0, `lead ${lead}: and it landed above the stored seq (${seq0} -> ${after.seq})`);
+  }
 });
