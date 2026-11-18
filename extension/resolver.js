@@ -283,8 +283,30 @@
   }
 
   /** Re-quote an already-resolved token (slow safety net behind the live feed). */
-  var poolListAsked = Object.create(null); // mint -> 1 once /tokens/<mint> was asked for its pools
+  var poolListAsked = Object.create(null); // mint -> { n, nextAt } asks made for /tokens/<mint>
   var poolListByMint = Object.create(null); // mint -> every pool /tokens/<mint> listed
+  var POOL_LIST_RETRY_MS = [30000, 60000, 120000, 240000];
+
+  /** Attach every pool of record.mint, asking /tokens/<mint> in the
+   * background. An answer with pools ends the asking; an empty one ("not
+   * listed yet", the freshly migrated case) is re-asked at most four more
+   * times, 30 s to 4 min apart. Never awaited: the price does not wait. */
+  function withPoolList(record, solRate) {
+    var mint = record && record.mint;
+    if (!mint) return;
+    if (poolListByMint[mint]) { record.poolAddresses = poolListByMint[mint]; return; }
+    var now = Date.now();
+    var asked = poolListAsked[mint] || (poolListAsked[mint] = { n: 0, nextAt: 0 });
+    if (asked.n > POOL_LIST_RETRY_MS.length || now < asked.nextAt) return;
+    asked.nextAt = now + (POOL_LIST_RETRY_MS[asked.n] || Infinity);
+    asked.n += 1;
+    Promise.resolve(getJson(BASE + '/tokens/' + mint)).then(function (all) {
+      var full = all ? Q.tokenFromPayload(all, mint, { solUsd: solRate }) : null;
+      if (full && Array.isArray(full.poolAddresses) && full.poolAddresses.length) {
+        poolListByMint[mint] = full.poolAddresses;
+      }
+    }).catch(function () {});
+  }
 
   async function refresh(token) {
     if (!token) return null;
@@ -308,7 +330,13 @@
     // Dexscreener catches up.
     if (token.priceSource === 'jupiter') {
       var viaJup = await resolveViaJupiter(token.mint).catch(function () { return { record: null }; });
-      if (viaJup && viaJup.record) { cachePut(viaJup.record); return viaJup.record; }
+      if (viaJup && viaJup.record) {
+        // A Jupiter record lists no pools at all; a freshly migrated coin
+        // priced this way still needs them for the stand-in heal.
+        withPoolList(viaJup.record, cachedSolUsd());
+        cachePut(viaJup.record);
+        return viaJup.record;
+      }
       // Dexscreener may have indexed it by now; fall through and try.
     }
 
@@ -328,18 +356,7 @@
       // Asked ONCE whether or not it answers (a second request on every
       // re-quote would double the poll rate), and never awaited: the price
       // must not wait on it. The list rides the next re-quote.
-      if (token.pairAddress && data.mint) {
-        if (!poolListAsked[data.mint]) {
-          poolListAsked[data.mint] = 1;
-          (function (mint, solRate) {
-            Promise.resolve(getJson(BASE + '/tokens/' + mint)).then(function (all) {
-              var full = all ? Q.tokenFromPayload(all, mint, { solUsd: solRate }) : null;
-              if (full && Array.isArray(full.poolAddresses)) poolListByMint[mint] = full.poolAddresses;
-            }).catch(function () {});
-          })(data.mint, rate);
-        }
-        if (poolListByMint[data.mint]) data.poolAddresses = poolListByMint[data.mint];
-      }
+      if (token.pairAddress && data.mint) withPoolList(data, rate);
       cachePut(data);
       return data;
     }

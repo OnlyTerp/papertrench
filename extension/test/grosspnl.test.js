@@ -273,3 +273,18 @@ test('T2: positionMark uses unrealizedPnlGross and the shared gross percentage',
   assert.match(dashboard, /pnlSol: E\.unrealizedPnlGross\(pos\)/,
     'dashboard open-position share cards use gross P&L');
 });
+
+test('B5: sells made under a session that was merged into this position count in its ledger', () => {
+  // After a stand-in bag is rekeyed onto the real mint, its earlier sells
+  // carry the absorbed session id. SOLD and "sell initial" ignored them.
+  const Q2 = require('../quote.js');
+  const pos = { mint: 'REAL', sessionId: 'S1', mergedSessionIds: ['S0'], openedAt: 1, investedSol: 0.35 };
+  const journal = [
+    { side: 'sell', mint: 'STANDIN', sessionId: 'S0', ts: 5, solNet: 0.1 },
+    { side: 'sell', mint: 'REAL', sessionId: 'S1', ts: 6, solNet: 0.05 },
+    { side: 'sell', mint: 'OTHER', sessionId: 'S9', ts: 7, solNet: 9 },
+  ];
+  const ledger = Q2.positionLedger(journal, pos, 0.2);
+  assert.ok(Math.abs(ledger.soldSol - 0.15) < 1e-12, `merged + own sells, never another coin's (got ${ledger.soldSol})`);
+  assert.equal(ledger.sells, 2);
+});

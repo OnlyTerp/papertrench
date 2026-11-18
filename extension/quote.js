@@ -1573,7 +1573,12 @@
     for (var i = 0; i < list.length; i++) {
       var t = list[i];
       if (!t || t.side !== 'sell') continue;
-      var mine = sid && t.sessionId ? t.sessionId === sid : t.mint === pos.mint;
+      // Same membership rule as E.tradeInRound: a session merged into this
+      // position (a stand-in bag rekeyed onto the real mint) is this round.
+      var mine = sid && t.sessionId
+        ? (t.sessionId === sid || (Array.isArray(pos.mergedSessionIds)
+          && pos.mergedSessionIds.indexOf(t.sessionId) !== -1))
+        : t.mint === pos.mint;
       if (!mine) continue;
       // A sell older than this position belongs to a previous round.
       if (openedAt && Number(t.ts) < openedAt) continue;

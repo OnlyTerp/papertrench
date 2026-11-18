@@ -471,3 +471,29 @@ test('F-61 by pool address: a coin opened by its NEW pool still heals the bag he
   assert.ok(positions[REAL_MINT] && positions[REAL_MINT].qty === 2_000_000,
     'the bag shows under the real mint on the pool-address page');
 });
+
+test('F-61 not listed yet: an empty /tokens answer is asked again, and the bag heals once the pools are listed', async () => {
+  // A freshly migrated coin: /tokens/<mint> lists nothing for the first
+  // minute. Asking once and never again left the bag stranded for the
+  // whole page session.
+  let listed = false;
+  const ov = runStrandedBag({
+    stage: (addr, kind) => {
+      if (kind === 'pairs' && addr === NEW_POOL) return { mint: REAL_MINT, pair: NEW_POOL };
+      if (kind === 'tokens' && addr === REAL_MINT) return listed ? { payload: migratedTokenPayload() } : 'blind';
+      return 'blind';
+    },
+    prewatch: () => null,
+  });
+  await ov.advance(3000);
+  ov.navigate(`https://axiom.trade/meme/${NEW_POOL}?chain=sol`);
+  await ov.advance(8000);
+  let positions = ov.storage().pt_state.positions || {};
+  assert.ok(positions[CURVE], 'nothing is listed yet, so nothing is proven and nothing moves');
+
+  listed = true;
+  await ov.advance(45_000);
+  positions = ov.storage().pt_state.positions || {};
+  assert.ok(!positions[CURVE] && positions[REAL_MINT] && positions[REAL_MINT].qty === 2_000_000,
+    'the later listing heals the bag');
+});
