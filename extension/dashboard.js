@@ -1225,7 +1225,13 @@ async function mutateState(mutate, retries = 3) {
     const committed = await chrome.runtime.sendMessage({
       type: 'pt_state_commit', state: fresh, expectedSeq: baseSeq,
     }).catch(() => null);
-    if (!committed) { await store.set({ pt_state: fresh }); } // worker unreachable
+    if (!committed) {
+      // Worker unreachable. Never blind: if the wallet moved while we waited
+      // on it, re-apply on the newer state like the stale path does.
+      const again = await store.get(['pt_state']);
+      if (again && (Number(again.pt_state && again.pt_state.seq) || 0) !== baseSeq) continue;
+      await store.set({ pt_state: fresh });
+    }
     else if (!committed.ok) continue;
     state = fresh;
     // D-40: the adopted state carries new journal/rounds — replay views

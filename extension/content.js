@@ -3071,11 +3071,64 @@
    * (a fill, an order change). The heartbeat passes none: its marks are
    * re-applied here and there is nothing else it owns.
    */
+  /** Put back what this view genuinely owns after adopting newer truth. */
+  function reapplyOwnMarks() {
+    if (token && token.mint && Number(token.priceNative) > 0) {
+      E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
+    }
+    for (const mint of Object.keys(livePositionPrices)) {
+      const p = livePositionPrices[mint];
+      if (p && Number(p.priceNative) > 0) {
+        E.markPosition(state, mint, p.priceNative, p.priceUsd, {
+          priceSource: p.priceSource,
+          pairAddress: p.pairAddress,
+        });
+      }
+    }
+  }
+
+  /**
+   * The direct write a MUTATION falls back to when the worker gave no answer.
+   * "No answer" also means "slow", and `bounded` waits 2.5 s: long enough for
+   * another window to land a fill this view has not adopted. So it is never
+   * blind. Storage is read first:
+   *  - it already holds this very write (the commit landed, the reply was
+   *    lost): nothing to do;
+   *  - it still holds the base this mutation was built on: write;
+   *  - it holds someone else's newer state: adopt that, re-apply this
+   *    mutation on top, and check again before writing.
+   * `baseStamp` is the seq:updatedAt this view held before stamping.
+   */
+  async function directWriteMutation(baseStamp, remutate) {
+    const key = E.STORAGE_KEYS.state;
+    let base = baseStamp;
+    for (let round = 0; round < 3; round++) {
+      const got = await store.get(key);
+      const cur = got && got[key];
+      if (!cur) break; // unreadable or empty: the write is all there is
+      const curStamp = `${Number(cur.seq) || 0}:${cur.updatedAt}`;
+      if (curStamp === lastWrittenStamp) return;
+      if (curStamp === base) break;
+      adoptState(cur);
+      reapplyOwnMarks();
+      await remutate();
+      base = curStamp;
+      state.seq = (Number(state.seq) || 0) + 1;
+      state.updatedAt = Date.now();
+      lastWrittenState = state;
+      lastWrittenStamp = `${state.seq}:${state.updatedAt}`;
+    }
+    await store.set({ [key]: state });
+  }
+
   let lastPersistAttempts = 0;
   async function persistStateNow(remutate) {
     lastPersistAttempts = 0;
     for (let attempt = 0; attempt < 4; attempt++) {
       lastPersistAttempts = attempt + 1;
+      const prevSeq = state.seq;
+      const prevAt = state.updatedAt;
+      const baseStamp = `${Number(prevSeq) || 0}:${prevAt}`;
       state.seq = (Number(state.seq) || 0) + 1;
       state.updatedAt = Date.now();
       lastWrittenState = state;
@@ -3112,25 +3165,21 @@
         // This is the policy the forced commit below already states for the
         // same reason ("a pure heartbeat has nothing unique — it walks away");
         // this branch simply never got it.
-        if (!remutate) return;
-        await store.set({ [E.STORAGE_KEYS.state]: state });
+        if (!remutate) {
+          // Walking away must leave no trace: a bumped in-memory seq with
+          // nothing written made this view look as new as a wallet that had
+          // really moved on, and its stale copy then passed the next CAS.
+          state.seq = prevSeq;
+          state.updatedAt = prevAt;
+          return;
+        }
+        await directWriteMutation(baseStamp, remutate);
         return;
       }
       // Overtaken: someone landed between our base and our commit. Adopt
       // their truth, put back what is genuinely ours, try again.
       adoptState(reply.current);
-      if (token && token.mint && Number(token.priceNative) > 0) {
-        E.markPosition(state, token.mint, token.priceNative, token.priceUsd);
-      }
-      for (const mint of Object.keys(livePositionPrices)) {
-        const p = livePositionPrices[mint];
-        if (p && Number(p.priceNative) > 0) {
-          E.markPosition(state, mint, p.priceNative, p.priceUsd, {
-            priceSource: p.priceSource,
-            pairAddress: p.pairAddress,
-          });
-        }
-      }
+      reapplyOwnMarks();
       if (remutate) await remutate();
     }
     // Live report 2026-08-22 (Trenches, 5 PT tabs live): every quick-buy chip
@@ -3146,6 +3195,7 @@
     // dead: heartbeats never force.
     if (remutate) {
       lastPersistAttempts += 1;
+      const forcedBase = `${Number(state.seq) || 0}:${state.updatedAt}`;
       state.seq = (Number(state.seq) || 0) + 1;
       state.updatedAt = Date.now();
       lastWrittenState = state;
@@ -3156,7 +3206,7 @@
       if (!forced || !forced.ok) {
         // SW unreachable: the direct-write fallback, same availability rule
         // as inside the loop. A fill is never droppable.
-        await store.set({ [E.STORAGE_KEYS.state]: state });
+        await directWriteMutation(forcedBase, remutate);
       }
       return;
     }

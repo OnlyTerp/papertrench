@@ -232,7 +232,12 @@ function runOverlay(priceSeries, opts) {
             // slow: `bounded` cannot tell those apart, so the content script
             // sees one thing either way — no reply. Opening and closing a
             // window is exactly what produces it.
-            if (options.workerDown) return Promise.resolve({});
+            if (options.workerDown) {
+              // A commit that gets no answer; the hook lets a test land
+              // another window's write INSIDE that wait.
+              if (options.onCommit) options.onCommit(msg);
+              return Promise.resolve({});
+            }
             const cur = storage.pt_state;
             const curSeq = cur ? (Number(cur.seq) || 0) : 0;
             if (!msg.force && curSeq !== (Number(msg.expectedSeq) || 0)) {
@@ -1687,4 +1692,45 @@ test('a cancelled limit order stays cancelled even with the worker down', async 
     'a cancelled order must not come back off another window s copy — it can still fill');
   assert.ok(ov.toastTexts().some((t) => t.startsWith('Limit buy cancelled')),
     'and the trader was told the SOL was unlocked');
+});
+
+test('B5: a buy whose commit gets no reply never writes over a fill another window landed during the wait', async () => {
+  // The mutation fallback wrote this view's whole wallet blind when the
+  // worker did not answer in time. A fill another window landed during that
+  // wait was erased everywhere ("buy disappears seconds later", newws 8/22;
+  // the mutation half of cheng 9/15).
+  let armed = false;
+  let before = Infinity;
+  let ov = null;
+  ov = runOverlay([0.001], {
+    workerDown: true,
+    onCommit: (msg) => {
+      // Only THIS view's buy commit (one more fill than before), not a heartbeat.
+      if (!armed || !msg.state || (msg.state.journal || []).length <= before) return;
+      armed = false;
+      const base = JSON.parse(JSON.stringify(ov.storage().pt_state));
+      const committed = JSON.parse(JSON.stringify(base));
+      committed.seq = (Number(base.seq) || 0) + 1;
+      committed.updatedAt = (Number(base.updatedAt) || 0) + 1;
+      committed.journal = [{
+        id: 'other-window-fill', side: 'buy', mint: BONK, ts: committed.updatedAt,
+        solGross: 0.5, priceNative: 0.001, priceUsd: 0.2,
+      }].concat(base.journal || []);
+      ov.externalWriteSilently({ pt_state: committed });
+    },
+  });
+  await ov.advance(1200);
+  assert.ok(ov.openPaperPosition(1), 'the wallet opens with a position on screen');
+  await ov.advance(2000);
+  before = (ov.storage().pt_state.journal || []).length;
+  armed = true;
+  ov.clickPreset(0); // a real panel buy; the other window lands mid-commit
+  await ov.advance(8000);
+
+  const after = ov.storage().pt_state;
+  assert.equal(armed, false, 'the foreign write did land during a commit wait');
+  assert.ok(after.journal.some((t) => t.id === 'other-window-fill'),
+    'the other window s fill survives this view s fallback write');
+  assert.equal(after.journal.filter((t) => t.id !== 'other-window-fill').length, before + 1,
+    'and this view s own buy landed too, exactly once');
 });
