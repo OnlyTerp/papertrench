@@ -1461,12 +1461,13 @@
 
   /** A missing witness never confirms: a violent divergence that no second
    * source can corroborate is exactly a guess, and a guess must not fill. */
-  function witnessAgrees(candidateNative, witnessNative) {
+  function witnessAgrees(candidateNative, witnessNative, source) {
     if (!(candidateNative > 0) || !(witnessNative > 0)) return false;
     var ratio = candidateNative > witnessNative
       ? candidateNative / witnessNative
       : witnessNative / candidateNative;
-    return ratio <= FILL_WITNESS_AGREE_RATIO;
+    // B3: an aggregator snapshot is vouched for only inside its own band.
+    return ratio <= (isAggregatorSource(source) ? AGGREGATOR_WITNESS_RATIO : FILL_WITNESS_AGREE_RATIO);
   }
 
   // F-48 (Terp, lute.gg, WhiteBull on the MC axis): the chart and the S mark

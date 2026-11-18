@@ -587,6 +587,18 @@
     return state.positions[mint] || null;
   }
 
+  /** USD price and market cap of a fill row ride the SAME effective fill
+   * price as priceNative (which already includes slippage). Stored raw, the
+   * panel entry (from native) and the chart line (from USD) disagreed by
+   * exactly the slippage setting. Neither field is in the attestation
+   * preimage. */
+  function atFill(v, px, quoted) {
+    const n = Number(v);
+    const q = Number(quoted);
+    if (!(n > 0)) return null;
+    return q > 0 && px > 0 ? n * (px / q) : n;
+  }
+
   /**
    * Buy `solAmount` gross SOL of the token. Returns {trade, state} or throws.
    */
@@ -691,12 +703,12 @@
       side: 'buy',
       qty,
       priceNative: px,
-      priceUsd: o.priceUsd || null,
+      priceUsd: atFill(o.priceUsd, px, o.priceNative),
       solGross: sol,
       feeSol: fee,
       txCostSol: flat,
       solNet: net,
-      mcap: o.mcap || null,
+      mcap: atFill(o.mcap, px, o.priceNative),
       chain: pos.chain || o.chain || 'solana',
     };
     // Foreign-chain panels order in dollars; the tapped amount is recorded
@@ -784,14 +796,14 @@
       side: 'sell',
       qty,
       priceNative: px,
-      priceUsd: o.priceUsd || null,
+      priceUsd: atFill(o.priceUsd, px, o.priceNative),
       solGross: gross,
       feeSol: fee,
       txCostSol: flat,
       solNet: net,
       pnlSol: pnl,
       pnlGrossSol,
-      mcap: o.mcap || null,
+      mcap: atFill(o.mcap, px, o.priceNative),
       chain: pos.chain || 'solana',
     };
     // An exit fired by an armed order records what was ASKED for beside what

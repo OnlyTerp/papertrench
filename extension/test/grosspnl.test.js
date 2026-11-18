@@ -288,3 +288,21 @@ test('B5: sells made under a session that was merged into this position count in
   assert.ok(Math.abs(ledger.soldSol - 0.15) < 1e-12, `merged + own sells, never another coin's (got ${ledger.soldSol})`);
   assert.equal(ledger.sells, 2);
 });
+
+test('B4: a fill row carries ONE effective price in every unit, so the panel entry and the chart line agree', () => {
+  // soramonk 8/23: panel "avg entry $69.9K MC" against the chart's "PAPER Avg
+  // Fill" at $58.2K. priceNative was stored after slippage, priceUsd and mcap
+  // before it; at 20% slippage that is exactly this gap.
+  const settings = E.mergeSettings({ slippageBps: 2000, feeBps: 100 });
+  const state = E.defaultState(settings);
+  const nRaw = 58_200 / 1e9 / 180;
+  const { trade } = E.buy(state, settings, { ts: 1, mint: 'M', solAmount: 1, priceNative: nRaw, priceUsd: nRaw * 180, mcap: 58_200 });
+  const slip = trade.priceNative / nRaw;
+  assert.ok(slip > 1.1, `the buy is filled above the quote by the slippage setting (x${slip})`);
+  assert.ok(Math.abs(trade.priceUsd / (nRaw * 180) - slip) < 1e-9, 'USD price moves with the fill');
+  assert.ok(Math.abs(trade.mcap / 58_200 - slip) < 1e-9, 'and so does the entry market cap');
+  const sold = E.sell(state, settings, { ts: 2, mint: 'M', qtyFraction: 1, priceNative: nRaw * 2, priceUsd: nRaw * 2 * 180, mcap: 116_400 });
+  const sellSlip = sold.trade.priceNative / (nRaw * 2);
+  assert.ok(sellSlip < 0.95);
+  assert.ok(Math.abs(sold.trade.mcap / 116_400 - sellSlip) < 1e-9, 'a sell row too');
+});

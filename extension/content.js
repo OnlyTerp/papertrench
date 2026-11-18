@@ -2633,8 +2633,8 @@
    * fresh witness and fills normally.
    */
   async function corroborateForFill(chosen) {
-    lastQuoteRefusal = null;
     if (!chosen) return null;
+    lastQuoteRefusal = null;
     // F-56 (soramonk 8/21, AMERICOIN): the witness gate keyed ONLY on
     // lastAcceptedMarket — a page that never accepted a tick (fresh chart,
     // quiet feed) had NO evidence, so needsFillWitness() returned false and
@@ -2710,7 +2710,7 @@
       if (!(witnessNative > 0)) await consultWorker();
     }
     if (Q.witnessAgrees(useUsdWitness ? chosen.priceUsd : chosen.priceNative,
-      useUsdWitness ? witnessUsd : witnessNative)) return chosen;
+      useUsdWitness ? witnessUsd : witnessNative, chosen.source)) return chosen;
     lastQuoteRefusal = 'Price sources disagree ('
       + fmtWitness(chosen.priceNative) + ' vs recent ' + fmtWitness(evidence.priceNative)
       + (witnessNative ? ', witness ' + fmtWitness(witnessNative) : ', no second source')
@@ -2796,6 +2796,7 @@
   }
 
   async function pickQuoteForTrade() {
+    lastQuoteRefusal = null;
     const startMint = token && token.mint;
     if (!startMint) return null;
 
@@ -2855,6 +2856,17 @@
       : null;
     if (!token || token.mint !== startMint) return null;
     const onchain = quoteFromOnchain(observation);
+    // B3: a demoted chain read still VETOES — a snapshot that agrees with old
+    // evidence but not with the live chain is lag, not confirmation.
+    let demotedChain = null;
+    const chainVeto = (q) => {
+      if (!q || !demotedChain) return q;
+      if (!Q.onchainContradictsEvidence(q.priceNative, demotedChain.priceNative, 0)) return q;
+      lastQuoteRefusal = 'Price sources disagree (chain ' + fmtWitness(demotedChain.priceNative)
+        + ' vs ' + (q.source || 'quote') + ' ' + fmtWitness(q.priceNative)
+        + ') — paper fill refused. Try again in a moment.';
+      return null;
+    };
     if (onchain) {
       const acceptedEvidence = lastAcceptedMarket;
       const acceptedEvidenceAge = acceptedEvidence ? Date.now() - acceptedEvidence.at : Infinity;
@@ -2862,6 +2874,7 @@
         acceptedEvidence && acceptedEvidence.priceNative, acceptedEvidenceAge)) {
         return onchain;
       }
+      demotedChain = onchain;
       console.debug('PaperTrench: on-chain quote ' + onchain.priceNative
         + ' contradicts accepted market evidence ' + acceptedEvidence.priceNative
         + ' (' + acceptedEvidenceAge + 'ms old) on a quiet screen — re-pricing from the ladder');
@@ -2869,7 +2882,7 @@
 
     // The freshest local price, judged by its age AT CLICK time — the round
     // trip above must not have aged it out of its own window.
-    if (atClick && atClickAge <= ACTION_QUOTE_MAX_AGE_MS) return atClick;
+    if (atClick && atClickAge <= ACTION_QUOTE_MAX_AGE_MS) return chainVeto(atClick);
 
     const seqAtClick = pageQuoteSeq;
     // Prefer an imminent site-feed update (Padre bar / GMGN worker) over an
@@ -2886,7 +2899,7 @@
     // skip the refresh round trip that cannot succeed yet (the sniping case).
     if (token.pending) {
       const pendingQuote = quoteSnapshot();
-      if (pendingQuote && Date.now() - pendingQuote.receivedAt <= PENDING_ACTION_MAX_AGE_MS) return pendingQuote;
+      if (pendingQuote && Date.now() - pendingQuote.receivedAt <= PENDING_ACTION_MAX_AGE_MS) return chainVeto(pendingQuote);
     }
 
     // The feed is quiet. Take exactly one action-time resolver quote rather
@@ -2906,14 +2919,14 @@
       const inheritedMcap = site && site.id === 'gmgn' && Number(token.mcap) > 0 && Number(token.priceUsd) > 0 && Number(fresh.priceUsd) > 0
         ? Number(token.mcap) * (Number(fresh.priceUsd) / Number(token.priceUsd))
         : Number(fresh.mcap) || null;
-      return {
+      return chainVeto({
         mint: startMint,
         priceNative: Number(fresh.priceNative),
         priceUsd: Number(fresh.priceUsd) > 0 ? Number(fresh.priceUsd) : null,
         mcap: inheritedMcap,
         source: 'action-resolver',
         receivedAt: Date.now(),
-      };
+      });
     }
 
     // Every aggregator lane is down (a cooling-down public pool, an
@@ -2948,7 +2961,7 @@
       }
       const workerNative = worker ? await workerNativeFromUsd(worker) : null;
       if (workerNative > 0) {
-        return {
+        return chainVeto({
           mint: startMint,
           priceNative: workerNative,
           priceUsd: Number(worker.priceUsd) > 0 ? Number(worker.priceUsd) : null,
@@ -2957,7 +2970,7 @@
           mcap: Number(worker.mcapUsd) > 0 ? Number(worker.mcapUsd) : null,
           source: 'action-worker',
           receivedAt: Date.now(),
-        };
+        });
       }
     }
 
@@ -2974,7 +2987,7 @@
       const resortAge = lastResort.receivedAt <= clickAt
         ? clickAt - lastResort.receivedAt
         : Date.now() - lastResort.receivedAt;
-      if (resortAge <= STALE_FILL_MAX_AGE_MS) return lastResort;
+      if (resortAge <= STALE_FILL_MAX_AGE_MS) return chainVeto(lastResort);
     }
     return null;
   }
