@@ -2630,9 +2630,18 @@
    *  prices move constantly and are only inputs to the conversion; what a
    *  line DRAWS is the average, so only a changed average may move it. */
   function sameAverages(a, b) {
-    const keys = ['avgBuyUsd', 'avgSellUsd', 'avgBuyMcap', 'avgSellMcap',
-      'avgBuyNative', 'avgSellNative', 'avgBuyMcapNative', 'avgSellMcapNative'];
-    return keys.every((k) => (Number(a[k]) || 0) === (Number(b[k]) || 0));
+    // Only the journal's own averages count. The cap fields (avgBuyMcap,
+    // avgBuyMcapNative, ...) are rebuilt by content from a LIVE supply on
+    // every repost and differ in the last float digit even when nothing
+    // changed; comparing them threw the frozen level away on most reposts
+    // and the line re-landed wherever the tick skew put it (ticket-0018).
+    // The USD average is itself rebuilt from the live rate when a buy has no
+    // USD price, so it only decides when there is no native average (perps).
+    const n = (v) => Number(v) || 0;
+    const side = (nativeKey, usdKey) => (n(a[nativeKey]) || n(b[nativeKey])
+      ? n(a[nativeKey]) === n(b[nativeKey])
+      : n(a[usdKey]) === n(b[usdKey]));
+    return side('avgBuyNative', 'avgBuyUsd') && side('avgSellNative', 'avgSellUsd');
   }
 
   /* F-43 (fomo.family field report, 2026-08-06: "the avg fill line and where

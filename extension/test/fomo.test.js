@@ -1137,3 +1137,53 @@ test('fomo: a genuine market snapshot still ticks, mint-tagged (guard must not o
   assert.ok(snapshotTicks.length >= 1,
     'market snapshots without trade attribution must keep flowing (downstream banding validates them)');
 });
+
+test('ticket-0018: a repost whose cap fields were re-derived from a drifting supply does not move the average line', async () => {
+  // Content sends avgBuyMcap / avgBuyMcapNative built from a LIVE supply
+  // (token.mcap / token.priceUsd), so they wobble on nearly every repost
+  // while the journal average stays put. They are conversion inputs, not
+  // averages: the frozen level must survive them (410ldv, 3.25.1: "avg fill
+  // and avg exit tend to move sporadically within a coin").
+  const env = runFomoBridge({ liveShape: true });
+  env.setNow(Date.now());
+  const live = bootWithLiveBar(env, 8_000_000);
+  const supply = 8_000_000 / CURRENT_PRICE_USD;
+  const post = (over) => env.send('paper-lines', Object.assign({
+    enabled: true,
+    axisBasis: 'mcap',
+    currentPriceNative: CURRENT_PRICE_NATIVE,
+    currentPriceUsd: CURRENT_PRICE_USD,
+    currentMcap: 8_000_000,
+    avgBuyNative: CURRENT_PRICE_NATIVE,
+    avgBuyUsd: CURRENT_PRICE_USD,
+    avgBuyMcap: CURRENT_PRICE_USD * supply,
+    avgBuyMcapNative: CURRENT_PRICE_NATIVE * supply,
+  }, over));
+
+  post({});
+  await microtasks();
+  const first = env.lineShapes.find((s) => !s.removed && s.props.text === 'PAPER Avg. Fill');
+  assert.ok(first, 'the line draws');
+  const placed = first.points[0].price;
+
+  // The chart ticks up 6%; the spec reposts with a slightly older price and
+  // cap fields rebuilt from a supply that drifted 1%. Same journal average.
+  live.callback({ time: Date.now(), close: 8_480_000, volume: 1 });
+  const drifted = supply * 1.01;
+  post({
+    currentPriceNative: CURRENT_PRICE_NATIVE * 1.01,
+    currentPriceUsd: CURRENT_PRICE_USD * 1.01,
+    avgBuyMcap: CURRENT_PRICE_USD * drifted,
+    avgBuyMcapNative: CURRENT_PRICE_NATIVE * drifted,
+  });
+  await microtasks();
+  const held = env.lineShapes.filter((s) => !s.removed && s.props.text === 'PAPER Avg. Fill');
+  assert.equal(held.length, 1);
+  assert.equal(held[0].points[0].price, placed, 'the average did not change, so the line must not move');
+
+  // Control: a real DCA still moves it.
+  post({ avgBuyNative: CURRENT_PRICE_NATIVE * 1.1, avgBuyUsd: CURRENT_PRICE_USD * 1.1 });
+  await microtasks();
+  const moved = env.lineShapes.filter((s) => !s.removed && s.props.text === 'PAPER Avg. Fill');
+  assert.notEqual(moved[0].points[0].price, placed, 'a changed average MUST move the line');
+});
