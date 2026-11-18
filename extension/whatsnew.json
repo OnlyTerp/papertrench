@@ -40,7 +40,7 @@
     },
     {
       "title": "Lag and freezes with a big wallet or many open positions.",
-      "text": "Three causes measured and fixed: the whole wallet (about 1 MB for a full journal) was re-read and re-saved every 0.8 s whether or not anything changed, and every other open tab decoded it again; every price tick rebuilt a number formatter hundreds of times for the positions bar; and the scan that finds list rows could spend a long time walking one row's data. Measured in a test harness, not in a browser trace: 38 full saves per idle half-minute down to at most 2, and the per-tick positions-bar cost down about 7x with 150 open positions."
+      "text": "Three causes measured and fixed: the whole wallet (about 1 MB for a full journal) was re-read and re-saved every 0.8 s whether or not anything changed, and every other open tab decoded it again; every price tick rebuilt a number formatter hundreds of times for the positions bar; and the scan that finds list rows could spend a long time walking one row's data. In a real browser on a coin's page, wallet saves went from 58 a minute to 6. In the test rig, the per-tick positions-bar cost dropped about 7x with 150 open positions. We could not reproduce the freeze itself on our machine, so if you still get lag, a performance recording will show us where."
     },
     {
       "title": "A chip buy no longer books a lagging outside price when the row said otherwise.",
@@ -76,7 +76,7 @@
     },
     {
       "title": "What is left:",
-      "text": "a dust coin (under a $1,500 cap) that no source prices cannot be filled until a price exists. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
+      "text": "a dust coin (under a $1,500 cap) that no source prices cannot be filled until a price exists; it tells you it is waiting. The freeze fixes were measured in tests, not in a real browser trace, so if you still get lag, a performance recording will tell us where."
     }
   ]
 }
