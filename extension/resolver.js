@@ -283,6 +283,9 @@
   }
 
   /** Re-quote an already-resolved token (slow safety net behind the live feed). */
+  var poolListAsked = Object.create(null); // mint -> 1 once /tokens/<mint> was asked for its pools
+  var poolListByMint = Object.create(null); // mint -> every pool /tokens/<mint> listed
+
   async function refresh(token) {
     if (!token) return null;
 
@@ -317,7 +320,29 @@
     var data = json
       ? Q.tokenFromPayload(json, token.mint, { solUsd: rate })
       : null;
-    if (data) { cachePut(data); return data; }
+    if (data) {
+      // /pairs/<pool> lists that ONE pool. The stand-in heal needs every pool
+      // of the mint (a bag bought on the bonding curve is keyed by the curve
+      // address, which the migrated pool's own record never mentions), so
+      // ask /tokens/<mint> once per mint per page session and carry its list.
+      // Asked ONCE whether or not it answers (a second request on every
+      // re-quote would double the poll rate), and never awaited: the price
+      // must not wait on it. The list rides the next re-quote.
+      if (token.pairAddress && data.mint) {
+        if (!poolListAsked[data.mint]) {
+          poolListAsked[data.mint] = 1;
+          (function (mint, solRate) {
+            Promise.resolve(getJson(BASE + '/tokens/' + mint)).then(function (all) {
+              var full = all ? Q.tokenFromPayload(all, mint, { solUsd: solRate }) : null;
+              if (full && Array.isArray(full.poolAddresses)) poolListByMint[mint] = full.poolAddresses;
+            }).catch(function () {});
+          })(data.mint, rate);
+        }
+        if (poolListByMint[data.mint]) data.poolAddresses = poolListByMint[data.mint];
+      }
+      cachePut(data);
+      return data;
+    }
 
     // Last resort for a token neither source indexed under its pair address.
     var retry = await resolveViaJupiter(token.mint).catch(function () { return { record: null }; });

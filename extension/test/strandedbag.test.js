@@ -208,7 +208,8 @@ function runStrandedBag(opts) {
       // Dexscreener resolve endpoints, routed by the test's stage().
       const m = /\/latest\/dex\/(?:pairs\/solana|tokens)\/([A-Za-z0-9]+)/.exec(s);
       if (m) {
-        const r = options.stage(m[1]);
+        const kind = s.includes('/pairs/solana/') ? 'pairs' : 'tokens';
+        const r = options.stage(m[1], kind);
         if (!r || r === 'blind') return Promise.resolve({ ok: true, status: 200, json: async () => ({ pairs: null }) });
         return Promise.resolve({ ok: true, status: 200, json: async () => r.payload || dexPayload(r.mint, r.pair) });
       }
@@ -442,4 +443,31 @@ test('F-61 legacy path: prewatch silent, fill keys the stand-in honestly', async
     'a silent probe keeps the honest legacy keying (the row address)');
   assert.ok(positions[CURVE].qty > 2_000_000,
     'the seeded bag grew by the fill');
+});
+
+test('F-61 by pool address: a coin opened by its NEW pool still heals the bag held under the old curve', async () => {
+  // Endpoint-accurate: /pairs/solana/<pool> answers with that ONE pool, only
+  // /tokens/<mint> lists every pool. A page opened by the migrated pool
+  // resolves and re-quotes through /pairs, so the pool list never contained
+  // the bonding-era curve and the bag stayed stranded ("it says i did not
+  // buy", 01jb 8/17 and ticket-0023).
+  const ov = runStrandedBag({
+    stage: (addr, kind) => {
+      if (kind === 'pairs' && addr === NEW_POOL) return { mint: REAL_MINT, pair: NEW_POOL };
+      if (kind === 'tokens' && addr === REAL_MINT) return { payload: migratedTokenPayload() };
+      return 'blind';
+    },
+    prewatch: () => null,
+  });
+  await ov.advance(3000);
+  let positions = ov.storage().pt_state.positions || {};
+  assert.ok(positions[CURVE] && positions[CURVE].qty === 2_000_000, 'the legacy bag sits under the curve stand-in');
+
+  ov.navigate(`https://axiom.trade/meme/${NEW_POOL}?chain=sol`);
+  await ov.advance(8000);
+
+  positions = ov.storage().pt_state.positions || {};
+  assert.ok(!positions[CURVE], 'the curve key is vacated');
+  assert.ok(positions[REAL_MINT] && positions[REAL_MINT].qty === 2_000_000,
+    'the bag shows under the real mint on the pool-address page');
 });
