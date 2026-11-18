@@ -51,7 +51,7 @@ check('row-tick events arriving', ticks.out && ticks.out.count > 0, { count: tic
 // Chip taps on coins with NO position (the case that hung on 2026-11-16):
 // once on the live board, once as the first action after an extension reload.
 function chipBuy(label) {
-  const buy = step(label, 'chip-buy', '--unheld', '--filter', 'pump$');
+  const buy = step(label, 'chip-buy', '--unheld', '--filter', 'pump$', '--minmc', '1500');
   const o = buy.out || {};
   check(`${label}: ends in a fill or a message (never silent)`, o.endState === 'filled' || o.endState === 'message',
     { endState: o.endState, endMs: o.endMs, rowMc: o.rowMcAtTap, outcome: o.outcome, fills: (o.fills || []).map((f) => ({ mcap: Math.round(f.mcap), src: f.priceSource, vsRow: f.vsRow })), toasts: o.toasts });

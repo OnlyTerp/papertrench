@@ -220,7 +220,7 @@ export function makeCommands(d) {
     async chips({ filter }) { return { chips: await listChips(filter) }; },
 
     /** Tap a Pulse row's quick-buy chip and report what got booked against what the row showed. */
-    async 'chip-buy'({ mint, index = 0, filter, unheld = false, watch = 70_000 }) {
+    async 'chip-buy'({ mint, index = 0, filter, unheld = false, minmc = 0, watch = 70_000 }) {
       // Judged by END STATE, not a fixed window: a fill, a message from the
       // extension, or the timeout (an armed buy can legitimately wait ~60 s).
       let chips = await listChips(filter);
@@ -228,6 +228,9 @@ export function makeCommands(d) {
         const held = new Set(Object.keys((await readState()).positions || {}));
         chips = chips.filter((c) => !held.has(c.mint));
       }
+      // Dead rows (a $1 cap nobody prices) arm and expire by design; a check
+      // that wants a FILL asks for rows the row itself says are alive.
+      if (Number(minmc) > 0) chips = chips.filter((c) => (parseMcap(c.mc) || 0) >= Number(minmc));
       const target = mint ? chips.find((c) => c.mint === mint) : chips[Number(index)];
       if (!target) throw new d.Refusal('NOT_FOUND', 'no matching visible chip', { visible: chips.map((c) => [c.mint.slice(0, 6), c.mc]) });
       const mcText = await rowMcap(target.mint);

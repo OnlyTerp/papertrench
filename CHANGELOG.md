@@ -7,11 +7,11 @@ details live in the commit messages.
 
 - **The average fill / exit lines stop jumping around.** The line was being re-placed on most price updates even though your average hadn't changed. It now moves only when a buy or sell changes the average. Checked live on Axiom: over 75 s, with the coin moving between $37K and $47K, the line held one level.
 
-- **"Avg entry MC" and the chart's avg-fill line now agree.** Two causes. The supply PaperTrench worked from drifted (seen live: 1.09B on a 1B-supply coin, so an entry read $41.0K instead of $37.6K); it now uses the coin's real supply when it's known. And a fill's market cap was recorded before slippage while its price was recorded after, so with a high slippage setting the panel and the line sat exactly that far apart ($69.9K vs $58.2K at 20%). A fill now carries one price in every unit.
+- **"Avg entry MC" and the chart's avg-fill line now agree.** Two causes. The supply PaperTrench worked from drifted (seen live: 1.09B on a 1B-supply coin, so an entry read $41.0K instead of $37.6K); it now uses the coin's real supply when it's known. And a fill's market cap was recorded before slippage while its price was recorded after, so with a high slippage setting the panel and the line sat exactly that far apart ($69.9K vs $58.2K at 20%). A fill now carries one price in every unit. If you run a high slippage setting, your fill markers and avg line now sit at the price you actually got, off the candle by that slippage.
 
 - **A sell can no longer be booked at a lagging price the chain disagrees with.** "Bought at 17k, sold at 40k, shows sold at 17k": when the screen had been quiet for a few seconds, an outside quote that agreed with the old price could price the sell even though the chain read said otherwise. That sell is now refused with the reason shown, and outside quotes are held to a tighter agreement before they may fill. Proven in tests, not reproduced live; it means a refusal where there used to be a wrong fill.
 
-- **Profit no longer shows on a rugged coin.** A price from a collapsed pool was already kept out of the position's mark, but the panel still displayed it and a take-profit could fire on it. It is now refused before the panel takes it. TP / SL / trailing orders also wait for a price that is actually fresh.
+- **Profit no longer shows on a rugged coin.** A price from a collapsed pool was already kept out of the position's mark, but the panel still displayed it and a take-profit could fire on it. It is now refused before the panel takes it. TP / SL / trailing orders also wait for a price that is actually fresh. This covers the dead-pool price; a position whose price feed simply stops still shows its last mark.
 
 - **Missing buys and positions: five causes fixed.** (1) A buy whose save got no answer from the background worker wrote the whole wallet over anything another window had just saved; it now checks first and merges. (2) A window that had fallen behind could later overwrite newer trades. (3) A coin opened by its new pool after migrating did not find the position filed under the old bonding-curve address, including when the pool list wasn't published yet or the coin was only on Jupiter. (4) A chain lookup that got no answer was never tried again until reload. (5) Sells made before a position was moved to its real address were left out of SOLD and "sell initial". All proven in tests; we have not reproduced each report live, so if a buy still goes missing, hit Share debug logs right then.
 
@@ -29,7 +29,7 @@ details live in the commit messages.
 
 - **Still open:** page freezes reported on 3.23 (none since 3.24; we need a performance trace from someone who still sees it). Chip buys priced by the outside quote can still sit off the row when Axiom's feed can't confirm the price. Opera blocking the settings page is Opera's own policy.
 
-Tested: extension __EXT__, server 398/398, bot 20/20 green. __LIVE__
+Tested: extension 2745/2745, server 398/398, bot 20/20 green. Checked live on Axiom (one tab, clicks only): chip buys filled in about 0.6 s; a panel buy booked $41.7K with the page at $41.5K and the sell booked $77.2K with the page at $77.1K; for a minute after the buy, with the coin moving $41K to $90K, the supply stayed exactly 1B and the average line held one level. The sell-refusal, missing-buy, stuck-price, quick-buy and X-Ray fixes are tested only. No dedicated test: the auto-exit freshness gate, the stand-in tag on panel buys, the dashboard's fallback write.
 
 ## v3.28.0 — 2026-11-18
 

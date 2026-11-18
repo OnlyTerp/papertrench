@@ -8,7 +8,7 @@
     },
     {
       "title": "\"Avg entry MC\" and the chart's avg-fill line now agree.",
-      "text": "Two causes. The supply PaperTrench worked from drifted (seen live: 1.09B on a 1B-supply coin, so an entry read $41.0K instead of $37.6K); it now uses the coin's real supply when it's known. And a fill's market cap was recorded before slippage while its price was recorded after, so with a high slippage setting the panel and the line sat exactly that far apart ($69.9K vs $58.2K at 20%). A fill now carries one price in every unit."
+      "text": "Two causes. The supply PaperTrench worked from drifted (seen live: 1.09B on a 1B-supply coin, so an entry read $41.0K instead of $37.6K); it now uses the coin's real supply when it's known. And a fill's market cap was recorded before slippage while its price was recorded after, so with a high slippage setting the panel and the line sat exactly that far apart ($69.9K vs $58.2K at 20%). A fill now carries one price in every unit. If you run a high slippage setting, your fill markers and avg line now sit at the price you actually got, off the candle by that slippage."
     },
     {
       "title": "A sell can no longer be booked at a lagging price the chain disagrees with.",
@@ -16,7 +16,7 @@
     },
     {
       "title": "Profit no longer shows on a rugged coin.",
-      "text": "A price from a collapsed pool was already kept out of the position's mark, but the panel still displayed it and a take-profit could fire on it. It is now refused before the panel takes it. TP / SL / trailing orders also wait for a price that is actually fresh."
+      "text": "A price from a collapsed pool was already kept out of the position's mark, but the panel still displayed it and a take-profit could fire on it. It is now refused before the panel takes it. TP / SL / trailing orders also wait for a price that is actually fresh. This covers the dead-pool price; a position whose price feed simply stops still shows its last mark."
     },
     {
       "title": "Missing buys and positions: five causes fixed.",
