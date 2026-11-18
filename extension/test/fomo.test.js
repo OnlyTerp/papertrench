@@ -1180,6 +1180,9 @@ test('ticket-0018: a repost whose cap fields were re-derived from a drifting sup
   const held = env.lineShapes.filter((s) => !s.removed && s.props.text === 'PAPER Avg. Fill');
   assert.equal(held.length, 1);
   assert.equal(held[0].points[0].price, placed, 'the average did not change, so the line must not move');
+  const reported = env.statuses('paper-lines-status').filter((s) => s && s.action === 'sync').map((s) => s.buyLevel);
+  assert.ok(reported.length >= 2 && reported.every((v) => v === placed),
+    `the status reports the level the line holds, unchanged across the repost (got ${reported.join(', ')})`);
 
   // Control: a real DCA still moves it.
   post({ avgBuyNative: CURRENT_PRICE_NATIVE * 1.1, avgBuyUsd: CURRENT_PRICE_USD * 1.1 });

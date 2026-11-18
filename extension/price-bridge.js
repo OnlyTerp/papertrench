@@ -3830,6 +3830,10 @@
         reason: synced ? undefined : (lastLineSyncReason || undefined),
         buyVisible: Boolean(averageFillSlot.adapter || averageFillSlot.pending),
         sellVisible: Boolean(averageExitSlot.adapter || averageExitSlot.pending),
+        // The level each line holds, in the chart's own axis units, so a
+        // "the line jumped" report can be read from the debug log.
+        buyLevel: paperLineSpec && Number.isFinite(paperLineSpec.frozenBuyLevel) ? paperLineSpec.frozenBuyLevel : null,
+        sellLevel: paperLineSpec && Number.isFinite(paperLineSpec.frozenSellLevel) ? paperLineSpec.frozenSellLevel : null,
       });
       return;
     }
