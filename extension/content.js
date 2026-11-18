@@ -1452,13 +1452,21 @@
     if (!candidate) { lastHref = location.href; swapStash = null; setToken(null); return; }
     // D-66: a detection tick that acts (or proves the current token belongs
     // to this URL) re-stamps the quick-buy identity anchor.
-    tokenHref = location.href;
-    if (settled && (sameMint(token.mint, candidate.address) || sameMint(token.pairAddress, candidate.address) || sameMint(token.srcAddress, candidate.address))) { lastHref = location.href; return; }
+    if (settled && (sameMint(token.mint, candidate.address) || sameMint(token.pairAddress, candidate.address) || sameMint(token.srcAddress, candidate.address))) { tokenHref = location.href; lastHref = location.href; return; }
     // lastHref is only committed once this tick actually acts on the URL. If a
     // resolve is still in flight, leave it uncommitted so a navigation that
     // landed during the resolve is retried on the next tick instead of being
     // recorded as handled and then ignored forever.
-    if (resolving) return;
+    // B14: while an earlier resolve is in flight the panel still holds the
+    // PREVIOUS coin, so the anchor must not claim this URL yet; a quick-buy
+    // in that window armed for the coin the trader had just left.
+    if (resolving) {
+      const holdsThis = token && (sameMint(token.mint, candidate.address)
+        || sameMint(token.pairAddress, candidate.address) || sameMint(token.srcAddress, candidate.address));
+      if (holdsThis) tokenHref = location.href;
+      return;
+    }
+    tokenHref = location.href;
     resolving = true;
     lastHref = location.href;
     const resolveHref = lastHref;

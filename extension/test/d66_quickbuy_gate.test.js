@@ -184,6 +184,8 @@ function runFreshLaunch(options) {
     setInterval: (fn, ms) => { timers.push({ fn, at: now + ms, every: ms }); return timers.length; },
     fetch: (u) => {
       const s = String(u);
+      // A resolve that is still in flight: never answers.
+      if (options.hangFetch && options.hangFetch() && !s.includes('jup.ag')) return new Promise(() => {});
       if (options.resolved && options.resolved()) {
         if (s.includes('jup.ag')) return Promise.resolve({ ok: true, status: 200, json: async () => options.jupiterPayload ? options.jupiterPayload() : [] });
         if (options.dexIndexes) return Promise.resolve({ ok: true, status: 200, json: async () => ({ pairs: [options.dexPair()] }) });
@@ -328,4 +330,28 @@ test('D-66/6: navigation to a new pair refuses the instant fill for the OLD toke
   await ov.settle();
   assert.ok(ov.buyButtonArmed() || !(ov.positions()[NEW_MINT] || {}).qty,
     'after the swap the click is honored (armed or filled for the NEW token)');
+});
+
+test('D-66/7: while the OLD coin is still resolving, a quick-buy after navigating never arms for the OLD coin (B14)', async () => {
+  // harisx1, 8/30: "quick buy as a new pair page opens buys the previous
+  // coin". The identity anchor was stamped with the new URL before the
+  // in-flight resolve check, while the panel still held the old pending coin.
+  const ov = runFreshLaunch({
+    url: `https://trade.padre.gg/trade/solana/${OLD_MINT}`,
+    resolved: () => false,
+    hangFetch: () => true,
+  });
+  await ov.advance(1500); // OLD is pending, its resolve hangs
+
+  ov.setLocation(`https://trade.padre.gg/trade/solana/${NEW_MINT}`);
+  await ov.advance(1700); // detect ticks run while that resolve is in flight
+  ov.setInput('pt-custom', '1');
+  ov.clickShadow('pt-buy');
+  await ov.settle();
+  await ov.advance(4500);
+
+  const pending = (ov.storage().pt_state && ov.storage().pt_state.pendingBuys) || {};
+  assert.ok(!ov.buyButtonArmed(), 'nothing may arm while the panel still holds the coin the user left');
+  assert.ok(!pending[OLD_MINT] || !pending[OLD_MINT].length, 'and no order is stored for the old coin');
+  assert.ok(!(ov.positions()[OLD_MINT] || {}).qty, 'nor a fill');
 });
