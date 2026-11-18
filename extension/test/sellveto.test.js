@@ -87,3 +87,42 @@ test('B3 mirror: a chain read that contradicts FRESH evidence does not veto the 
   assert.ok(q, `the sell fills (refusal: ${L.getRefusal()})`);
   assert.ok(Math.abs(q.priceNative - n(10_000)) / n(10_000) < 1e-9, 'at the price the fresh evidence and the resolver agree on');
 });
+
+function reopened(markMc, candidateMc, markAgeMs) {
+  const now = Date.now();
+  const R = {
+    onchainQuote: async () => null,
+    refresh: async () => ({ mint: MINT, priceNative: n(candidateMc), priceUsd: n(candidateMc) * 180, mcap: candidateMc }),
+    workerQuote: async () => null,
+    solUsd: async () => 180,
+  };
+  return boot({
+    debug: [], R,
+    token: { mint: MINT, priceNative: n(candidateMc), priceUsd: n(candidateMc) * 180, mcap: candidateMc, priceSource: 'resolver', pending: false },
+    lastPriceAt: now - 4000, lastPageTickAt: 0,
+    state: { positions: { [MINT]: { lastPriceNative: n(markMc), lastMarkAt: now - markAgeMs } } },
+  });
+}
+
+test('a reopened coin that really moved 1.4x since its last mark can be sold when no second source answers', async () => {
+  // The position mark is the phantom guard's anchor (F-56) and was treated
+  // as fresh evidence whatever its age, so an aggregator price just 1.15x
+  // from a ten-minute-old mark needed a witness; with the chain throttled
+  // and the worker down the sell was refused. Lag explains a gap against
+  // evidence from seconds ago, not against a mark from ten minutes ago.
+  const L = reopened(17_000, 24_000, 600_000);
+  const q = await L.quoteForTrade();
+  assert.ok(q, `the sell fills (refusal: ${L.getRefusal()})`);
+});
+
+test('the phantom guard still holds on a reopened coin: a 2.4x price over an old mark needs a witness', async () => {
+  const L = reopened(17_000, 40_800, 600_000);
+  const q = await L.quoteForTrade();
+  assert.equal(q, null, 'no witness, no fill (AMERICOIN: a 14x sell on a dust print)');
+});
+
+test('a mark from seconds ago keeps the tight aggregator band', async () => {
+  const L = reopened(17_000, 24_000, 5_000);
+  const q = await L.quoteForTrade();
+  assert.equal(q, null, 'a 1.4x gap against fresh evidence is lag until a witness says otherwise');
+});

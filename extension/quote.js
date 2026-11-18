@@ -558,6 +558,7 @@
   // unit-price band that F-25 deliberately keeps.
   var PUMP_MCAP_UNIT_MIN = 3e-6;
   var PUMP_MCAP_UNIT_MAX = 1e-4;
+  var PUMP_MCAP_UNIT_USD_MAX = 2.5e-4;
   function isPumpFamily(t) {
     if (!t) return false;
     if (t.pumpCurve === true) return true;
@@ -688,8 +689,13 @@
    * pump band is tighter because the protocol pins the launch cap (~$4K);
    * a measured-supply coin only gets the generic pre-index sanity band. */
   function mcapUnitBand(t) {
-    if (isPumpFamily(t)) return { min: PUMP_MCAP_UNIT_MIN, max: PUMP_MCAP_UNIT_MAX };
-    return { min: BOOTSTRAP_SANE_USD_MIN, max: BOOTSTRAP_SANE_USD_MAX };
+    // usdMax is the ceiling for the reading that takes the number as a USD
+    // cap. A curve graduates near 411 SOL of cap, which is over $100K once
+    // SOL is above ~$243, so that reading may reach $250K. The SOL-cap
+    // reading keeps the old ceiling: widening it would let a small number be
+    // taken for hundreds of SOL of cap.
+    if (isPumpFamily(t)) return { min: PUMP_MCAP_UNIT_MIN, max: PUMP_MCAP_UNIT_MAX, usdMax: PUMP_MCAP_UNIT_USD_MAX };
+    return { min: BOOTSTRAP_SANE_USD_MIN, max: BOOTSTRAP_SANE_USD_MAX, usdMax: BOOTSTRAP_SANE_USD_MAX };
   }
 
   /**
@@ -828,7 +834,7 @@
             { basis: 'native-mcap', usd: (v * rate) / supply, native: v / supply, mcap: v * rate,
               min: band.min, max: band.max },
             { basis: 'mcap', usd: v / supply, native: v / supply / rate, mcap: v,
-              min: band.min, max: band.max },
+              min: band.min, max: band.usdMax },
           ];
           // P0-5: off Solana the 'native' and 'native-mcap' readings assume
           // a SOL denomination the page does not have — the gas token's
@@ -891,7 +897,7 @@
       var mcBand = mcapUnitBand(pendingToken);
       var usdMc = tickMcap / mcSupply;
       var solMc = (tickMcap * rate) / mcSupply;
-      var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.max;
+      var usdOk = usdMc >= mcBand.min && usdMc <= mcBand.usdMax;
       // P0-5: a SOL-denominated cap reading is meaningless off Solana — the
       // page's native cap is in gas units, not SOL.
       var solOk = !foreign && solMc >= mcBand.min && solMc <= mcBand.max;
@@ -985,6 +991,18 @@
    * learned value within 3%. Further away the learned convention stands
    * (C-32: a circulating-supply cap chart).
    */
+  /** A SOL/USD rate worked out from a tick's two legs is only a SOL rate if
+   * the native leg really was in SOL. Against a known reference rate, more
+   * than 25% away means the native leg was in something else (a gas token).
+   * No reference known: accepted, as before. */
+  function derivedSolRatePlausible(derived, reference) {
+    var d = Number(derived);
+    var r = Number(reference);
+    if (!(d > 0)) return false;
+    if (!(r > 0)) return true;
+    return d / r < 1.25 && r / d < 1.25;
+  }
+
   var STEADY_SUPPLY_BAND = 1.15;
   var STEADY_SUPPLY_BAND_CONSTANT = 1.03;
   function steadyChartSupply(t, learned) {
@@ -1767,7 +1785,12 @@
    * its P&L. The token on screen is priced by what the screen shows, always.
    * `grossOpenCostFor` injects the engine's one gross-basis implementation.
    */
-  function positionRows(state, livePrices, activeMint, activeQuote, grossOpenCostFor) {
+  // A mark nobody refreshed for this long is shown, but flagged: every
+  // source that marks positions (page feed, batch poller, resolver) stamps
+  // lastMarkAt, so silence from all of them means the number is old.
+  var MARK_STALE_AFTER_MS = 120000;
+  function positionRows(state, livePrices, activeMint, activeQuote, grossOpenCostFor, nowMs) {
+    const now = Number(nowMs) > 0 ? Number(nowMs) : Date.now();
     const positions = (state && state.positions) || {};
     const prices = livePrices || {};
     const rows = [];
@@ -1803,7 +1826,8 @@
         up: mark.up,
         openedAt: Number(pos.openedAt) || 0,
         active: Boolean(activeMint) && mint === activeMint,
-        stale: !(live && Number(live.priceNative) > 0),
+        stale: !(live && Number(live.priceNative) > 0)
+          || (Number(pos.lastMarkAt) > 0 && now - Number(pos.lastMarkAt) > MARK_STALE_AFTER_MS),
       });
     }
 
@@ -2094,6 +2118,7 @@
     scaleStepVerdict,
     calibrateChartSupply,
     steadyChartSupply,
+    derivedSolRatePlausible,
     notePoolTrade,
     poolConsensusVerdict,
     FILL_WITNESS_WINDOW_MS,

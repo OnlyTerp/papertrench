@@ -59,6 +59,7 @@ function dexPayload(mint, pair) {
  * flips it over time to model the migration.
  */
 function runMigration(opts) {
+  const allFields = {};
   const options = opts || {};
   const timers = [];
   let now = 5_000_000;
@@ -81,7 +82,7 @@ function runMigration(opts) {
       set innerHTML(v) {
         this._h = v;
         const re = /data-f="([a-z]+)"/g; let m;
-        while ((m = re.exec(v))) { const c = makeNode('span'); c.dataset.f = m[1]; this._fields[m[1]] = c; }
+        while ((m = re.exec(v))) { const c = makeNode('span'); c.dataset.f = m[1]; this._fields[m[1]] = c; allFields[m[1]] = c; }
       },
       get innerHTML() { return this._h || ''; },
       appendChild(c) { const i = this.children.indexOf(c); if (i >= 0) this.children.splice(i, 1); if (c._parent && c._parent !== this) c._parent.removeChild(c); c._parent = this; this.children.push(c); this.childNodes = this.children; return c; },
@@ -255,6 +256,7 @@ function runMigration(opts) {
       return !!(el && el.classList.contains('pt-buy-armed'));
     },
     storage: () => storage,
+    cardField: (name) => (allFields[name] ? allFields[name].textContent : null),
     CURVE, REAL_MINT, NEW_POOL, OTHER_MINT,
   };
 }
@@ -331,4 +333,17 @@ test('P0-3 negative: a different coin never inherits the armed buy or the bag', 
   assert.ok(!positions[OTHER_MINT], 'nothing may be created for the unrelated coin');
   assert.ok(!positions[REAL_MINT] || positions[REAL_MINT].qty !== 1_000_000,
     'the bag must not silently jump to a different coin page');
+});
+
+test('a pool switch never shows a held coin as an empty card while the new address is being confirmed', async () => {
+  // The page moves from the curve to the new pool; until a source proves the
+  // pool is the same coin the card is keyed to the pending pool address and
+  // found no bag. Dashes there read as "you never bought".
+  const ov = runMigration({ stage: () => 'blind' });
+  await ov.advance(3000);
+  ov.navigate(`https://axiom.trade/meme/${NEW_POOL}?chain=sol`);
+  await ov.advance(2500);
+  const positions = ov.storage().pt_state.positions || {};
+  assert.ok(positions[CURVE], 'nothing is proven, so the bag has not moved');
+  assert.match(String(ov.cardField('qty')), /Confirming/, `the card says it is confirming the coin (got ${ov.cardField('qty')})`);
 });

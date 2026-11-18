@@ -75,7 +75,7 @@ test('F-47: the fill path actually routes through the witness', () => {
   // F-57 widened this contract: the judgment also carries WHERE the candidate
   // came from, because an aggregator snapshot answers to a tighter band than
   // a live feed does.
-  assert.match(content, /Q\.needsFillWitness\(chosen\.priceNative, evidence && evidence\.priceNative,\s*\n?\s*evidenceAge, chosen\.source\)/,
+  assert.match(content, /Q\.needsFillWitness\(chosen\.priceNative, evidence && evidence\.priceNative,\s*\n?\s*evidenceAge, bandSource\)/,
     'the divergence judgment is the pure, tested one, and it knows the source');
   assert.match(content, /const chain = \(token && token\.chain\) \|\| 'solana';\s*\n\s*const aggregator = Q\.isAggregatorSource\(chosen\.source\);/,
     'the witness judgment carries the candidate\'s own chain, never a default');

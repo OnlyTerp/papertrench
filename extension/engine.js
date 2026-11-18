@@ -1174,6 +1174,9 @@
       }
     }
     pos.lastPriceNative = priceNative;
+    // When this mark was taken. Without it a mark looked equally live a
+    // second or an hour after the last source went quiet.
+    pos.lastMarkAt = Date.now();
     if (priceUsd) pos.lastPriceUsd = priceUsd;
     if (meta && meta.priceSource) pos.lastPriceSource = meta.priceSource;
     if (meta && meta.pairAddress) pos.lastPricePair = meta.pairAddress;

@@ -1773,3 +1773,15 @@ test('an unverified board print with no tap on record never prices a fill (contr
   assert.notEqual(fill.priceSource, 'row-feed', 'priced by the resolver, not the unconfirmed print');
   assert.equal(Math.round(Number(fill.mcap)), 100_000);
 });
+
+test('a chip buy that has to wait for a price says so at once', async () => {
+  // Live 2026-11-18: coins nothing could price (a $1 row, a coin quoted in
+  // a token no aggregator converts) armed with no word to the trader and
+  // only spoke 60 s later, when the intent expired.
+  const race = bootRace();
+  const { harness } = race;
+  await harness.doRowBuy(A);
+  assert.ok(harness.getRowArmed(), 'the tap armed');
+  assert.ok(harness.getToastMessages().some((m) => /no live price/i.test(m) && /armed/i.test(m)),
+    `the trader is told it is waiting (toasts: ${JSON.stringify(harness.getToastMessages())})`);
+});

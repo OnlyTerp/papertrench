@@ -1104,7 +1104,10 @@
     if (token.chain && token.chain !== 'solana'
       && !(Number(token.solUsdAtResolve) > 0)
       && Number(verdict.priceUsd) > 0 && Number(verdict.priceNative) > 0) {
-      token.solUsdAtResolve = Number(verdict.priceUsd) / Number(verdict.priceNative);
+      const derivedRate = Number(verdict.priceUsd) / Number(verdict.priceNative);
+      // Only when it looks like the SOL rate we already know: a native leg in
+      // gas-token units gave a "rate" of $583 and a $915B panel (9/08).
+      if (Q.derivedSolRatePlausible(derivedRate, pendingSolUsd)) token.solUsdAtResolve = derivedRate;
     }
     token.priceSource = payload.source || 'page-feed';
     if (verdict.supplyBasis === 'host') {
@@ -2683,12 +2686,23 @@
       ? { priceNative: posEvidence, at: Date.now() }
       : null);
     const evidenceAge = evidence ? Date.now() - evidence.at : Infinity;
+    // The position mark stays an anchor whatever its age (that is the
+    // phantom guard). But the TIGHT aggregator band rests on "a gap against
+    // evidence from seconds ago is lag"; against a mark nobody refreshed for
+    // minutes it only refused sells on coins that had really moved. An old
+    // mark therefore judges every candidate by the wide live band.
+    let markAge = 0;
+    try {
+      const held = !lastAcceptedMarket && token && state && state.positions[token.mint];
+      markAge = held && Number(held.lastMarkAt) > 0 ? Date.now() - Number(held.lastMarkAt) : 0;
+    } catch (_) { markAge = 0; }
+    const bandSource = markAge > OLD_MARK_AGE_MS ? null : chosen.source;
     // F-57: the band depends on where the candidate came from. A live feed
     // keeps the wide 2x window (real memecoin moves are violent); an
     // aggregator snapshot answers to a tight one, because its disagreements
     // are lag far more often than they are news.
     if (!Q.needsFillWitness(chosen.priceNative, evidence && evidence.priceNative,
-      evidenceAge, chosen.source)) {
+      evidenceAge, bandSource)) {
       return chosen;
     }
     // The witness must be INDEPENDENT of the candidate's own source. F-57:
@@ -2823,6 +2837,7 @@
   }
 
   const CHAIN_VETO_EVIDENCE_AGE_MS = 10_000;
+  const OLD_MARK_AGE_MS = 120_000;
 
   async function pickQuoteForTrade() {
     lastQuoteRefusal = null;
@@ -8785,6 +8800,9 @@
             flushRowArmed();
           }, 1500);
         }
+        // Say so. An armed tap used to be silent until it filled or, 60 s
+        // later, expired; on a coin nothing prices that read as a dead chip.
+        if (!existingArmed) toast('No live price for this coin yet — buy armed, it fills when one arrives (60 s)');
         timing.priceSource = 'armed';
         outcome = 'armed';
         return;
@@ -9476,6 +9494,16 @@
     posEls.pnl.textContent = DASH;
     posEls.pnl.title = '';
     posEls.pnl.classList.remove('pt-green', 'pt-red', 'pt-flash-up', 'pt-flash-down');
+    // A pool switch in place: the page now names a new address that nothing
+    // has yet proven to be the coin just held. Dashes there read as "you
+    // never bought"; say what is actually happening. The bag itself is
+    // untouched and still on the positions bar.
+    if (token && token.pending && swapStash && swapStash.fromMint
+      && state.positions && state.positions[swapStash.fromMint]
+      && Number(state.positions[swapStash.fromMint].qty) > 0) {
+      posEls.qty.textContent = 'Confirming coin…';
+      posEls.pnl.title = 'This page changed address. Your position shows here once the new address is confirmed as the same coin.';
+    }
     if (posEls.exitPreview) {
       posEls.exitPreview.textContent = '';
       posEls.exitPreview.classList.add('pt-hidden');

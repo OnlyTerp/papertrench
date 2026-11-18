@@ -1308,3 +1308,35 @@ test('sameAddress folds EVM casing only — base58 stays case-sensitive', () => 
     'lowercasing base58 names a DIFFERENT account — must never compare equal');
   assert.equal(Q.sameAddress(EVM_LOWER, NEW_MINT), false);
 });
+
+test('B1: a pump coin near graduation (cap above $100K) still bootstraps from its USD cap', () => {
+  // A bonding curve graduates around 411 SOL of cap; with SOL above ~$243
+  // that is over $100K, where the cap band used to end, so a pending coin's
+  // cap ticks were refused exactly when it was hottest.
+  const pending = { mint: 'GAcMLQLWHRM9XmQjvkkpDjinXBuvn7uYhLQ5cerQpump', pending: true };
+  const verdict = Q.bootstrapTick(pending, {
+    mint: pending.mint, source: 'chart-export',
+    candidates: [{ value: 150_000, unit: 'unknown' }],
+  }, 260);
+  assert.equal(verdict.accepted, true, `a $150K USD cap prices a pump coin (reason: ${verdict.reason})`);
+  assert.equal(verdict.basis, 'mcap');
+  assert.ok(Math.abs(verdict.priceUsd - 150_000 / 1e9) < 1e-15);
+  // The SOL-denominated reading keeps its old ceiling: 700 "SOL of cap" at
+  // $260 would be $182K and is still not taken for a cap.
+  const sol = Q.bootstrapTick(pending, {
+    mint: pending.mint, source: 'chart-export',
+    candidates: [{ value: 700, unit: 'unknown' }],
+  }, 260);
+  assert.equal(sol.accepted, false, 'the wider ceiling is for the USD reading only');
+});
+
+test('a SOL/USD rate derived from a foreign-chain tick is only adopted when it looks like the SOL rate', () => {
+  // dashgirn 9/08 (a BNB "stock" token): the panel showed a $915B cap and
+  // $677M of cash. The rate was taken as priceUsd / priceNative from a tick
+  // whose native leg was in gas-token units, not SOL.
+  assert.equal(Q.derivedSolRatePlausible(74.1, 73.9), true, 'the SOL rate, give or take');
+  assert.equal(Q.derivedSolRatePlausible(583, 73.9), false, 'that is the BNB price');
+  assert.equal(Q.derivedSolRatePlausible(1810, 73.9), false, 'that is the ETH price');
+  assert.equal(Q.derivedSolRatePlausible(74.1, 0), true, 'no reference rate known: as before');
+  assert.equal(Q.derivedSolRatePlausible(0, 73.9), false);
+});

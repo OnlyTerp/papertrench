@@ -306,3 +306,21 @@ test('B4: a fill row carries ONE effective price in every unit, so the panel ent
   assert.ok(sellSlip < 0.95);
   assert.ok(Math.abs(sold.trade.mcap / 116_400 - sellSlip) < 1e-9, 'a sell row too');
 });
+
+test('a mark carries its time, and the positions bar flags a mark nobody refreshed', () => {
+  // soramonk 8/23: +170% shown on a rugged coin. The dead-pool print is
+  // refused elsewhere; this is the other half: when every price source goes
+  // quiet, the last mark stayed on screen looking live forever.
+  const Q3 = require('../quote.js');
+  const settings = E.mergeSettings({ feeBps: 0 });
+  const state = E.defaultState(settings);
+  E.buy(state, settings, { ts: Date.now(), mint: 'M', solAmount: 1, priceNative: 1e-6, priceUsd: 2e-4 });
+  const before = Date.now();
+  E.markPosition(state, 'M', 2e-6, 4e-4);
+  assert.ok(state.positions.M.lastMarkAt >= before, 'markPosition stamps the time');
+  const live = { M: { priceNative: 2e-6, priceUsd: 4e-4 } };
+  const fresh = Q3.positionRows(state, live, null, null, E.grossOpenCostSol, state.positions.M.lastMarkAt + 5_000);
+  assert.equal(fresh[0].stale, false);
+  const old = Q3.positionRows(state, live, null, null, E.grossOpenCostSol, state.positions.M.lastMarkAt + 10 * 60_000);
+  assert.equal(old[0].stale, true, 'ten minutes with no new mark is not a live price');
+});
