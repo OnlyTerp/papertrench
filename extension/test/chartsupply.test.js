@@ -111,3 +111,27 @@ test('validateTick: without chartSupply a USD candidate still wins over the cap'
   assert.equal(verdict.basis, 'usd');
   assert.ok(Math.abs(verdict.priceUsd - 0.6229) < 1e-9);
 });
+
+/* Live 2026-11-18, Axiom GARY (a 1e9 pump coin): the learned supply read
+ * 1.0907B and wandered across six values in 75 s, because each sample pairs
+ * a chart-bar cap with a direct price up to 3 s older. "Avg entry MC" read
+ * $41.0K against a true $37.6K. A learned supply that sits near the supply
+ * the protocol itself fixes is that supply plus timing noise. */
+test('a learned supply near the protocol-known supply snaps to the known one', () => {
+  const pump = { mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump' };
+  assert.equal(Q.steadyChartSupply(pump, 1_090_725_765), 1e9, '9% of timing noise is not a convention');
+  assert.equal(Q.steadyChartSupply(pump, 950_000_000), 1e9);
+  assert.equal(Q.steadyChartSupply({ mint: 'x', supplyUi: 250_000_000 }, 262_000_000), 250_000_000,
+    'a supply measured from the mint account is known too');
+});
+
+test('a learned supply far from the known one is a real chart convention and is kept (C-32)', () => {
+  const pump = { mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump' };
+  assert.equal(Q.steadyChartSupply(pump, 684_000_000), 684_000_000, 'a circulating-supply chart stays on its own basis');
+  assert.equal(Q.steadyChartSupply(ANCHOR, CHART_CAP / 0.6228), CHART_CAP / 0.6228, 'no known supply: the learned one stands');
+});
+
+test('nothing learned means nothing to steady: the legacy path decides', () => {
+  assert.equal(Q.steadyChartSupply({ mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump' }, null), null);
+  assert.equal(Q.steadyChartSupply(null, 0), null);
+});

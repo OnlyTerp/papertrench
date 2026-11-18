@@ -967,6 +967,26 @@
     return { samples: samples, supply: supply };
   }
 
+  /**
+   * The supply to convert caps with, given what calibration learned.
+   *
+   * Each calibration sample pairs a chart cap with a direct price up to 3 s
+   * older, so on a moving coin the learned supply carries several percent of
+   * timing noise (live 2026-11-18, a 1e9 pump coin: 1.0907B, six values in
+   * 75 s). When the protocol itself fixes the supply (pump constant, a supply
+   * read from the mint account, or the host's), a learned value within 15% of
+   * it IS that supply plus noise: use the known one. Further away it is a real
+   * chart convention (C-32: a circulating-supply cap chart) and stands.
+   */
+  var STEADY_SUPPLY_BAND = 1.15;
+  function steadyChartSupply(t, learned) {
+    var l = Number(learned);
+    if (!(l > 0)) return null;
+    var known = bootstrapSupply(t);
+    if (known > 0 && l / known < STEADY_SUPPLY_BAND && known / l < STEADY_SUPPLY_BAND) return known;
+    return l;
+  }
+
   /* F-66: GMGN's token_activity prints a USD price per POOL (`m`), and the
    * freshest print used to become the mint's price outright — a thin, stale,
    * or manipulated pool could move the panel whenever it landed inside the
@@ -2057,6 +2077,7 @@
     onchainContradictsEvidence,
     scaleStepVerdict,
     calibrateChartSupply,
+    steadyChartSupply,
     notePoolTrade,
     poolConsensusVerdict,
     FILL_WITNESS_WINDOW_MS,

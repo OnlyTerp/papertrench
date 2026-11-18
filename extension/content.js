@@ -964,7 +964,7 @@
     }
     const srcSupply = chartSupplyState.get(srcKey);
     const chartSupply = srcSupply && Number(srcSupply.supply) > 0
-      ? Number(srcSupply.supply) : null;
+      ? Q.steadyChartSupply(token, Number(srcSupply.supply)) : null;
     if (Number(anchor && anchor.priceNative) > 0) {
       verdict = Q.validateTick(anchor, payload, { chartSupply });
     } else {
@@ -1037,7 +1037,7 @@
       };
       const mcapBucket = lastMcapSource ? chartSupplyState.get(lastMcapSource) : null;
       const mcapSupply = mcapBucket && Number(mcapBucket.supply) > 0
-        ? Number(mcapBucket.supply) : null;
+        ? Q.steadyChartSupply(token, Number(mcapBucket.supply)) : null;
       if (mcapSupply && Number(verdict.priceUsd) > 0) {
         verdict.mcap = Number(verdict.priceUsd) * mcapSupply;
       }
@@ -2122,7 +2122,10 @@
       if (feedLive) {
         if (freshRate > 0) token.priceUsd = token.priceNative * freshRate;
         if (Number(fresh.mcap) > 0 && Number(fresh.priceUsd) > 0 && Number(token.priceUsd) > 0) {
-          const supply = fresh.mcap / fresh.priceUsd;
+          // The page feed is live, so its own (steadied) supply stays the
+          // basis; pushing the resolver's in here flipped the cap for one
+          // cycle on every refresh. No chart supply yet: the resolver's.
+          const supply = chartSupplyLearned() || fresh.mcap / fresh.priceUsd;
           token.mcap = token.priceUsd * supply;
         }
         // C-01: refreshed rate/supply changes the spec's conversions too.
@@ -3867,9 +3870,9 @@
       // Include the market-cap equivalents: Axiom (and Padre) can chart either
       // token USD price or market cap, and the bridge matches the line level
       // to the live bar close so it lands on the visible axis.
-      const nativeSupply = Number(token.mcap) > 0 && Number(token.priceUsd) > 0
-        ? Number(token.mcap) / Number(token.priceUsd)
-        : null;
+      // One steady supply for every cap figure the spec carries; the
+      // token record's own cap/price pair can be a tick apart.
+      const nativeSupply = chartSupplyUi();
       sendPadreMarker('paper-lines', {
         enabled: true,
         // Ground truth from the live chart ticks: draw in exactly the unit
@@ -10609,9 +10612,12 @@
    * converts USD prices into the chart's cap units exactly; before it has,
    * fall back to the token record's implied supply (the legacy behavior).
    */
-  function chartSupplyUi() {
+  function chartSupplyLearned() {
     const bucket = lastMcapSource ? chartSupplyState.get(lastMcapSource) : null;
-    const learned = bucket && Number(bucket.supply);
+    return Q.steadyChartSupply(token, bucket && Number(bucket.supply));
+  }
+  function chartSupplyUi() {
+    const learned = chartSupplyLearned();
     if (learned > 0) return learned;
     return Number(token && token.mcap) > 0 && Number(token.priceUsd) > 0
       ? Number(token.mcap) / Number(token.priceUsd)
