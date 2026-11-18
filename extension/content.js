@@ -7735,6 +7735,11 @@
   const recentRowPrices = new Map(); // mint -> { usd, at, seq, symbol, name, mcap }
   // 3.27.1: the market cap the tapped row was SHOWING, kept for the armed
   // TTL. A sanity bound on the fill, never a price source.
+  // Axiom's Pulse worker names each row's mint AND its pair. A chip fill for
+  // a mint the feed named needs no chain identity read (F-61's read cost
+  // ~1.5 s per new position on Axiom, live 3.28.0). Only that feed is
+  // trusted for identity; other row feeds key by whatever the board prints.
+  const rowFeedIdentity = new Map(); // mint -> { pair, at }
   const ROW_TAP_MCAP_TTL_MS = 60_000;
   const rowTapMcaps = new Map(); // address -> { mcap, at }
   function noteRowTapMcap(address, mcap) {
@@ -7924,6 +7929,12 @@
       mcap: Number(payload.mcap) > 0 ? Number(payload.mcap) : null,
     });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
+    if (payload.source === 'axiom-pulse-worker' && typeof payload.pairAddress === 'string'
+        && ROW_ADDR_RE.test(payload.pairAddress) && payload.pairAddress !== payload.mint) {
+      rowFeedIdentity.delete(payload.mint);
+      rowFeedIdentity.set(payload.mint, { pair: payload.pairAddress, at: frameAt });
+      if (rowFeedIdentity.size > 600) rowFeedIdentity.delete(rowFeedIdentity.keys().next().value);
+    }
     // D-40: a board tick while a row snipe is armed is the fastest possible
     // wake — the row the trader tapped just printed a price of its own.
     if (rowArmed.length) flushRowArmed(payload.mint);
@@ -8263,7 +8274,15 @@
     // The chain classifies the click address the same way prewatch does —
     // one bounded read, never blocking the fill: a miss keeps the row's own
     // address as the key, exactly the honest legacy behavior.
-    if (address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)) {
+    const feedNamed = address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)
+      ? rowFeedIdentity.get(address) : null;
+    if (feedNamed) {
+      // The venue's own feed listed this address as the row's MINT, with its
+      // pair: the key is already the real one, so no chain read and no
+      // stand-in flag.
+      data.mint = address;
+      if (!data.pairAddress) data.pairAddress = feedNamed.pair;
+    } else if (address && !EVM_ADDR_RE.test(address) && (!data.mint || data.mint === address)) {
       try {
         // Bounded for real (live 3.28.0: unbounded, a cold first read took
         // 3-20 s and the latch watchdog released the tap as "stuck"). A
@@ -8285,7 +8304,7 @@
         }
       } catch (_) { /* identity stays the row's own key */ }
     }
-    const standInKey = !data.mint || data.mint === address;
+    const standInKey = !feedNamed && (!data.mint || data.mint === address);
     // Guardrails apply to chip buys exactly like panel buys.
     const guard = E.guardCheck(state, settings, { solAmount: amount });
     if (!guard.ok) { toast(guard.message); return null; }

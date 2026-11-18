@@ -1714,3 +1714,35 @@ test('a hung chain identity read cannot stall a feed-priced chip fill (live 3.28
   assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 105_000);
   assert.ok(!harness.getToastMessages().some((m) => /stuck row buy/.test(m)), 'no watchdog release');
 });
+
+test('a chip fill skips the chain identity read when the Pulse feed already named the coin and its pair', async () => {
+  // 3.28.0 live: a chip buy that opened a new position waited the full
+  // 1.5 s identity bound on Axiom even though Axiom's own Pulse feed had
+  // already said which mint the row is and which pair it trades on.
+  const race = bootRace();
+  const { harness } = race;
+  // B's chain identity never answers (no releaseB).
+  harness.noteRowTapMcap(B, 105_000);
+  harness.noteRowPrice({
+    mint: B, pairAddress: PAIR, source: 'axiom-pulse-worker',
+    candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000,
+  });
+  harness.doRowBuy(B);
+  await race.advance(400);
+  for (let i = 0; i < 50; i++) await Promise.resolve();
+  assert.equal(harness.getState().journal.length, 1, 'the fill lands well inside the 1.5 s identity bound');
+  assert.equal(race.isBIdentityRequested(), false, 'no chain identity read was made');
+  const position = harness.getState().positions[B];
+  assert.ok(position, 'the position is filed under the mint the feed named');
+  assert.equal(position.pairAddress, PAIR, 'the feed\'s pair rides the position');
+  assert.ok(!position.standInKey, 'a feed-named mint is not a stand-in key');
+});
+
+test('a feed print without a pair or from another source still asks the chain (control)', async () => {
+  const race = bootRace();
+  const { harness } = race;
+  harness.noteRowPrice({ mint: B, candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000 });
+  harness.doRowBuy(B);
+  await waitFor(() => race.isBIdentityRequested());
+  assert.equal(race.isBIdentityRequested(), true);
+});
