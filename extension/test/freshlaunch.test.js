@@ -1188,8 +1188,32 @@ test('D-60S: a failing prewatch backs off instead of hammering (ark_trades13 sto
 
   // In keyless mode the per-mint budget hard-stops at three actual probes;
   // repeated detect ticks cannot re-arm another batch of endpoint refusals.
+  // After the first three, one retry per 30 s cap at most: 90 s of failures
+  // costs a handful of reads, never a storm.
   const c4 = await at(90_000);
-  assert.ok(c4 <= 3, `90s of keyless failures must cost <=3 probes, got ${c4}`);
+  assert.ok(c4 <= 6, `90s of keyless failures must cost <=6 probes, got ${c4}`);
+});
+test('B1: a keyless prewatch that failed three times still retries at the 30 s cap, so the coin is not stranded until an aggregator lists it', async () => {
+  // 3.23.4 exports: 15 coins stuck on "Fetching live price" with cap ticks
+  // arriving live, prewatch attempts used up and never retried. The backoff
+  // is documented as capped at 30 s; the attempt counter made it infinite.
+  const ov = runFreshLaunch({
+    resolved: () => false,
+    resolvePrice: null,
+    onchainPrewatch: (_message, call) => call <= 3 ? null : ({
+      mint: NEW_MINT,
+      pool: 'Poo1Fresh1111111111111111111111111111111111',
+      poolKind: 'pump-curve',
+      priceNative: 3.2e-8,
+      decimals: 6,
+    }),
+  });
+  await ov.settle();
+  await ov.advance(14_000, 400);
+  assert.ok(ov.prewatchCalls() <= 3, `the first burst is still three probes (got ${ov.prewatchCalls()})`);
+  await ov.advance(60_000, 400);
+  assert.ok(ov.prewatchCalls() >= 4, `a later retry must happen (got ${ov.prewatchCalls()})`);
+  assert.doesNotMatch(String(ov.priceText() || ''), /Fetching/, 'and the coin gets its price from it');
 });
 test('A2: keyless prewatch waits out the pool gate, then resumes on a successful probe', async () => {
   let poolUnavailable = true;

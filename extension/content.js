@@ -43,6 +43,15 @@
     prewatchLastTryAt = probe.lastTryAt;
   }
 
+  /** Three quick failures end the burst, not the coin: after that one more
+   * read is allowed per KEYLESS_PREWATCH_MAX_MS. The counter alone used to
+   * stop a pending coin's chain read for the rest of the page session, so it
+   * sat on "Fetching live price" until an aggregator listed it. */
+  function keylessPrewatchExhausted(probe, now) {
+    return probe.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
+      && now - (probe.lastTryAt || 0) < KEYLESS_PREWATCH_MAX_MS;
+  }
+
   function onchainPrewatch(ids, options) {
     const payload = { type: 'pt_onchain_prewatch', pool: ids.pool || null, mint: ids.mint || null };
     if (settings && String(settings.rpcUrl || '').trim()) {
@@ -52,7 +61,7 @@
     if (!key) return Promise.resolve(null);
     const probe = keylessPrewatchState(key);
     const now = Date.now();
-    if (probe.inFlight || probe.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
+    if (probe.inFlight || keylessPrewatchExhausted(probe, now)
       || (probe.nextAt > now && !(options && options.priority))) {
       syncKeylessPrewatchDebug(key, probe);
       return Promise.resolve({ deferred: true, reason: 'prewatch-budget' });
@@ -1294,7 +1303,7 @@
       // since 9/19, prewatch made 1,621 Tatum calls and logged 221 cooling-down
       // failures; Tatum appeared in 136/142 reports (8,683 occurrences).
       const budget = keylessPrewatchState(budgetKey);
-      if (budget.inFlight || budget.attempts >= KEYLESS_PREWATCH_MAX_ATTEMPTS
+      if (budget.inFlight || keylessPrewatchExhausted(budget, Date.now())
         || budget.nextAt > Date.now()) return;
       syncKeylessPrewatchDebug(budgetKey, budget);
     }
@@ -4039,6 +4048,9 @@
     // the raw address before deciding the board never printed this coin.
     let data = null;
     const row = (addr && recentRowPrices.get(addr))
+      || (token && token.mint && recentRowPrices.get(token.mint))
+      || (token && token.srcAddress && recentRowPrices.get(token.srcAddress))
+      || (token && token.pairAddress && recentRowPrices.get(token.pairAddress))
       || null;
     if (row && row.usd > 0 && Date.now() - row.at < ROW_PRICE_TTL_MS) {
       const rate = await R.solUsd().catch(() => 0);
