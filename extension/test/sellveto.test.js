@@ -65,3 +65,25 @@ test('B3: aggregator candidate 1.4x off evidence, chain witness 1.25x -> refused
   assert.equal(q, null, 'chain 28k must not vouch for an aggregator 35k');
 });
 
+
+test('B3 mirror: a chain read that contradicts FRESH evidence does not veto the aggregator that agrees with it', async () => {
+  // The F-48 shape: the chain read is the one lagging. Evidence accepted 5 s
+  // ago says 10k, the resolver says 10k, the chain says 30k. That sell has
+  // always filled at 10k and must keep filling: only OLD evidence loses the
+  // tie to the chain.
+  const now = Date.now();
+  const debug = [];
+  const R = {
+    onchainQuote: async () => ({ mint: MINT, priceNative: n(30_000), observedAt: now, slot: 5 }),
+    refresh: async () => ({ mint: MINT, priceNative: n(10_000), priceUsd: n(10_000) * 180, mcap: 10_000 }),
+  };
+  const L = boot({
+    debug, R,
+    token: { mint: MINT, priceNative: n(10_000), priceUsd: n(10_000) * 180, mcap: 10_000, priceSource: 'page-feed', pending: false },
+    lastPriceAt: now - 4000, lastPageTickAt: now - 4000,
+  });
+  L.setEvidence({ priceNative: n(10_000), at: now - 5_000 });
+  const q = await L.quoteForTrade();
+  assert.ok(q, `the sell fills (refusal: ${L.getRefusal()})`);
+  assert.ok(Math.abs(q.priceNative - n(10_000)) / n(10_000) < 1e-9, 'at the price the fresh evidence and the resolver agree on');
+});

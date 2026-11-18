@@ -2822,6 +2822,8 @@
     }
   }
 
+  const CHAIN_VETO_EVIDENCE_AGE_MS = 10_000;
+
   async function pickQuoteForTrade() {
     lastQuoteRefusal = null;
     const startMint = token && token.mint;
@@ -2901,7 +2903,11 @@
         acceptedEvidence && acceptedEvidence.priceNative, acceptedEvidenceAge)) {
         return onchain;
       }
-      demotedChain = onchain;
+      // The veto only applies when the evidence that demoted the chain is
+      // itself OLD. Fresh evidence the aggregator agrees with is two sources
+      // against a chain read that may simply be lagging (the F-48 shape);
+      // that sell has always filled and still does.
+      if (acceptedEvidenceAge > CHAIN_VETO_EVIDENCE_AGE_MS) demotedChain = onchain;
       console.debug('PaperTrench: on-chain quote ' + onchain.priceNative
         + ' contradicts accepted market evidence ' + acceptedEvidence.priceNative
         + ' (' + acceptedEvidenceAge + 'ms old) on a quiet screen — re-pricing from the ladder');
@@ -3152,8 +3158,14 @@
     let base = baseStamp;
     for (let round = 0; round < 3; round++) {
       const got = await store.get(key);
-      const cur = got && got[key];
-      if (!cur) break; // unreadable or empty: the write is all there is
+      // Unreadable storage is not empty storage. Writing over a wallet we
+      // could not read is how a transient read failure becomes a wipe; the
+      // debounced writer already refuses for the same reason.
+      if (got === null) {
+        throw new Error('Wallet storage could not be read — this trade was NOT saved. Try again.');
+      }
+      const cur = got[key];
+      if (!cur) break; // truly empty: the write is all there is
       const curStamp = `${Number(cur.seq) || 0}:${cur.updatedAt}`;
       if (curStamp === lastWrittenStamp) return;
       if (curStamp === base) break;
@@ -3217,8 +3229,12 @@
           // Walking away must leave no trace: a bumped in-memory seq with
           // nothing written made this view look as new as a wallet that had
           // really moved on, and its stale copy then passed the next CAS.
-          state.seq = prevSeq;
-          state.updatedAt = prevAt;
+          // Only if this is still the object we stamped: an adoption during
+          // the wait replaced it, and its seq is already the true one.
+          if (state === lastWrittenState) {
+            state.seq = prevSeq;
+            state.updatedAt = prevAt;
+          }
           return;
         }
         await directWriteMutation(baseStamp, remutate);

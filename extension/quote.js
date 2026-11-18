@@ -924,8 +924,12 @@
   // the same instant are the same market twice — their ratio is the chart's
   // own supply, learned here so cap ticks convert with the chart's
   // convention instead of the anchor's.
-  var CHART_SUPPLY_WINDOW_MS = 3000;
-  var CHART_SUPPLY_SAMPLES = 5;
+  // Live 2026-11-18 (a 1e9 pump coin read 1.0907B): a sample pairs a chart
+  // cap with an OLDER direct price, so on a trending coin every sample is
+  // biased by the move in between, and a 5-sample median followed the bias.
+  // A 750 ms pairing window and a 15-sample median keep it within a percent.
+  var CHART_SUPPLY_WINDOW_MS = 750;
+  var CHART_SUPPLY_SAMPLES = 15;
 
   /**
    * Update the chart-supply calibration with one cap-carrying tick.
@@ -973,17 +977,23 @@
    * Each calibration sample pairs a chart cap with a direct price up to 3 s
    * older, so on a moving coin the learned supply carries several percent of
    * timing noise (live 2026-11-18, a 1e9 pump coin: 1.0907B, six values in
-   * 75 s). When the protocol itself fixes the supply (pump constant, a supply
-   * read from the mint account, or the host's), a learned value within 15% of
-   * it IS that supply plus noise: use the known one. Further away it is a real
-   * chart convention (C-32: a circulating-supply cap chart) and stands.
+   * 75 s). A supply READ for this coin (from the mint account, or the host's)
+   * is exact, so a learned value within 15% of it is that supply plus noise.
+   * The pump constant is only a default: coins with burned supply sit a few
+   * percent under 1e9 (live: 959.7M), and snapping those to 1e9 would price
+   * cap ticks 4% away from direct ticks. So the constant only claims a
+   * learned value within 3%. Further away the learned convention stands
+   * (C-32: a circulating-supply cap chart).
    */
   var STEADY_SUPPLY_BAND = 1.15;
+  var STEADY_SUPPLY_BAND_CONSTANT = 1.03;
   function steadyChartSupply(t, learned) {
     var l = Number(learned);
     if (!(l > 0)) return null;
-    var known = bootstrapSupply(t);
-    if (known > 0 && l / known < STEADY_SUPPLY_BAND && known / l < STEADY_SUPPLY_BAND) return known;
+    var info = bootstrapSupplyInfo(t);
+    var known = Number(info.supplyUi);
+    var band = info.basis === 'pump-constant' ? STEADY_SUPPLY_BAND_CONSTANT : STEADY_SUPPLY_BAND;
+    if (known > 0 && l / known < band && known / l < band) return known;
     return l;
   }
 

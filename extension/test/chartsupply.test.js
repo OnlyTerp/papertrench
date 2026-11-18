@@ -52,17 +52,17 @@ test('calibrateChartSupply ignores an implied supply outside the anchor band', (
   assert.ok(anchorSupply > 0);
 });
 
-test('calibrateChartSupply keeps the median of the last 5 samples', () => {
+test('calibrateChartSupply keeps the median of the last 15 samples', () => {
   let state = null;
-  const caps = [622e6, 623e6, 621e6, 624e6, 620e6, 900e6]; // last entry still inside 20x of anchor mcap
+  const caps = [];
+  for (let i = 0; i < 17; i++) caps.push(620e6 + i * 1e6);
+  caps.push(900e6); // still inside 20x of anchor mcap
   caps.forEach((cap, i) => {
     state = Q.calibrateChartSupply(state, cap, { priceUsd: cap / 1e9, at: NOW + i * 100 }, ANCHOR, NOW + i * 100);
   });
-  assert.equal(state.samples.length, 5, 'ring keeps the newest five');
-  // Median of the last five implied supplies (all ~1e9 except the last at 9e8):
-  // sorted [1e9-ish x4, 9e8] -> hmm compute expected directly.
-  const implied = caps.slice(-5).map((c) => c / (c / 1e9));
-  const sorted = implied.slice().sort((a, b) => a - b);
+  assert.equal(state.samples.length, 15, 'ring keeps the newest fifteen');
+  const implied = caps.slice(-15).map((c) => c / (c / 1e9));
+  const sorted = implied.slice().sort((x, y) => x - y);
   assert.equal(state.supply, sorted[sorted.length >> 1]);
 });
 
@@ -119,8 +119,13 @@ test('validateTick: without chartSupply a USD candidate still wins over the cap'
  * the protocol itself fixes is that supply plus timing noise. */
 test('a learned supply near the protocol-known supply snaps to the known one', () => {
   const pump = { mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump' };
-  assert.equal(Q.steadyChartSupply(pump, 1_090_725_765), 1e9, '9% of timing noise is not a convention');
-  assert.equal(Q.steadyChartSupply(pump, 950_000_000), 1e9);
+  assert.equal(Q.steadyChartSupply(pump, 1_020_000_000), 1e9, 'a couple of percent of timing noise is not a convention');
+  assert.equal(Q.steadyChartSupply(pump, 985_000_000), 1e9);
+  // The pump constant is a default, not a reading: a coin with burned supply
+  // (live: 959.7M) must keep its own learned supply.
+  assert.equal(Q.steadyChartSupply(pump, 959_734_990), 959_734_990);
+  assert.equal(Q.steadyChartSupply(Object.assign({ supplyUi: 959_734_990 }, pump), 1_000_000_000), 959_734_990,
+    'and once the supply was read from the mint account, that reading wins');
   assert.equal(Q.steadyChartSupply({ mint: 'x', supplyUi: 250_000_000 }, 262_000_000), 250_000_000,
     'a supply measured from the mint account is known too');
 });
@@ -134,4 +139,19 @@ test('a learned supply far from the known one is a real chart convention and is 
 test('nothing learned means nothing to steady: the legacy path decides', () => {
   assert.equal(Q.steadyChartSupply({ mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump' }, null), null);
   assert.equal(Q.steadyChartSupply(null, 0), null);
+});
+
+test('calibration pairs a cap only with a direct price from the same moment, and medians over many samples', () => {
+  // A trending coin: the direct price is 2 s older than the cap tick and 6%
+  // lower. That pair says "supply 1.06B" on a 1e9 coin; it is not evidence.
+  const anchor = { mint: 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump', priceUsd: 0.00004, mcap: 40_000 };
+  let state = Q.calibrateChartSupply(null, 42_400, { priceUsd: 0.00004, at: NOW - 2000 }, anchor, NOW);
+  assert.equal(state.supply, null, 'a 2 s-old price is not paired');
+  // Same-moment pairs with a few outliers: the median holds the true supply.
+  state = null;
+  for (let i = 0; i < 15; i++) {
+    const cap = i % 5 === 0 ? 43_600 : 40_000; // 3 of 15 samples 9% high
+    state = Q.calibrateChartSupply(state, cap, { priceUsd: 0.00004, at: NOW - 100 }, anchor, NOW);
+  }
+  assert.ok(Math.abs(state.supply - 1e9) / 1e9 < 1e-9, `median of 15 ignores the outliers (got ${state.supply})`);
 });
