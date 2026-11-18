@@ -1168,6 +1168,7 @@
         mint: rec.mint, pairAddress: pair, symbol: rec.symbol, name: rec.name,
         candidates: [{ value: mcapUsd / rec.supply, unit: 'usd', key: 'axiomPulseRow' }],
         mcap: mcapUsd, at, source: 'axiom-pulse-worker',
+        ...(rec.unverified ? { unverified: true } : {}),
       });
       if (pendingRowTicks.size > 400) pendingRowTicks.delete(pendingRowTicks.keys().next().value);
       if (!rowTickTimer) rowTickTimer = setTimeout(flushRowTicks, 200);
@@ -1178,9 +1179,14 @@
     // emitted; everything else stays on the resolver path.
     const absorbPulseRow = (row, at, chain) => {
       if (!row || typeof row.pairAddress !== 'string' || typeof row.tokenAddress !== 'string') return;
-      if (chain !== 'sol' || row.quoteToken !== 'sol') { pulsePairs.delete(row.pairAddress); return; }
+      if (chain !== 'sol') { pulsePairs.delete(row.pairAddress); return; }
       const prev = pulsePairs.get(row.pairAddress) || {};
       const rec = {
+        // Live 2026-11-18: a Solana row quoted in something other than SOL
+        // carries the same fields, right for some coins (GARY, $43.4K) and
+        // far off for others (a USDC row at $42). Flagged, so the content
+        // script only uses it when the tapped row itself confirms it.
+        unverified: row.quoteToken !== 'sol',
         mint: row.tokenAddress,
         supply: numberValue(row.supply) || prev.supply || null,
         mcapQuote: numberValue(row.marketCap) || prev.mcapQuote || null,

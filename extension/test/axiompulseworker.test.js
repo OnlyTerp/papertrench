@@ -75,16 +75,33 @@ test('a Pulse marketCap patch becomes a mint-keyed USD row tick', () => {
   assert.ok(t.at > 0);
 });
 
-test('non-SOL quotes and EVM rows are not emitted (live: they did not match the row)', () => {
+test('EVM rows are not emitted; a non-SOL-quoted Solana row is emitted only as UNVERIFIED', () => {
+  // Live 2026-11-18: Solana rows quoted in something other than SOL carry
+  // the same cap x quote-rate fields. Some are right (GARY: 197.7 x $219.6 =
+  // $43.4K, the real cap) and some are not (a USDC row at $42). They may
+  // only ever price a fill the tapped row itself confirms, so they are
+  // flagged for the content script.
   const env = boot('axiom.trade');
   const w = pulseWorker(env);
   const other = JSON.parse(JSON.stringify(replace));
-  Object.assign(other.items[0].row, { quoteToken: 'other', marketCap: 90.85, quoteTokenPriceUsd: 0.002855 });
+  Object.assign(other.items[0].row, { quoteToken: 'stock', marketCap: 197.747, quoteTokenPriceUsd: 219.588 });
   const evm = JSON.parse(JSON.stringify(replace));
   evm.items[0].chain = 'bnb';
+  evm.items[0].row.pairAddress = '0x2b60000000000000000000000000000000000000';
   for (const fn of w.listeners) fn(batch([other, evm]));
   env.flush();
-  assert.equal(rowTicks(env).length, 0);
+  const ticks = rowTicks(env);
+  assert.equal(ticks.length, 1, 'only the Solana row');
+  assert.equal(ticks[0].unverified, true, 'and it is flagged');
+  assert.ok(Math.abs(ticks[0].mcap - 197.747 * 219.588) < 1e-6);
+});
+
+test('a SOL-quoted row tick is never flagged unverified', () => {
+  const env = boot('axiom.trade');
+  const w = pulseWorker(env);
+  for (const fn of w.listeners) fn(batch([replace]));
+  env.flush();
+  assert.ok(!rowTicks(env)[0].unverified);
 });
 
 test("a patch quote rate far from the row's SOL rate is ignored (live: Pump AMM pair priced at $0)", () => {

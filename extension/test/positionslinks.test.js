@@ -88,8 +88,10 @@ test('engine: a healed pairAddress flows into a chip link via tokenUrlFor (Axiom
   // 2026-09-04 multichain: tokenUrl() now carries the explicit ?chain= slug
   // (no ?chain= still means Solana, but emitting it makes the chain visible
   // in the URL — matching detect()'s own grammar).
-  assert.equal(url, 'https://axiom.trade/meme/' + PAIR + '?chain=sol',
-    'a healed pair must route to the pool page (/meme/), not the unindexed mint route (/t/)');
+  // Axiom Unified (Nov 2026): /meme/<pair> only redirects to /token/<MINT>,
+  // which opens every coin, indexed or not. The link goes there directly.
+  assert.equal(url, 'https://axiom.trade/token/' + MINT + '?chain=sol',
+    'a held coin opens on the Unified token route, whether or not its pair is known');
 });
 
 test('engine: the null-pair fallback still degrades to the mint route (no regression when never healed)', () => {
@@ -98,7 +100,7 @@ test('engine: the null-pair fallback still degrades to the mint route (no regres
   const pos = s.positions[MINT];
   const S = loadSites();
   const url = S.tokenUrlFor(MINT, { siteId: pos.site, pairAddress: pos.pairAddress || null });
-  assert.equal(url, 'https://axiom.trade/t/' + MINT + '?chain=sol',
+  assert.equal(url, 'https://axiom.trade/token/' + MINT + '?chain=sol',
     'with no pool ever seen the mint route remains the fallback (explicit sol slug, 2026-09-04)');
 });
 

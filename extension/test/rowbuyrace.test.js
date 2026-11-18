@@ -1746,3 +1746,30 @@ test('a feed print without a pair or from another source still asks the chain (c
   await waitFor(() => race.isBIdentityRequested());
   assert.equal(race.isBIdentityRequested(), true);
 });
+
+test('an unverified board print prices a chip buy only when the tapped row confirms it', async () => {
+  // Axiom's feed for non-SOL-quoted rows is right for some coins and far off
+  // for others. With the tapped row's own cap within 15%, it is the row's
+  // price; without that confirmation it is never used.
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowTapMcap(B, 105_000);
+  harness.noteRowPrice({ mint: B, unverified: true, candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000 });
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  assert.equal(harness.getState().journal[0].priceSource, 'row-feed');
+  assert.equal(Math.round(Number(harness.getState().journal[0].mcap)), 105_000);
+});
+
+test('an unverified board print with no tap on record never prices a fill (control)', async () => {
+  const race = bootRace();
+  const { harness } = race;
+  race.releaseB();
+  harness.noteRowPrice({ mint: B, unverified: true, candidates: [{ unit: 'usd', value: 105 }], mcap: 105_000 });
+  await harness.doRowBuy(B);
+  await waitFor(() => harness.getState().journal.length === 1);
+  const fill = harness.getState().journal[0];
+  assert.notEqual(fill.priceSource, 'row-feed', 'priced by the resolver, not the unconfirmed print');
+  assert.equal(Math.round(Number(fill.mcap)), 100_000);
+});

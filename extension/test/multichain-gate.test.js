@@ -110,7 +110,13 @@ test('MULTI-5: a foreign position chip returns to ITS chain on every wired venue
   const rh = 'https://gmgn.ai/robinhood/token/' + EVM;
   assert.equal(S.tokenUrlFor(EVM, { siteId: 'gmgn', chain: 'robinhood' }), rh, 'gmgn RH');
   assert.equal(S.tokenUrlFor(EVM, { siteId: 'axiom', chain: 'robinhood' }),
-    `https://axiom.trade/t/${EVM}?chain=robinhood`, 'axiom RH');
+    `https://axiom.trade/token/${EVM}?chain=robinhood`, 'axiom RH');
+  const SOLM = 'EXnbUHrDf3C9xUc4reCDRCgqk3txn9ttV6PhGQzhpump';
+  const SOLP = '6agnrMqZ2pRZE5sKTusxTiZtat5PUi1iQHsCqFZ3mChP';
+  assert.equal(S.tokenUrlFor(SOLM, { siteId: 'axiom', pairAddress: SOLP }),
+    `https://axiom.trade/token/${SOLM}?chain=sol`, 'axiom opens a coin by its mint on the Unified route, pair known or not');
+  assert.equal(S.tokenUrlFor(SOLP, { siteId: 'axiom', pairAddress: SOLP }),
+    `https://axiom.trade/meme/${SOLP}?chain=sol`, 'a stand-in key can only be opened by pair');
   assert.equal(S.tokenUrlFor('0x32708538a107253b51a735a724330a23106ca4ca', { siteId: 'padre', chain: 'ethereum' }),
     'https://trade.padre.gg/trade/ethereum/0x32708538a107253b51a735a724330a23106ca4ca', 'padre ETH');
   // Legacy positions (no chain recorded) stay exactly where they always went.

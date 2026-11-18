@@ -188,9 +188,14 @@
       // (AXIOM_SLUG_BY_CHAIN), no ?chain= meaning Solana, matching detect().
       tokenUrl: (mint, pairAddress, chain) => {
         const slug = AXIOM_SLUG_BY_CHAIN[chain || 'solana'] || 'sol';
-        return pairAddress
-          ? 'https://axiom.trade/meme/' + pairAddress + '?chain=' + slug
-          : 'https://axiom.trade/t/' + mint + '?chain=' + slug;
+        // Axiom Unified (Nov 2026) serves every coin at /token/<MINT>; the old
+        // /meme/<pair> and /t/<mint> routes only redirect there, and a
+        // redirected load is one more page load for the bot check to see.
+        // A stand-in key (the "mint" IS the pair) can only be opened by pair.
+        if (pairAddress && (!mint || mint === pairAddress)) {
+          return 'https://axiom.trade/meme/' + pairAddress + '?chain=' + slug;
+        }
+        return 'https://axiom.trade/token/' + mint + '?chain=' + slug;
       },
       match: (h) => /(^|\.)axiom\.trade$/.test(h),
       // axiom.trade/meme/<address>?chain=<slug> (a pair page) and
@@ -229,6 +234,10 @@
       // point for the chip (inserted just left of it).
       rowBuy: {
         listPaths: /^\/(pulse|discover)?\/?$/,
+        // Live 2026-11-18: Unified Pulse has only a handful of /token/ links
+        // and they are not one-per-row; rows are found through their React
+        // props (see the bridge's row scan). /token/ is deliberately NOT a
+        // selector here: it would also match links in page chrome.
         linkSelectors: ['a[href^="/meme/"]', 'a[href*="pump.fun/coin/"]', 'a[href*="solscan.io/token/"]'],
         placement: 'before-buy-button',
         // The instant-buy pill reads "0 SOL" / "0.5 ETH" (older UI: "Buy x SOL").

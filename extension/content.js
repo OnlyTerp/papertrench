@@ -4154,7 +4154,7 @@
       || (token && token.srcAddress && recentRowPrices.get(token.srcAddress))
       || (token && token.pairAddress && recentRowPrices.get(token.pairAddress))
       || null;
-    if (row && row.usd > 0 && Date.now() - row.at < ROW_PRICE_TTL_MS) {
+    if (row && !row.unverified && row.usd > 0 && Date.now() - row.at < ROW_PRICE_TTL_MS) {
       const rate = await R.solUsd().catch(() => 0);
       if (rate > 0) {
         data = {
@@ -7884,6 +7884,10 @@
    * instead of booking it. No tap on record, or no feed cap: no veto. */
   function rowFeedAgreesWithTap(address, live) {
     const tap = address ? rowTapMcaps.get(address) : null;
+    // An unverified print needs the tap's confirmation; without a fresh tap
+    // and a cap to compare, it is not a price.
+    if (live && live.unverified
+      && (!tap || !(Number(live.mcap) > 0) || Date.now() - tap.at >= ROW_TAP_MCAP_TTL_MS)) return false;
     if (!tap || !live || !(Number(live.mcap) > 0)) return true;
     if (Date.now() - tap.at >= ROW_TAP_MCAP_TTL_MS) return true;
     const cap = Number(live.mcap);
@@ -8052,6 +8056,9 @@
       symbol: typeof payload.symbol === 'string' ? payload.symbol : null,
       name: typeof payload.name === 'string' ? payload.name : null,
       mcap: Number(payload.mcap) > 0 ? Number(payload.mcap) : null,
+      // A print the bridge could not vouch for: usable only when the row the
+      // trader tapped confirms it (rowFeedAgreesWithTap).
+      unverified: payload.unverified === true,
     });
     if (recentRowPrices.size > 300) recentRowPrices.delete(recentRowPrices.keys().next().value);
     if (payload.source === 'axiom-pulse-worker' && typeof payload.pairAddress === 'string'
@@ -8368,7 +8375,7 @@
             const live = (data.mint && recentRowPrices.get(data.mint))
               || (data.pairAddress && recentRowPrices.get(data.pairAddress))
               || (address && recentRowPrices.get(address));
-            if (live && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceNative) > 0) {
+            if (live && !live.unverified && Date.now() - live.at < ROW_PRICE_TTL_MS && Number(data.priceNative) > 0) {
               const rate = data.priceUsd / data.priceNative;
               witnessNative = live.usd / rate;
             }
