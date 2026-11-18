@@ -1497,6 +1497,9 @@
       setToken({
         mint: candidate.address, srcAddress: candidate.address, symbol: null, name: null,
         priceNative: null, priceUsd: null, pending: true,
+        // What the URL address IS (pair or mint): a fill committed while this
+        // record is still keyed by a PAIR is a stand-in bag (see doBuy).
+        srcKind: candidate.kind || null,
         // P0-3: the pending record must carry the page's chain. Without it
         // every `token.chain || 'solana'` consumer — the click-path resolve,
         // the fill record, the panel denomination — saw Solana for the whole
@@ -1797,7 +1800,11 @@
     token.hostSupplyFillWitness = null;
   }
 
-  const attemptedStandInProbes = new Set();
+  // key -> { n, nextAt }. An answered probe ends it; an unanswered one (the
+  // keyless pool is throttled often) is asked again 15 s, 60 s and 4 min
+  // later, then never again this page session.
+  const attemptedStandInProbes = new Map();
+  const STAND_IN_PROBE_RETRY_MS = [15_000, 60_000, 240_000];
 
   async function probeStandInPosition(standIn) {
     // Solana identify classifies Solana accounts; an EVM stand-in key heals
@@ -1805,7 +1812,7 @@
     if (!standIn || EVM_ADDR_RE.test(standIn)) return;
     try {
       const found = await R.onchainIdentify({ pool: standIn, mint: standIn });
-      if (!found || !found.mint) return;
+      if (!found || !found.mint) return false;
       if (found.mint === standIn) {
         await withState(async () => {
           const current = state.positions && state.positions[standIn];
@@ -1817,19 +1824,27 @@
           mutate();
           await persistStateNow(mutate);
         }).catch(() => {});
-        return;
+        return true;
       }
       rekeyLiveState(standIn, found.mint);
-    } catch (_) {}
+      return true;
+    } catch (_) { return false; }
   }
 
   function healStandInPositionsByChain(tokenRecord) {
     if (!tokenRecord || !tokenRecord.mint || !state.positions) return;
     for (const [key, position] of Object.entries(state.positions)) {
       if (key === tokenRecord.mint || !position || !(Number(position.qty) > 0)
-        || !position.standInKey || attemptedStandInProbes.has(key)) continue;
-      attemptedStandInProbes.add(key);
-      void probeStandInPosition(key);
+        || !position.standInKey) continue;
+      const tried = attemptedStandInProbes.get(key) || { n: 0, nextAt: 0 };
+      if (tried.n > STAND_IN_PROBE_RETRY_MS.length || Date.now() < tried.nextAt) continue;
+      tried.nextAt = tried.n < STAND_IN_PROBE_RETRY_MS.length
+        ? Date.now() + STAND_IN_PROBE_RETRY_MS[tried.n] : Infinity;
+      tried.n += 1;
+      attemptedStandInProbes.set(key, tried);
+      probeStandInPosition(key).then((answered) => {
+        if (answered) tried.nextAt = Infinity; // proven either way: done
+      });
     }
   }
 
@@ -4428,6 +4443,14 @@
             quotedUsd: quotedUsd || undefined,
           });
           filled.opened = !hadPosition;
+          // B5: a panel buy made while the page is still keyed by its PAIR
+          // address is a stand-in bag exactly like a list buy's. Untagged, the
+          // chain heal never looked at it, and it stayed lost once the page
+          // closed before the mint was discovered.
+          if (token && token.pending && token.srcKind === 'pair'
+            && sameMint(token.mint, token.srcAddress) && filled.position) {
+            filled.position.standInKey = true;
+          }
           // F-41: claim the fill in the replay ledger BEFORE anything can
           // observe it. E.buy has already put the trade in state.journal, and
           // the commit below fires the storage listener synchronously — so an

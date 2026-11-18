@@ -562,3 +562,33 @@ test('a requote with no poolAddresses still heals a flagged stand-in', async () 
   assert.equal(positions[REAL_MINT].qty, expectedRow.qty);
   assert.equal(positions[REAL_MINT].standInKey, undefined);
 });
+
+test('B5: a chain probe that got no answer is asked again later, a bounded number of times', async () => {
+  // The keyless RPC pool is throttled often; a null answer latched the key
+  // for the whole page session, so a rate-limited read left the bag
+  // stranded until reload ("sometimes it says i did not buy").
+  const world = { chart: false, identifyCalls: 0 };
+  const view = runHarness({
+    stage: (address) => world.chart && address === REAL_MINT
+      ? { payload: pairPayload(REAL_MINT, REAL_MINT) } : 'blind',
+    prewatch: () => null,
+    identify: (pool) => {
+      if (pool !== STAND_IN) return null;
+      world.identifyCalls += 1;
+      return world.identifyCalls >= 3 ? { mint: REAL_MINT, pool: STAND_IN } : null;
+    },
+  });
+  await view.advance(3000);
+  view.rowTick(STAND_IN, 0.0004);
+  await view.settle();
+  view.tapChip(STAND_IN);
+  await view.settle();
+  assert.ok(view.storage().pt_state.positions[STAND_IN], 'the bag sits under the stand-in');
+
+  world.chart = true;
+  view.navigate(`https://axiom.trade/meme/${REAL_MINT}`);
+  await view.advance(120_000, 500);
+  const positions = view.storage().pt_state.positions;
+  assert.ok(!positions[STAND_IN] && positions[REAL_MINT], 'a later answer heals the bag');
+  assert.ok(world.identifyCalls <= 4, `bounded: ${world.identifyCalls} probes`);
+});
