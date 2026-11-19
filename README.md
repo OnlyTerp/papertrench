@@ -26,7 +26,7 @@ Real prices. Fake money. A record you can actually learn from.
 
 ## What it is
 
-PaperTrench is a Chrome extension that overlays a paper-trading terminal on 15 supported sites: **Axiom, Padre, Photon (TinyAstro), GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Hyperliquid, Lute, Kalshi, Polymarket, and Limitless**. You trade the real chart, at the real live price, with money that isn't real — then review exactly what you did and why.
+PaperTrench is a Chrome extension that overlays a paper-trading terminal on 16 supported sites: **Axiom, Padre, Photon (TinyAstro), GMGN, BullX, Dexscreener, Birdeye, Jupiter, Pump.fun, Fomo, Hyperliquid, Lute, DeBot, Kalshi, Polymarket, and Limitless**. You trade the real chart, at the real live price, with money that isn't real — then review exactly what you did and why.
 
 Trading is verified on **Solana, Robinhood Chain, BNB Chain (BSC), Ethereum and Base** — the chains where every fill gets an independent second price check. Dexscreener and Birdeye pages on other chains may show the panel and a price, but fills there are not verified yet.
 

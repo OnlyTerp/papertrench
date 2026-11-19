@@ -1276,6 +1276,7 @@ const WARM_PLATFORM_URLS = [
   'https://*.jup.ag/*', 'https://pump.fun/*', 'https://*.pump.fun/*',
   'https://fomo.family/*', 'https://*.fomo.family/*',
   'https://lute.gg/*',
+  'https://debot.ai/*',
 ];
 
 // One in-flight SPA request per viewer tab; a newer click supersedes the
@@ -1933,6 +1934,12 @@ const WARM_DEST_FAMILIES = {
     idleUrl: null,
     hostRe: /(^|\.)lute\.gg$/,
     label: 'Lute',
+  },
+  debot: {
+    storageKey: 'pt_warm_tab_debot',
+    idleUrl: null,
+    hostRe: /(^|\.)debot\.ai$/,
+    label: 'DeBot',
   },
 };
 

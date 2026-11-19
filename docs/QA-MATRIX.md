@@ -116,8 +116,8 @@ check it off.
 **Setup:** load the built zip unpacked (`chrome://extensions` → Load unpacked),
 fresh profile preferred. Have one coin with an open paper position before starting.
 
-| Check | Axiom | Padre | Photon | GMGN | BullX | DexScr | Birdeye | Jupiter | Pump.fun | Lute |
-|---|---|---|---|---|---|---|---|---|---|---|
+| Check | Axiom | Padre | Photon | GMGN | BullX | DexScr | Birdeye | Jupiter | Pump.fun | Lute | DeBot |
+|---|---|---|---|---|---|---|---|---|---|---|---|
 | Panel mounts on a token page | | | | | | | | | |
 | Panel does NOT mount on home/screener | | | | | | | | | |
 | Panel does NOT mount on wallet/portfolio routes | | | | | | | | | |
